@@ -614,8 +614,10 @@ pub(crate) async fn fpp_sequence_names(state: State<'_, AppState>, address: Stri
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testing::{app, authored, call, call_at, heard, steps_of};
     use pf_devices::HttpClient;
     use pf_devices::testing::{FakeFpp, StoredFile};
+    use serde_json::{Value, json};
     use std::time::Duration;
 
     fn client() -> HttpClient {
@@ -1228,5 +1230,138 @@ mod tests {
         assert!(err.contains("can't find the music Song.mp3"), "{err}");
         let full = resolve_music(&file, Some(PathArg("/m/Song.mp3".into())), || None).unwrap();
         assert_eq!(full.unwrap().0, PathBuf::from("/m/Song.mp3"));
+    }
+
+    /// What the Send dialog asks for: the open sequence as `name`.fseq with `music`, on a new
+    /// playlist of that name.
+    fn send_open(fpp: &FakeFpp, music: &Path, name: &str) -> Value {
+        json!({ "address": fpp.address(), "request": {
+            "source": { "kind": "openSequence", "name": name }, "music": music,
+            "sequenceName": format!("{name}.fseq"), "musicName": "Song.mp3", "uploadMusic": true,
+            "playlist": { "kind": "new", "name": name }, "sendId": 7 } })
+    }
+
+    /// The folders of exports made for sending that still hold `name`.
+    fn exports_left(name: &str) -> usize {
+        let ours = format!("pixelflow-send-{}-", std::process::id());
+        std::fs::read_dir(std::env::temp_dir())
+            .unwrap()
+            .flatten()
+            .filter(|e| e.file_name().to_string_lossy().starts_with(&ours))
+            .filter(|e| e.path().join(name).exists())
+            .count()
+    }
+
+    #[test]
+    fn the_send_command_reports_every_step_under_the_dialogs_id() {
+        let fpp = FakeFpp::start();
+        let (app, webview, dir) = app();
+        authored(&webview);
+        let music = dir.path().join("Song.mp3");
+        std::fs::write(&music, b"not really music").unwrap();
+        let events = heard(&app, "fpp-send-progress");
+        call(&webview, "fpp_send", send_open(&fpp, &music, "Carol")).unwrap();
+        let sent = events.lock().unwrap().clone();
+        let keys = |event: &Value| -> Vec<String> { event.as_object().unwrap().keys().cloned().collect() };
+        assert!(
+            sent.iter()
+                .all(|e| keys(e) == ["done", "percent", "sendId", "step", "total"] && e["sendId"] == 7),
+            "{sent:?}"
+        );
+        let steps = steps_of(&sent);
+        let names: Vec<&str> = steps.iter().map(|(name, _)| name.as_str()).collect();
+        assert_eq!(names, ["export", "sequence", "music", "commit", "playlist"]);
+        assert!(
+            steps
+                .iter()
+                .filter(|(name, _)| name != "commit")
+                .all(|(_, percents)| percents.last() == Some(&100)),
+            "{steps:?}"
+        );
+        // Each file's last report is all of it.
+        let last_of = |step: &str| sent.iter().rev().find(|e| e["step"] == step).unwrap().clone();
+        let size = fpp.state().sequences["Carol.fseq"].size;
+        assert_eq!(
+            last_of("export"),
+            json!({ "sendId": 7, "step": "export", "percent": 100, "done": 80, "total": 80 })
+        );
+        assert_eq!(
+            last_of("sequence"),
+            json!({ "sendId": 7, "step": "sequence", "percent": 100, "done": size, "total": size })
+        );
+        assert_eq!(
+            last_of("music"),
+            json!({ "sendId": 7, "step": "music", "percent": 100, "done": 16, "total": 16 })
+        );
+        assert_eq!(
+            sent.last().unwrap(),
+            &json!({ "sendId": 7, "step": "playlist", "percent": 100, "done": 1, "total": 1 })
+        );
+    }
+
+    #[test]
+    fn a_send_stopped_by_its_command_leaves_the_fpp_as_it_was_and_the_next_one_goes() {
+        let fpp = FakeFpp::start();
+        let (app, webview, dir) = app();
+        authored(&webview);
+        let music = dir.path().join("Song.mp3");
+        std::fs::write(&music, b"not really music").unwrap();
+        let events = heard(&app, "fpp-send-progress");
+        let send = || call(&webview, "fpp_send", send_open(&fpp, &music, "Stopped"));
+        let cancelled = "The upload was cancelled. Nothing on the FPP was changed.";
+
+        // Nothing is being sent: a cancel does nothing, now or to the send after it.
+        call(&webview, "cancel_fpp_send", json!({})).unwrap();
+
+        // Cancelled while the sequence is still being exported: nothing reaches the FPP.
+        call_at(
+            &app,
+            &webview,
+            "fpp-send-progress",
+            |progress| progress["step"] == "export",
+            "cancel_fpp_send",
+        );
+        assert_eq!(send().unwrap_err(), cancelled);
+        assert_eq!(steps_of(&std::mem::take(&mut *events.lock().unwrap())).len(), 1);
+        assert_eq!(fpp.state().requests, Vec::<String>::new());
+        assert_eq!(exports_left("Stopped.fseq"), 0);
+
+        // Cancelled as the music is about to go up, the sequence already in the FPP's upload
+        // folder: that's taken out again, and nothing is moved into place.
+        call_at(
+            &app,
+            &webview,
+            "fpp-send-progress",
+            |progress| progress["step"] == "music",
+            "cancel_fpp_send",
+        );
+        assert_eq!(send().unwrap_err(), cancelled);
+        let steps = steps_of(&std::mem::take(&mut *events.lock().unwrap()));
+        let names: Vec<&str> = steps.iter().map(|(name, _)| name.as_str()).collect();
+        assert_eq!(names, ["export", "sequence", "music"]);
+        {
+            let state = fpp.state();
+            assert_eq!(
+                state.upload_bytes("Stopped.fseq") + state.upload_bytes("Song.mp3"),
+                0,
+                "{:?}",
+                state.uploads
+            );
+            assert!(state.sequences.is_empty() && state.music.is_empty() && state.playlists.is_empty());
+        }
+        assert_eq!(exports_left("Stopped.fseq"), 0);
+
+        // Both cancels are spent: the next send goes all the way. It goes to another FPP, where
+        // nothing of the stopped upload can still be arriving.
+        let other = FakeFpp::start();
+        let result = call(&webview, "fpp_send", send_open(&other, &music, "Stopped")).unwrap();
+        assert_eq!(result["playlist"], "Stopped");
+        let state = other.state();
+        assert!(state.sequences.contains_key("Stopped.fseq") && state.music.contains_key("Song.mp3"));
+        assert_eq!(
+            state.playlists["Stopped"]["mainPlaylist"][0]["sequenceName"],
+            "Stopped.fseq"
+        );
+        assert_eq!(exports_left("Stopped.fseq"), 0);
     }
 }

@@ -1,0 +1,1798 @@
+[
+  { "name": "no sequence is open", "ts": "sequence.SequenceSnapshot | null", "value": null },
+  {
+    "name": "a new sequence with rows for a prop, a group, and a submodel",
+    "ts": "sequence.SequenceSnapshot",
+    "value": {
+      "canRedo": false,
+      "canUndo": false,
+      "dirty": false,
+      "issues": [],
+      "path": null,
+      "revision": 1,
+      "sequence": {
+        "audio": "/fixture/Song.wav",
+        "durationMs": 40000,
+        "frameMs": 25,
+        "name": "Song",
+        "rows": [
+          {
+            "id": "44444444-0000-4000-8000-000000000001",
+            "layers": [{ "effects": [] }],
+            "target": { "prop": "11111111-0000-4000-8000-000000000001" }
+          },
+          {
+            "id": "44444444-0000-4000-8000-000000000002",
+            "layers": [{ "effects": [] }],
+            "target": { "group": "22222222-0000-4000-8000-000000000001" }
+          },
+          {
+            "id": "44444444-0000-4000-8000-000000000003",
+            "layers": [{ "effects": [] }],
+            "target": {
+              "region": {
+                "prop": "11111111-0000-4000-8000-000000000002",
+                "region": "88888888-0000-4000-8000-000000000001"
+              }
+            }
+          }
+        ],
+        "schemaVersion": 10,
+        "timingTracks": []
+      }
+    }
+  },
+  {
+    "name": "an effect of every kind added, with the settings the engine gives each",
+    "ts": "sequence.SequenceEditResult",
+    "value": {
+      "canRedo": false,
+      "canUndo": true,
+      "changed": true,
+      "changes": {
+        "effects": [
+          {
+            "effect": {
+              "blend": "normal",
+              "blur": 0,
+              "endMs": 1000,
+              "fadeInMs": 0,
+              "fadeOutMs": 0,
+              "id": "55555555-0000-4000-8000-000000000001",
+              "palette": { "colors": ["#ff0000", "#00ff00"] },
+              "params": {
+                "endLevel": 1.0,
+                "gradient": "none",
+                "kind": "on",
+                "shimmer": false,
+                "solid": false,
+                "startLevel": 1.0,
+                "transparency": 0.0
+              },
+              "sparkleColor": "#ffffff",
+              "sparkles": 0,
+              "startMs": 0
+            },
+            "index": 0,
+            "layer": 0,
+            "row": "44444444-0000-4000-8000-000000000001"
+          },
+          {
+            "effect": {
+              "blend": "normal",
+              "blur": 0,
+              "endMs": 2000,
+              "fadeInMs": 0,
+              "fadeOutMs": 0,
+              "id": "55555555-0000-4000-8000-000000000002",
+              "palette": { "colors": ["#ff0000", "#00ff00"] },
+              "params": { "kind": "off" },
+              "sparkleColor": "#ffffff",
+              "sparkles": 0,
+              "startMs": 1000
+            },
+            "index": 1,
+            "layer": 0,
+            "row": "44444444-0000-4000-8000-000000000001"
+          },
+          {
+            "effect": {
+              "blend": "normal",
+              "blur": 0,
+              "endMs": 3000,
+              "fadeInMs": 0,
+              "fadeOutMs": 0,
+              "id": "55555555-0000-4000-8000-000000000003",
+              "palette": { "colors": ["#ff0000", "#00ff00"] },
+              "params": { "cycles": 1.0, "gradient": "none", "kind": "colorWash" },
+              "sparkleColor": "#ffffff",
+              "sparkles": 0,
+              "startMs": 2000
+            },
+            "index": 2,
+            "layer": 0,
+            "row": "44444444-0000-4000-8000-000000000001"
+          },
+          {
+            "effect": {
+              "blend": "normal",
+              "blur": 0,
+              "endMs": 4000,
+              "fadeInMs": 0,
+              "fadeOutMs": 0,
+              "id": "55555555-0000-4000-8000-000000000004",
+              "palette": { "colors": ["#ff0000", "#00ff00"] },
+              "params": { "direction": "in", "kind": "fade" },
+              "sparkleColor": "#ffffff",
+              "sparkles": 0,
+              "startMs": 3000
+            },
+            "index": 3,
+            "layer": 0,
+            "row": "44444444-0000-4000-8000-000000000001"
+          },
+          {
+            "effect": {
+              "blend": "normal",
+              "blur": 0,
+              "endMs": 5000,
+              "fadeInMs": 0,
+              "fadeOutMs": 0,
+              "id": "55555555-0000-4000-8000-000000000005",
+              "palette": { "colors": ["#ff0000", "#00ff00"] },
+              "params": {
+                "bands": 1,
+                "bounce": false,
+                "direction": "forward",
+                "kind": "chase",
+                "order": "wiring",
+                "speed": 1.0,
+                "timingTrack": null,
+                "width": 0.2
+              },
+              "sparkleColor": "#ffffff",
+              "sparkles": 0,
+              "startMs": 4000
+            },
+            "index": 4,
+            "layer": 0,
+            "row": "44444444-0000-4000-8000-000000000001"
+          },
+          {
+            "effect": {
+              "blend": "normal",
+              "blur": 0,
+              "endMs": 6000,
+              "fadeInMs": 0,
+              "fadeOutMs": 0,
+              "id": "55555555-0000-4000-8000-000000000006",
+              "palette": { "colors": ["#ff0000", "#00ff00"] },
+              "params": {
+                "axis": "vertical",
+                "center": 0.0,
+                "count": 4,
+                "direction": "forward",
+                "fill": 0.5,
+                "gradient": false,
+                "highlight": false,
+                "kind": "bars",
+                "motion": "slide",
+                "shaded": false,
+                "speed": 0.5
+              },
+              "sparkleColor": "#ffffff",
+              "sparkles": 0,
+              "startMs": 5000
+            },
+            "index": 5,
+            "layer": 0,
+            "row": "44444444-0000-4000-8000-000000000001"
+          },
+          {
+            "effect": {
+              "blend": "normal",
+              "blur": 0,
+              "endMs": 7000,
+              "fadeInMs": 0,
+              "fadeOutMs": 0,
+              "id": "55555555-0000-4000-8000-000000000007",
+              "palette": { "colors": ["#ff0000", "#00ff00"] },
+              "params": {
+                "cycles": 1.0,
+                "direction": "forward",
+                "height": 0.8,
+                "kind": "wave",
+                "speed": 1.0,
+                "thickness": 0.2
+              },
+              "sparkleColor": "#ffffff",
+              "sparkles": 0,
+              "startMs": 6000
+            },
+            "index": 6,
+            "layer": 0,
+            "row": "44444444-0000-4000-8000-000000000001"
+          },
+          {
+            "effect": {
+              "blend": "normal",
+              "blur": 0,
+              "endMs": 8000,
+              "fadeInMs": 0,
+              "fadeOutMs": 0,
+              "id": "55555555-0000-4000-8000-000000000008",
+              "palette": { "colors": ["#ff0000", "#00ff00"] },
+              "params": { "density": 0.3, "kind": "twinkle", "rate": 1.0 },
+              "sparkleColor": "#ffffff",
+              "sparkles": 0,
+              "startMs": 7000
+            },
+            "index": 7,
+            "layer": 0,
+            "row": "44444444-0000-4000-8000-000000000001"
+          },
+          {
+            "effect": {
+              "blend": "normal",
+              "blur": 0,
+              "endMs": 9000,
+              "fadeInMs": 0,
+              "fadeOutMs": 0,
+              "id": "55555555-0000-4000-8000-000000000009",
+              "palette": { "colors": ["#ff0000", "#00ff00"] },
+              "params": { "duty": 0.5, "kind": "shimmer", "rate": 10.0 },
+              "sparkleColor": "#ffffff",
+              "sparkles": 0,
+              "startMs": 8000
+            },
+            "index": 8,
+            "layer": 0,
+            "row": "44444444-0000-4000-8000-000000000001"
+          },
+          {
+            "effect": {
+              "blend": "normal",
+              "blur": 0,
+              "endMs": 10000,
+              "fadeInMs": 0,
+              "fadeOutMs": 0,
+              "id": "55555555-0000-4000-8000-000000000010",
+              "palette": { "colors": ["#ff0000", "#00ff00"] },
+              "params": { "density": 0.2, "kind": "strobe", "rate": 10.0 },
+              "sparkleColor": "#ffffff",
+              "sparkles": 0,
+              "startMs": 9000
+            },
+            "index": 9,
+            "layer": 0,
+            "row": "44444444-0000-4000-8000-000000000001"
+          },
+          {
+            "effect": {
+              "blend": "normal",
+              "blur": 0,
+              "endMs": 11000,
+              "fadeInMs": 0,
+              "fadeOutMs": 0,
+              "id": "55555555-0000-4000-8000-000000000011",
+              "palette": { "colors": ["#ff0000", "#00ff00"] },
+              "params": {
+                "count": 3,
+                "direction": "forward",
+                "gradient": false,
+                "grow": false,
+                "kind": "spiral",
+                "lean": 0.0,
+                "shaded": false,
+                "shrink": false,
+                "speed": 0.5,
+                "thickness": 0.5,
+                "twist": 1.0
+              },
+              "sparkleColor": "#ffffff",
+              "sparkles": 0,
+              "startMs": 10000
+            },
+            "index": 10,
+            "layer": 0,
+            "row": "44444444-0000-4000-8000-000000000001"
+          },
+          {
+            "effect": {
+              "blend": "normal",
+              "blur": 0,
+              "endMs": 12000,
+              "fadeInMs": 0,
+              "fadeOutMs": 0,
+              "id": "55555555-0000-4000-8000-000000000012",
+              "palette": { "colors": ["#ff0000", "#00ff00"] },
+              "params": { "height": 0.8, "kind": "fire", "sparks": 0.6 },
+              "sparkleColor": "#ffffff",
+              "sparkles": 0,
+              "startMs": 11000
+            },
+            "index": 11,
+            "layer": 0,
+            "row": "44444444-0000-4000-8000-000000000001"
+          },
+          {
+            "effect": {
+              "blend": "normal",
+              "blur": 0,
+              "endMs": 13000,
+              "fadeInMs": 0,
+              "fadeOutMs": 0,
+              "id": "55555555-0000-4000-8000-000000000013",
+              "palette": { "colors": ["#ff0000", "#00ff00"] },
+              "params": { "count": 5, "direction": "down", "kind": "meteors", "length": 0.25, "speed": 1.0 },
+              "sparkleColor": "#ffffff",
+              "sparkles": 0,
+              "startMs": 12000
+            },
+            "index": 12,
+            "layer": 0,
+            "row": "44444444-0000-4000-8000-000000000001"
+          },
+          {
+            "effect": {
+              "blend": "normal",
+              "blur": 0,
+              "endMs": 14000,
+              "fadeInMs": 0,
+              "fadeOutMs": 0,
+              "id": "55555555-0000-4000-8000-000000000014",
+              "palette": { "colors": ["#ff0000", "#00ff00"] },
+              "params": { "kind": "ripple", "spacing": 0.4, "speed": 0.5, "thickness": 0.12 },
+              "sparkleColor": "#ffffff",
+              "sparkles": 0,
+              "startMs": 13000
+            },
+            "index": 13,
+            "layer": 0,
+            "row": "44444444-0000-4000-8000-000000000001"
+          },
+          {
+            "effect": {
+              "blend": "normal",
+              "blur": 0,
+              "endMs": 15000,
+              "fadeInMs": 0,
+              "fadeOutMs": 0,
+              "id": "55555555-0000-4000-8000-000000000015",
+              "palette": { "colors": ["#ff0000", "#00ff00"] },
+              "params": {
+                "centerX": 50.0,
+                "centerY": 50.0,
+                "count": 5,
+                "direction": 90.0,
+                "fade": true,
+                "fireOnMusic": false,
+                "growth": 10.0,
+                "kind": "shape",
+                "lifetime": 5.0,
+                "points": 5,
+                "randomLocation": true,
+                "randomMovement": false,
+                "randomStart": true,
+                "rotation": 0.0,
+                "shape": "circle",
+                "speed": 0.0,
+                "startSize": 1.0,
+                "thickness": 1,
+                "timingTrack": null,
+                "triggerLevel": 50.0
+              },
+              "sparkleColor": "#ffffff",
+              "sparkles": 0,
+              "startMs": 14000
+            },
+            "index": 14,
+            "layer": 0,
+            "row": "44444444-0000-4000-8000-000000000001"
+          },
+          {
+            "effect": {
+              "blend": "normal",
+              "blur": 0,
+              "endMs": 16000,
+              "fadeInMs": 0,
+              "fadeOutMs": 0,
+              "id": "55555555-0000-4000-8000-000000000016",
+              "palette": { "colors": ["#ff0000", "#00ff00"] },
+              "params": {
+                "acceleration": 0.0,
+                "bladeAngle": 90.0,
+                "bladeWidth": 50.0,
+                "blades": 3,
+                "blendEdges": true,
+                "centerX": 50.0,
+                "centerY": 50.0,
+                "direction": "forward",
+                "duration": 80.0,
+                "elementWidth": 100.0,
+                "elements": 1,
+                "endRadius": 50.0,
+                "kind": "fan",
+                "revolutions": 2.0,
+                "scale": true,
+                "startAngle": 0.0,
+                "startRadius": 1.0
+              },
+              "sparkleColor": "#ffffff",
+              "sparkles": 0,
+              "startMs": 15000
+            },
+            "index": 15,
+            "layer": 0,
+            "row": "44444444-0000-4000-8000-000000000001"
+          },
+          {
+            "effect": {
+              "blend": "normal",
+              "blur": 0,
+              "endMs": 17000,
+              "fadeInMs": 0,
+              "fadeOutMs": 0,
+              "id": "55555555-0000-4000-8000-000000000017",
+              "palette": { "colors": ["#ff0000", "#00ff00"] },
+              "params": {
+                "acceleration": 0.0,
+                "autoRepeat": false,
+                "endLength": 1.0,
+                "endX1": 0.0,
+                "endX2": 100.0,
+                "endY1": 100.0,
+                "endY2": 100.0,
+                "headAtStart": false,
+                "headDuration": 20.0,
+                "kind": "morph",
+                "repeatSpacing": 1,
+                "repeats": 0,
+                "stagger": 0.0,
+                "startLength": 1.0,
+                "startX1": 0.0,
+                "startX2": 100.0,
+                "startY1": 0.0,
+                "startY2": 0.0
+              },
+              "sparkleColor": "#ffffff",
+              "sparkles": 0,
+              "startMs": 16000
+            },
+            "index": 16,
+            "layer": 0,
+            "row": "44444444-0000-4000-8000-000000000001"
+          },
+          {
+            "effect": {
+              "blend": "normal",
+              "blur": 0,
+              "endMs": 18000,
+              "fadeInMs": 0,
+              "fadeOutMs": 0,
+              "id": "55555555-0000-4000-8000-000000000018",
+              "palette": { "colors": ["#ff0000", "#00ff00"] },
+              "params": {
+                "bounce": false,
+                "centerX": 0.0,
+                "centerY": 0.0,
+                "count": 3,
+                "kind": "circles",
+                "look": "solid",
+                "size": 5,
+                "speed": 10.0
+              },
+              "sparkleColor": "#ffffff",
+              "sparkles": 0,
+              "startMs": 17000
+            },
+            "index": 17,
+            "layer": 0,
+            "row": "44444444-0000-4000-8000-000000000001"
+          },
+          {
+            "effect": {
+              "blend": "normal",
+              "blur": 0,
+              "endMs": 19000,
+              "fadeInMs": 0,
+              "fadeOutMs": 0,
+              "id": "55555555-0000-4000-8000-000000000019",
+              "palette": { "colors": ["#ff0000", "#00ff00"] },
+              "params": {
+                "armSize": 100.0,
+                "arms": 3,
+                "centerX": 0.0,
+                "centerY": 0.0,
+                "counterclockwise": true,
+                "kind": "pinwheel",
+                "offset": 0.0,
+                "shading": "flat",
+                "speed": 10.0,
+                "style": "smooth",
+                "thickness": 0.0,
+                "twist": 0.0
+              },
+              "sparkleColor": "#ffffff",
+              "sparkles": 0,
+              "startMs": 18000
+            },
+            "index": 18,
+            "layer": 0,
+            "row": "44444444-0000-4000-8000-000000000001"
+          },
+          {
+            "effect": {
+              "blend": "normal",
+              "blur": 0,
+              "endMs": 20000,
+              "fadeInMs": 0,
+              "fadeOutMs": 0,
+              "id": "55555555-0000-4000-8000-000000000020",
+              "palette": { "colors": ["#ff0000", "#00ff00"] },
+              "params": {
+                "count": 5,
+                "flake": "dot",
+                "kind": "snowflakes",
+                "motion": "blowing",
+                "speed": 10.0,
+                "warmup": 0
+              },
+              "sparkleColor": "#ffffff",
+              "sparkles": 0,
+              "startMs": 19000
+            },
+            "index": 19,
+            "layer": 0,
+            "row": "44444444-0000-4000-8000-000000000001"
+          },
+          {
+            "effect": {
+              "blend": "normal",
+              "blur": 0,
+              "endMs": 21000,
+              "fadeInMs": 0,
+              "fadeOutMs": 0,
+              "id": "55555555-0000-4000-8000-000000000021",
+              "palette": { "colors": ["#ff0000", "#00ff00"] },
+              "params": { "colors": "palette", "density": 1, "kind": "plasma", "speed": 10.0, "twist": 1 },
+              "sparkleColor": "#ffffff",
+              "sparkles": 0,
+              "startMs": 20000
+            },
+            "index": 20,
+            "layer": 0,
+            "row": "44444444-0000-4000-8000-000000000001"
+          },
+          {
+            "effect": {
+              "blend": "normal",
+              "blur": 0,
+              "endMs": 22000,
+              "fadeInMs": 0,
+              "fadeOutMs": 0,
+              "id": "55555555-0000-4000-8000-000000000022",
+              "palette": { "colors": ["#ff0000", "#00ff00"] },
+              "params": {
+                "chunks": 1,
+                "colors": "rainbow",
+                "direction": "forward",
+                "kind": "butterfly",
+                "pattern": 1,
+                "skip": 2,
+                "speed": 10.0
+              },
+              "sparkleColor": "#ffffff",
+              "sparkles": 0,
+              "startMs": 21000
+            },
+            "index": 21,
+            "layer": 0,
+            "row": "44444444-0000-4000-8000-000000000001"
+          },
+          {
+            "effect": {
+              "blend": "normal",
+              "blur": 0,
+              "endMs": 23000,
+              "fadeInMs": 0,
+              "fadeOutMs": 0,
+              "id": "55555555-0000-4000-8000-000000000023",
+              "palette": { "colors": ["#ff0000", "#00ff00"] },
+              "params": {
+                "cycles": 1.0,
+                "direction": "up",
+                "kind": "garlands",
+                "shape": "straight",
+                "spacing": 10.0
+              },
+              "sparkleColor": "#ffffff",
+              "sparkles": 0,
+              "startMs": 22000
+            },
+            "index": 22,
+            "layer": 0,
+            "row": "44444444-0000-4000-8000-000000000001"
+          },
+          {
+            "effect": {
+              "blend": "normal",
+              "blur": 0,
+              "endMs": 24000,
+              "fadeInMs": 0,
+              "fadeOutMs": 0,
+              "id": "55555555-0000-4000-8000-000000000024",
+              "palette": { "colors": ["#ff0000", "#00ff00"] },
+              "params": {
+                "count": 2,
+                "fadeTrails": true,
+                "kind": "lines",
+                "points": 3,
+                "speed": 1.0,
+                "thickness": 1,
+                "trails": 0
+              },
+              "sparkleColor": "#ffffff",
+              "sparkles": 0,
+              "startMs": 23000
+            },
+            "index": 23,
+            "layer": 0,
+            "row": "44444444-0000-4000-8000-000000000001"
+          },
+          {
+            "effect": {
+              "blend": "normal",
+              "blur": 0,
+              "endMs": 25000,
+              "fadeInMs": 0,
+              "fadeOutMs": 0,
+              "id": "55555555-0000-4000-8000-000000000025",
+              "palette": { "colors": ["#ff0000", "#00ff00"] },
+              "params": { "density": 50, "kind": "life", "rules": "classic", "speed": 10 },
+              "sparkleColor": "#ffffff",
+              "sparkles": 0,
+              "startMs": 24000
+            },
+            "index": 24,
+            "layer": 0,
+            "row": "44444444-0000-4000-8000-000000000001"
+          },
+          {
+            "effect": {
+              "blend": "normal",
+              "blur": 0,
+              "endMs": 26000,
+              "fadeInMs": 0,
+              "fadeOutMs": 0,
+              "id": "55555555-0000-4000-8000-000000000026",
+              "palette": { "colors": ["#ff0000", "#00ff00"] },
+              "params": {
+                "dampening": 10,
+                "friction": 10,
+                "kind": "tendril",
+                "length": 60,
+                "manualX": 0.0,
+                "manualY": 0.0,
+                "movement": "circle",
+                "movementSize": 10.0,
+                "offsetX": 0.0,
+                "offsetY": 0.0,
+                "speed": 10,
+                "tendrils": 1,
+                "tension": 20,
+                "thickness": 3.0
+              },
+              "sparkleColor": "#ffffff",
+              "sparkles": 0,
+              "startMs": 25000
+            },
+            "index": 25,
+            "layer": 0,
+            "row": "44444444-0000-4000-8000-000000000001"
+          },
+          {
+            "effect": {
+              "blend": "normal",
+              "blur": 0,
+              "endMs": 27000,
+              "fadeInMs": 0,
+              "fadeOutMs": 0,
+              "id": "55555555-0000-4000-8000-000000000027",
+              "palette": { "colors": ["#ff0000", "#00ff00"] },
+              "params": {
+                "colorPerWord": false,
+                "countdown": "none",
+                "endX": 0.0,
+                "endY": 0.0,
+                "kind": "text",
+                "movement": "none",
+                "noRepeat": false,
+                "orientation": "across",
+                "pixelOffsets": false,
+                "size": 8,
+                "speed": 10,
+                "startX": 0.0,
+                "startY": 0.0,
+                "text": "Hello",
+                "toCenter": false
+              },
+              "sparkleColor": "#ffffff",
+              "sparkles": 0,
+              "startMs": 26000
+            },
+            "index": 26,
+            "layer": 0,
+            "row": "44444444-0000-4000-8000-000000000001"
+          },
+          {
+            "effect": {
+              "blend": "normal",
+              "blur": 0,
+              "endMs": 28000,
+              "fadeInMs": 0,
+              "fadeOutMs": 0,
+              "id": "55555555-0000-4000-8000-000000000028",
+              "palette": { "colors": ["#ff0000", "#00ff00"] },
+              "params": {
+                "colors": "face",
+                "eyes": "auto",
+                "face": "",
+                "kind": "faces",
+                "outline": false,
+                "timingTrack": null
+              },
+              "sparkleColor": "#ffffff",
+              "sparkles": 0,
+              "startMs": 27000
+            },
+            "index": 27,
+            "layer": 0,
+            "row": "44444444-0000-4000-8000-000000000001"
+          },
+          {
+            "effect": {
+              "blend": "normal",
+              "blur": 0,
+              "endMs": 29000,
+              "fadeInMs": 0,
+              "fadeOutMs": 0,
+              "id": "55555555-0000-4000-8000-000000000029",
+              "palette": { "colors": ["#ff0000", "#00ff00"] },
+              "params": {
+                "bars": 6,
+                "endNote": 84,
+                "filter": "",
+                "gain": 0.0,
+                "kind": "vuMeter",
+                "logX": false,
+                "meter": "spectrogram",
+                "sensitivity": 70,
+                "shape": "circle",
+                "slowFalls": true,
+                "startNote": 36,
+                "timingTrack": null,
+                "xOffset": 0.0,
+                "yOffset": 0.0
+              },
+              "sparkleColor": "#ffffff",
+              "sparkles": 0,
+              "startMs": 28000
+            },
+            "index": 28,
+            "layer": 0,
+            "row": "44444444-0000-4000-8000-000000000001"
+          },
+          {
+            "effect": {
+              "blend": "normal",
+              "blur": 0,
+              "endMs": 30000,
+              "fadeInMs": 0,
+              "fadeOutMs": 0,
+              "id": "55555555-0000-4000-8000-000000000030",
+              "palette": { "colors": ["#ff0000", "#00ff00"] },
+              "params": {
+                "bloom": 0.0,
+                "centerX": 50.0,
+                "centerY": 50.0,
+                "color": "white",
+                "colorShift": false,
+                "decay": "exponential",
+                "hold": 0.0,
+                "kind": "impact"
+              },
+              "sparkleColor": "#ffffff",
+              "sparkles": 0,
+              "startMs": 29000
+            },
+            "index": 29,
+            "layer": 0,
+            "row": "44444444-0000-4000-8000-000000000001"
+          },
+          {
+            "effect": {
+              "blend": "normal",
+              "blur": 0,
+              "endMs": 31000,
+              "fadeInMs": 0,
+              "fadeOutMs": 0,
+              "id": "55555555-0000-4000-8000-000000000031",
+              "palette": { "colors": ["#ff0000", "#00ff00"] },
+              "params": {
+                "band": 0.0,
+                "direction": "leftToRight",
+                "duration": 50.0,
+                "kind": "wipe",
+                "mode": "on",
+                "softness": 0.1
+              },
+              "sparkleColor": "#ffffff",
+              "sparkles": 0,
+              "startMs": 30000
+            },
+            "index": 30,
+            "layer": 0,
+            "row": "44444444-0000-4000-8000-000000000001"
+          },
+          {
+            "effect": {
+              "blend": "normal",
+              "blur": 0,
+              "endMs": 32000,
+              "fadeInMs": 0,
+              "fadeOutMs": 0,
+              "id": "55555555-0000-4000-8000-000000000032",
+              "palette": { "colors": ["#ff0000", "#00ff00"] },
+              "params": {
+                "branches": 0.3,
+                "density": 1.0,
+                "flashOnly": false,
+                "glow": 0.25,
+                "kind": "lightning",
+                "segments": 8,
+                "thickness": 1
+              },
+              "sparkleColor": "#ffffff",
+              "sparkles": 0,
+              "startMs": 31000
+            },
+            "index": 31,
+            "layer": 0,
+            "row": "44444444-0000-4000-8000-000000000001"
+          },
+          {
+            "effect": {
+              "blend": "normal",
+              "blur": 0,
+              "endMs": 33000,
+              "fadeInMs": 0,
+              "fadeOutMs": 0,
+              "id": "55555555-0000-4000-8000-000000000033",
+              "palette": { "colors": ["#ff0000", "#00ff00"] },
+              "params": {
+                "attack": 20.0,
+                "kind": "pulse",
+                "max": 1.0,
+                "min": 0.1,
+                "release": 250.0,
+                "shape": "sine",
+                "source": "marks",
+                "timingTrack": null
+              },
+              "sparkleColor": "#ffffff",
+              "sparkles": 0,
+              "startMs": 32000
+            },
+            "index": 32,
+            "layer": 0,
+            "row": "44444444-0000-4000-8000-000000000001"
+          },
+          {
+            "effect": {
+              "blend": "normal",
+              "blur": 0,
+              "endMs": 34000,
+              "fadeInMs": 0,
+              "fadeOutMs": 0,
+              "id": "55555555-0000-4000-8000-000000000034",
+              "palette": { "colors": ["#ff0000", "#00ff00"] },
+              "params": { "kind": "sing", "min": 0.0, "mode": "mouth", "timingTrack": null },
+              "sparkleColor": "#ffffff",
+              "sparkles": 0,
+              "startMs": 33000
+            },
+            "index": 33,
+            "layer": 0,
+            "row": "44444444-0000-4000-8000-000000000001"
+          },
+          {
+            "effect": {
+              "blend": "normal",
+              "blur": 0,
+              "endMs": 35000,
+              "fadeInMs": 0,
+              "fadeOutMs": 0,
+              "id": "55555555-0000-4000-8000-000000000035",
+              "palette": { "colors": ["#ff0000", "#00ff00"] },
+              "params": {
+                "direction": "leftToRight",
+                "duration": 25.0,
+                "ease": "smooth",
+                "kind": "colorShift",
+                "stagger": 0.0
+              },
+              "sparkleColor": "#ffffff",
+              "sparkles": 0,
+              "startMs": 34000
+            },
+            "index": 34,
+            "layer": 0,
+            "row": "44444444-0000-4000-8000-000000000001"
+          },
+          {
+            "effect": {
+              "blend": "normal",
+              "blur": 0,
+              "endMs": 36000,
+              "fadeInMs": 0,
+              "fadeOutMs": 0,
+              "id": "55555555-0000-4000-8000-000000000036",
+              "palette": { "colors": ["#ff0000", "#00ff00"] },
+              "params": {
+                "background": "off",
+                "bassBounce": 0.0,
+                "character": "skeleton",
+                "count": 1,
+                "kind": "dancer",
+                "mirror": false,
+                "moves": "mix",
+                "routine": 1,
+                "size": 90.0,
+                "speed": "normal",
+                "stagger": 0.0,
+                "timingTrack": null,
+                "usePalette": false,
+                "x": 50.0,
+                "y": 0.0
+              },
+              "sparkleColor": "#ffffff",
+              "sparkles": 0,
+              "startMs": 35000
+            },
+            "index": 35,
+            "layer": 0,
+            "row": "44444444-0000-4000-8000-000000000001"
+          },
+          {
+            "effect": {
+              "blend": "normal",
+              "blur": 0,
+              "endMs": 37000,
+              "fadeInMs": 0,
+              "fadeOutMs": 0,
+              "id": "55555555-0000-4000-8000-000000000037",
+              "palette": { "colors": ["#ff0000", "#00ff00"] },
+              "params": {
+                "blackLevel": 0.0,
+                "blackTransparent": false,
+                "crisp": false,
+                "file": "",
+                "fit": "fit",
+                "kind": "picture",
+                "moveSpeed": 0.25,
+                "movement": "none",
+                "pixelOffsets": false,
+                "playSpeed": 1.0,
+                "scale": 100.0,
+                "startFrame": 1,
+                "timing": "loop",
+                "tint": false,
+                "turn": "none",
+                "wrap": false,
+                "xOffset": 0.0,
+                "yOffset": 0.0
+              },
+              "sparkleColor": "#ffffff",
+              "sparkles": 0,
+              "startMs": 36000
+            },
+            "index": 36,
+            "layer": 0,
+            "row": "44444444-0000-4000-8000-000000000001"
+          }
+        ],
+        "info": null,
+        "removedEffects": [],
+        "removedRows": [],
+        "removedTimingTracks": [],
+        "rowOrder": null,
+        "rows": [],
+        "timingTracks": [],
+        "trackOrder": null
+      },
+      "dirty": true,
+      "issues": [
+        {
+          "effect": "55555555-0000-4000-8000-000000000028",
+          "message": "The Faces effect at 0:27.000 on 'Strip' (layer 1) has no timing track, so the mouth stays at rest.",
+          "row": "44444444-0000-4000-8000-000000000001",
+          "severity": "warning"
+        },
+        {
+          "effect": "55555555-0000-4000-8000-000000000037",
+          "message": "The Picture effect at 0:36.000 on 'Strip' (layer 1) has no picture yet, so it shows nothing. Choose one in its settings.",
+          "row": "44444444-0000-4000-8000-000000000001",
+          "severity": "warning"
+        }
+      ],
+      "revision": 2,
+      "showRevision": 1
+    }
+  },
+  {
+    "name": "an undo, which sends whole rows",
+    "ts": "sequence.SequenceEditResult",
+    "value": {
+      "canRedo": true,
+      "canUndo": false,
+      "changed": true,
+      "changes": {
+        "effects": [],
+        "info": null,
+        "removedEffects": [],
+        "removedRows": [],
+        "removedTimingTracks": [],
+        "rowOrder": null,
+        "rows": [
+          {
+            "id": "44444444-0000-4000-8000-000000000001",
+            "layers": [{ "effects": [] }],
+            "target": { "prop": "11111111-0000-4000-8000-000000000001" }
+          }
+        ],
+        "timingTracks": [],
+        "trackOrder": null
+      },
+      "dirty": true,
+      "issues": [],
+      "revision": 3,
+      "showRevision": 1
+    }
+  },
+  {
+    "name": "timing tracks of every kind, and an effect with curves and sparkles",
+    "ts": "sequence.SequenceEditResult",
+    "value": {
+      "canRedo": false,
+      "canUndo": true,
+      "changed": true,
+      "changes": {
+        "effects": [
+          {
+            "effect": {
+              "blend": "normal",
+              "blur": 0,
+              "endMs": 1000,
+              "fadeInMs": 0,
+              "fadeOutMs": 0,
+              "id": "55555555-0000-4000-8000-000000000001",
+              "palette": { "colors": ["#ff0000", "#00ff00"] },
+              "params": {
+                "endLevel": 1.0,
+                "gradient": "none",
+                "kind": "on",
+                "shimmer": false,
+                "solid": false,
+                "startLevel": 1.0,
+                "transparency": 0.0
+              },
+              "sparkleColor": "#ffffff",
+              "sparkles": 0,
+              "startMs": 0
+            },
+            "index": 0,
+            "layer": 0,
+            "row": "44444444-0000-4000-8000-000000000001"
+          },
+          {
+            "effect": {
+              "blend": "normal",
+              "blur": 0,
+              "endMs": 2000,
+              "fadeInMs": 0,
+              "fadeOutMs": 0,
+              "id": "55555555-0000-4000-8000-000000000002",
+              "palette": { "colors": ["#ff0000", "#00ff00"] },
+              "params": { "density": 0.3, "kind": "twinkle", "rate": 1.0 },
+              "sparkleColor": "#ffffff",
+              "sparkles": 0,
+              "startMs": 1000
+            },
+            "index": 1,
+            "layer": 0,
+            "row": "44444444-0000-4000-8000-000000000001"
+          }
+        ],
+        "info": null,
+        "removedEffects": [],
+        "removedRows": [],
+        "removedTimingTracks": [],
+        "rowOrder": null,
+        "rows": [
+          {
+            "id": "44444444-0000-4000-8000-000000000002",
+            "layers": [
+              { "effects": [] },
+              {
+                "effects": [
+                  {
+                    "blend": "add",
+                    "blur": 3,
+                    "bufferTransform": "rotateCw90",
+                    "curves": {
+                      "blur": {
+                        "fade": 3.0,
+                        "from": 0.0,
+                        "shape": "timingFade",
+                        "timingTrack": "66666666-0000-4000-8000-000000000001",
+                        "to": 14.0
+                      },
+                      "sparkles": {
+                        "from": 0.0,
+                        "points": [[0.0, 0.0], [0.5, 1.0], [1.0, 0.0]],
+                        "shape": "custom",
+                        "to": 100.0
+                      },
+                      "speed": { "cycles": 2.0, "from": 1.0, "shape": "sine", "to": 5.0 },
+                      "width": {
+                        "fade": 2.0,
+                        "from": 0.1,
+                        "gain": 20.0,
+                        "shape": "musicTrigger",
+                        "to": 0.9,
+                        "trigger": 50.0
+                      }
+                    },
+                    "endMs": 4000,
+                    "fadeInMs": 250,
+                    "fadeOutMs": 500,
+                    "id": "55555555-0000-4000-8000-000000000100",
+                    "musicSparkles": true,
+                    "palette": { "colors": ["#ff0000", "#00ff00"] },
+                    "params": {
+                      "bands": 1,
+                      "bounce": false,
+                      "direction": "forward",
+                      "kind": "chase",
+                      "order": "wiring",
+                      "speed": 1.0,
+                      "timingTrack": "66666666-0000-4000-8000-000000000001",
+                      "width": 0.2
+                    },
+                    "renderStyle": "perPreview",
+                    "sparkleColor": "#ffcc00",
+                    "sparkles": 50,
+                    "startMs": 0
+                  }
+                ]
+              }
+            ],
+            "target": { "group": "22222222-0000-4000-8000-000000000001" }
+          }
+        ],
+        "timingTracks": [
+          {
+            "id": "66666666-0000-4000-8000-000000000001",
+            "kind": "beats",
+            "marks": [
+              { "endMs": 500, "label": "1", "startMs": 0 },
+              { "endMs": 1000, "label": "2", "startMs": 500 }
+            ],
+            "name": "Beats"
+          },
+          {
+            "id": "66666666-0000-4000-8000-000000000002",
+            "kind": "bars",
+            "marks": [{ "endMs": 2000, "label": "1", "startMs": 0 }],
+            "name": "Bars"
+          },
+          {
+            "id": "66666666-0000-4000-8000-000000000003",
+            "kind": "sections",
+            "marks": [{ "endMs": 20000, "label": "Verse", "startMs": 0 }],
+            "name": "Sections"
+          },
+          {
+            "id": "66666666-0000-4000-8000-000000000004",
+            "kind": "lyrics",
+            "marks": [{ "endMs": 2000, "label": "afraid of the dark", "startMs": 1000 }],
+            "name": "Lyrics"
+          },
+          {
+            "id": "66666666-0000-4000-8000-000000000005",
+            "kind": "words",
+            "marks": [
+              { "endMs": 1400, "label": "afraid", "startMs": 1000, "sung": "fraid" },
+              { "endMs": 1500, "label": "of", "startMs": 1400 }
+            ],
+            "name": "Lyrics (words)"
+          },
+          {
+            "id": "66666666-0000-4000-8000-000000000006",
+            "kind": "phonemes",
+            "marks": [{ "endMs": 1100, "label": "AI", "startMs": 1000 }],
+            "name": "Lyrics (phonemes)"
+          },
+          { "id": "66666666-0000-4000-8000-000000000007", "kind": "custom", "marks": [], "name": "Cues" }
+        ],
+        "trackOrder": [
+          "66666666-0000-4000-8000-000000000001",
+          "66666666-0000-4000-8000-000000000002",
+          "66666666-0000-4000-8000-000000000003",
+          "66666666-0000-4000-8000-000000000004",
+          "66666666-0000-4000-8000-000000000005",
+          "66666666-0000-4000-8000-000000000006",
+          "66666666-0000-4000-8000-000000000007"
+        ]
+      },
+      "dirty": true,
+      "issues": [],
+      "revision": 4,
+      "showRevision": 1
+    }
+  },
+  {
+    "name": "an edit that changes a bit of everything",
+    "ts": "sequence.SequenceEditResult",
+    "value": {
+      "canRedo": false,
+      "canUndo": true,
+      "changed": true,
+      "changes": {
+        "effects": [
+          {
+            "effect": {
+              "blend": "normal",
+              "blur": 0,
+              "endMs": 900,
+              "fadeInMs": 0,
+              "fadeOutMs": 0,
+              "id": "55555555-0000-4000-8000-000000000001",
+              "palette": { "colors": ["#ff0000", "#00ff00"] },
+              "params": {
+                "endLevel": 1.0,
+                "gradient": "none",
+                "kind": "on",
+                "shimmer": false,
+                "solid": false,
+                "startLevel": 1.0,
+                "transparency": 0.0
+              },
+              "sparkleColor": "#ffffff",
+              "sparkles": 0,
+              "startMs": 100
+            },
+            "index": 0,
+            "layer": 0,
+            "row": "44444444-0000-4000-8000-000000000001"
+          }
+        ],
+        "info": { "audio": "/fixture/Song.wav", "durationMs": 45000, "frameMs": 50, "name": "Song (remix)" },
+        "removedEffects": ["55555555-0000-4000-8000-000000000002"],
+        "removedRows": ["44444444-0000-4000-8000-000000000003"],
+        "removedTimingTracks": ["66666666-0000-4000-8000-000000000003"],
+        "rowOrder": [
+          "44444444-0000-4000-8000-000000000004",
+          "44444444-0000-4000-8000-000000000001",
+          "44444444-0000-4000-8000-000000000002"
+        ],
+        "rows": [
+          {
+            "id": "44444444-0000-4000-8000-000000000004",
+            "layers": [{ "effects": [] }],
+            "target": { "prop": "11111111-0000-4000-8000-000000000002" }
+          }
+        ],
+        "timingTracks": [
+          {
+            "id": "66666666-0000-4000-8000-000000000007",
+            "kind": "custom",
+            "marks": [{ "endMs": 100, "label": "go", "startMs": 0 }],
+            "name": "Cues"
+          }
+        ],
+        "trackOrder": [
+          "66666666-0000-4000-8000-000000000002",
+          "66666666-0000-4000-8000-000000000001",
+          "66666666-0000-4000-8000-000000000004",
+          "66666666-0000-4000-8000-000000000005",
+          "66666666-0000-4000-8000-000000000006",
+          "66666666-0000-4000-8000-000000000007"
+        ]
+      },
+      "dirty": true,
+      "issues": [],
+      "revision": 5,
+      "showRevision": 1
+    }
+  },
+  {
+    "name": "an edit that changed nothing",
+    "ts": "sequence.SequenceEditResult",
+    "value": {
+      "canRedo": false,
+      "canUndo": true,
+      "changed": false,
+      "changes": {
+        "effects": [],
+        "info": null,
+        "removedEffects": [],
+        "removedRows": [],
+        "removedTimingTracks": [],
+        "rowOrder": null,
+        "rows": [],
+        "timingTracks": [],
+        "trackOrder": null
+      },
+      "dirty": true,
+      "issues": [],
+      "revision": 5,
+      "showRevision": 1
+    }
+  },
+  {
+    "name": "a saved sequence, whole",
+    "ts": "sequence.SequenceSnapshot",
+    "value": {
+      "canRedo": false,
+      "canUndo": true,
+      "dirty": false,
+      "issues": [],
+      "path": "/fixture/Song.pfseq.json",
+      "revision": 5,
+      "sequence": {
+        "audio": "/fixture/Song.wav",
+        "durationMs": 45000,
+        "frameMs": 50,
+        "name": "Song (remix)",
+        "rows": [
+          {
+            "id": "44444444-0000-4000-8000-000000000004",
+            "layers": [{ "effects": [] }],
+            "target": { "prop": "11111111-0000-4000-8000-000000000002" }
+          },
+          {
+            "id": "44444444-0000-4000-8000-000000000001",
+            "layers": [
+              {
+                "effects": [
+                  {
+                    "blend": "normal",
+                    "blur": 0,
+                    "endMs": 900,
+                    "fadeInMs": 0,
+                    "fadeOutMs": 0,
+                    "id": "55555555-0000-4000-8000-000000000001",
+                    "palette": { "colors": ["#ff0000", "#00ff00"] },
+                    "params": {
+                      "endLevel": 1.0,
+                      "gradient": "none",
+                      "kind": "on",
+                      "shimmer": false,
+                      "solid": false,
+                      "startLevel": 1.0,
+                      "transparency": 0.0
+                    },
+                    "sparkleColor": "#ffffff",
+                    "sparkles": 0,
+                    "startMs": 100
+                  }
+                ]
+              }
+            ],
+            "target": { "prop": "11111111-0000-4000-8000-000000000001" }
+          },
+          {
+            "id": "44444444-0000-4000-8000-000000000002",
+            "layers": [
+              { "effects": [] },
+              {
+                "effects": [
+                  {
+                    "blend": "add",
+                    "blur": 3,
+                    "bufferTransform": "rotateCw90",
+                    "curves": {
+                      "blur": {
+                        "fade": 3.0,
+                        "from": 0.0,
+                        "shape": "timingFade",
+                        "timingTrack": "66666666-0000-4000-8000-000000000001",
+                        "to": 14.0
+                      },
+                      "sparkles": {
+                        "from": 0.0,
+                        "points": [[0.0, 0.0], [0.5, 1.0], [1.0, 0.0]],
+                        "shape": "custom",
+                        "to": 100.0
+                      },
+                      "speed": { "cycles": 2.0, "from": 1.0, "shape": "sine", "to": 5.0 },
+                      "width": {
+                        "fade": 2.0,
+                        "from": 0.1,
+                        "gain": 20.0,
+                        "shape": "musicTrigger",
+                        "to": 0.9,
+                        "trigger": 50.0
+                      }
+                    },
+                    "endMs": 4000,
+                    "fadeInMs": 250,
+                    "fadeOutMs": 500,
+                    "id": "55555555-0000-4000-8000-000000000100",
+                    "musicSparkles": true,
+                    "palette": { "colors": ["#ff0000", "#00ff00"] },
+                    "params": {
+                      "bands": 1,
+                      "bounce": false,
+                      "direction": "forward",
+                      "kind": "chase",
+                      "order": "wiring",
+                      "speed": 1.0,
+                      "timingTrack": "66666666-0000-4000-8000-000000000001",
+                      "width": 0.2
+                    },
+                    "renderStyle": "perPreview",
+                    "sparkleColor": "#ffcc00",
+                    "sparkles": 50,
+                    "startMs": 0
+                  }
+                ]
+              }
+            ],
+            "target": { "group": "22222222-0000-4000-8000-000000000001" }
+          }
+        ],
+        "schemaVersion": 10,
+        "timingTracks": [
+          {
+            "id": "66666666-0000-4000-8000-000000000002",
+            "kind": "bars",
+            "marks": [{ "endMs": 2000, "label": "1", "startMs": 0 }],
+            "name": "Bars"
+          },
+          {
+            "id": "66666666-0000-4000-8000-000000000001",
+            "kind": "beats",
+            "marks": [
+              { "endMs": 500, "label": "1", "startMs": 0 },
+              { "endMs": 1000, "label": "2", "startMs": 500 }
+            ],
+            "name": "Beats"
+          },
+          {
+            "id": "66666666-0000-4000-8000-000000000004",
+            "kind": "lyrics",
+            "marks": [{ "endMs": 2000, "label": "afraid of the dark", "startMs": 1000 }],
+            "name": "Lyrics"
+          },
+          {
+            "id": "66666666-0000-4000-8000-000000000005",
+            "kind": "words",
+            "marks": [
+              { "endMs": 1400, "label": "afraid", "startMs": 1000, "sung": "fraid" },
+              { "endMs": 1500, "label": "of", "startMs": 1400 }
+            ],
+            "name": "Lyrics (words)"
+          },
+          {
+            "id": "66666666-0000-4000-8000-000000000006",
+            "kind": "phonemes",
+            "marks": [{ "endMs": 1100, "label": "AI", "startMs": 1000 }],
+            "name": "Lyrics (phonemes)"
+          },
+          {
+            "id": "66666666-0000-4000-8000-000000000007",
+            "kind": "custom",
+            "marks": [{ "endMs": 100, "label": "go", "startMs": 0 }],
+            "name": "Cues"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "an export's channel layout",
+    "ts": "sequence.ExportLayout",
+    "value": {
+      "blocks": [
+        {
+          "controller": "33333333-0000-4000-8000-000000000001",
+          "count": 30,
+          "fromSequenceChannels": false,
+          "name": "Bench",
+          "start": 1
+        }
+      ],
+      "channels": 30,
+      "notes": []
+    }
+  },
+  {
+    "name": "an exported sequence with music",
+    "ts": "sequence.ExportSummary",
+    "value": {
+      "blocks": [
+        {
+          "controller": "33333333-0000-4000-8000-000000000001",
+          "count": 30,
+          "fromSequenceChannels": false,
+          "name": "Bench",
+          "start": 1
+        }
+      ],
+      "channels": 30,
+      "durationMs": 45000,
+      "frameMs": 50,
+      "frames": 900,
+      "media": "Song.wav",
+      "notes": []
+    }
+  },
+  {
+    "name": "an export's layout with a controller's channels from its FPP",
+    "ts": "sequence.ExportLayout",
+    "value": {
+      "blocks": [
+        {
+          "controller": "33333333-0000-4000-8000-000000000002",
+          "count": 30,
+          "fromSequenceChannels": true,
+          "name": "Falcon",
+          "start": 101
+        },
+        {
+          "controller": "33333333-0000-4000-8000-000000000001",
+          "count": 30,
+          "fromSequenceChannels": false,
+          "name": "Bench",
+          "start": 131
+        }
+      ],
+      "channels": 160,
+      "notes": [
+        "Bench has no sequence channels set, so it was placed after the others from channel 131. Add them from your FPP's output list on the Controllers screen so FPP sends them the right data."
+      ]
+    }
+  },
+  {
+    "name": "a timing file imported",
+    "ts": "sequence.TimingImported",
+    "value": {
+      "notes": ["1 mark in Vocals.xtiming started after the end of the sequence and was left out."],
+      "result": {
+        "canRedo": false,
+        "canUndo": true,
+        "changed": true,
+        "changes": {
+          "effects": [],
+          "info": null,
+          "removedEffects": [],
+          "removedRows": [],
+          "removedTimingTracks": [],
+          "rowOrder": null,
+          "rows": [],
+          "timingTracks": [
+            {
+              "id": "00000000-0000-4000-a000-000000000001",
+              "kind": "lyrics",
+              "marks": [{ "endMs": 1000, "label": "Hi there", "startMs": 0 }],
+              "name": "Vocals"
+            },
+            {
+              "id": "00000000-0000-4000-a000-000000000002",
+              "kind": "words",
+              "marks": [
+                { "endMs": 400, "label": "Hi", "startMs": 0 },
+                { "endMs": 1000, "label": "there", "startMs": 400 }
+              ],
+              "name": "Vocals (words)"
+            }
+          ],
+          "trackOrder": [
+            "66666666-0000-4000-8000-000000000002",
+            "66666666-0000-4000-8000-000000000001",
+            "66666666-0000-4000-8000-000000000004",
+            "66666666-0000-4000-8000-000000000005",
+            "66666666-0000-4000-8000-000000000006",
+            "66666666-0000-4000-8000-000000000007",
+            "00000000-0000-4000-a000-000000000001",
+            "00000000-0000-4000-a000-000000000002"
+          ]
+        },
+        "dirty": true,
+        "issues": [],
+        "revision": 6,
+        "showRevision": 2
+      },
+      "tracks": ["Vocals", "Vocals (words)"]
+    }
+  },
+  { "name": "how many marks a timing export wrote", "ts": "number", "value": 2 },
+  {
+    "name": "a sequence whose rows blend, without music",
+    "ts": "sequence.SequenceSnapshot",
+    "value": {
+      "canRedo": false,
+      "canUndo": false,
+      "dirty": false,
+      "issues": [],
+      "path": "/fixture/Blended.pfseq.json",
+      "revision": 7,
+      "sequence": {
+        "audio": null,
+        "durationMs": 45000,
+        "frameMs": 50,
+        "name": "Song (remix)",
+        "rowBlending": "blend",
+        "rows": [
+          {
+            "id": "44444444-0000-4000-8000-000000000004",
+            "layers": [{ "effects": [] }],
+            "target": { "prop": "11111111-0000-4000-8000-000000000002" }
+          },
+          {
+            "id": "44444444-0000-4000-8000-000000000001",
+            "layers": [
+              {
+                "effects": [
+                  {
+                    "blend": "normal",
+                    "blur": 0,
+                    "endMs": 900,
+                    "fadeInMs": 0,
+                    "fadeOutMs": 0,
+                    "id": "55555555-0000-4000-8000-000000000001",
+                    "palette": { "colors": ["#ff0000", "#00ff00"] },
+                    "params": {
+                      "endLevel": 1.0,
+                      "gradient": "none",
+                      "kind": "on",
+                      "shimmer": false,
+                      "solid": false,
+                      "startLevel": 1.0,
+                      "transparency": 0.0
+                    },
+                    "sparkleColor": "#ffffff",
+                    "sparkles": 0,
+                    "startMs": 100
+                  }
+                ]
+              }
+            ],
+            "target": { "prop": "11111111-0000-4000-8000-000000000001" }
+          },
+          {
+            "id": "44444444-0000-4000-8000-000000000002",
+            "layers": [
+              { "effects": [] },
+              {
+                "effects": [
+                  {
+                    "blend": "add",
+                    "blur": 3,
+                    "bufferTransform": "rotateCw90",
+                    "curves": {
+                      "blur": {
+                        "fade": 3.0,
+                        "from": 0.0,
+                        "shape": "timingFade",
+                        "timingTrack": "66666666-0000-4000-8000-000000000001",
+                        "to": 14.0
+                      },
+                      "sparkles": {
+                        "from": 0.0,
+                        "points": [[0.0, 0.0], [0.5, 1.0], [1.0, 0.0]],
+                        "shape": "custom",
+                        "to": 100.0
+                      },
+                      "speed": { "cycles": 2.0, "from": 1.0, "shape": "sine", "to": 5.0 },
+                      "width": {
+                        "fade": 2.0,
+                        "from": 0.1,
+                        "gain": 20.0,
+                        "shape": "musicTrigger",
+                        "to": 0.9,
+                        "trigger": 50.0
+                      }
+                    },
+                    "endMs": 4000,
+                    "fadeInMs": 250,
+                    "fadeOutMs": 500,
+                    "id": "55555555-0000-4000-8000-000000000100",
+                    "musicSparkles": true,
+                    "palette": { "colors": ["#ff0000", "#00ff00"] },
+                    "params": {
+                      "bands": 1,
+                      "bounce": false,
+                      "direction": "forward",
+                      "kind": "chase",
+                      "order": "wiring",
+                      "speed": 1.0,
+                      "timingTrack": "66666666-0000-4000-8000-000000000001",
+                      "width": 0.2
+                    },
+                    "renderStyle": "perPreview",
+                    "sparkleColor": "#ffcc00",
+                    "sparkles": 50,
+                    "startMs": 0
+                  }
+                ]
+              }
+            ],
+            "target": { "group": "22222222-0000-4000-8000-000000000001" }
+          }
+        ],
+        "schemaVersion": 10,
+        "timingTracks": [
+          {
+            "id": "66666666-0000-4000-8000-000000000002",
+            "kind": "bars",
+            "marks": [{ "endMs": 2000, "label": "1", "startMs": 0 }],
+            "name": "Bars"
+          },
+          {
+            "id": "66666666-0000-4000-8000-000000000001",
+            "kind": "beats",
+            "marks": [
+              { "endMs": 500, "label": "1", "startMs": 0 },
+              { "endMs": 1000, "label": "2", "startMs": 500 }
+            ],
+            "name": "Beats"
+          },
+          {
+            "id": "66666666-0000-4000-8000-000000000004",
+            "kind": "lyrics",
+            "marks": [{ "endMs": 2000, "label": "afraid of the dark", "startMs": 1000 }],
+            "name": "Lyrics"
+          },
+          {
+            "id": "66666666-0000-4000-8000-000000000005",
+            "kind": "words",
+            "marks": [
+              { "endMs": 1400, "label": "afraid", "startMs": 1000, "sung": "fraid" },
+              { "endMs": 1500, "label": "of", "startMs": 1400 }
+            ],
+            "name": "Lyrics (words)"
+          },
+          {
+            "id": "66666666-0000-4000-8000-000000000006",
+            "kind": "phonemes",
+            "marks": [{ "endMs": 1100, "label": "AI", "startMs": 1000 }],
+            "name": "Lyrics (phonemes)"
+          },
+          {
+            "id": "66666666-0000-4000-8000-000000000007",
+            "kind": "custom",
+            "marks": [{ "endMs": 100, "label": "go", "startMs": 0 }],
+            "name": "Cues"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "unsaved sequences an earlier run kept",
+    "ts": "sequence.SequenceRecovery[]",
+    "value": [
+      { "id": "1700000000000-1-0", "name": "Untitled", "path": null, "savedAtMs": 1700000000000 },
+      {
+        "id": "1700000000000-1-1",
+        "name": "Song (remix)",
+        "path": "/fixture/Blended.pfseq.json",
+        "savedAtMs": 1700000000000
+      }
+    ]
+  }
+]

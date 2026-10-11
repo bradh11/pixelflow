@@ -1,0 +1,476 @@
+{
+  "about": "Edits to the show are undo steps, one per batch; a new edit forgets what was undone.",
+  "devices": [],
+  "start": {
+    "channelMapNow": { "controllers": [], "frameLen": 0, "props": [] },
+    "issuesNow": [],
+    "sequence": null,
+    "sequenceIssuesNow": null,
+    "sequenceNow": null,
+    "show": { "canRedo": false, "canUndo": false, "dirty": false, "path": null, "revision": 0 },
+    "showNow": { "background": null, "controllers": [], "groups": [], "name": "Untitled Show", "props": [], "schemaVersion": 12, "sequences": [], "settings": { "frameRate": 40 } },
+    "summaryNow": { "controllers": 0, "pixels": 0, "props": 0, "universes": 0 }
+  },
+  "steps": [
+    {
+      "args": {
+        "edits": [
+          { "prop": { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000001", "name": "Gutter", "regions": [], "shape": { "length": 3, "nodes": 50, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 1, "y": 0, "z": 0 }, "rotationDeg": { "x": 0, "y": 0, "z": 0 }, "scale": { "x": 1, "y": 1, "z": 1 } } }, "type": "addProp" },
+          { "prop": { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000002", "name": "Fence", "regions": [], "shape": { "length": 3, "nodes": 30, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 2, "y": 0, "z": 0 }, "rotationDeg": { "x": 0, "y": 0, "z": 0 }, "scale": { "x": 1, "y": 1, "z": 1 } } }, "type": "addProp" },
+          {
+            "controller": {
+              "adapter": "generic",
+              "address": "127.0.0.1:9",
+              "id": "33333333-0000-4000-8000-000000000001",
+              "name": "Bench",
+              "ports": [
+                {
+                  "brightness": 100,
+                  "gamma": 1,
+                  "maxPixels": null,
+                  "number": 1,
+                  "slots": [{ "brightness": null, "gamma": null, "nullPixels": 0, "prop": "11111111-0000-4000-8000-000000000001", "reverse": false, "segment": null, "smartReceiver": null }, { "brightness": null, "gamma": null, "nullPixels": 0, "prop": "11111111-0000-4000-8000-000000000002", "reverse": false, "segment": null, "smartReceiver": null }]
+                }
+              ],
+              "protocol": { "type": "ddp" },
+              "sequenceChannels": null
+            },
+            "type": "addController"
+          }
+        ]
+      },
+      "channelMapNow": {
+        "controllers": [
+          {
+            "addressing": { "type": "ddp" },
+            "channelCount": 240,
+            "controller": "33333333-0000-4000-8000-000000000001",
+            "spans": [
+              { "brightness": 100, "channelsPerPixel": 3, "colorOrder": "RGB", "controllerChannel": 0, "frameOffset": 0, "gamma": 1.0, "pixels": 50, "port": 1, "prop": "11111111-0000-4000-8000-000000000001", "reverse": false },
+              { "brightness": 100, "channelsPerPixel": 3, "colorOrder": "RGB", "controllerChannel": 150, "frameOffset": 150, "gamma": 1.0, "pixels": 30, "port": 1, "prop": "11111111-0000-4000-8000-000000000002", "reverse": false }
+            ]
+          }
+        ],
+        "frameLen": 240,
+        "props": [{ "channelsPerPixel": 3, "frameOffset": 0, "nodes": 50, "prop": "11111111-0000-4000-8000-000000000001" }, { "channelsPerPixel": 3, "frameOffset": 150, "nodes": 30, "prop": "11111111-0000-4000-8000-000000000002" }]
+      },
+      "command": "apply_edits",
+      "reply": {},
+      "sequence": null,
+      "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 },
+      "showNow": {
+        "background": null,
+        "controllers": [
+          {
+            "adapter": "generic",
+            "address": "127.0.0.1:9",
+            "id": "33333333-0000-4000-8000-000000000001",
+            "name": "Bench",
+            "ports": [
+              {
+                "brightness": 100,
+                "gamma": 1.0,
+                "maxPixels": null,
+                "number": 1,
+                "slots": [{ "brightness": null, "gamma": null, "nullPixels": 0, "prop": "11111111-0000-4000-8000-000000000001", "reverse": false, "segment": null, "smartReceiver": null }, { "brightness": null, "gamma": null, "nullPixels": 0, "prop": "11111111-0000-4000-8000-000000000002", "reverse": false, "segment": null, "smartReceiver": null }]
+              }
+            ],
+            "protocol": { "type": "ddp" },
+            "sequenceChannels": null
+          }
+        ],
+        "groups": [],
+        "name": "Untitled Show",
+        "props": [
+          { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000001", "name": "Gutter", "regions": [], "shape": { "length": 3.0, "nodes": 50, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 1.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } },
+          { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000002", "name": "Fence", "regions": [], "shape": { "length": 3.0, "nodes": 30, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 2.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } }
+        ],
+        "schemaVersion": 12,
+        "sequences": [],
+        "settings": { "frameRate": 40 }
+      },
+      "summaryNow": { "controllers": 1, "pixels": 80, "props": 2, "universes": 0 }
+    },
+    {
+      "args": { "edits": [{ "name": "House", "type": "renameShow" }, { "fps": 20, "type": "setFrameRate" }] },
+      "command": "apply_edits",
+      "reply": {},
+      "sequence": null,
+      "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 2 },
+      "showNow": {
+        "background": null,
+        "controllers": [
+          {
+            "adapter": "generic",
+            "address": "127.0.0.1:9",
+            "id": "33333333-0000-4000-8000-000000000001",
+            "name": "Bench",
+            "ports": [
+              {
+                "brightness": 100,
+                "gamma": 1.0,
+                "maxPixels": null,
+                "number": 1,
+                "slots": [{ "brightness": null, "gamma": null, "nullPixels": 0, "prop": "11111111-0000-4000-8000-000000000001", "reverse": false, "segment": null, "smartReceiver": null }, { "brightness": null, "gamma": null, "nullPixels": 0, "prop": "11111111-0000-4000-8000-000000000002", "reverse": false, "segment": null, "smartReceiver": null }]
+              }
+            ],
+            "protocol": { "type": "ddp" },
+            "sequenceChannels": null
+          }
+        ],
+        "groups": [],
+        "name": "House",
+        "props": [
+          { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000001", "name": "Gutter", "regions": [], "shape": { "length": 3.0, "nodes": 50, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 1.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } },
+          { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000002", "name": "Fence", "regions": [], "shape": { "length": 3.0, "nodes": 30, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 2.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } }
+        ],
+        "schemaVersion": 12,
+        "sequences": [],
+        "settings": { "frameRate": 20 }
+      }
+    },
+    {
+      "args": { "edits": [{ "group": { "id": "22222222-0000-4000-8000-000000000001", "members": ["11111111-0000-4000-8000-000000000001", "11111111-0000-4000-8000-000000000002"], "name": "Front" }, "type": "addGroup" }] },
+      "command": "apply_edits",
+      "reply": {},
+      "sequence": null,
+      "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 3 },
+      "showNow": {
+        "background": null,
+        "controllers": [
+          {
+            "adapter": "generic",
+            "address": "127.0.0.1:9",
+            "id": "33333333-0000-4000-8000-000000000001",
+            "name": "Bench",
+            "ports": [
+              {
+                "brightness": 100,
+                "gamma": 1.0,
+                "maxPixels": null,
+                "number": 1,
+                "slots": [{ "brightness": null, "gamma": null, "nullPixels": 0, "prop": "11111111-0000-4000-8000-000000000001", "reverse": false, "segment": null, "smartReceiver": null }, { "brightness": null, "gamma": null, "nullPixels": 0, "prop": "11111111-0000-4000-8000-000000000002", "reverse": false, "segment": null, "smartReceiver": null }]
+              }
+            ],
+            "protocol": { "type": "ddp" },
+            "sequenceChannels": null
+          }
+        ],
+        "groups": [{ "gridSize": 400, "id": "22222222-0000-4000-8000-000000000001", "layout": "minimalGrid", "members": ["11111111-0000-4000-8000-000000000001", "11111111-0000-4000-8000-000000000002"], "name": "Front" }],
+        "name": "House",
+        "props": [
+          { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000001", "name": "Gutter", "regions": [], "shape": { "length": 3.0, "nodes": 50, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 1.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } },
+          { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000002", "name": "Fence", "regions": [], "shape": { "length": 3.0, "nodes": 30, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 2.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } }
+        ],
+        "schemaVersion": 12,
+        "sequences": [],
+        "settings": { "frameRate": 20 }
+      }
+    },
+    {
+      "args": {},
+      "command": "undo",
+      "reply": {},
+      "sequence": null,
+      "show": { "canRedo": true, "canUndo": true, "dirty": true, "path": null, "revision": 4 },
+      "showNow": {
+        "background": null,
+        "controllers": [
+          {
+            "adapter": "generic",
+            "address": "127.0.0.1:9",
+            "id": "33333333-0000-4000-8000-000000000001",
+            "name": "Bench",
+            "ports": [
+              {
+                "brightness": 100,
+                "gamma": 1.0,
+                "maxPixels": null,
+                "number": 1,
+                "slots": [{ "brightness": null, "gamma": null, "nullPixels": 0, "prop": "11111111-0000-4000-8000-000000000001", "reverse": false, "segment": null, "smartReceiver": null }, { "brightness": null, "gamma": null, "nullPixels": 0, "prop": "11111111-0000-4000-8000-000000000002", "reverse": false, "segment": null, "smartReceiver": null }]
+              }
+            ],
+            "protocol": { "type": "ddp" },
+            "sequenceChannels": null
+          }
+        ],
+        "groups": [],
+        "name": "House",
+        "props": [
+          { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000001", "name": "Gutter", "regions": [], "shape": { "length": 3.0, "nodes": 50, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 1.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } },
+          { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000002", "name": "Fence", "regions": [], "shape": { "length": 3.0, "nodes": 30, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 2.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } }
+        ],
+        "schemaVersion": 12,
+        "sequences": [],
+        "settings": { "frameRate": 20 }
+      }
+    },
+    {
+      "args": {},
+      "command": "undo",
+      "reply": {},
+      "sequence": null,
+      "show": { "canRedo": true, "canUndo": true, "dirty": true, "path": null, "revision": 5 },
+      "showNow": {
+        "background": null,
+        "controllers": [
+          {
+            "adapter": "generic",
+            "address": "127.0.0.1:9",
+            "id": "33333333-0000-4000-8000-000000000001",
+            "name": "Bench",
+            "ports": [
+              {
+                "brightness": 100,
+                "gamma": 1.0,
+                "maxPixels": null,
+                "number": 1,
+                "slots": [{ "brightness": null, "gamma": null, "nullPixels": 0, "prop": "11111111-0000-4000-8000-000000000001", "reverse": false, "segment": null, "smartReceiver": null }, { "brightness": null, "gamma": null, "nullPixels": 0, "prop": "11111111-0000-4000-8000-000000000002", "reverse": false, "segment": null, "smartReceiver": null }]
+              }
+            ],
+            "protocol": { "type": "ddp" },
+            "sequenceChannels": null
+          }
+        ],
+        "groups": [],
+        "name": "Untitled Show",
+        "props": [
+          { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000001", "name": "Gutter", "regions": [], "shape": { "length": 3.0, "nodes": 50, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 1.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } },
+          { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000002", "name": "Fence", "regions": [], "shape": { "length": 3.0, "nodes": 30, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 2.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } }
+        ],
+        "schemaVersion": 12,
+        "sequences": [],
+        "settings": { "frameRate": 40 }
+      }
+    },
+    {
+      "args": {},
+      "command": "redo",
+      "reply": {},
+      "sequence": null,
+      "show": { "canRedo": true, "canUndo": true, "dirty": true, "path": null, "revision": 6 },
+      "showNow": {
+        "background": null,
+        "controllers": [
+          {
+            "adapter": "generic",
+            "address": "127.0.0.1:9",
+            "id": "33333333-0000-4000-8000-000000000001",
+            "name": "Bench",
+            "ports": [
+              {
+                "brightness": 100,
+                "gamma": 1.0,
+                "maxPixels": null,
+                "number": 1,
+                "slots": [{ "brightness": null, "gamma": null, "nullPixels": 0, "prop": "11111111-0000-4000-8000-000000000001", "reverse": false, "segment": null, "smartReceiver": null }, { "brightness": null, "gamma": null, "nullPixels": 0, "prop": "11111111-0000-4000-8000-000000000002", "reverse": false, "segment": null, "smartReceiver": null }]
+              }
+            ],
+            "protocol": { "type": "ddp" },
+            "sequenceChannels": null
+          }
+        ],
+        "groups": [],
+        "name": "House",
+        "props": [
+          { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000001", "name": "Gutter", "regions": [], "shape": { "length": 3.0, "nodes": 50, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 1.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } },
+          { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000002", "name": "Fence", "regions": [], "shape": { "length": 3.0, "nodes": 30, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 2.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } }
+        ],
+        "schemaVersion": 12,
+        "sequences": [],
+        "settings": { "frameRate": 20 }
+      }
+    },
+    {
+      "args": { "edits": [{ "id": "11111111-0000-4000-8000-000000000002", "type": "removeProp" }] },
+      "channelMapNow": {
+        "controllers": [{ "addressing": { "type": "ddp" }, "channelCount": 150, "controller": "33333333-0000-4000-8000-000000000001", "spans": [{ "brightness": 100, "channelsPerPixel": 3, "colorOrder": "RGB", "controllerChannel": 0, "frameOffset": 0, "gamma": 1.0, "pixels": 50, "port": 1, "prop": "11111111-0000-4000-8000-000000000001", "reverse": false }] }],
+        "frameLen": 150,
+        "props": [{ "channelsPerPixel": 3, "frameOffset": 0, "nodes": 50, "prop": "11111111-0000-4000-8000-000000000001" }]
+      },
+      "command": "apply_edits",
+      "reply": {},
+      "sequence": null,
+      "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 7 },
+      "showNow": {
+        "background": null,
+        "controllers": [
+          {
+            "adapter": "generic",
+            "address": "127.0.0.1:9",
+            "id": "33333333-0000-4000-8000-000000000001",
+            "name": "Bench",
+            "ports": [{ "brightness": 100, "gamma": 1.0, "maxPixels": null, "number": 1, "slots": [{ "brightness": null, "gamma": null, "nullPixels": 0, "prop": "11111111-0000-4000-8000-000000000001", "reverse": false, "segment": null, "smartReceiver": null }] }],
+            "protocol": { "type": "ddp" },
+            "sequenceChannels": null
+          }
+        ],
+        "groups": [],
+        "name": "House",
+        "props": [{ "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000001", "name": "Gutter", "regions": [], "shape": { "length": 3.0, "nodes": 50, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 1.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } }],
+        "schemaVersion": 12,
+        "sequences": [],
+        "settings": { "frameRate": 20 }
+      },
+      "summaryNow": { "controllers": 1, "pixels": 50, "props": 1, "universes": 0 }
+    },
+    { "args": {}, "command": "redo", "reply": {}, "sequence": null, "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 7 } },
+    {
+      "args": {},
+      "channelMapNow": {
+        "controllers": [
+          {
+            "addressing": { "type": "ddp" },
+            "channelCount": 240,
+            "controller": "33333333-0000-4000-8000-000000000001",
+            "spans": [
+              { "brightness": 100, "channelsPerPixel": 3, "colorOrder": "RGB", "controllerChannel": 0, "frameOffset": 0, "gamma": 1.0, "pixels": 50, "port": 1, "prop": "11111111-0000-4000-8000-000000000001", "reverse": false },
+              { "brightness": 100, "channelsPerPixel": 3, "colorOrder": "RGB", "controllerChannel": 150, "frameOffset": 150, "gamma": 1.0, "pixels": 30, "port": 1, "prop": "11111111-0000-4000-8000-000000000002", "reverse": false }
+            ]
+          }
+        ],
+        "frameLen": 240,
+        "props": [{ "channelsPerPixel": 3, "frameOffset": 0, "nodes": 50, "prop": "11111111-0000-4000-8000-000000000001" }, { "channelsPerPixel": 3, "frameOffset": 150, "nodes": 30, "prop": "11111111-0000-4000-8000-000000000002" }]
+      },
+      "command": "undo",
+      "reply": {},
+      "sequence": null,
+      "show": { "canRedo": true, "canUndo": true, "dirty": true, "path": null, "revision": 8 },
+      "showNow": {
+        "background": null,
+        "controllers": [
+          {
+            "adapter": "generic",
+            "address": "127.0.0.1:9",
+            "id": "33333333-0000-4000-8000-000000000001",
+            "name": "Bench",
+            "ports": [
+              {
+                "brightness": 100,
+                "gamma": 1.0,
+                "maxPixels": null,
+                "number": 1,
+                "slots": [{ "brightness": null, "gamma": null, "nullPixels": 0, "prop": "11111111-0000-4000-8000-000000000001", "reverse": false, "segment": null, "smartReceiver": null }, { "brightness": null, "gamma": null, "nullPixels": 0, "prop": "11111111-0000-4000-8000-000000000002", "reverse": false, "segment": null, "smartReceiver": null }]
+              }
+            ],
+            "protocol": { "type": "ddp" },
+            "sequenceChannels": null
+          }
+        ],
+        "groups": [],
+        "name": "House",
+        "props": [
+          { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000001", "name": "Gutter", "regions": [], "shape": { "length": 3.0, "nodes": 50, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 1.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } },
+          { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000002", "name": "Fence", "regions": [], "shape": { "length": 3.0, "nodes": 30, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 2.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } }
+        ],
+        "schemaVersion": 12,
+        "sequences": [],
+        "settings": { "frameRate": 20 }
+      },
+      "summaryNow": { "controllers": 1, "pixels": 80, "props": 2, "universes": 0 }
+    },
+    {
+      "args": {},
+      "command": "undo",
+      "reply": {},
+      "sequence": null,
+      "show": { "canRedo": true, "canUndo": true, "dirty": true, "path": null, "revision": 9 },
+      "showNow": {
+        "background": null,
+        "controllers": [
+          {
+            "adapter": "generic",
+            "address": "127.0.0.1:9",
+            "id": "33333333-0000-4000-8000-000000000001",
+            "name": "Bench",
+            "ports": [
+              {
+                "brightness": 100,
+                "gamma": 1.0,
+                "maxPixels": null,
+                "number": 1,
+                "slots": [{ "brightness": null, "gamma": null, "nullPixels": 0, "prop": "11111111-0000-4000-8000-000000000001", "reverse": false, "segment": null, "smartReceiver": null }, { "brightness": null, "gamma": null, "nullPixels": 0, "prop": "11111111-0000-4000-8000-000000000002", "reverse": false, "segment": null, "smartReceiver": null }]
+              }
+            ],
+            "protocol": { "type": "ddp" },
+            "sequenceChannels": null
+          }
+        ],
+        "groups": [],
+        "name": "Untitled Show",
+        "props": [
+          { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000001", "name": "Gutter", "regions": [], "shape": { "length": 3.0, "nodes": 50, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 1.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } },
+          { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000002", "name": "Fence", "regions": [], "shape": { "length": 3.0, "nodes": 30, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 2.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } }
+        ],
+        "schemaVersion": 12,
+        "sequences": [],
+        "settings": { "frameRate": 40 }
+      }
+    },
+    {
+      "args": {},
+      "channelMapNow": { "controllers": [], "frameLen": 0, "props": [] },
+      "command": "undo",
+      "reply": {},
+      "sequence": null,
+      "show": { "canRedo": true, "canUndo": false, "dirty": true, "path": null, "revision": 10 },
+      "showNow": { "background": null, "controllers": [], "groups": [], "name": "Untitled Show", "props": [], "schemaVersion": 12, "sequences": [], "settings": { "frameRate": 40 } },
+      "summaryNow": { "controllers": 0, "pixels": 0, "props": 0, "universes": 0 }
+    },
+    { "args": {}, "command": "undo", "reply": {}, "sequence": null, "show": { "canRedo": true, "canUndo": false, "dirty": true, "path": null, "revision": 10 } },
+    {
+      "args": {},
+      "channelMapNow": {
+        "controllers": [
+          {
+            "addressing": { "type": "ddp" },
+            "channelCount": 240,
+            "controller": "33333333-0000-4000-8000-000000000001",
+            "spans": [
+              { "brightness": 100, "channelsPerPixel": 3, "colorOrder": "RGB", "controllerChannel": 0, "frameOffset": 0, "gamma": 1.0, "pixels": 50, "port": 1, "prop": "11111111-0000-4000-8000-000000000001", "reverse": false },
+              { "brightness": 100, "channelsPerPixel": 3, "colorOrder": "RGB", "controllerChannel": 150, "frameOffset": 150, "gamma": 1.0, "pixels": 30, "port": 1, "prop": "11111111-0000-4000-8000-000000000002", "reverse": false }
+            ]
+          }
+        ],
+        "frameLen": 240,
+        "props": [{ "channelsPerPixel": 3, "frameOffset": 0, "nodes": 50, "prop": "11111111-0000-4000-8000-000000000001" }, { "channelsPerPixel": 3, "frameOffset": 150, "nodes": 30, "prop": "11111111-0000-4000-8000-000000000002" }]
+      },
+      "command": "redo",
+      "reply": {},
+      "sequence": null,
+      "show": { "canRedo": true, "canUndo": true, "dirty": true, "path": null, "revision": 11 },
+      "showNow": {
+        "background": null,
+        "controllers": [
+          {
+            "adapter": "generic",
+            "address": "127.0.0.1:9",
+            "id": "33333333-0000-4000-8000-000000000001",
+            "name": "Bench",
+            "ports": [
+              {
+                "brightness": 100,
+                "gamma": 1.0,
+                "maxPixels": null,
+                "number": 1,
+                "slots": [{ "brightness": null, "gamma": null, "nullPixels": 0, "prop": "11111111-0000-4000-8000-000000000001", "reverse": false, "segment": null, "smartReceiver": null }, { "brightness": null, "gamma": null, "nullPixels": 0, "prop": "11111111-0000-4000-8000-000000000002", "reverse": false, "segment": null, "smartReceiver": null }]
+              }
+            ],
+            "protocol": { "type": "ddp" },
+            "sequenceChannels": null
+          }
+        ],
+        "groups": [],
+        "name": "Untitled Show",
+        "props": [
+          { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000001", "name": "Gutter", "regions": [], "shape": { "length": 3.0, "nodes": 50, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 1.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } },
+          { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000002", "name": "Fence", "regions": [], "shape": { "length": 3.0, "nodes": 30, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 2.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } }
+        ],
+        "schemaVersion": 12,
+        "sequences": [],
+        "settings": { "frameRate": 40 }
+      },
+      "summaryNow": { "controllers": 1, "pixels": 80, "props": 2, "universes": 0 }
+    }
+  ]
+}

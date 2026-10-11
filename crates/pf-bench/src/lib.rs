@@ -5,8 +5,9 @@
 //! the engine's own render, mapping, packetizing, and sending ([`pipeline`]), flat out or in real
 //! time ([`run`]), into a null sink or UDP listeners on the loopback interface ([`sink`]), and
 //! every stage, frame, packet, and byte of memory is counted ([`measure`]). [`effects`] says
-//! which effects the time goes on, and [`engine`] plays the same thing in the engine itself as a
-//! check. `docs/benchmarks.md` has the method, the commands, and a baseline.
+//! which effects the time goes on, [`engine`] plays the same thing in the engine itself as a
+//! check, and [`sync`] measures how closely the engine's lights keep to the music.
+//! `docs/benchmarks.md` has the method, the commands, and a baseline.
 //!
 //! Nothing here ever sends to a real controller: every address is on the loopback interface, and
 //! the transport refuses anything else.
@@ -22,4 +23,5 @@ pub mod sequence;
 pub mod show;
 pub mod sink;
 pub mod stats;
+pub mod sync;
 pub mod system;

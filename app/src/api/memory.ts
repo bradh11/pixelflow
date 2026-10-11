@@ -491,7 +491,14 @@ export class MemoryBackend implements Backend {
     const controllerNames = new Set(this.show.controllers.map((c) => c.name));
     details.plan.controller.name = numbered(details.plan.controller.name, controllerNames);
     const propNames = new Set(this.show.props.map((p) => p.name));
-    for (const prop of details.plan.props) prop.name = numbered(prop.name, propNames);
+    const renamed = new Map<string, string>();
+    for (const prop of details.plan.props) {
+      const name = numbered(prop.name, propNames);
+      renamed.set(prop.name, name);
+      prop.name = name;
+    }
+    // The notes name each prop in quotes, by the name the plan gives it.
+    details.plan.notes = details.plan.notes.map((note) => note.replace(/"([^"]*)"/g, (quoted, name: string) => (renamed.has(name) ? `"${renamed.get(name)}"` : quoted)));
     details.plan.suggested = matchProps(this.show, details.device, details.config);
     return withFreshIds(details);
   }
@@ -1745,7 +1752,9 @@ function applyEdit(show: Show, edit: Edit): void {
         if (!Number.isFinite(m.scale) || m.scale <= 0) throw new Error("The house model's scale must be more than zero.");
         if (!(m.opacity >= 0 && m.opacity <= 1)) throw new Error("The house model's strength must be between 0% and 100%.");
       }
-      show.houseModel = m ? structuredClone(m) : null;
+      // Like the engine: a show without a house model doesn't mention one.
+      if (m) show.houseModel = structuredClone(m);
+      else delete show.houseModel;
       break;
     }
   }

@@ -2147,6 +2147,7 @@ dependencies = [
  "image",
  "nix",
  "pf-analysis",
+ "pf-audio",
  "pf-engine",
  "pf-frame",
  "pf-mapping",

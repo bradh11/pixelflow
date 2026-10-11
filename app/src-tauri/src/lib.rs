@@ -6,6 +6,7 @@
 
 mod assistant;
 mod camera_map;
+mod commands;
 mod device_setup;
 mod devices;
 mod files;
@@ -16,6 +17,7 @@ mod layout;
 mod logging;
 mod lyrics;
 mod menu;
+mod output;
 mod pickers;
 mod pictures;
 mod playback;
@@ -25,15 +27,16 @@ mod progress;
 mod recent;
 mod sequencer;
 mod sync;
+#[cfg(test)]
+mod testing;
 mod vendor;
 mod video;
 mod vocals;
 mod xlights;
 
+use commands::with_commands;
 use devices::DeviceAccess;
-use pf_engine::{
-    Edit, Engine, EngineError, HistoryEntry, OutputStatus, PatternSpec, ShowSnapshot, TargetSpec,
-};
+use pf_engine::{Edit, Engine, EngineError, HistoryEntry, ShowSnapshot};
 use pf_model::Show;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -55,6 +58,8 @@ struct AppState {
     models: house::PickedModels,
     /// Bumped by `cancel_sequence_export`: an export started before the bump stops.
     export_cancels: std::sync::atomic::AtomicU64,
+    /// Bumped by `cancel_video_export`: a video export started before the bump stops.
+    video_cancels: std::sync::atomic::AtomicU64,
     /// Bumped by `cancel_fpp_send`: a send to an FPP started before the bump stops.
     send_cancels: std::sync::atomic::AtomicU64,
     /// Bumped by `cancel_fpp_download`: a download from an FPP started before the bump stops.
@@ -256,200 +261,6 @@ async fn restore_history<R: Runtime>(
     Ok(snapshot)
 }
 
-#[tauri::command]
-async fn start_output(
-    state: State<'_, AppState>,
-    pattern: PatternSpec,
-    target: TargetSpec,
-) -> Reply<OutputStatus> {
-    state.engine().start_output(pattern, target).map_err(message)
-}
-
-#[tauri::command]
-async fn stop_output(state: State<'_, AppState>) -> Reply<OutputStatus> {
-    Ok(state.engine().stop_output())
-}
-
-#[tauri::command]
-async fn output_status(state: State<'_, AppState>) -> Reply<OutputStatus> {
-    Ok(state.engine().output_status())
-}
-
-/// Registers every command the UI can call. The main window may call any of them; the
-/// preview's window only the few it draws with (see `preview_window`), and is refused the rest
-/// here, before a command runs.
-fn with_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
-    let commands = handler::<R>(tauri::generate_handler![
-        get_snapshot,
-        apply_edits,
-        undo,
-        redo,
-        new_show,
-        open_sample_show,
-        open_show,
-        save_show,
-        save_show_as,
-        list_history,
-        restore_history,
-        start_output,
-        stop_output,
-        output_status,
-        camera_map::camera_map_target,
-        camera_map::camera_map_sync,
-        camera_map::camera_map_decode,
-        camera_map::camera_map_plan,
-        devices::discover_devices,
-        devices::inspect_device,
-        devices::import_device,
-        devices::import_fpp_destination,
-        devices::fpp_status,
-        devices::check_controllers,
-        devices::fpp_sequences,
-        devices::fpp_start,
-        devices::fpp_stop,
-        devices::fpp_files,
-        devices::fpp_schedule,
-        devices::fpp_software,
-        devices::fpp_setup_plan,
-        devices::fpp_set_up_show,
-        devices::open_device_page,
-        device_setup::compare_device,
-        device_setup::take_from_device_setup,
-        device_setup::plan_device_setup,
-        device_setup::send_device_setup,
-        device_setup::restore_device_setup,
-        device_setup::forget_device_setup_copy,
-        device_setup::plan_device_restore,
-        fpp_send::fpp_send_plan,
-        fpp_send::fpp_send,
-        fpp_send::cancel_fpp_send,
-        fpp_send::fpp_sequence_names,
-        fpp_download::fpp_download_plan,
-        fpp_download::fpp_download,
-        fpp_download::cancel_fpp_download,
-        playback::start_playback,
-        playback::pause_playback,
-        playback::seek_playback,
-        playback::stop_playback,
-        playback::playback_status,
-        playback::playback_stop_reason,
-        playback::live_frame,
-        playback::sequence_frame,
-        playback::add_sequence,
-        playback::play_sequence,
-        playback::set_playback_volume,
-        playback::set_playback_speed,
-        sync::sync_click_start,
-        sync::sync_click_position,
-        sync::sync_click_stop,
-        vocals::vocal_lane,
-        playback::audio_waveform,
-        playback::probe_audio,
-        sequencer::new_sequence_doc,
-        sequencer::sequence_recoveries,
-        sequencer::recover_sequence,
-        sequencer::discard_sequence_recovery,
-        sequencer::open_sequence_doc,
-        sequencer::save_sequence_doc,
-        sequencer::save_sequence_doc_as,
-        sequencer::close_sequence_doc,
-        sequencer::get_sequence_doc,
-        sequencer::edit_sequence,
-        sequencer::effect_catalog,
-        sequencer::cancel_sequence_export,
-        sequencer::undo_sequence,
-        sequencer::redo_sequence,
-        sequencer::sequence_doc_frame,
-        sequencer::play_sequence_doc,
-        sequencer::set_sequence_doc_output,
-        sequencer::set_sequence_doc_loop,
-        sequencer::add_sequence_doc_to_show,
-        sequencer::sequence_export_layout,
-        sequencer::export_sequence_doc,
-        video::video_export_choices,
-        video::export_video,
-        video::cancel_video_export,
-        sequencer::analyze_audio,
-        sequencer::detect_beats,
-        sequencer::import_timing_file,
-        sequencer::export_timing_track,
-        xlights::import_xlights,
-        xlights::import_xlights_sequence,
-        vendor::inspect_xlights_sequence,
-        vendor::read_xmap,
-        vendor::write_xmap,
-        layout::preview_props,
-        layout::preview_props_3d,
-        layout::pick_image,
-        layout::read_image,
-        house::pick_house_model,
-        house::read_house_model,
-        assistant::ai_key_storage,
-        assistant::set_api_key,
-        assistant::use_api_key_for_session,
-        assistant::has_api_key,
-        assistant::api_key_location,
-        assistant::delete_api_key,
-        assistant::list_ai_models,
-        assistant::ai_send,
-        assistant::ai_stop,
-        assistant::ai_new_chat,
-        assistant::ai_apply,
-        assistant::ai_discard,
-        assistant::ai_preview,
-        assistant::ai_preview_frame,
-        assistant::ai_sync,
-        lyrics::lyrics_gate,
-        lyrics::find_lyrics,
-        lyrics::choose_lyrics,
-        lyrics::cancel_lyrics,
-        lyrics::syllables_from_words,
-        lyrics::nudge_lyrics,
-        lyrics::retime_lyrics,
-        lyrics::alignment_models,
-        lyrics::download_alignment_models,
-        lyrics::cancel_alignment_download,
-        lyrics::remove_alignment_models,
-        files::check_files,
-        files::find_missing_files,
-        files::locate_file,
-        files::sequence_music_missing,
-        files::find_sequence_music,
-        files::locate_sequence_music,
-        pictures::pick_picture,
-        pictures::read_picture,
-        pictures::list_pictures,
-        pictures::check_sequence_pictures,
-        pictures::find_sequence_pictures,
-        pictures::locate_sequence_picture,
-        pickers::pick_path,
-        recent::list_recent_shows,
-        recent::forget_recent_show,
-        recent::clear_recent_shows,
-        recent::locate_recent_show,
-        preview_window::open_preview_window,
-        preview_window::close_preview_window,
-        preview_window::preview_link,
-        preview_window::set_fullscreen,
-        preview_window::is_fullscreen,
-    ]);
-    builder.invoke_handler(move |invoke| {
-        let window = invoke.message.webview_ref().label();
-        if !preview_window::may_call(window, invoke.message.command()) {
-            invoke.resolver.reject(preview_window::REFUSED);
-            return true;
-        }
-        commands(invoke)
-    })
-}
-
-/// Gives the generated command handler its type, so it can be called from another closure.
-fn handler<R: tauri::Runtime>(
-    commands: impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static,
-) -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static {
-    commands
-}
-
 /// The app's compiled configuration and permissions (expanded once, shared with tests).
 fn context<R: tauri::Runtime>() -> tauri::Context<R> {
     tauri::generate_context!()
@@ -478,6 +289,7 @@ pub fn run() {
                 photos: Default::default(),
                 models: Default::default(),
                 export_cancels: Default::default(),
+                video_cancels: Default::default(),
                 send_cancels: Default::default(),
                 download_cancels: Default::default(),
                 download_folders: Default::default(),
@@ -576,104 +388,15 @@ fn shut_down(state: &AppState) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testing::{app, app_in, app_without_window, authored, call, call_raw, write_clicks};
     use serde_json::{Value, json};
-    use tauri::ipc::{CallbackFn, InvokeBody, InvokeResponseBody};
-    use tauri::test::{INVOKE_KEY, MockRuntime, get_ipc_response, mock_builder};
+    use tauri::WebviewWindow;
+    use tauri::ipc::{CallbackFn, InvokeBody};
+    use tauri::test::{INVOKE_KEY, MockRuntime, get_ipc_response};
     use tauri::webview::InvokeRequest;
-    use tauri::{App, WebviewWindow, WebviewWindowBuilder};
 
-    fn app() -> (App<MockRuntime>, WebviewWindow<MockRuntime>, tempfile::TempDir) {
-        app_in(tempfile::tempdir().unwrap())
-    }
-
-    /// The app with its data (autosaves, kept sequences) in `dir`.
-    fn app_in(dir: tempfile::TempDir) -> (App<MockRuntime>, WebviewWindow<MockRuntime>, tempfile::TempDir) {
-        let app = app_without_window(dir.path());
-        let webview = WebviewWindowBuilder::new(&app, "main", Default::default())
-            .build()
-            .unwrap();
-        (app, webview, dir)
-    }
-
-    /// The app, with its data in `dir`, before its window is made (running it makes the
-    /// window from the app's configuration).
-    fn app_without_window(dir: &std::path::Path) -> App<MockRuntime> {
-        // Nothing reaches the network or a sound device: packets are recorded and music is timed
-        // by a silent stopwatch.
-        let (transport, _recorded) = pf_output::RecordingTransport::new();
-        let silent: pf_engine::ClockFactory = std::sync::Arc::new(|_| {
-            Ok(Box::new(pf_audio::SilentClock::new()) as Box<dyn pf_audio::AudioClock>)
-        });
-        let engine = Engine::new(dir)
-            .with_transport(move || Ok(Box::new(transport.clone()) as Box<dyn pf_output::Transport>))
-            .with_clocks(silent);
-        with_commands(mock_builder())
-            .manage(AppState {
-                engine: Mutex::new(engine),
-                devices: DeviceAccess::fake(pf_devices::testing::network())
-                    .with_setup_dir(dir.join("device-setups")),
-                waveforms: Mutex::default(),
-                photos: Default::default(),
-                models: Default::default(),
-                export_cancels: Default::default(),
-                send_cancels: Default::default(),
-                download_cancels: Default::default(),
-                download_folders: Default::default(),
-                checking_files: Default::default(),
-                recent: Arc::new(recent::RecentShows::new(Some(dir.join("config")))),
-                last_folders: pickers::LastFolders::new(Some(dir.join("config"))),
-                dialog: Default::default(),
-                imported_from: Mutex::default(),
-                vendor_mappings: Arc::new(vendor::SavedMappings::new(Some(dir.join("config")))),
-                preview: preview_window::PreviewState::new(Some(dir.join("config"))),
-            })
-            .manage(sync::SyncState::with_opener(Arc::new(|_| {
-                Ok((
-                    Box::new(pf_audio::SilentClock::new()) as Box<dyn pf_audio::AudioClock + Send>,
-                    None,
-                ))
-            })))
-            .manage(vocals::VocalsState::default())
-            .build(context())
-            .unwrap()
-    }
-
-    /// Calls a command the way the UI does and returns its JSON reply (or error message).
-    fn call(webview: &WebviewWindow<MockRuntime>, cmd: &str, args: Value) -> Result<Value, Value> {
-        get_ipc_response(
-            webview,
-            InvokeRequest {
-                cmd: cmd.into(),
-                callback: CallbackFn(0),
-                error: CallbackFn(1),
-                url: webview.url().unwrap(),
-                body: InvokeBody::Json(args),
-                headers: Default::default(),
-                invoke_key: INVOKE_KEY.to_string(),
-            },
-        )
-        .map(|body| body.deserialize::<Value>().unwrap())
-    }
-
-    /// Calls a command that answers with raw bytes.
-    fn call_raw(webview: &WebviewWindow<MockRuntime>, cmd: &str, args: Value) -> Result<Vec<u8>, Value> {
-        let reply = get_ipc_response(
-            webview,
-            InvokeRequest {
-                cmd: cmd.into(),
-                callback: CallbackFn(0),
-                error: CallbackFn(1),
-                url: webview.url().unwrap(),
-                body: InvokeBody::Json(args),
-                headers: Default::default(),
-                invoke_key: INVOKE_KEY.to_string(),
-            },
-        )?;
-        match reply {
-            InvokeResponseBody::Raw(bytes) => Ok(bytes.to_vec()),
-            other => panic!("expected raw bytes, got {other:?}"),
-        }
-    }
+    mod contracts;
+    mod parity;
 
     #[test]
     fn edits_from_the_ui_round_trip_through_the_engine() {
@@ -1008,30 +731,6 @@ mod tests {
         call(&webview, "new_show", json!({ "name": "Other" })).unwrap();
         let snapshot = call(&webview, "open_show", json!({ "path": path })).unwrap();
         assert_eq!(snapshot["show"]["name"], "House");
-    }
-
-    #[test]
-    fn output_commands_accept_the_ui_specs() {
-        let (_app, webview, _dir) = app();
-        let status = call(&webview, "output_status", json!({})).unwrap();
-        assert_eq!(status["running"], false);
-        assert_eq!(status["stopReason"], Value::Null);
-        // An empty show has nothing to light, so starting is refused with a plain message.
-        let error = call(
-            &webview,
-            "start_output",
-            json!({ "pattern": { "kind": "solid", "color": "ff0000" }, "target": { "type": "show" } }),
-        )
-        .unwrap_err();
-        assert!(
-            error
-                .as_str()
-                .unwrap()
-                .starts_with("The chosen target has no pixels to light."),
-            "{error}"
-        );
-        let status = call(&webview, "stop_output", json!({})).unwrap();
-        assert_eq!(status["running"], false);
     }
 
     #[test]
@@ -1993,36 +1692,6 @@ mod tests {
         assert!(missing.as_str().unwrap().contains("can't find"), "{missing}");
     }
 
-    /// A 12 s, 22.05 kHz mono WAV with a click every 500 ms.
-    fn write_clicks(path: &std::path::Path) {
-        let rate = 22_050u32;
-        let mut samples = vec![0i16; rate as usize * 12];
-        for beat in 0..23 {
-            let start = (250 + beat * 500) * rate as usize / 1000;
-            for k in 0..200 {
-                let v = (-(k as f32) / 40.0).exp() * (k as f32 * 0.6).sin() * 0.9;
-                samples[start + k] = (v * i16::MAX as f32) as i16;
-            }
-        }
-        let data_len = (samples.len() * 2) as u32;
-        let mut out = b"RIFF".to_vec();
-        out.extend_from_slice(&(36 + data_len).to_le_bytes());
-        out.extend_from_slice(b"WAVEfmt ");
-        out.extend_from_slice(&16u32.to_le_bytes());
-        out.extend_from_slice(&1u16.to_le_bytes());
-        out.extend_from_slice(&1u16.to_le_bytes());
-        out.extend_from_slice(&rate.to_le_bytes());
-        out.extend_from_slice(&(rate * 2).to_le_bytes());
-        out.extend_from_slice(&2u16.to_le_bytes());
-        out.extend_from_slice(&16u16.to_le_bytes());
-        out.extend_from_slice(b"data");
-        out.extend_from_slice(&data_len.to_le_bytes());
-        for s in samples {
-            out.extend_from_slice(&s.to_le_bytes());
-        }
-        std::fs::write(path, out).unwrap();
-    }
-
     #[test]
     fn sequences_are_authored_previewed_played_exported_and_beat_detected() {
         let (_app, webview, dir) = app();
@@ -2216,45 +1885,6 @@ mod tests {
                 .len()
                 == 12
         );
-    }
-
-    /// A strip wired to a controller and a new 2 s sequence with one red effect on it.
-    fn authored(webview: &WebviewWindow<MockRuntime>) {
-        let prop = json!({
-            "id": "11111111-0000-4000-8000-0000000000bb", "name": "Strip",
-            "shape": { "source": "generator", "type": "line", "nodes": 4, "length": 1.0 }
-        });
-        let controller = json!({
-            "id": "33333333-0000-4000-8000-0000000000bb", "name": "Bench", "address": "127.0.0.1:9",
-            "protocol": { "type": "ddp" },
-            "ports": [{ "number": 1, "slots": [{ "prop": "11111111-0000-4000-8000-0000000000bb" }] }]
-        });
-        call(
-            webview,
-            "apply_edits",
-            json!({ "edits": [{ "type": "addProp", "prop": prop }, { "type": "addController", "controller": controller }] }),
-        )
-        .unwrap();
-        call(
-            webview,
-            "new_sequence_doc",
-            json!({ "name": "Song", "durationMs": 2000 }),
-        )
-        .unwrap();
-        let row = json!({ "id": "44444444-0000-4000-8000-0000000000bb",
-            "target": { "prop": "11111111-0000-4000-8000-0000000000bb" }, "layers": [{ "effects": [] }] });
-        let effect = json!({ "id": "55555555-0000-4000-8000-0000000000bb", "startMs": 0, "endMs": 1000,
-            "params": { "kind": "on" }, "palette": { "colors": ["#ff0000"] }, "blend": "normal",
-            "fadeInMs": 0, "fadeOutMs": 0 });
-        call(
-            webview,
-            "edit_sequence",
-            json!({ "edits": [
-                { "type": "addRow", "row": row },
-                { "type": "addEffect", "row": "44444444-0000-4000-8000-0000000000bb", "layer": 0, "effect": effect },
-            ] }),
-        )
-        .unwrap();
     }
 
     #[test]
@@ -3583,70 +3213,6 @@ mod tests {
         );
     }
 
-    /// The pixel hat's strings: port 1 has "Roof Line" (150 pixels) and "Gutter" (50).
-    fn fake_hat() -> pf_devices::testing::FakeFpp {
-        let mut doc: Value = serde_json::from_str(include_str!(
-            "../../../crates/pf-devices/fixtures/fpp-hat/api_channel_output_co-pixelStrings.json"
-        ))
-        .unwrap();
-        doc.as_object_mut().unwrap().remove("status");
-        pf_devices::testing::FakeFpp::start().with_pixel_strings(doc)
-    }
-
-    /// Adds the device at `host` to the show as an import would (one undo step).
-    fn add_device(webview: &WebviewWindow<MockRuntime>, host: &str) -> Value {
-        let http = pf_devices::HttpClient::new(std::time::Duration::from_secs(5));
-        let device = pf_devices::identify(&http, host, Some(pf_devices::DeviceKind::Fpp)).unwrap();
-        let config = pf_devices::read_config(&http, &device).unwrap();
-        let plan = pf_devices::plan_import(&device, &config, &pf_model::Show::new("t"));
-        let mut edits: Vec<Edit> = plan
-            .props
-            .into_iter()
-            .map(|prop| Edit::AddProp { prop })
-            .collect();
-        edits.push(Edit::AddController {
-            controller: plan.controller,
-        });
-        call(webview, "apply_edits", json!({ "edits": edits })).unwrap()
-    }
-
-    /// Resizes the line prop `name` to `nodes` pixels.
-    fn resize(webview: &WebviewWindow<MockRuntime>, snapshot: &Value, name: &str, nodes: u32) -> Value {
-        let mut prop = snapshot["show"]["props"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|p| p["name"] == name)
-            .unwrap()
-            .clone();
-        prop["shape"]["nodes"] = json!(nodes);
-        call(
-            webview,
-            "apply_edits",
-            json!({ "edits": [{ "type": "updateProp", "prop": prop }] }),
-        )
-        .unwrap()
-    }
-
-    /// Puts back the kept copy as the dialog does: look at what it changes, then confirm those rows.
-    fn put_back(webview: &WebviewWindow<MockRuntime>, host: &str) -> Result<Value, Value> {
-        let plan = call(webview, "plan_device_restore", json!({ "address": host }))?;
-        call(
-            webview,
-            "restore_device_setup",
-            json!({ "address": host, "expected": ids(&plan["changes"]) }),
-        )
-    }
-
-    fn ids(changes: &Value) -> Vec<String> {
-        changes
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|c| c["id"].as_str().unwrap().to_string())
-            .collect()
-    }
-
     #[test]
     fn an_import_can_wire_props_already_in_the_show() {
         let (_app, webview, _dir) = app();
@@ -3680,331 +3246,5 @@ mod tests {
             snapshot["show"]["controllers"][0]["ports"][0]["slots"][0]["prop"],
             json!(id)
         );
-    }
-
-    #[test]
-    fn comparing_takes_picked_differences_into_the_show_as_one_undo_step() {
-        let (_app, webview, _dir) = app();
-        let fpp = fake_hat();
-        let host = fpp.address().to_string();
-        add_device(&webview, &host);
-        let error = call(
-            &webview,
-            "take_from_device_setup",
-            json!({ "address": host, "picks": ["x"] }),
-        )
-        .unwrap_err();
-        assert_eq!(error, json!("Compare with the controller first."));
-        // On the FPP's own page, Gutter grows to 60 pixels.
-        fpp.state().pixel_strings.as_mut().unwrap()["channelOutputs"][0]["outputs"][0]["virtualStrings"][1]
-            ["pixelCount"] = json!(60);
-        let comparison = call(&webview, "compare_device", json!({ "address": host })).unwrap();
-        assert_eq!(comparison["controllerName"], "FakeFPP");
-        assert_eq!(ids(&comparison["changes"]), vec!["port1/string2/pixels"]);
-        assert_eq!(comparison["changes"][0]["before"], "50");
-        assert_eq!(comparison["changes"][0]["after"], "60");
-
-        let snapshot = call(
-            &webview,
-            "take_from_device_setup",
-            json!({ "address": host, "picks": ["port1/string2/pixels"] }),
-        )
-        .unwrap();
-        assert_eq!(snapshot["summary"]["pixels"], 210);
-        let snapshot = call(&webview, "undo", json!({})).unwrap();
-        assert_eq!(snapshot["summary"]["pixels"], 200, "one undo step");
-        // Comparing never writes to the device.
-        assert!(fpp.state().config_writes.is_empty());
-    }
-
-    #[test]
-    fn sending_a_setup_shows_it_first_then_sends_checks_and_can_put_it_back() {
-        let (_app, webview, _dir) = app();
-        let fpp = fake_hat();
-        let host = fpp.address().to_string();
-        let original = fpp.state().pixel_strings.clone().unwrap();
-        let snapshot = add_device(&webview, &host);
-        let error = call(
-            &webview,
-            "send_device_setup",
-            json!({ "address": host, "expected": [] }),
-        )
-        .unwrap_err();
-        assert_eq!(error, json!("Review what will change before sending."));
-
-        let snapshot = resize(&webview, &snapshot, "Gutter", 30);
-        let plan = call(&webview, "plan_device_setup", json!({ "address": host })).unwrap();
-        assert_eq!(plan["canSend"], true);
-        assert_eq!(ids(&plan["changes"]), vec!["port1/string2/pixels"]);
-        assert!(
-            plan["changes"][0]["warning"]
-                .as_str()
-                .unwrap()
-                .contains("go dark")
-        );
-        assert!(fpp.state().config_writes.is_empty(), "planning sends nothing");
-
-        let error = call(
-            &webview,
-            "send_device_setup",
-            json!({ "address": host, "expected": ["other"] }),
-        )
-        .unwrap_err();
-        assert!(
-            error.as_str().unwrap().contains("isn't what was shown"),
-            "{error}"
-        );
-        let report = call(
-            &webview,
-            "send_device_setup",
-            json!({ "address": host, "expected": ["port1/string2/pixels"] }),
-        )
-        .unwrap();
-        assert_eq!(report["status"], "sent", "{report}");
-        let saved = fpp.state().pixel_strings.clone().unwrap();
-        assert_eq!(
-            saved["channelOutputs"][0]["outputs"][0]["virtualStrings"][1]["pixelCount"],
-            30
-        );
-        // The plan is used up.
-        let error = call(
-            &webview,
-            "send_device_setup",
-            json!({ "address": host, "expected": ["port1/string2/pixels"] }),
-        )
-        .unwrap_err();
-        assert!(
-            error.as_str().unwrap().contains("isn't what was shown"),
-            "{error}"
-        );
-
-        // A send that fails partway can be undone with one click.
-        resize(&webview, &snapshot, "Gutter", 20);
-        let plan = call(&webview, "plan_device_setup", json!({ "address": host })).unwrap();
-        fpp.state().fail_config_writes = Some((500, "{}".to_string()));
-        let report = call(
-            &webview,
-            "send_device_setup",
-            json!({ "address": host, "expected": ids(&plan["changes"]) }),
-        )
-        .unwrap();
-        assert_eq!(report["status"], "failed");
-        assert_eq!(report["canRestore"], true);
-        fpp.state().fail_config_writes = None;
-        // The copy kept is the one from before the first send: the last setup known to work.
-        assert_ne!(fpp.state().pixel_strings.clone().unwrap(), original);
-        let restored = put_back(&webview, &host).unwrap();
-        assert_eq!(restored["restored"], true, "{restored}");
-        assert_eq!(fpp.state().pixel_strings.clone().unwrap(), original);
-        assert_ne!(saved, original);
-        // Once it's back on the device, the copy is done with.
-        let plan = call(&webview, "plan_device_setup", json!({ "address": host })).unwrap();
-        assert_eq!(plan["restorePoint"], json!(null), "{plan}");
-        let error = call(&webview, "plan_device_restore", json!({ "address": host })).unwrap_err();
-        assert_eq!(
-            error,
-            json!("There's no earlier setup of this controller to put back.")
-        );
-    }
-
-    #[test]
-    fn put_back_shows_what_it_changes_and_needs_those_rows_confirmed() {
-        let (_app, webview, _dir) = app();
-        let fpp = fake_hat();
-        let host = fpp.address().to_string();
-        let snapshot = add_device(&webview, &host);
-        resize(&webview, &snapshot, "Gutter", 30);
-        let plan = call(&webview, "plan_device_setup", json!({ "address": host })).unwrap();
-        call(
-            &webview,
-            "send_device_setup",
-            json!({ "address": host, "expected": ids(&plan["changes"]) }),
-        )
-        .unwrap();
-        let restore = call(&webview, "plan_device_restore", json!({ "address": host })).unwrap();
-        assert_eq!(restore["canRestore"], true, "{restore}");
-        assert_eq!(ids(&restore["changes"]), vec!["port1/string2/pixels"]);
-        assert_eq!(restore["changes"][0]["before"], "30");
-        assert_eq!(restore["changes"][0]["after"], "50");
-        let writes = fpp.state().config_writes.len();
-        let error = call(
-            &webview,
-            "restore_device_setup",
-            json!({ "address": host, "expected": ["other"] }),
-        )
-        .unwrap_err();
-        assert!(
-            error.as_str().unwrap().contains("isn't what was shown"),
-            "{error}"
-        );
-        assert_eq!(fpp.state().config_writes.len(), writes, "nothing written");
-        let restored = call(
-            &webview,
-            "restore_device_setup",
-            json!({ "address": host, "expected": ["port1/string2/pixels"] }),
-        )
-        .unwrap();
-        assert_eq!(restored["restored"], true, "{restored}");
-    }
-
-    #[test]
-    fn put_back_refuses_a_different_device_at_the_same_address() {
-        let (_app, webview, _dir) = app();
-        let fpp = fake_hat();
-        let host = fpp.address().to_string();
-        let snapshot = add_device(&webview, &host);
-        resize(&webview, &snapshot, "Gutter", 30);
-        let plan = call(&webview, "plan_device_setup", json!({ "address": host })).unwrap();
-        call(
-            &webview,
-            "send_device_setup",
-            json!({ "address": host, "expected": ids(&plan["changes"]) }),
-        )
-        .unwrap();
-        let restore = call(&webview, "plan_device_restore", json!({ "address": host })).unwrap();
-        // Another FPP now answers at this address (between looking and confirming).
-        fpp.state().uuid = "M1-SOMEONE-ELSE".to_string();
-        fpp.state().host_name = "OtherFPP".to_string();
-        let writes = fpp.state().config_writes.len();
-        let error = call(
-            &webview,
-            "restore_device_setup",
-            json!({ "address": host, "expected": ids(&restore["changes"]) }),
-        )
-        .unwrap_err();
-        assert!(error.as_str().unwrap().contains("OtherFPP"), "{error}");
-        assert_eq!(fpp.state().config_writes.len(), writes, "nothing written");
-        // Looking again, the copy isn't this device's, so it isn't offered.
-        let plan = call(&webview, "plan_device_setup", json!({ "address": host })).unwrap();
-        assert_eq!(plan["restorePoint"], json!(null));
-        let error = call(&webview, "plan_device_restore", json!({ "address": host })).unwrap_err();
-        assert_eq!(
-            error,
-            json!("There's no earlier setup of this controller to put back.")
-        );
-    }
-
-    #[test]
-    fn copies_of_two_devices_are_kept_apart() {
-        let (_app, webview, _dir) = app();
-        let (a, b) = (fake_hat(), fake_hat());
-        b.state().uuid = "M1-FAKE-0002".to_string();
-        b.state().pixel_strings.as_mut().unwrap()["channelOutputs"][0]["outputs"][0]["virtualStrings"][1]["description"] =
-            json!("Gutter B");
-        for (fpp, gutter) in [(&a, "Gutter"), (&b, "Gutter B")] {
-            let host = fpp.address().to_string();
-            let snapshot = add_device(&webview, &host);
-            resize(&webview, &snapshot, gutter, 30);
-            let plan = call(&webview, "plan_device_setup", json!({ "address": host })).unwrap();
-            call(
-                &webview,
-                "send_device_setup",
-                json!({ "address": host, "expected": ids(&plan["changes"]) }),
-            )
-            .unwrap();
-        }
-        for fpp in [&a, &b] {
-            let restored = put_back(&webview, fpp.address()).unwrap();
-            assert_eq!(restored["restored"], true, "{restored}");
-        }
-    }
-
-    #[test]
-    fn put_back_stays_after_a_send_reported_as_sent_and_across_a_restart() {
-        let fpp = fake_hat();
-        let host = fpp.address().to_string();
-        let before = fpp.state().pixel_strings.clone().unwrap();
-        let (app, webview, dir) = app_in(tempfile::tempdir().unwrap());
-        let snapshot = add_device(&webview, &host);
-        resize(&webview, &snapshot, "Gutter", 30);
-        let plan = call(&webview, "plan_device_setup", json!({ "address": host })).unwrap();
-        assert_eq!(plan["restorePoint"], json!(null));
-        let report = call(
-            &webview,
-            "send_device_setup",
-            json!({ "address": host, "expected": ids(&plan["changes"]) }),
-        )
-        .unwrap();
-        assert_eq!(report["status"], "sent", "{report}");
-        assert_eq!(report["canRestore"], true);
-        // Looking again keeps the copy from before the send, not the device as it is now.
-        let plan = call(&webview, "plan_device_setup", json!({ "address": host })).unwrap();
-        assert!(plan["restorePoint"]["takenAtMs"].as_u64().unwrap() > 0, "{plan}");
-        drop((webview, app));
-
-        // After a restart (no show open), the copy is still there and puts the FPP back.
-        let (_app, webview, _dir) = app_in(dir);
-        let restored = put_back(&webview, &host).unwrap();
-        assert_eq!(restored["restored"], true, "{restored}");
-        assert_eq!(fpp.state().pixel_strings.clone().unwrap(), before);
-    }
-
-    #[test]
-    fn a_failed_put_back_can_be_tried_again() {
-        let (_app, webview, _dir) = app();
-        let fpp = fake_hat();
-        let host = fpp.address().to_string();
-        let snapshot = add_device(&webview, &host);
-        resize(&webview, &snapshot, "Gutter", 30);
-        let plan = call(&webview, "plan_device_setup", json!({ "address": host })).unwrap();
-        call(
-            &webview,
-            "send_device_setup",
-            json!({ "address": host, "expected": ids(&plan["changes"]) }),
-        )
-        .unwrap();
-        fpp.state().fail_config_writes = Some((500, "{}".to_string()));
-        let restored = put_back(&webview, &host).unwrap();
-        assert_eq!(restored["restored"], false);
-        fpp.state().fail_config_writes = None;
-        let restored = put_back(&webview, &host).unwrap();
-        assert_eq!(restored["restored"], true, "{restored}");
-    }
-
-    #[test]
-    fn a_plan_fppd_would_not_load_cant_be_sent() {
-        let (_app, webview, _dir) = app();
-        let fpp = fake_hat();
-        let host = fpp.address().to_string();
-        let snapshot = add_device(&webview, &host);
-        resize(&webview, &snapshot, "Gutter", 2000);
-        let plan = call(&webview, "plan_device_setup", json!({ "address": host })).unwrap();
-        assert_eq!(plan["canSend"], false);
-        assert!(plan["problems"][0].as_str().unwrap().contains("1,600"), "{plan}");
-        let report = call(
-            &webview,
-            "send_device_setup",
-            json!({ "address": host, "expected": ids(&plan["changes"]) }),
-        )
-        .unwrap();
-        assert_eq!(report["status"], "refused");
-        assert!(fpp.state().config_writes.is_empty());
-    }
-
-    #[test]
-    fn nothing_is_sent_when_the_show_changed_after_the_plan_was_shown() {
-        let (_app, webview, _dir) = app();
-        let fpp = fake_hat();
-        let host = fpp.address().to_string();
-        let snapshot = add_device(&webview, &host);
-        resize(&webview, &snapshot, "Gutter", 30);
-        let plan = call(&webview, "plan_device_setup", json!({ "address": host })).unwrap();
-        resize(&webview, &snapshot, "Gutter", 25);
-        let error = call(
-            &webview,
-            "send_device_setup",
-            json!({ "address": host, "expected": ids(&plan["changes"]) }),
-        )
-        .unwrap_err();
-        assert!(error.as_str().unwrap().contains("Your show changed"), "{error}");
-        assert!(fpp.state().config_writes.is_empty());
-    }
-
-    #[test]
-    fn a_controller_not_in_the_show_cant_be_compared() {
-        let (_app, webview, _dir) = app();
-        let falcon = pf_devices::testing::FALCON;
-        let error = call(&webview, "compare_device", json!({ "address": falcon })).unwrap_err();
-        assert!(error.as_str().unwrap().contains("No controller at"), "{error}");
     }
 }

@@ -139,12 +139,6 @@ impl RecentShows {
         }
     }
 
-    /// A list kept for this session only.
-    #[cfg(test)]
-    pub(crate) fn in_memory() -> Self {
-        Self::new(None)
-    }
-
     /// The list, read from disk the first time.
     fn entries(&self) -> MutexGuard<'_, Option<Vec<Stored>>> {
         let mut entries = self.entries.lock().unwrap_or_else(PoisonError::into_inner);

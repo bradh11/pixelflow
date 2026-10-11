@@ -18,6 +18,7 @@ pf-output.workspace = true
 pf-sequence.workspace = true
 pf-render.workspace = true
 pf-analysis.workspace = true
+pf-audio.workspace = true
 pf-engine.workspace = true
 clap.workspace = true
 anyhow.workspace = true

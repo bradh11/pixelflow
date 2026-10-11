@@ -1,0 +1,44 @@
+[
+  {
+    "name": "a video that was written (built)",
+    "ts": "video.VideoSummary",
+    "value": {
+      "bytes": 181000,
+      "durationMs": 2000,
+      "elapsedMs": 900,
+      "fps": 30,
+      "frames": 60,
+      "height": 720,
+      "notes": ["The layout photo couldn't be read, so the video has none."],
+      "sound": "AAC 192 kb/s",
+      "video": "H.264 (OpenH264)",
+      "width": 1280
+    }
+  },
+  {
+    "name": "a video without sound (built)",
+    "ts": "video.VideoSummary",
+    "value": {
+      "bytes": 181000,
+      "durationMs": 2000,
+      "elapsedMs": 900,
+      "fps": 30,
+      "frames": 60,
+      "height": 720,
+      "notes": [],
+      "sound": null,
+      "video": "H.264 (OpenH264)",
+      "width": 1280
+    }
+  },
+  {
+    "name": "a video export's choices, with ffmpeg and a photo (built)",
+    "ts": "video.VideoChoices",
+    "value": { "ffmpeg": "x264", "photo": true }
+  },
+  {
+    "name": "a video export's choices, with neither (built)",
+    "ts": "video.VideoChoices",
+    "value": { "ffmpeg": null, "photo": false }
+  }
+]

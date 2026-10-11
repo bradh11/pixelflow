@@ -1,0 +1,87 @@
+{
+  "about": "An edit that leaves the show as it was is no undo step and nothing to save.",
+  "devices": [],
+  "start": {
+    "channelMapNow": { "controllers": [], "frameLen": 0, "props": [] },
+    "issuesNow": [],
+    "sequence": null,
+    "sequenceIssuesNow": null,
+    "sequenceNow": null,
+    "show": { "canRedo": false, "canUndo": false, "dirty": false, "path": null, "revision": 0 },
+    "showNow": { "background": null, "controllers": [], "groups": [], "name": "Untitled Show", "props": [], "schemaVersion": 12, "sequences": [], "settings": { "frameRate": 40 } },
+    "summaryNow": { "controllers": 0, "pixels": 0, "props": 0, "universes": 0 }
+  },
+  "steps": [
+    {
+      "args": {
+        "edits": [
+          { "prop": { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000001", "name": "Gutter", "regions": [], "shape": { "length": 3, "nodes": 50, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 1, "y": 0, "z": 0 }, "rotationDeg": { "x": 0, "y": 0, "z": 0 }, "scale": { "x": 1, "y": 1, "z": 1 } } }, "type": "addProp" },
+          { "sequence": { "audio": "/fixture/music/Carol.mp3", "id": "77777777-0000-4000-8000-000000000001", "name": "Carol", "offsetMs": 0, "path": "/fixture/sequences/Carol.fseq" }, "type": "addSequence" }
+        ]
+      },
+      "channelMapNow": { "controllers": [], "frameLen": 150, "props": [{ "channelsPerPixel": 3, "frameOffset": 0, "nodes": 50, "prop": "11111111-0000-4000-8000-000000000001" }] },
+      "command": "apply_edits",
+      "issuesNow": [{ "code": "unassignedNodes", "fix": "Drag the prop onto a controller port.", "message": "The prop 'Gutter' is not wired to any controller port.", "severity": "warning" }],
+      "reply": {},
+      "sequence": null,
+      "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 },
+      "showNow": {
+        "background": null,
+        "controllers": [],
+        "groups": [],
+        "name": "Untitled Show",
+        "props": [{ "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000001", "name": "Gutter", "regions": [], "shape": { "length": 3.0, "nodes": 50, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 1.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } }],
+        "schemaVersion": 12,
+        "sequences": [{ "audio": "/fixture/music/Carol.mp3", "id": "77777777-0000-4000-8000-000000000001", "name": "Carol", "offsetMs": 0, "path": "/fixture/sequences/Carol.fseq" }],
+        "settings": { "frameRate": 40 }
+      },
+      "summaryNow": { "controllers": 0, "pixels": 50, "props": 1, "universes": 0 }
+    },
+    { "args": { "path": "/fixture/House.pixelflow.json" }, "command": "save_show_as", "reply": {}, "sequence": null, "show": { "canRedo": false, "canUndo": true, "dirty": false, "path": "/fixture/House.pixelflow.json", "revision": 1 } },
+    { "args": { "edits": [] }, "command": "apply_edits", "reply": {}, "sequence": null, "show": { "canRedo": false, "canUndo": true, "dirty": false, "path": "/fixture/House.pixelflow.json", "revision": 1 } },
+    { "args": { "edits": [{ "name": "Untitled Show", "type": "renameShow" }] }, "command": "apply_edits", "reply": {}, "sequence": null, "show": { "canRedo": false, "canUndo": true, "dirty": false, "path": "/fixture/House.pixelflow.json", "revision": 1 } },
+    { "args": { "edits": [{ "fps": 40, "type": "setFrameRate" }] }, "command": "apply_edits", "reply": {}, "sequence": null, "show": { "canRedo": false, "canUndo": true, "dirty": false, "path": "/fixture/House.pixelflow.json", "revision": 1 } },
+    {
+      "args": { "edits": [{ "prop": { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000001", "name": "Gutter", "regions": [], "shape": { "length": 3, "nodes": 50, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 1, "y": 0, "z": 0 }, "rotationDeg": { "x": 0, "y": 0, "z": 0 }, "scale": { "x": 1, "y": 1, "z": 1 } } }, "type": "updateProp" }] },
+      "command": "apply_edits",
+      "reply": {},
+      "sequence": null,
+      "show": { "canRedo": false, "canUndo": true, "dirty": false, "path": "/fixture/House.pixelflow.json", "revision": 1 }
+    },
+    { "args": { "edits": [{ "id": "77777777-0000-4000-8000-000000000001", "index": 0, "type": "moveSequence" }] }, "command": "apply_edits", "reply": {}, "sequence": null, "show": { "canRedo": false, "canUndo": true, "dirty": false, "path": "/fixture/House.pixelflow.json", "revision": 1 } },
+    { "args": { "edits": [{ "background": null, "type": "setBackground" }] }, "command": "apply_edits", "reply": {}, "sequence": null, "show": { "canRedo": false, "canUndo": true, "dirty": false, "path": "/fixture/House.pixelflow.json", "revision": 1 } },
+    { "args": { "edits": [{ "houseModel": null, "type": "setHouseModel" }] }, "command": "apply_edits", "reply": {}, "sequence": null, "show": { "canRedo": false, "canUndo": true, "dirty": false, "path": "/fixture/House.pixelflow.json", "revision": 1 } },
+    { "args": { "edits": [{ "name": "House", "type": "renameShow" }, { "name": "Untitled Show", "type": "renameShow" }] }, "command": "apply_edits", "reply": {}, "sequence": null, "show": { "canRedo": false, "canUndo": true, "dirty": false, "path": "/fixture/House.pixelflow.json", "revision": 1 } },
+    {
+      "args": {},
+      "channelMapNow": { "controllers": [], "frameLen": 0, "props": [] },
+      "command": "undo",
+      "issuesNow": [],
+      "reply": {},
+      "sequence": null,
+      "show": { "canRedo": true, "canUndo": false, "dirty": true, "path": "/fixture/House.pixelflow.json", "revision": 2 },
+      "showNow": { "background": null, "controllers": [], "groups": [], "name": "Untitled Show", "props": [], "schemaVersion": 12, "sequences": [], "settings": { "frameRate": 40 } },
+      "summaryNow": { "controllers": 0, "pixels": 0, "props": 0, "universes": 0 }
+    },
+    {
+      "args": {},
+      "channelMapNow": { "controllers": [], "frameLen": 150, "props": [{ "channelsPerPixel": 3, "frameOffset": 0, "nodes": 50, "prop": "11111111-0000-4000-8000-000000000001" }] },
+      "command": "redo",
+      "issuesNow": [{ "code": "unassignedNodes", "fix": "Drag the prop onto a controller port.", "message": "The prop 'Gutter' is not wired to any controller port.", "severity": "warning" }],
+      "reply": {},
+      "sequence": null,
+      "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": "/fixture/House.pixelflow.json", "revision": 3 },
+      "showNow": {
+        "background": null,
+        "controllers": [],
+        "groups": [],
+        "name": "Untitled Show",
+        "props": [{ "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000001", "name": "Gutter", "regions": [], "shape": { "length": 3.0, "nodes": 50, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 1.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } }],
+        "schemaVersion": 12,
+        "sequences": [{ "audio": "/fixture/music/Carol.mp3", "id": "77777777-0000-4000-8000-000000000001", "name": "Carol", "offsetMs": 0, "path": "/fixture/sequences/Carol.fseq" }],
+        "settings": { "frameRate": 40 }
+      },
+      "summaryNow": { "controllers": 0, "pixels": 50, "props": 1, "universes": 0 }
+    }
+  ]
+}

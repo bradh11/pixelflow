@@ -598,7 +598,7 @@ export class MemorySequencer implements SequencerApi {
 
   async newSequenceDoc(name: string, durationMs: number, audio: string | null = null, rows: Row[] = []) {
     this.calls.push("newSequenceDoc");
-    if (durationMs > 4 * 60 * 60 * 1000) fail("PixelFlow sequences can be at most 4 hours.");
+    if (durationMs > 4 * 60 * 60 * 1000) fail(`The sequence is ${formatMs(durationMs)} long; PixelFlow sequences can be at most 4 hours.`);
     if (new Set(rows.map((r) => r.id)).size !== rows.length) fail("A row with that id already exists.");
     this.replace({ ...newSequence(name, durationMs), audio: audio?.trim() ? audio : null, rows: structuredClone(rows) }, null);
     return this.snapshot();

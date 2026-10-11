@@ -1,0 +1,304 @@
+{
+  "about": "Sequence edits the engine refuses, in its words, and what they leave behind: nothing.",
+  "devices": [],
+  "start": {
+    "channelMapNow": { "controllers": [], "frameLen": 0, "props": [] },
+    "issuesNow": [],
+    "sequence": null,
+    "sequenceIssuesNow": null,
+    "sequenceNow": null,
+    "show": { "canRedo": false, "canUndo": false, "dirty": false, "path": null, "revision": 0 },
+    "showNow": { "background": null, "controllers": [], "groups": [], "name": "Untitled Show", "props": [], "schemaVersion": 12, "sequences": [], "settings": { "frameRate": 40 } },
+    "summaryNow": { "controllers": 0, "pixels": 0, "props": 0, "universes": 0 }
+  },
+  "steps": [
+    { "args": { "edits": [] }, "command": "edit_sequence", "reply": { "error": "No sequence is open. Create or open one first." }, "sequence": null, "show": { "canRedo": false, "canUndo": false, "dirty": false, "path": null, "revision": 0 } },
+    { "args": {}, "command": "undo_sequence", "reply": { "error": "No sequence is open. Create or open one first." }, "sequence": null, "show": { "canRedo": false, "canUndo": false, "dirty": false, "path": null, "revision": 0 } },
+    { "args": {}, "command": "redo_sequence", "reply": { "error": "No sequence is open. Create or open one first." }, "sequence": null, "show": { "canRedo": false, "canUndo": false, "dirty": false, "path": null, "revision": 0 } },
+    { "args": { "audio": null, "durationMs": 18000000, "name": "Long" }, "command": "new_sequence_doc", "reply": { "error": "The sequence is 5:00:00.000 long; PixelFlow sequences can be at most 4 hours." }, "sequence": null, "show": { "canRedo": false, "canUndo": false, "dirty": false, "path": null, "revision": 0 } },
+    {
+      "args": { "audio": null, "durationMs": 1000, "name": "Twice", "rows": [{ "id": "44444444-0000-4000-8000-000000000001", "layers": [{ "effects": [] }], "target": { "prop": "11111111-0000-4000-8000-000000000001" } }, { "id": "44444444-0000-4000-8000-000000000001", "layers": [{ "effects": [] }], "target": { "prop": "11111111-0000-4000-8000-000000000002" } }] },
+      "command": "new_sequence_doc",
+      "reply": { "error": "A row with that id already exists." },
+      "sequence": null,
+      "show": { "canRedo": false, "canUndo": false, "dirty": false, "path": null, "revision": 0 }
+    },
+    {
+      "args": {
+        "edits": [
+          { "prop": { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000001", "name": "Gutter", "regions": [], "shape": { "length": 3, "nodes": 4, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 1, "y": 0, "z": 0 }, "rotationDeg": { "x": 0, "y": 0, "z": 0 }, "scale": { "x": 1, "y": 1, "z": 1 } } }, "type": "addProp" },
+          { "prop": { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000002", "name": "Fence", "regions": [], "shape": { "length": 3, "nodes": 4, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 2, "y": 0, "z": 0 }, "rotationDeg": { "x": 0, "y": 0, "z": 0 }, "scale": { "x": 1, "y": 1, "z": 1 } } }, "type": "addProp" }
+        ]
+      },
+      "channelMapNow": { "controllers": [], "frameLen": 24, "props": [{ "channelsPerPixel": 3, "frameOffset": 0, "nodes": 4, "prop": "11111111-0000-4000-8000-000000000001" }, { "channelsPerPixel": 3, "frameOffset": 12, "nodes": 4, "prop": "11111111-0000-4000-8000-000000000002" }] },
+      "command": "apply_edits",
+      "issuesNow": [{ "code": "unassignedNodes", "fix": "Drag the prop onto a controller port.", "message": "The prop 'Gutter' is not wired to any controller port.", "severity": "warning" }, { "code": "unassignedNodes", "fix": "Drag the prop onto a controller port.", "message": "The prop 'Fence' is not wired to any controller port.", "severity": "warning" }],
+      "reply": {},
+      "sequence": null,
+      "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 },
+      "showNow": {
+        "background": null,
+        "controllers": [],
+        "groups": [],
+        "name": "Untitled Show",
+        "props": [
+          { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000001", "name": "Gutter", "regions": [], "shape": { "length": 3.0, "nodes": 4, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 1.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } },
+          { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000002", "name": "Fence", "regions": [], "shape": { "length": 3.0, "nodes": 4, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 2.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } }
+        ],
+        "schemaVersion": 12,
+        "sequences": [],
+        "settings": { "frameRate": 40 }
+      },
+      "summaryNow": { "controllers": 0, "pixels": 8, "props": 2, "universes": 0 }
+    },
+    {
+      "args": { "audio": null, "durationMs": 20000, "name": "Song", "rows": [{ "id": "44444444-0000-4000-8000-000000000001", "layers": [{ "effects": [] }], "target": { "prop": "11111111-0000-4000-8000-000000000001" } }, { "id": "44444444-0000-4000-8000-000000000002", "layers": [{ "effects": [] }], "target": { "prop": "11111111-0000-4000-8000-000000000002" } }] },
+      "command": "new_sequence_doc",
+      "reply": {},
+      "sequence": { "canRedo": false, "canUndo": false, "dirty": false, "path": null, "revision": 1 },
+      "sequenceIssuesNow": [],
+      "sequenceNow": {
+        "audio": null,
+        "durationMs": 20000,
+        "frameMs": 25,
+        "name": "Song",
+        "rows": [{ "id": "44444444-0000-4000-8000-000000000001", "layers": [{ "effects": [] }], "target": { "prop": "11111111-0000-4000-8000-000000000001" } }, { "id": "44444444-0000-4000-8000-000000000002", "layers": [{ "effects": [] }], "target": { "prop": "11111111-0000-4000-8000-000000000002" } }],
+        "schemaVersion": 10,
+        "timingTracks": []
+      },
+      "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }
+    },
+    {
+      "args": {
+        "edits": [
+          { "effect": { "blend": "normal", "endMs": 1000, "fadeInMs": 0, "fadeOutMs": 0, "id": "55555555-0000-4000-8000-000000000001", "palette": { "colors": ["#ffffff"] }, "params": { "kind": "on" }, "startMs": 0 }, "layer": 0, "row": "44444444-0000-4000-8000-000000000001", "type": "addEffect" },
+          { "track": { "id": "66666666-0000-4000-8000-000000000001", "kind": "custom", "marks": [], "name": "Cues" }, "type": "addTimingTrack" }
+        ]
+      },
+      "command": "edit_sequence",
+      "reply": {
+        "changed": true,
+        "changes": {
+          "effects": [
+            {
+              "effect": { "blend": "normal", "blur": 0, "endMs": 1000, "fadeInMs": 0, "fadeOutMs": 0, "id": "55555555-0000-4000-8000-000000000001", "palette": { "colors": ["#ffffff"] }, "params": { "endLevel": 1.0, "gradient": "none", "kind": "on", "shimmer": false, "solid": false, "startLevel": 1.0, "transparency": 0.0 }, "sparkleColor": "#ffffff", "sparkles": 0, "startMs": 0 },
+              "index": 0,
+              "layer": 0,
+              "row": "44444444-0000-4000-8000-000000000001"
+            }
+          ],
+          "timingTracks": [{ "id": "66666666-0000-4000-8000-000000000001", "kind": "custom", "marks": [], "name": "Cues" }],
+          "trackOrder": ["66666666-0000-4000-8000-000000000001"]
+        }
+      },
+      "sequence": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 2 },
+      "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }
+    },
+    {
+      "args": { "edits": [{ "row": { "id": "44444444-0000-4000-8000-000000000001", "layers": [{ "effects": [] }], "target": { "prop": "11111111-0000-4000-8000-000000000001" } }, "type": "addRow" }] },
+      "command": "edit_sequence",
+      "reply": { "error": "A row with that id already exists." },
+      "sequence": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 2 },
+      "sequenceNow": {
+        "audio": null,
+        "durationMs": 20000,
+        "frameMs": 25,
+        "name": "Song",
+        "rows": [
+          {
+            "id": "44444444-0000-4000-8000-000000000001",
+            "layers": [{ "effects": [{ "blend": "normal", "blur": 0, "endMs": 1000, "fadeInMs": 0, "fadeOutMs": 0, "id": "55555555-0000-4000-8000-000000000001", "palette": { "colors": ["#ffffff"] }, "params": { "endLevel": 1.0, "gradient": "none", "kind": "on", "shimmer": false, "solid": false, "startLevel": 1.0, "transparency": 0.0 }, "sparkleColor": "#ffffff", "sparkles": 0, "startMs": 0 }] }],
+            "target": { "prop": "11111111-0000-4000-8000-000000000001" }
+          },
+          { "id": "44444444-0000-4000-8000-000000000002", "layers": [{ "effects": [] }], "target": { "prop": "11111111-0000-4000-8000-000000000002" } }
+        ],
+        "schemaVersion": 10,
+        "timingTracks": [{ "id": "66666666-0000-4000-8000-000000000001", "kind": "custom", "marks": [], "name": "Cues" }]
+      },
+      "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }
+    },
+    { "args": { "edits": [{ "id": "44444444-0000-4000-8000-000000000099", "type": "removeRow" }] }, "command": "edit_sequence", "reply": { "error": "That row isn't in the sequence anymore." }, "sequence": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 2 }, "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 } },
+    { "args": { "edits": [{ "id": "44444444-0000-4000-8000-000000000099", "index": 0, "type": "moveRow" }] }, "command": "edit_sequence", "reply": { "error": "That row isn't in the sequence anymore." }, "sequence": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 2 }, "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 } },
+    { "args": { "edits": [{ "row": "44444444-0000-4000-8000-000000000099", "type": "addLayer" }] }, "command": "edit_sequence", "reply": { "error": "That row isn't in the sequence anymore." }, "sequence": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 2 }, "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 } },
+    { "args": { "edits": [{ "layer": 5, "row": "44444444-0000-4000-8000-000000000001", "type": "removeLayer" }] }, "command": "edit_sequence", "reply": { "error": "That row has no layer 6." }, "sequence": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 2 }, "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 } },
+    { "args": { "edits": [{ "layer": 0, "row": "44444444-0000-4000-8000-000000000099", "type": "removeLayer" }] }, "command": "edit_sequence", "reply": { "error": "That row isn't in the sequence anymore." }, "sequence": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 2 }, "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 } },
+    {
+      "args": { "edits": [{ "effect": { "blend": "normal", "endMs": 1000, "fadeInMs": 0, "fadeOutMs": 0, "id": "55555555-0000-4000-8000-000000000002", "palette": { "colors": ["#ffffff"] }, "params": { "kind": "on" }, "startMs": 0 }, "layer": 0, "row": "44444444-0000-4000-8000-000000000099", "type": "addEffect" }] },
+      "command": "edit_sequence",
+      "reply": { "error": "That row isn't in the sequence anymore." },
+      "sequence": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 2 },
+      "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }
+    },
+    {
+      "args": { "edits": [{ "effect": { "blend": "normal", "endMs": 1000, "fadeInMs": 0, "fadeOutMs": 0, "id": "55555555-0000-4000-8000-000000000002", "palette": { "colors": ["#ffffff"] }, "params": { "kind": "on" }, "startMs": 0 }, "layer": 3, "row": "44444444-0000-4000-8000-000000000001", "type": "addEffect" }] },
+      "command": "edit_sequence",
+      "reply": { "error": "That row has no layer 4." },
+      "sequence": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 2 },
+      "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }
+    },
+    {
+      "args": { "edits": [{ "effect": { "blend": "normal", "endMs": 1000, "fadeInMs": 0, "fadeOutMs": 0, "id": "55555555-0000-4000-8000-000000000002", "palette": { "colors": ["#ffffff"] }, "params": { "kind": "on" }, "startMs": 1000 }, "layer": 0, "row": "44444444-0000-4000-8000-000000000001", "type": "addEffect" }] },
+      "command": "edit_sequence",
+      "reply": { "error": "An effect must end after it starts." },
+      "sequence": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 2 },
+      "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }
+    },
+    {
+      "args": { "edits": [{ "effect": { "blend": "normal", "endMs": 3000, "fadeInMs": 0, "fadeOutMs": 0, "id": "55555555-0000-4000-8000-000000000001", "palette": { "colors": ["#ffffff"] }, "params": { "kind": "on" }, "startMs": 2000 }, "layer": 0, "row": "44444444-0000-4000-8000-000000000001", "type": "addEffect" }] },
+      "command": "edit_sequence",
+      "reply": { "error": "An effect with that id already exists." },
+      "sequence": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 2 },
+      "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }
+    },
+    {
+      "args": {
+        "edits": [
+          { "effect": { "blend": "normal", "endMs": 1000, "fadeInMs": 0, "fadeOutMs": 0, "id": "55555555-0000-4000-8000-000000000002", "palette": { "colors": ["#ffffff"] }, "params": { "kind": "on" }, "startMs": 0 }, "layer": 0, "row": "44444444-0000-4000-8000-000000000001", "type": "addEffect" },
+          { "effect": { "blend": "normal", "endMs": 1000, "fadeInMs": 0, "fadeOutMs": 0, "id": "55555555-0000-4000-8000-000000000002", "palette": { "colors": ["#ffffff"] }, "params": { "kind": "on" }, "startMs": 0 }, "layer": 0, "row": "44444444-0000-4000-8000-000000000002", "type": "addEffect" }
+        ]
+      },
+      "command": "edit_sequence",
+      "reply": { "error": "An effect with that id already exists." },
+      "sequence": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 2 },
+      "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }
+    },
+    {
+      "args": { "edits": [{ "effect": { "blend": "normal", "endMs": 1000, "fadeInMs": 0, "fadeOutMs": 0, "id": "55555555-0000-4000-8000-000000000099", "palette": { "colors": ["#ffffff"] }, "params": { "kind": "on" }, "startMs": 0 }, "type": "updateEffect" }] },
+      "command": "edit_sequence",
+      "reply": { "error": "That effect isn't in the sequence anymore." },
+      "sequence": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 2 },
+      "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }
+    },
+    {
+      "args": { "edits": [{ "effect": { "blend": "normal", "endMs": 100, "fadeInMs": 0, "fadeOutMs": 0, "id": "55555555-0000-4000-8000-000000000001", "palette": { "colors": ["#ffffff"] }, "params": { "kind": "on" }, "startMs": 500 }, "type": "updateEffect" }] },
+      "command": "edit_sequence",
+      "reply": { "error": "An effect must end after it starts." },
+      "sequence": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 2 },
+      "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }
+    },
+    {
+      "args": { "edits": [{ "endMs": 1000, "id": "55555555-0000-4000-8000-000000000099", "startMs": 0, "type": "setEffectTiming" }] },
+      "command": "edit_sequence",
+      "reply": { "error": "That effect isn't in the sequence anymore." },
+      "sequence": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 2 },
+      "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }
+    },
+    {
+      "args": { "edits": [{ "endMs": 9, "id": "55555555-0000-4000-8000-000000000001", "startMs": 9, "type": "setEffectTiming" }] },
+      "command": "edit_sequence",
+      "reply": { "error": "An effect must end after it starts." },
+      "sequence": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 2 },
+      "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }
+    },
+    {
+      "args": { "edits": [{ "id": "55555555-0000-4000-8000-000000000099", "params": { "kind": "on" }, "type": "setEffectParams" }] },
+      "command": "edit_sequence",
+      "reply": { "error": "That effect isn't in the sequence anymore." },
+      "sequence": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 2 },
+      "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }
+    },
+    {
+      "args": { "edits": [{ "endMs": 1000, "id": "55555555-0000-4000-8000-000000000099", "layer": 0, "row": "44444444-0000-4000-8000-000000000001", "startMs": 0, "type": "moveEffect" }] },
+      "command": "edit_sequence",
+      "reply": { "error": "That effect isn't in the sequence anymore." },
+      "sequence": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 2 },
+      "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }
+    },
+    {
+      "args": { "edits": [{ "endMs": 1000, "id": "55555555-0000-4000-8000-000000000001", "layer": 0, "row": "44444444-0000-4000-8000-000000000099", "startMs": 0, "type": "moveEffect" }] },
+      "command": "edit_sequence",
+      "reply": { "error": "That row isn't in the sequence anymore." },
+      "sequence": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 2 },
+      "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }
+    },
+    {
+      "args": { "edits": [{ "endMs": 1000, "id": "55555555-0000-4000-8000-000000000001", "layer": 4, "row": "44444444-0000-4000-8000-000000000002", "startMs": 0, "type": "moveEffect" }] },
+      "command": "edit_sequence",
+      "reply": { "error": "That row has no layer 5." },
+      "sequence": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 2 },
+      "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }
+    },
+    {
+      "args": { "edits": [{ "endMs": 200, "id": "55555555-0000-4000-8000-000000000001", "layer": 0, "row": "44444444-0000-4000-8000-000000000002", "startMs": 700, "type": "moveEffect" }] },
+      "command": "edit_sequence",
+      "reply": { "error": "An effect must end after it starts." },
+      "sequence": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 2 },
+      "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }
+    },
+    { "args": { "edits": [{ "id": "55555555-0000-4000-8000-000000000099", "type": "removeEffect" }] }, "command": "edit_sequence", "reply": { "error": "That effect isn't in the sequence anymore." }, "sequence": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 2 }, "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 } },
+    {
+      "args": { "edits": [{ "effect": { "blend": "normal", "endMs": 1000, "fadeInMs": 0, "fadeOutMs": 0, "id": "55555555-0000-4000-8000-000000000005", "palette": { "colors": ["#ffffff"] }, "params": { "kind": "chase", "speed": 99 }, "startMs": 0 }, "layer": 0, "row": "44444444-0000-4000-8000-000000000001", "type": "addEffect" }] },
+      "command": "edit_sequence",
+      "reply": { "error": "The Chase effect at 0:00.000 has a setting PixelFlow can't use: Speed is 99; use 0 to 50." },
+      "sequence": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 2 },
+      "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }
+    },
+    {
+      "args": { "edits": [{ "id": "55555555-0000-4000-8000-000000000001", "params": { "kind": "chase", "speed": -1 }, "type": "setEffectParams" }] },
+      "command": "edit_sequence",
+      "reply": { "error": "The Chase effect at 0:00.000 has a setting PixelFlow can't use: Speed is -1; use 0 to 50." },
+      "sequence": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 2 },
+      "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }
+    },
+    {
+      "args": { "edits": [{ "track": { "id": "66666666-0000-4000-8000-000000000001", "kind": "custom", "marks": [], "name": "Again" }, "type": "addTimingTrack" }] },
+      "command": "edit_sequence",
+      "reply": { "error": "A timing track with that id already exists." },
+      "sequence": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 2 },
+      "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }
+    },
+    {
+      "args": { "edits": [{ "track": { "id": "66666666-0000-4000-8000-000000000099", "kind": "custom", "marks": [], "name": "Nobody" }, "type": "updateTimingTrack" }] },
+      "command": "edit_sequence",
+      "reply": { "error": "That timing track isn't in the sequence anymore." },
+      "sequence": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 2 },
+      "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }
+    },
+    { "args": { "edits": [{ "id": "66666666-0000-4000-8000-000000000099", "type": "removeTimingTrack" }] }, "command": "edit_sequence", "reply": { "error": "That timing track isn't in the sequence anymore." }, "sequence": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 2 }, "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 } },
+    { "args": { "edits": [{ "id": "66666666-0000-4000-8000-000000000001", "name": "   ", "type": "renameTimingTrack" }] }, "command": "edit_sequence", "reply": { "error": "A timing track needs a name." }, "sequence": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 2 }, "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 } },
+    {
+      "args": { "edits": [{ "id": "66666666-0000-4000-8000-000000000099", "name": "Nobody", "type": "renameTimingTrack" }] },
+      "command": "edit_sequence",
+      "reply": { "error": "That timing track isn't in the sequence anymore." },
+      "sequence": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 2 },
+      "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }
+    },
+    {
+      "args": { "edits": [{ "id": "66666666-0000-4000-8000-000000000099", "index": 0, "type": "moveTimingTrack" }] },
+      "command": "edit_sequence",
+      "reply": { "error": "That timing track isn't in the sequence anymore." },
+      "sequence": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 2 },
+      "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }
+    },
+    {
+      "args": { "edits": [{ "endMs": 900, "id": "55555555-0000-4000-8000-000000000001", "startMs": 100, "type": "setEffectTiming" }, { "id": "44444444-0000-4000-8000-000000000099", "type": "removeRow" }] },
+      "command": "edit_sequence",
+      "reply": { "error": "That row isn't in the sequence anymore." },
+      "sequence": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 2 },
+      "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }
+    },
+    {
+      "args": {},
+      "command": "undo_sequence",
+      "reply": { "changed": true, "changes": { "removedTimingTracks": ["66666666-0000-4000-8000-000000000001"], "rows": [{ "id": "44444444-0000-4000-8000-000000000001", "layers": [{ "effects": [] }], "target": { "prop": "11111111-0000-4000-8000-000000000001" } }] } },
+      "sequence": { "canRedo": true, "canUndo": false, "dirty": true, "path": null, "revision": 3 },
+      "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }
+    },
+    {
+      "args": {},
+      "command": "undo_sequence",
+      "reply": { "changed": false, "changes": {} },
+      "sequence": { "canRedo": true, "canUndo": false, "dirty": true, "path": null, "revision": 3 },
+      "sequenceNow": {
+        "audio": null,
+        "durationMs": 20000,
+        "frameMs": 25,
+        "name": "Song",
+        "rows": [{ "id": "44444444-0000-4000-8000-000000000001", "layers": [{ "effects": [] }], "target": { "prop": "11111111-0000-4000-8000-000000000001" } }, { "id": "44444444-0000-4000-8000-000000000002", "layers": [{ "effects": [] }], "target": { "prop": "11111111-0000-4000-8000-000000000002" } }],
+        "schemaVersion": 10,
+        "timingTracks": []
+      },
+      "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }
+    }
+  ]
+}

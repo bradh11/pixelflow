@@ -12,7 +12,7 @@
 
 use crate::error::EngineError;
 use crate::output::{ControllerStatus, OutputKey, controller_status, output_key, sentence};
-use pf_audio::{AudioClock, AudioError, MusicPlayer, SilentClock};
+use pf_audio::{AudioClock, AudioError, MusicPlayer, SilentClock, TimeSource, WallTime};
 use pf_frame::{FrameReader, FrameWriter};
 use pf_fseq::Sequence;
 use pf_mapping::ChannelMap;
@@ -145,6 +145,23 @@ impl Default for Control {
             music_note: None,
             clock_note: None,
             rebuild: None,
+        }
+    }
+}
+
+impl Control {
+    /// Asks the player to jump to `position_ms` (clamped to the sequence).
+    fn seek(&mut self, position_ms: u64) {
+        let frame_ms = self.frame_ms.max(1);
+        let frame = u32::try_from(position_ms / u64::from(frame_ms)).unwrap_or(u32::MAX);
+        let frame = frame.min(self.frames.saturating_sub(1));
+        self.seek_to = Some(u64::from(frame) * u64::from(frame_ms));
+        self.frame = frame;
+        self.reading = None;
+        if self.error.is_none() {
+            // Seeking after the end plays again (the player thread is still running).
+            self.ended = false;
+            self.lights_done = false;
         }
     }
 }
@@ -326,12 +343,17 @@ struct MusicTime {
     /// The clock's last position, and when it last moved (or was resumed or jumped).
     last: Duration,
     moved: Instant,
+    /// The clock stood still for [`STALL`] when it should have been playing, and hasn't moved by
+    /// itself since: the lights keep their own time from where it stands.
+    stalled: bool,
     /// How fast it plays (1.0: as written).
     speed: f32,
+    /// What the count-in and the watch for a stalled clock read the time from.
+    time: Arc<dyn TimeSource>,
 }
 
 impl MusicTime {
-    fn start(mut clock: Box<dyn AudioClock>, music_ms: i64, paused: bool) -> Self {
+    fn start(mut clock: Box<dyn AudioClock>, music_ms: i64, paused: bool, time: Arc<dyn TimeSource>) -> Self {
         let mut count_in = None;
         if music_ms >= 0 {
             if paused {
@@ -340,7 +362,7 @@ impl MusicTime {
                 clock.start(millis(music_ms));
             }
         } else {
-            let mut watch = SilentClock::new();
+            let mut watch = SilentClock::on(Arc::clone(&time));
             if !paused {
                 watch.start(Duration::ZERO);
             }
@@ -352,19 +374,35 @@ impl MusicTime {
             count_in,
             paused,
             last,
-            moved: Instant::now(),
+            moved: time.now(),
+            stalled: false,
             speed: 1.0,
+            time,
         }
+    }
+
+    /// While the clock isn't responding, the lights count on from where it stood. Before that
+    /// count starts again (a pause, a new speed), the clock is moved to where the lights have
+    /// got to, so they carry on from there and not from where the music stopped. A device that
+    /// comes back plays from there too.
+    fn carry_own_time(&mut self) {
+        if !self.stalled || self.paused || self.count_in.is_some() {
+            return;
+        }
+        let still = self.time.now().saturating_duration_since(self.moved);
+        self.clock.seek(self.last + still.mul_f32(self.speed));
+        self.last = self.clock.position();
     }
 
     /// Plays at `speed` (1.0: as written) from now on.
     fn set_speed(&mut self, speed: f32) {
+        self.carry_own_time();
         self.speed = speed;
         self.clock.set_speed(speed);
         if let Some((watch, _)) = &mut self.count_in {
             watch.set_speed(speed);
         }
-        self.moved = Instant::now();
+        self.moved = self.time.now();
     }
 
     /// Moves to `music_ms` (negative: a count-in before the song).
@@ -374,7 +412,7 @@ impl MusicTime {
                 self.clock.pause();
             }
             self.clock.seek(Duration::ZERO);
-            let mut watch = SilentClock::new();
+            let mut watch = SilentClock::on(Arc::clone(&self.time));
             watch.set_speed(self.speed);
             if !self.paused {
                 watch.start(Duration::ZERO);
@@ -388,12 +426,15 @@ impl MusicTime {
             }
         }
         self.last = self.clock.position();
-        self.moved = Instant::now();
+        self.moved = self.time.now();
     }
 
     fn set_paused(&mut self, paused: bool) {
         if paused == self.paused {
             return;
+        }
+        if paused {
+            self.carry_own_time();
         }
         self.paused = paused;
         match &mut self.count_in {
@@ -402,7 +443,7 @@ impl MusicTime {
             None if paused => self.clock.pause(),
             None => self.clock.resume(),
         }
-        self.moved = Instant::now();
+        self.moved = self.time.now();
     }
 
     /// The music's position in ms (negative while counting in).
@@ -416,17 +457,22 @@ impl MusicTime {
             self.count_in = None;
             self.clock.start(Duration::ZERO);
             self.last = Duration::ZERO;
-            self.moved = Instant::now();
+            self.moved = self.time.now();
             return 0;
         }
         let position = self.clock.position();
-        let now = Instant::now();
+        let now = self.time.now();
         if position != self.last {
             self.last = position;
             self.moved = now;
+            self.stalled = false;
         }
-        let still = now - self.moved;
-        let own_time = !self.paused && (self.clock.finished() || still > STALL);
+        let still = now.saturating_duration_since(self.moved);
+        if !self.paused && !self.clock.finished() && still > STALL {
+            self.stalled = true;
+        }
+        // A clock known to be stalled is not waited for again after a jump or a pause.
+        let own_time = !self.paused && (self.clock.finished() || self.stalled);
         let music = if own_time {
             self.last + still.mul_f32(self.speed)
         } else {
@@ -437,7 +483,7 @@ impl MusicTime {
 
     /// The music should be moving but has stood still for a while.
     fn stalled(&self) -> bool {
-        !self.paused && self.count_in.is_none() && !self.clock.finished() && self.moved.elapsed() > STALL
+        self.stalled && !self.paused && self.count_in.is_none() && !self.clock.finished()
     }
 
     /// Nothing more of the song is left to hear.
@@ -653,7 +699,9 @@ impl Drop for CrashGuard<'_> {
     }
 }
 
-/// The player thread: follows the music and sends the frame that is due.
+/// The player thread: follows the music and sends the frame that is due. It reads the time from
+/// `wall` and waits on it (the machine's clock, except where a test moves time by hand).
+#[allow(clippy::too_many_arguments)]
 fn run_player(
     mut frames: Frames,
     control: &Mutex<Control>,
@@ -662,6 +710,7 @@ fn run_player(
     music: Option<&Path>,
     start_ms: u64,
     ready: std::sync::mpsc::Sender<()>,
+    wall: &Arc<dyn TimeSource>,
 ) {
     let _guard = CrashGuard(control);
     // The clock lives on this thread (sound devices needn't be shareable). Without working
@@ -677,7 +726,7 @@ fn run_player(
         let c = lock(control);
         (c.offset_ms, c.volume, c.paused)
     };
-    let mut time = MusicTime::start(clock, music_for(start_ms, offset), paused);
+    let mut time = MusicTime::start(clock, music_for(start_ms, offset), paused, Arc::clone(wall));
     time.clock.set_volume(volume);
     let _ = ready.send(());
     let (_, first_step) = frames.source.timing();
@@ -753,7 +802,7 @@ fn run_player(
             }
             light = light_for(time.now_ms(), offset);
         }
-        let read = Instant::now();
+        let read = wall.now();
         lock(control).reading = Some((light, read));
         let due = light / step_ms;
         // An edited sequence or show redraws the current frame, even while paused.
@@ -769,7 +818,7 @@ fn run_player(
                 lock(control).ended = true;
                 time.set_paused(true);
             }
-            std::thread::sleep(POLL);
+            wall.sleep(POLL);
             continue;
         }
         if dark {
@@ -788,7 +837,8 @@ fn run_player(
             shown = Some(due);
         }
         // Wake at the next frame boundary (or sooner, to notice pause/seek/stop).
-        std::thread::sleep(until_next_frame(light, step_ms, read.elapsed()));
+        let spent = wall.now().saturating_duration_since(read);
+        wall.sleep(until_next_frame(light, step_ms, spent));
     }
 }
 
@@ -1126,6 +1176,7 @@ impl PlaybackSession {
             let (control, stop, clocks) = (Arc::clone(&control), Arc::clone(&stop), Arc::clone(clocks));
             let music = launch.music;
             let start_ms = u64::from(start_frame) * step_ms;
+            let wall: Arc<dyn TimeSource> = Arc::new(WallTime);
             std::thread::Builder::new()
                 .name("pixelflow-playback".into())
                 .spawn(move || {
@@ -1137,6 +1188,7 @@ impl PlaybackSession {
                         music.as_deref(),
                         start_ms,
                         ready_tx,
+                        &wall,
                     );
                 })
                 .map_err(EngineError::Network)?
@@ -1265,18 +1317,7 @@ impl PlaybackSession {
 
     /// Jumps to `position_ms` (clamped to the sequence).
     pub fn seek(&self, position_ms: u64) {
-        let mut c = lock(&self.control);
-        let frame_ms = c.frame_ms.max(1);
-        let frame = u32::try_from(position_ms / u64::from(frame_ms)).unwrap_or(u32::MAX);
-        let frame = frame.min(c.frames.saturating_sub(1));
-        c.seek_to = Some(u64::from(frame) * u64::from(frame_ms));
-        c.frame = frame;
-        c.reading = None;
-        if c.error.is_none() {
-            // Seeking after the end plays again (the player thread is still running).
-            c.ended = false;
-            c.lights_done = false;
-        }
+        lock(&self.control).seek(position_ms);
     }
 
     /// Shifts the lights against the music (positive: lights ahead), live.
@@ -1483,6 +1524,9 @@ pub fn sequence_entry_for(path: &Path) -> Result<pf_model::SequenceEntry, Engine
         pf_audio::find_audio(path, sequence.header().media.as_deref()).map(|p| pf_model::path_to_text(&p));
     Ok(entry)
 }
+
+#[cfg(test)]
+mod simulation;
 
 #[cfg(test)]
 mod tests {

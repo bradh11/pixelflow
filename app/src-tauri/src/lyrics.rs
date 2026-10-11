@@ -52,6 +52,12 @@ struct Last {
     gathered: Gathered,
 }
 
+/// Fetches a model's files into its folder, telling its second argument the bytes so far and
+/// the bytes in all, until done or its third says to stop.
+type ModelFetch = dyn Fn(&ModelStore, &dyn Fn(u64, u64), &dyn Fn() -> bool) -> Result<(), pf_align::AlignError>
+    + Send
+    + Sync;
+
 /// Find lyrics' state: who's asked, where answers are kept, the search in progress, what was
 /// gathered last, and the on-device aligner's model.
 pub(crate) struct LyricsState {
@@ -65,6 +71,8 @@ pub(crate) struct LyricsState {
     aligner: Mutex<Option<Arc<OnDevice>>>,
     /// The model download in progress.
     downloading: Mutex<Option<Cancel>>,
+    /// How the model is downloaded ([`ModelStore::download`]; tests use a stand-in).
+    fetch: Arc<ModelFetch>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -81,12 +89,21 @@ impl LyricsState {
             models: None,
             aligner: Mutex::default(),
             downloading: Mutex::default(),
+            fetch: Arc::new(ModelStore::download),
         }
     }
 
     /// The alignment model kept under `data_dir`.
     pub(crate) fn with_models(mut self, data_dir: Option<PathBuf>) -> Self {
         self.models = data_dir.map(|dir| ModelStore::new(&dir, pf_align::WAV2VEC2));
+        self
+    }
+
+    /// The model kept in `store`, fetched by `fetch` rather than over the network.
+    #[cfg(test)]
+    pub(crate) fn with_model_fetch(mut self, store: ModelStore, fetch: Arc<ModelFetch>) -> Self {
+        self.models = Some(store);
+        self.fetch = fetch;
         self
     }
 
@@ -592,9 +609,11 @@ pub(crate) async fn download_alignment_models<R: Runtime>(
     };
     let _downloading = Running(&lyrics_state.downloading);
     let stop = cancel.clone();
+    let fetch = Arc::clone(&lyrics_state.fetch);
     let result = tauri::async_runtime::spawn_blocking(move || {
         let throttle = Throttle::default();
-        store.download(
+        fetch(
+            &store,
             &|received, total| {
                 let fraction = received as f32 / total.max(1) as f32;
                 if throttle.due(fraction, Instant::now()) {
@@ -655,8 +674,14 @@ pub(crate) async fn cancel_lyrics(lyrics_state: State<'_, LyricsState>) -> Reply
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testing::{call, call_at, files_under, heard};
+    use pf_ai::testing::{FAKE_KEY, FakeTransport, Reply};
+    use pf_align::{Manifest, ModelFile};
     use pf_engine::Engine;
     use pf_sequence::{Mark, TimingTrack};
+    use serde_json::{Value, json};
+    use tauri::test::MockRuntime;
+    use tauri::{App, Listener, WebviewWindow, WebviewWindowBuilder};
 
     /// A sequence with made-up lyrics tracks: two words, their syllables and mouth shapes.
     fn engine() -> (Engine, tempfile::TempDir, Vec<TimingTrackId>) {
@@ -742,5 +767,348 @@ mod tests {
         // One undo step.
         engine.undo_sequence().unwrap();
         assert!(retime_lyrics_in(&mut engine, ids[4], &voice).is_err());
+    }
+
+    /// Run once while a song's voice is read: a step that reports nothing of its own to cancel
+    /// at.
+    type WhileReading = Arc<Mutex<Option<Box<dyn FnOnce() + Send>>>>;
+
+    /// The app with the assistant set up and Find lyrics' services faked: LRCLIB answers with
+    /// recorded replies, and the song's voice is "read" in two reports. No keychain, no network.
+    struct Finder {
+        app: App<MockRuntime>,
+        webview: WebviewWindow<MockRuntime>,
+        lrclib: Arc<FakeTransport>,
+        while_reading: WhileReading,
+        dir: tempfile::TempDir,
+    }
+
+    /// A five-byte model ("hello"), with its SHA-256.
+    const MODEL: Manifest = Manifest {
+        id: "test-model",
+        name: "Test",
+        licence: "MIT",
+        source: "https://example.invalid",
+        files: &[ModelFile {
+            name: "model.onnx",
+            url: "https://example.invalid/model.onnx",
+            sha256: "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+            bytes: 5,
+        }],
+    };
+
+    /// A file that arrives a byte at a time, so its download has steps to report and to be
+    /// stopped between.
+    struct Trickle(&'static [u8]);
+
+    impl std::io::Read for Trickle {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            match (self.0.split_first(), buf.first_mut()) {
+                (Some((byte, rest)), Some(slot)) => {
+                    *slot = *byte;
+                    self.0 = rest;
+                    Ok(1)
+                }
+                _ => Ok(0),
+            }
+        }
+    }
+
+    /// Downloads `store`'s model as [`ModelStore::download`] does, but from memory.
+    fn fetch_from_memory(
+        store: &ModelStore,
+        progress: &dyn Fn(u64, u64),
+        stop: &dyn Fn() -> bool,
+    ) -> Result<(), pf_align::AlignError> {
+        let total = store.manifest().bytes();
+        for file in store.manifest().files {
+            store.install_from(file, &mut Trickle(b"hello"), &|n| progress(n, total), stop)?;
+        }
+        progress(total, total);
+        Ok(())
+    }
+
+    fn finder() -> Finder {
+        let dir = tempfile::tempdir().unwrap();
+        let lrclib = Arc::new(FakeTransport::default());
+        let nobody = || Arc::new(FakeTransport::default());
+        let while_reading = WhileReading::default();
+        let reading = Arc::clone(&while_reading);
+        let services = Services {
+            lrclib: lyrics::lrclib::Lrclib::new(lrclib.clone()).with_retry_delay(std::time::Duration::ZERO),
+            transcriber: lyrics::transcribe::Transcriber::new(nobody()),
+            voice: Box::new(move |_, _, progress| {
+                progress(0.0);
+                let then = lock(&reading).take();
+                if let Some(then) = then {
+                    then();
+                }
+                progress(1.0);
+                Ok(pf_analysis::VocalTrack::default())
+            }),
+            tags: Box::new(|path| pf_audio::read_tags(path).ok()),
+            log: Box::new(|_| {}),
+        };
+        let vault = pf_ai::KeyVault::new(Box::new(pf_ai::MemoryStore::new()));
+        let app = crate::testing::builder(dir.path())
+            .manage(AiState::new(vault, pf_ai::providers(nobody())))
+            .manage(LyricsState::new(services, None).with_model_fetch(
+                ModelStore::new(&dir.path().join("data"), MODEL),
+                Arc::new(fetch_from_memory),
+            ))
+            .build(crate::context())
+            .unwrap();
+        let webview = WebviewWindowBuilder::new(&app, "main", Default::default())
+            .build()
+            .unwrap();
+        // With an Anthropic key the song's words are only looked up: its audio goes nowhere.
+        call(
+            &webview,
+            "set_api_key",
+            json!({ "provider": "anthropic", "key": FAKE_KEY }),
+        )
+        .unwrap();
+        // A new sequence whose music is a silent 4 s WAV named like the song.
+        let song = dir.path().join("01 - Lantern Song.wav");
+        std::fs::write(&song, pf_audio::wav_bytes(&vec![0.0; 64_000], 16_000)).unwrap();
+        call(
+            &webview,
+            "new_sequence_doc",
+            json!({ "name": "Lantern Song", "durationMs": 4_000, "audio": song.to_string_lossy() }),
+        )
+        .unwrap();
+        Finder {
+            app,
+            webview,
+            lrclib,
+            while_reading,
+            dir,
+        }
+    }
+
+    impl Finder {
+        /// Asks for the song's lyrics, LRCLIB answering with made-up ones.
+        fn find(&self) -> Result<Value, Value> {
+            self.lrclib.push(Reply::ok(
+                json!([{
+                    "id": 1, "trackName": "Lantern Song", "artistName": "Lantern Band", "albumName": "Made Up",
+                    "duration": 4.0, "instrumental": false,
+                    "plainLyrics": "Paper lanterns glowing\nSnowy rooftops shine",
+                    "syncedLyrics": "[00:00.50]Paper lanterns glowing\n[00:02.00]Snowy rooftops shine\n[00:03.50]",
+                }])
+                .to_string(),
+            ));
+            call(
+                &self.webview,
+                "find_lyrics",
+                json!({ "provider": "anthropic", "upload": false }),
+            )
+        }
+
+        /// The open sequence's timing tracks.
+        fn tracks(&self) -> Value {
+            call(&self.webview, "get_sequence_doc", json!({})).unwrap()["sequence"]["timingTracks"].clone()
+        }
+
+        /// Runs `then` the next time a song's voice is read, and keeps what it answers.
+        fn while_reading<T: Send + 'static>(
+            &self,
+            then: impl FnOnce(&WebviewWindow<MockRuntime>) -> T + Send + 'static,
+        ) -> Arc<Mutex<Option<T>>> {
+            let answer = Arc::new(Mutex::new(None));
+            let kept = Arc::clone(&answer);
+            let webview = self.webview.clone();
+            *lock(&self.while_reading) = Some(Box::new(move || *lock(&kept) = Some(then(&webview))));
+            answer
+        }
+    }
+
+    fn step(label: &str) -> Value {
+        json!({ "label": label, "fraction": null })
+    }
+
+    #[test]
+    fn finding_lyrics_reports_each_step_and_how_far_the_song_has_been_read() {
+        let f = finder();
+        let steps = heard(&f.app, "lyrics-progress");
+        let music = heard(&f.app, "audio-progress");
+        f.find().unwrap();
+        assert_eq!(
+            *lock(&steps),
+            [
+                step("Reading the song"),
+                step("Looking up published lyrics"),
+                step("Lining up the words"),
+                json!({ "label": "Lining up the words", "fraction": 0.0 }),
+                json!({ "label": "Lining up the words", "fraction": 1.0 }),
+            ]
+        );
+        // Nothing was aligned on this computer, so there's no music work to show a bar for.
+        assert_eq!(*lock(&music), Vec::<Value>::new());
+        assert_eq!(f.tracks().as_array().unwrap().len(), 5);
+    }
+
+    #[test]
+    fn a_search_stopped_at_its_first_step_asks_no_one_and_the_next_one_runs() {
+        let f = finder();
+        let steps = heard(&f.app, "lyrics-progress");
+        // Nothing is being found: stopping does nothing, now or to the search after it.
+        call(&f.webview, "cancel_lyrics", json!({})).unwrap();
+
+        call_at(&f.app, &f.webview, "lyrics-progress", |_| true, "cancel_lyrics");
+        assert_eq!(f.find().unwrap_err(), "Stopped.");
+        assert_eq!(std::mem::take(&mut *lock(&steps)), [step("Reading the song")]);
+        assert!(f.lrclib.requests().is_empty());
+        assert_eq!(f.tracks(), json!([]));
+        let other = call(
+            &f.webview,
+            "choose_lyrics",
+            json!({ "choice": { "candidate": 1 } }),
+        );
+        assert_eq!(other.unwrap_err(), "Find this song's lyrics first.");
+
+        // The stop is spent, and the search is no longer running: the next one finds them.
+        f.find().unwrap();
+        assert_eq!(lock(&steps).len(), 5);
+        assert_eq!(f.tracks().as_array().unwrap().len(), 5);
+    }
+
+    #[test]
+    fn a_search_stopped_while_the_words_are_lined_up_adds_nothing() {
+        let f = finder();
+        call_at(
+            &f.app,
+            &f.webview,
+            "lyrics-progress",
+            |progress| progress["label"] == "Lining up the words" && progress["fraction"] == 0.0,
+            "cancel_lyrics",
+        );
+        assert_eq!(f.find().unwrap_err(), "Stopped.");
+        // The lyrics were looked up, but nothing of them is kept or added.
+        assert_eq!(f.lrclib.requests().len(), 1);
+        assert_eq!(f.tracks(), json!([]));
+        let doc = call(&f.webview, "get_sequence_doc", json!({})).unwrap();
+        assert_eq!((&doc["canUndo"], &doc["dirty"]), (&json!(false), &json!(false)));
+        let other = call(
+            &f.webview,
+            "choose_lyrics",
+            json!({ "choice": { "candidate": 1 } }),
+        );
+        assert_eq!(other.unwrap_err(), "Find this song's lyrics first.");
+        f.find().unwrap();
+        assert_eq!(f.tracks().as_array().unwrap().len(), 5);
+    }
+
+    #[test]
+    fn lining_up_other_lyrics_and_re_timing_stop_too_and_only_one_runs_at_a_time() {
+        let f = finder();
+        f.find().unwrap();
+        let found = f.tracks();
+        let pasted = json!({ "choice": { "pasted": "[00:01.00]Paper lanterns\n[00:02.50]Snowy rooftops\n[00:03.50]" } });
+        let lyrics = found[0]["id"].clone();
+
+        for (command, args, done) in [
+            (
+                "retime_lyrics",
+                json!({ "track": lyrics }),
+                ("note", json!("The words already sit where the vocals start.")),
+            ),
+            ("choose_lyrics", pasted, ("pasted", json!(true))),
+        ] {
+            // While it reads the song's voice: a search is refused, then it's stopped.
+            let refused = f.while_reading(|webview| {
+                let refused = call(
+                    webview,
+                    "find_lyrics",
+                    json!({ "provider": "anthropic", "upload": false }),
+                );
+                call(webview, "cancel_lyrics", json!({})).unwrap();
+                refused
+            });
+            assert_eq!(
+                call(&f.webview, command, args.clone()).unwrap_err(),
+                "Stopped.",
+                "{command}"
+            );
+            assert_eq!(
+                lock(&refused).take().unwrap().unwrap_err(),
+                "Lyrics are already being found for this song."
+            );
+            assert_eq!(f.tracks(), found, "{command}");
+            // Not stopped the next time.
+            let reply = call(&f.webview, command, args).unwrap();
+            assert_eq!(reply[done.0], done.1, "{command}");
+        }
+        assert_eq!(f.tracks()[0]["marks"][0]["label"], "Paper lanterns");
+        assert_eq!(f.lrclib.requests().len(), 1, "only the search asked LRCLIB");
+    }
+
+    #[test]
+    fn the_model_download_reports_its_bytes_and_stops_keeping_nothing() {
+        let f = finder();
+        let models = f.dir.path().join("data");
+        let state = |webview: &WebviewWindow<MockRuntime>| {
+            let models = call(webview, "alignment_models", json!({})).unwrap();
+            (
+                models["installed"].as_bool().unwrap(),
+                models["downloading"].as_bool().unwrap(),
+            )
+        };
+        assert_eq!(state(&f.webview), (false, false));
+        let events = heard(&f.app, "align-models-progress");
+        // Nothing is downloading: stopping does nothing, now or to the download after it.
+        call(&f.webview, "cancel_alignment_download", json!({})).unwrap();
+
+        // As the first bytes are reported: it's downloading, a second download and a removal are
+        // refused, and then it's stopped.
+        let during: Arc<Mutex<Vec<Value>>> = Arc::default();
+        let seen = Arc::clone(&during);
+        let webview = f.webview.clone();
+        f.app.once_any("align-models-progress", move |_| {
+            let refused = |command: &str| call(&webview, command, json!({})).unwrap_err();
+            *lock(&seen) = vec![
+                json!(state(&webview)),
+                refused("download_alignment_models"),
+                refused("remove_alignment_models"),
+            ];
+            call(&webview, "cancel_alignment_download", json!({})).unwrap();
+        });
+        let stopped = call(&f.webview, "download_alignment_models", json!({})).unwrap_err();
+        assert_eq!(stopped, "Stopped.");
+        assert_eq!(
+            *lock(&during),
+            [
+                json!([false, true]),
+                json!("The model is already downloading."),
+                json!("Wait for the download to finish, or stop it, first."),
+            ]
+        );
+        assert_eq!(
+            std::mem::take(&mut *lock(&events)),
+            [json!({ "received": 1, "total": 5 })]
+        );
+        assert_eq!(files_under(&models), Vec::<String>::new());
+        assert_eq!(state(&f.webview), (false, false));
+
+        // The stop is spent: the next download runs to its last byte and keeps the model.
+        let done = call(&f.webview, "download_alignment_models", json!({})).unwrap();
+        assert_eq!(
+            (&done["installed"], &done["downloading"]),
+            (&json!(true), &json!(false))
+        );
+        let sent = lock(&events).clone();
+        assert_eq!(sent[0], json!({ "received": 1, "total": 5 }));
+        assert_eq!(sent.last().unwrap(), &json!({ "received": 5, "total": 5 }));
+        let received: Vec<u64> = sent.iter().map(|e| e["received"].as_u64().unwrap()).collect();
+        assert!(received.windows(2).all(|pair| pair[0] <= pair[1]), "{received:?}");
+        assert!(
+            sent.iter()
+                .all(|e| e["total"] == 5 && e.as_object().unwrap().len() == 2)
+        );
+        assert_eq!(files_under(&models), ["models/test-model/model.onnx"]);
+
+        let removed = call(&f.webview, "remove_alignment_models", json!({})).unwrap();
+        assert_eq!(removed["installed"], false);
+        assert_eq!(files_under(&models), Vec::<String>::new());
     }
 }

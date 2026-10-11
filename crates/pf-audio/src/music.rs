@@ -287,6 +287,8 @@ pub struct MusicPlayer {
     playing: bool,
     /// The last position the output reported, and when it changed.
     smooth: Cell<(Duration, Instant)>,
+    /// The furthest position read since the jump with this number.
+    furthest: Cell<(u64, Duration)>,
     // Keeps the output device open for as long as the player lives.
     _output: Option<MixerDeviceSink>,
 }
@@ -367,6 +369,7 @@ impl MusicPlayer {
             requested: 0,
             playing: false,
             smooth: Cell::new((Duration::ZERO, Instant::now())),
+            furthest: Cell::new((0, Duration::ZERO)),
             _output: output,
         }
     }
@@ -374,6 +377,15 @@ impl MusicPlayer {
     /// Whether a jump is still waiting for the audio thread.
     fn jumping(&self) -> bool {
         self.shared.applied.load(Ordering::Acquire) < self.requested
+    }
+
+    /// Whether the last jump the audio thread tried didn't work (the music played on instead).
+    fn jump_failed(&self) -> bool {
+        self.shared
+            .seek_error
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .is_some()
     }
 }
 
@@ -412,13 +424,30 @@ impl AudioClock for MusicPlayer {
             self.smooth.set((raw, now));
             now
         };
-        if self.playing {
+        let position = if self.playing {
             // The output's delay is in wall time; slowed down, less of the song fits in it.
             let speed = self.shared.speed();
             heard(raw, (now - changed).mul_f64(speed), self.latency.mul_f64(speed))
         } else {
             raw
-        }
+        };
+        // The music only moves forward between jumps, but the heard position is an estimate that
+        // can step back by part of a buffer: just after a jump (read while the output is still
+        // taking its first buffer from there), after a pause, or when the speed goes up. Lights
+        // following it would flash the frame before, so a reading never falls behind an earlier
+        // one, or behind the target of the jump it follows.
+        let jump = self.shared.applied.load(Ordering::Acquire);
+        let (since_jump, furthest) = self.furthest.get();
+        let floor = if since_jump == jump {
+            furthest
+        } else if self.jump_failed() {
+            Duration::ZERO
+        } else {
+            self.pending
+        };
+        let position = position.max(floor);
+        self.furthest.set((jump, position));
+        position
     }
 
     fn set_volume(&mut self, volume: f32) {
@@ -442,14 +471,9 @@ impl AudioClock for MusicPlayer {
         if self.shared.device_lost.load(Ordering::Acquire) {
             return Some("The sound output went away, so the music stopped. The lights keep playing.".into());
         }
-        self.shared
-            .seek_error
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .as_ref()
-            .map(|_| {
-                "PixelFlow couldn't jump to that part of the music, so it plays on from where it was.".into()
-            })
+        self.jump_failed().then(|| {
+            "PixelFlow couldn't jump to that part of the music, so it plays on from where it was.".into()
+        })
     }
 }
 
@@ -491,13 +515,18 @@ mod tests {
 
     /// A player on no sound device: the test pulls samples the way a device would.
     fn player_without_output() -> (MusicPlayer, SourcesQueueOutput, tempfile::TempDir) {
+        player_with_buffer(Duration::ZERO)
+    }
+
+    /// The same, for a device that plays what it's handed `buffer` later.
+    fn player_with_buffer(buffer: Duration) -> (MusicPlayer, SourcesQueueOutput, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("ramp.wav");
         write_ramp(&path);
         let shared = Arc::new(Shared::default());
         let source = MusicSource::new(open_decoder(&path).unwrap().0, Arc::clone(&shared));
         let (player, output) = Player::new();
-        let music = MusicPlayer::with_player(player, source, shared, Duration::ZERO, None);
+        let music = MusicPlayer::with_player(player, source, shared, buffer, None);
         (music, output, dir)
     }
 
@@ -634,6 +663,89 @@ mod tests {
         music.set_volume(0.5);
         assert_eq!(music.position(), Duration::from_millis(300));
         assert!(started.elapsed() < Duration::from_millis(100));
+    }
+
+    #[test]
+    fn a_jump_never_reads_before_its_target() {
+        let (mut music, mut output, _dir) = player_with_buffer(Duration::from_millis(10));
+        music.start(Duration::ZERO);
+        pull(&mut output, 500);
+        let target = Duration::from_millis(1000);
+        music.seek(target);
+        assert_eq!(music.position(), target);
+        // Read while the output is part way through taking its first buffer from there.
+        pull(&mut output, 1);
+        assert_eq!(music.position(), target, "not a buffer's length before it");
+        pull(&mut output, 50);
+        let position = music.position();
+        assert!(
+            position > target && position <= Duration::from_millis(1051),
+            "{position:?}"
+        );
+    }
+
+    #[test]
+    fn the_position_never_runs_backwards_between_jumps() {
+        let (mut music, mut output, _dir) = player_with_buffer(Duration::from_millis(10));
+        music.start(Duration::ZERO);
+        music.set_speed(0.5);
+        pull(&mut output, 400);
+        let slowed = music.position();
+        // At full speed a buffer holds twice as much of the song, so what is heard is put
+        // further behind what was handed over.
+        music.set_speed(1.0);
+        assert_eq!(music.position(), slowed);
+        pull(&mut output, 100);
+        let playing = music.position();
+        music.pause();
+        let paused = music.position();
+        assert!(paused >= playing, "{paused:?} after {playing:?}");
+        music.resume();
+        assert!(music.position() >= paused);
+        // Only a jump takes it back.
+        music.seek(Duration::from_millis(100));
+        assert_eq!(music.position(), Duration::from_millis(100));
+        pull(&mut output, 20);
+        assert_near(music.position(), 115);
+    }
+
+    #[test]
+    fn a_jump_that_fails_leaves_the_position_with_the_music() {
+        /// Sound that can't be jumped in.
+        struct Tone;
+        impl Iterator for Tone {
+            type Item = Sample;
+            fn next(&mut self) -> Option<Sample> {
+                Some(0.25)
+            }
+        }
+        impl Source for Tone {
+            fn current_span_len(&self) -> Option<usize> {
+                None
+            }
+            fn channels(&self) -> ChannelCount {
+                ChannelCount::MIN
+            }
+            fn sample_rate(&self) -> SampleRate {
+                SampleRate::new(RATE).unwrap()
+            }
+            fn total_duration(&self) -> Option<Duration> {
+                None
+            }
+        }
+        let shared = Arc::new(Shared::default());
+        let source = MusicSource::new(Tone, Arc::clone(&shared));
+        let (player, mut output) = Player::new();
+        let mut music = MusicPlayer::with_player(player, source, shared, Duration::from_millis(10), None);
+        music.start(Duration::ZERO);
+        pull(&mut output, 500);
+        assert_near(music.position(), 495);
+        music.seek(Duration::from_secs(5));
+        pull(&mut output, 100);
+        // It plays on from where it was, and the clock says so: it isn't held at the place
+        // the jump never reached.
+        assert!(music.problem().is_some());
+        assert_near(music.position(), 595);
     }
 
     #[test]

@@ -1,0 +1,1473 @@
+{
+  "calls": [
+    { "api": "backend.getSnapshot", "command": "get_snapshot", "args": {} },
+    {
+      "api": "backend.applyEdits",
+      "command": "apply_edits",
+      "args": {
+        "edits": [
+          { "type": "renameShow", "name": "House" },
+          { "type": "setFrameRate", "fps": 20 },
+          {
+            "type": "addProp",
+            "prop": {
+              "id": "11111111-0000-4000-8000-000000000001",
+              "name": "Mega Tree",
+              "shape": {
+                "source": "generator",
+                "type": "tree",
+                "strings": 16,
+                "nodesPerString": 50,
+                "height": 5,
+                "baseRadius": 1.5,
+                "topRadius": 0.1,
+                "serpentine": true,
+                "style": "flat",
+                "degrees": 180,
+                "startAngle": 10,
+                "start": "topRight",
+                "strandsPerString": 2,
+                "alternateNodes": true,
+                "spiralRotations": 1.5
+              },
+              "transform": {
+                "position": { "x": 1, "y": 2, "z": 3 },
+                "rotationDeg": { "x": 10, "y": 20, "z": 30 },
+                "scale": { "x": 2, "y": 2, "z": 2 }
+              },
+              "colorOrder": "GRB",
+              "regions": [
+                {
+                  "id": "88888888-0000-4000-8000-000000000001",
+                  "name": "Top",
+                  "kind": "nodes",
+                  "lines": [[{ "first": 0, "last": 9 }, null]],
+                  "layout": "vertical",
+                  "buffer": "stackedStrands"
+                },
+                {
+                  "id": "88888888-0000-4000-8000-000000000002",
+                  "name": "Left",
+                  "kind": "subBuffer",
+                  "x1": 0,
+                  "y1": 0,
+                  "x2": 50,
+                  "y2": 100
+                },
+                {
+                  "id": "88888888-0000-4000-8000-000000000003",
+                  "name": "Singer",
+                  "kind": "face",
+                  "mouths": { "AI": [{ "start": 0, "end": 4 }] },
+                  "eyesOpen": [{ "start": 4, "end": 6 }],
+                  "eyesClosed": [{ "start": 6, "end": 8 }],
+                  "outline": [{ "start": 8, "end": 20 }],
+                  "colors": {
+                    "mouths": { "AI": "#ff0000" },
+                    "eyesOpen": "#00ff00",
+                    "eyesClosed": "#0000ff",
+                    "outline": "#ffffff"
+                  }
+                }
+              ],
+              "tags": ["tree"]
+            }
+          },
+          {
+            "type": "updateProp",
+            "prop": {
+              "id": "11111111-0000-4000-8000-000000000001",
+              "name": "Mega Tree",
+              "shape": {
+                "source": "generator",
+                "type": "tree",
+                "strings": 16,
+                "nodesPerString": 50,
+                "height": 5,
+                "baseRadius": 1.5,
+                "topRadius": 0.1,
+                "serpentine": true,
+                "style": "flat",
+                "degrees": 180,
+                "startAngle": 10,
+                "start": "topRight",
+                "strandsPerString": 2,
+                "alternateNodes": true,
+                "spiralRotations": 1.5
+              },
+              "transform": {
+                "position": { "x": 1, "y": 2, "z": 3 },
+                "rotationDeg": { "x": 10, "y": 20, "z": 30 },
+                "scale": { "x": 2, "y": 2, "z": 2 }
+              },
+              "colorOrder": "GRB",
+              "regions": [
+                {
+                  "id": "88888888-0000-4000-8000-000000000001",
+                  "name": "Top",
+                  "kind": "nodes",
+                  "lines": [[{ "first": 0, "last": 9 }, null]],
+                  "layout": "vertical",
+                  "buffer": "stackedStrands"
+                },
+                {
+                  "id": "88888888-0000-4000-8000-000000000002",
+                  "name": "Left",
+                  "kind": "subBuffer",
+                  "x1": 0,
+                  "y1": 0,
+                  "x2": 50,
+                  "y2": 100
+                },
+                {
+                  "id": "88888888-0000-4000-8000-000000000003",
+                  "name": "Singer",
+                  "kind": "face",
+                  "mouths": { "AI": [{ "start": 0, "end": 4 }] },
+                  "eyesOpen": [{ "start": 4, "end": 6 }],
+                  "eyesClosed": [{ "start": 6, "end": 8 }],
+                  "outline": [{ "start": 8, "end": 20 }],
+                  "colors": {
+                    "mouths": { "AI": "#ff0000" },
+                    "eyesOpen": "#00ff00",
+                    "eyesClosed": "#0000ff",
+                    "outline": "#ffffff"
+                  }
+                }
+              ],
+              "tags": ["tree"]
+            }
+          },
+          { "type": "removeProp", "id": "11111111-0000-4000-8000-000000000001" },
+          {
+            "type": "addGroup",
+            "group": {
+              "id": "22222222-0000-4000-8000-000000000001",
+              "name": "Everything",
+              "members": [
+                "11111111-0000-4000-8000-000000000001",
+                {
+                  "prop": "11111111-0000-4000-8000-000000000001",
+                  "region": "88888888-0000-4000-8000-000000000001"
+                }
+              ],
+              "layout": "horizontalStack",
+              "gridSize": 200
+            }
+          },
+          {
+            "type": "updateGroup",
+            "group": {
+              "id": "22222222-0000-4000-8000-000000000001",
+              "name": "Everything",
+              "members": [
+                "11111111-0000-4000-8000-000000000001",
+                {
+                  "prop": "11111111-0000-4000-8000-000000000001",
+                  "region": "88888888-0000-4000-8000-000000000001"
+                }
+              ],
+              "layout": "horizontalStack",
+              "gridSize": 200
+            }
+          },
+          { "type": "removeGroup", "id": "22222222-0000-4000-8000-000000000001" },
+          {
+            "type": "addController",
+            "controller": {
+              "id": "33333333-0000-4000-8000-000000000001",
+              "name": "Porch",
+              "address": "192.0.2.10",
+              "adapter": "fpp",
+              "protocol": {
+                "type": "sacn",
+                "startUniverse": 4,
+                "universeSize": 255,
+                "allowPixelStraddle": true,
+                "multicast": true
+              },
+              "ports": [
+                {
+                  "number": 1,
+                  "maxPixels": 680,
+                  "brightness": 80,
+                  "gamma": 2.2,
+                  "slots": [
+                    {
+                      "prop": "11111111-0000-4000-8000-000000000001",
+                      "segment": { "start": 0, "end": 400 },
+                      "nullPixels": 1,
+                      "reverse": true,
+                      "brightness": 50,
+                      "gamma": 1.8,
+                      "smartReceiver": 2,
+                      "controllerColorOrder": "RGB"
+                    }
+                  ]
+                }
+              ],
+              "sequenceChannels": { "start": 1, "count": 2400, "rawDdpOffsets": true }
+            }
+          },
+          {
+            "type": "updateController",
+            "controller": {
+              "id": "33333333-0000-4000-8000-000000000001",
+              "name": "Porch",
+              "address": "192.0.2.10",
+              "adapter": "fpp",
+              "protocol": { "type": "ddp" },
+              "ports": [
+                {
+                  "number": 1,
+                  "maxPixels": 680,
+                  "brightness": 80,
+                  "gamma": 2.2,
+                  "slots": [
+                    {
+                      "prop": "11111111-0000-4000-8000-000000000001",
+                      "segment": { "start": 0, "end": 400 },
+                      "nullPixels": 1,
+                      "reverse": true,
+                      "brightness": 50,
+                      "gamma": 1.8,
+                      "smartReceiver": 2,
+                      "controllerColorOrder": "RGB"
+                    }
+                  ]
+                }
+              ],
+              "sequenceChannels": { "start": 1, "count": 2400, "rawDdpOffsets": true }
+            }
+          },
+          { "type": "removeController", "id": "33333333-0000-4000-8000-000000000001" },
+          {
+            "type": "addSequence",
+            "sequence": {
+              "id": "77777777-0000-4000-8000-000000000001",
+              "name": "Carol",
+              "path": "/fixture/sequences/Carol.fseq",
+              "audio": "/fixture/music/Carol.mp3",
+              "offsetMs": -40
+            }
+          },
+          {
+            "type": "updateSequence",
+            "sequence": {
+              "id": "77777777-0000-4000-8000-000000000001",
+              "name": "Carol",
+              "path": "/fixture/sequences/Carol.fseq",
+              "audio": "/fixture/music/Carol.mp3",
+              "offsetMs": -40
+            }
+          },
+          { "type": "removeSequence", "id": "77777777-0000-4000-8000-000000000001" },
+          { "type": "moveSequence", "id": "77777777-0000-4000-8000-000000000001", "index": 2 },
+          {
+            "type": "setBackground",
+            "background": {
+              "path": "/fixture/photos/house.png",
+              "x": -10,
+              "y": 8,
+              "width": 20,
+              "opacity": 0.6
+            }
+          },
+          {
+            "type": "setHouseModel",
+            "houseModel": {
+              "path": "/fixture/models/house.glb",
+              "position": { "x": 1, "y": 2, "z": -3 },
+              "rotationDeg": { "x": 5, "y": 90, "z": 15 },
+              "scale": 1.5,
+              "opacity": 0.8
+            }
+          }
+        ]
+      }
+    },
+    {
+      "api": "backend.applyEdits",
+      "command": "apply_edits",
+      "args": {
+        "edits": [
+          { "type": "setBackground", "background": null },
+          { "type": "setHouseModel", "houseModel": null }
+        ]
+      }
+    },
+    { "api": "backend.undo", "command": "undo", "args": {} },
+    { "api": "backend.redo", "command": "redo", "args": {} },
+    { "api": "backend.newShow", "command": "new_show", "args": { "name": "House" } },
+    { "api": "backend.openSampleShow", "command": "open_sample_show", "args": {} },
+    { "api": "backend.openShow", "command": "open_show", "args": { "path": "/fixture/House.pixelflow.json" } },
+    { "api": "backend.saveShow", "command": "save_show", "args": {} },
+    {
+      "api": "backend.saveShowAs",
+      "command": "save_show_as",
+      "args": { "path": "/fixture/House.pixelflow.json" }
+    },
+    { "api": "backend.checkFiles", "command": "check_files", "args": { "all": true } },
+    { "api": "backend.findMissingFiles", "command": "find_missing_files", "args": {} },
+    {
+      "api": "backend.findMissingFiles",
+      "command": "find_missing_files",
+      "args": { "file": { "kind": "sequence", "id": "77777777-0000-4000-8000-000000000001" } }
+    },
+    {
+      "api": "backend.locateFile",
+      "command": "locate_file",
+      "args": { "file": { "kind": "sequence", "id": "77777777-0000-4000-8000-000000000001" } }
+    },
+    {
+      "api": "backend.findMissingFiles",
+      "command": "find_missing_files",
+      "args": { "file": { "kind": "music", "id": "77777777-0000-4000-8000-000000000001" } }
+    },
+    {
+      "api": "backend.locateFile",
+      "command": "locate_file",
+      "args": { "file": { "kind": "music", "id": "77777777-0000-4000-8000-000000000001" } }
+    },
+    {
+      "api": "backend.findMissingFiles",
+      "command": "find_missing_files",
+      "args": { "file": { "kind": "photo" } }
+    },
+    { "api": "backend.locateFile", "command": "locate_file", "args": { "file": { "kind": "photo" } } },
+    {
+      "api": "backend.findMissingFiles",
+      "command": "find_missing_files",
+      "args": { "file": { "kind": "houseModel" } }
+    },
+    { "api": "backend.locateFile", "command": "locate_file", "args": { "file": { "kind": "houseModel" } } },
+    {
+      "api": "backend.findMissingFiles",
+      "command": "find_missing_files",
+      "args": { "file": { "kind": "sequenceDocMusic" } }
+    },
+    {
+      "api": "backend.locateFile",
+      "command": "locate_file",
+      "args": { "file": { "kind": "sequenceDocMusic" } }
+    },
+    {
+      "api": "backend.findMissingFiles",
+      "command": "find_missing_files",
+      "args": { "file": { "kind": "picture" } }
+    },
+    { "api": "backend.locateFile", "command": "locate_file", "args": { "file": { "kind": "picture" } } },
+    { "api": "backend.setPlaybackSpeed", "command": "set_playback_speed", "args": { "speed": 0.5 } },
+    { "api": "backend.listHistory", "command": "list_history", "args": {} },
+    {
+      "api": "backend.restoreHistory",
+      "command": "restore_history",
+      "args": { "id": "1700000000000.pixelflow.json" }
+    },
+    {
+      "api": "backend.startOutput",
+      "command": "start_output",
+      "args": { "pattern": { "kind": "solid", "color": "ff8000" }, "target": { "type": "show" } }
+    },
+    {
+      "api": "backend.startOutput",
+      "command": "start_output",
+      "args": {
+        "pattern": { "kind": "cycle", "color": "ff8000" },
+        "target": { "type": "prop", "id": "11111111-0000-4000-8000-000000000001" }
+      }
+    },
+    {
+      "api": "backend.startOutput",
+      "command": "start_output",
+      "args": {
+        "pattern": { "kind": "chase", "color": "ff8000" },
+        "target": { "type": "group", "id": "22222222-0000-4000-8000-000000000001" }
+      }
+    },
+    {
+      "api": "backend.startOutput",
+      "command": "start_output",
+      "args": {
+        "pattern": { "kind": "ramp", "color": "ff8000" },
+        "target": { "type": "controller", "id": "33333333-0000-4000-8000-000000000001" }
+      }
+    },
+    {
+      "api": "backend.startOutput",
+      "command": "start_output",
+      "args": {
+        "pattern": { "kind": "alternate", "color": "ff8000" },
+        "target": { "type": "port", "controller": "33333333-0000-4000-8000-000000000001", "port": 2 }
+      }
+    },
+    {
+      "api": "backend.startOutput",
+      "command": "start_output",
+      "args": { "pattern": { "kind": "identify", "color": "ff8000" }, "target": { "type": "show" } }
+    },
+    {
+      "api": "backend.startOutput",
+      "command": "start_output",
+      "args": {
+        "pattern": { "kind": "walk", "color": "ff8000" },
+        "target": { "type": "prop", "id": "11111111-0000-4000-8000-000000000001" }
+      }
+    },
+    {
+      "api": "backend.startOutput",
+      "command": "start_output",
+      "args": {
+        "pattern": { "kind": "cameraMap", "color": "ff8000" },
+        "target": { "type": "group", "id": "22222222-0000-4000-8000-000000000001" }
+      }
+    },
+    {
+      "api": "backend.startOutput",
+      "command": "start_output",
+      "args": {
+        "pattern": { "kind": "cameraMapBinary", "color": "ff8000" },
+        "target": { "type": "controller", "id": "33333333-0000-4000-8000-000000000001" }
+      }
+    },
+    { "api": "backend.stopOutput", "command": "stop_output", "args": {} },
+    { "api": "backend.outputStatus", "command": "output_status", "args": {} },
+    {
+      "api": "backend.cameraMapTarget",
+      "command": "camera_map_target",
+      "args": { "target": { "type": "prop", "id": "11111111-0000-4000-8000-000000000001" }, "base": "four" }
+    },
+    {
+      "api": "backend.cameraMapSync",
+      "command": "camera_map_sync",
+      "args": { "samples": [{ "t": 0, "v": 10 }, { "t": 0.033, "v": 50 }], "pixels": 4, "base": "four" }
+    },
+    {
+      "api": "backend.cameraMapDecode",
+      "command": "camera_map_decode",
+      "headers": { "x-camera-map": "{\"width\":48,\"height\":16,\"pixels\":4,\"base\":\"four\"}" }
+    },
+    {
+      "api": "backend.cameraMapTarget",
+      "command": "camera_map_target",
+      "args": { "target": { "type": "prop", "id": "11111111-0000-4000-8000-000000000001" }, "base": "two" }
+    },
+    {
+      "api": "backend.cameraMapSync",
+      "command": "camera_map_sync",
+      "args": { "samples": [{ "t": 0, "v": 10 }, { "t": 0.033, "v": 50 }], "pixels": 4, "base": "two" }
+    },
+    {
+      "api": "backend.cameraMapDecode",
+      "command": "camera_map_decode",
+      "headers": { "x-camera-map": "{\"width\":48,\"height\":16,\"pixels\":4,\"base\":\"two\"}" }
+    },
+    {
+      "api": "backend.cameraMapPlan",
+      "command": "camera_map_plan",
+      "args": {
+        "target": { "type": "prop", "id": "11111111-0000-4000-8000-000000000001" },
+        "pixels": 4,
+        "decoded": {
+          "width": 48,
+          "height": 16,
+          "pixels": [
+            { "index": 0, "x": 9, "y": 8, "confidence": 0.9, "brightness": 220, "seen": [0, 1, 2] },
+            { "index": 1, "x": 19, "y": 8, "confidence": 0.4, "brightness": 90, "seen": null }
+          ],
+          "duplicates": [{ "index": 0, "x": 9, "y": 13, "confidence": 0.5, "brightness": 80, "seen": null }],
+          "unreadable": [{ "x": 40, "y": 3, "brightness": 60 }]
+        },
+        "anchors": [0, 3]
+      }
+    },
+    {
+      "api": "backend.discoverDevices",
+      "command": "discover_devices",
+      "args": { "hosts": ["192.0.2.10", "192.0.2.20"], "network": true }
+    },
+    { "api": "backend.inspectDevice", "command": "inspect_device", "args": { "address": "192.0.2.10" } },
+    {
+      "api": "backend.importDevice",
+      "command": "import_device",
+      "args": { "address": "192.0.2.10", "useProps": null }
+    },
+    {
+      "api": "backend.importDevice",
+      "command": "import_device",
+      "args": {
+        "address": "192.0.2.10",
+        "useProps": { "port1/string2": "11111111-0000-4000-8000-000000000001" }
+      }
+    },
+    { "api": "backend.compareDevice", "command": "compare_device", "args": { "address": "192.0.2.10" } },
+    {
+      "api": "backend.takeFromDevice",
+      "command": "take_from_device_setup",
+      "args": { "address": "192.0.2.10", "picks": ["port1/string2/pixels"], "useProps": null }
+    },
+    {
+      "api": "backend.takeFromDevice",
+      "command": "take_from_device_setup",
+      "args": {
+        "address": "192.0.2.10",
+        "picks": ["port1/string3"],
+        "useProps": { "port1/string3": "11111111-0000-4000-8000-000000000001" }
+      }
+    },
+    { "api": "backend.planDeviceSetup", "command": "plan_device_setup", "args": { "address": "192.0.2.10" } },
+    {
+      "api": "backend.sendDeviceSetup",
+      "command": "send_device_setup",
+      "args": { "address": "192.0.2.10", "expected": ["port1/string2/pixels"] }
+    },
+    {
+      "api": "backend.planDeviceRestore",
+      "command": "plan_device_restore",
+      "args": { "address": "192.0.2.10" }
+    },
+    {
+      "api": "backend.restoreDeviceSetup",
+      "command": "restore_device_setup",
+      "args": { "address": "192.0.2.10", "expected": ["port1/string2/pixels"] }
+    },
+    {
+      "api": "backend.forgetDeviceSetupCopy",
+      "command": "forget_device_setup_copy",
+      "args": { "key": "fpp-4d312d46414b45" }
+    },
+    {
+      "api": "backend.importFppDestination",
+      "command": "import_fpp_destination",
+      "args": { "address": "192.0.2.10", "destination": "192.0.2.20", "protocol": "DDP" }
+    },
+    {
+      "api": "backend.checkControllers",
+      "command": "check_controllers",
+      "args": { "addresses": ["192.0.2.10", "192.0.2.20"] }
+    },
+    { "api": "backend.fppStatus", "command": "fpp_status", "args": { "address": "192.0.2.10" } },
+    { "api": "backend.fppSequences", "command": "fpp_sequences", "args": { "address": "192.0.2.10" } },
+    {
+      "api": "backend.fppStart",
+      "command": "fpp_start",
+      "args": { "address": "192.0.2.10", "name": "Carol.fseq" }
+    },
+    {
+      "api": "backend.fppStop",
+      "command": "fpp_stop",
+      "args": { "address": "192.0.2.10", "gracefully": true }
+    },
+    {
+      "api": "backend.fppFolder",
+      "command": "fpp_files",
+      "args": { "address": "192.0.2.10", "folder": "sequences" }
+    },
+    {
+      "api": "backend.fppFolder",
+      "command": "fpp_files",
+      "args": { "address": "192.0.2.10", "folder": "music" }
+    },
+    {
+      "api": "backend.fppFolder",
+      "command": "fpp_files",
+      "args": { "address": "192.0.2.10", "folder": "playlists" }
+    },
+    { "api": "backend.fppSchedule", "command": "fpp_schedule", "args": { "address": "192.0.2.10" } },
+    { "api": "backend.fppSetupPlan", "command": "fpp_setup_plan", "args": { "address": "192.0.2.10" } },
+    {
+      "api": "backend.fppSetUpShow",
+      "command": "fpp_set_up_show",
+      "args": { "address": "192.0.2.10", "expected": ["192.0.2.20"] }
+    },
+    { "api": "backend.fppSoftware", "command": "fpp_software", "args": { "address": "192.0.2.10" } },
+    {
+      "api": "backend.openDevicePage",
+      "command": "open_device_page",
+      "args": { "address": "192.0.2.10", "page": null }
+    },
+    {
+      "api": "backend.openDevicePage",
+      "command": "open_device_page",
+      "args": { "address": "192.0.2.10", "page": "about.php" }
+    },
+    {
+      "api": "backend.fppSequenceNames",
+      "command": "fpp_sequence_names",
+      "args": { "address": "192.0.2.10" }
+    },
+    {
+      "api": "backend.fppSendPlan",
+      "command": "fpp_send_plan",
+      "args": {
+        "address": "192.0.2.10",
+        "source": { "kind": "openSequence", "name": "Carol" },
+        "music": "/fixture/music/Carol.mp3"
+      }
+    },
+    {
+      "api": "backend.fppSendPlan",
+      "command": "fpp_send_plan",
+      "args": {
+        "address": "192.0.2.10",
+        "source": { "kind": "file", "path": "/fixture/sequences/Carol.fseq" },
+        "music": null
+      }
+    },
+    {
+      "api": "backend.fppSend",
+      "command": "fpp_send",
+      "args": {
+        "address": "192.0.2.10",
+        "request": {
+          "source": { "kind": "openSequence", "name": "Carol" },
+          "music": "/fixture/music/Carol.mp3",
+          "sequenceName": "Carol.fseq",
+          "musicName": "Carol.mp3",
+          "uploadMusic": true,
+          "replaceSequence": true,
+          "replaceMusic": true,
+          "playlist": { "kind": "none" },
+          "sendId": 7
+        }
+      }
+    },
+    {
+      "api": "backend.fppSend",
+      "command": "fpp_send",
+      "args": {
+        "address": "192.0.2.10",
+        "request": {
+          "source": { "kind": "file", "path": "/fixture/sequences/Carol.fseq" },
+          "music": "/fixture/music/Carol.mp3",
+          "sequenceName": "Carol.fseq",
+          "musicName": "Carol.mp3",
+          "uploadMusic": true,
+          "replaceSequence": true,
+          "replaceMusic": true,
+          "playlist": { "kind": "existing", "name": "Main" },
+          "sendId": 7
+        }
+      }
+    },
+    {
+      "api": "backend.fppSend",
+      "command": "fpp_send",
+      "args": {
+        "address": "192.0.2.10",
+        "request": {
+          "source": { "kind": "openSequence", "name": "Carol" },
+          "music": "/fixture/music/Carol.mp3",
+          "sequenceName": "Carol.fseq",
+          "musicName": "Carol.mp3",
+          "uploadMusic": true,
+          "replaceSequence": true,
+          "replaceMusic": true,
+          "playlist": { "kind": "new", "name": "Carol" },
+          "sendId": 7
+        }
+      }
+    },
+    { "api": "backend.cancelFppSend", "command": "cancel_fpp_send", "args": {} },
+    { "api": "backend.pickDownloadFolder", "command": "pick_path", "args": { "kind": "downloadFolder" } },
+    {
+      "api": "backend.fppDownloadPlan",
+      "command": "fpp_download_plan",
+      "args": { "address": "192.0.2.10", "sequence": "Carol.fseq", "folder": "/fixture/Downloads" }
+    },
+    {
+      "api": "backend.fppDownloadPlan",
+      "command": "fpp_download_plan",
+      "args": { "address": "192.0.2.10", "sequence": "Carol.fseq", "folder": null }
+    },
+    {
+      "api": "backend.fppDownload",
+      "command": "fpp_download",
+      "args": {
+        "address": "192.0.2.10",
+        "request": {
+          "sequence": "Carol.fseq",
+          "music": "Carol.mp3",
+          "folder": "/fixture/Downloads",
+          "sequenceClash": "replace",
+          "musicClash": "replace",
+          "downloadId": 9
+        }
+      }
+    },
+    {
+      "api": "backend.fppDownload",
+      "command": "fpp_download",
+      "args": {
+        "address": "192.0.2.10",
+        "request": {
+          "sequence": "Carol.fseq",
+          "music": "Carol.mp3",
+          "folder": "/fixture/Downloads",
+          "sequenceClash": "keepBoth",
+          "musicClash": "keepBoth",
+          "downloadId": 9
+        }
+      }
+    },
+    { "api": "backend.cancelFppDownload", "command": "cancel_fpp_download", "args": {} },
+    {
+      "api": "backend.startPlayback",
+      "command": "start_playback",
+      "args": { "path": "/fixture/sequences/Carol.fseq", "positionMs": 500 }
+    },
+    { "api": "backend.pausePlayback", "command": "pause_playback", "args": { "paused": true } },
+    { "api": "backend.seekPlayback", "command": "seek_playback", "args": { "positionMs": 1500 } },
+    { "api": "backend.stopPlayback", "command": "stop_playback", "args": {} },
+    { "api": "backend.playbackStatus", "command": "playback_status", "args": {} },
+    { "api": "backend.playbackStopReason", "command": "playback_stop_reason", "args": {} },
+    { "api": "backend.liveFrame", "command": "live_frame", "args": {} },
+    { "api": "backend.sequenceFrame", "command": "sequence_frame", "args": {} },
+    { "api": "backend.previewProps", "command": "preview_props", "args": {} },
+    { "api": "backend.previewProps3d", "command": "preview_props_3d", "args": {} },
+    { "api": "backend.readImage", "command": "read_image", "args": { "path": "/fixture/photos/house.png" } },
+    { "api": "backend.pickImagePath", "command": "pick_image", "args": {} },
+    {
+      "api": "backend.readHouseModel",
+      "command": "read_house_model",
+      "args": { "path": "/fixture/models/house.glb" }
+    },
+    { "api": "backend.pickHouseModelPath", "command": "pick_house_model", "args": {} },
+    { "api": "backend.importXlights", "command": "import_xlights", "args": { "folder": "/fixture/xLights" } },
+    { "api": "backend.pickShowFolder", "command": "pick_path", "args": { "kind": "xlightsFolder" } },
+    {
+      "api": "backend.addSequence",
+      "command": "add_sequence",
+      "args": { "path": "/fixture/sequences/Carol.fseq" }
+    },
+    {
+      "api": "backend.addSequence",
+      "command": "add_sequence",
+      "args": { "path": "/fixture/sequences/Carol.fseq", "music": "/fixture/music/Carol.mp3" }
+    },
+    {
+      "api": "backend.playSequence",
+      "command": "play_sequence",
+      "args": { "id": "77777777-0000-4000-8000-000000000001", "positionMs": 500 }
+    },
+    { "api": "backend.setPlaybackVolume", "command": "set_playback_volume", "args": { "volume": 0.5 } },
+    {
+      "api": "backend.audioWaveform",
+      "command": "audio_waveform",
+      "args": { "path": "/fixture/music/Carol.mp3", "slices": 400 }
+    },
+    { "api": "backend.vocalLane", "command": "vocal_lane", "args": { "path": "/fixture/music/Carol.mp3" } },
+    { "api": "backend.syncClickStart", "command": "sync_click_start", "args": { "intervalMs": 500 } },
+    { "api": "backend.syncClickPosition", "command": "sync_click_position", "args": {} },
+    { "api": "backend.syncClickStop", "command": "sync_click_stop", "args": {} },
+    { "api": "backend.probeAudio", "command": "probe_audio", "args": { "path": "/fixture/music/Carol.mp3" } },
+    { "api": "backend.pickAudioPath", "command": "pick_path", "args": { "kind": "music" } },
+    { "api": "backend.pickSequencePath", "command": "pick_path", "args": { "kind": "fseq" } },
+    { "api": "backend.pickOpenPath", "command": "pick_path", "args": { "kind": "show" } },
+    {
+      "api": "backend.pickSavePath",
+      "command": "pick_path",
+      "args": { "kind": "showSave", "name": "House.pixelflow.json" }
+    },
+    { "api": "backend.openPreviewWindow", "command": "open_preview_window", "args": {} },
+    { "api": "backend.closePreviewWindow", "command": "close_preview_window", "args": {} },
+    { "api": "backend.previewLink", "command": "preview_link", "args": {} },
+    { "api": "backend.previewLink", "command": "preview_link", "args": { "note": { "positionMs": 500 } } },
+    { "api": "backend.listRecentShows", "command": "list_recent_shows", "args": {} },
+    {
+      "api": "backend.forgetRecentShow",
+      "command": "forget_recent_show",
+      "args": { "path": "/fixture/House.pixelflow.json" }
+    },
+    { "api": "backend.clearRecentShows", "command": "clear_recent_shows", "args": {} },
+    {
+      "api": "backend.locateRecentShow",
+      "command": "locate_recent_show",
+      "args": { "path": "/fixture/House.pixelflow.json" }
+    },
+    {
+      "api": "sequencer.newSequenceDoc",
+      "command": "new_sequence_doc",
+      "args": { "name": "Carol", "durationMs": 60000, "audio": null }
+    },
+    {
+      "api": "sequencer.newSequenceDoc",
+      "command": "new_sequence_doc",
+      "args": {
+        "name": "Carol",
+        "durationMs": 60000,
+        "audio": "/fixture/music/Carol.mp3",
+        "rows": [
+          {
+            "id": "44444444-0000-4000-8000-000000000001",
+            "target": { "prop": "11111111-0000-4000-8000-000000000001" },
+            "layers": [
+              {
+                "effects": [
+                  {
+                    "id": "55555555-0000-4000-8000-000000000001",
+                    "startMs": 1000,
+                    "endMs": 3000,
+                    "params": {
+                      "kind": "chase",
+                      "speed": 4,
+                      "width": 0.5,
+                      "bands": 3,
+                      "direction": "reverse",
+                      "bounce": true,
+                      "order": "across",
+                      "timingTrack": "66666666-0000-4000-8000-000000000001"
+                    },
+                    "palette": { "colors": ["#ff0000", "#00ff00"] },
+                    "blend": "add",
+                    "fadeInMs": 100,
+                    "fadeOutMs": 200,
+                    "sparkles": 40,
+                    "sparkleColor": "#ffcc00",
+                    "musicSparkles": true,
+                    "blur": 2,
+                    "renderStyle": "perPreview",
+                    "bufferTransform": "rotateCw90",
+                    "curves": {
+                      "speed": {
+                        "shape": "musicTrigger",
+                        "from": 1,
+                        "to": 9,
+                        "cycles": 2,
+                        "points": [[0, 0.5], [1, 1]],
+                        "gain": 20,
+                        "trigger": 40,
+                        "fade": 3,
+                        "timingTrack": "66666666-0000-4000-8000-000000000001"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    { "api": "sequencer.sequenceRecoveries", "command": "sequence_recoveries", "args": {} },
+    {
+      "api": "sequencer.recoverSequence",
+      "command": "recover_sequence",
+      "args": { "id": "1700000000000-1-0" }
+    },
+    {
+      "api": "sequencer.discardSequenceRecovery",
+      "command": "discard_sequence_recovery",
+      "args": { "id": "1700000000000-1-0" }
+    },
+    {
+      "api": "sequencer.openSequenceDoc",
+      "command": "open_sequence_doc",
+      "args": { "path": "/fixture/Carol.pfseq.json" }
+    },
+    { "api": "sequencer.saveSequenceDoc", "command": "save_sequence_doc", "args": {} },
+    {
+      "api": "sequencer.saveSequenceDocAs",
+      "command": "save_sequence_doc_as",
+      "args": { "path": "/fixture/Carol.pfseq.json" }
+    },
+    { "api": "sequencer.closeSequenceDoc", "command": "close_sequence_doc", "args": {} },
+    { "api": "sequencer.getSequenceDoc", "command": "get_sequence_doc", "args": {} },
+    {
+      "api": "sequencer.editSequence",
+      "command": "edit_sequence",
+      "args": {
+        "edits": [
+          {
+            "type": "updateInfo",
+            "name": "Carol",
+            "audio": "/fixture/music/Carol.mp3",
+            "durationMs": 60000,
+            "frameMs": 50
+          },
+          {
+            "type": "addRow",
+            "row": {
+              "id": "44444444-0000-4000-8000-000000000001",
+              "target": { "prop": "11111111-0000-4000-8000-000000000001" },
+              "layers": [
+                {
+                  "effects": [
+                    {
+                      "id": "55555555-0000-4000-8000-000000000001",
+                      "startMs": 1000,
+                      "endMs": 3000,
+                      "params": {
+                        "kind": "chase",
+                        "speed": 4,
+                        "width": 0.5,
+                        "bands": 3,
+                        "direction": "reverse",
+                        "bounce": true,
+                        "order": "across",
+                        "timingTrack": "66666666-0000-4000-8000-000000000001"
+                      },
+                      "palette": { "colors": ["#ff0000", "#00ff00"] },
+                      "blend": "add",
+                      "fadeInMs": 100,
+                      "fadeOutMs": 200,
+                      "sparkles": 40,
+                      "sparkleColor": "#ffcc00",
+                      "musicSparkles": true,
+                      "blur": 2,
+                      "renderStyle": "perPreview",
+                      "bufferTransform": "rotateCw90",
+                      "curves": {
+                        "speed": {
+                          "shape": "musicTrigger",
+                          "from": 1,
+                          "to": 9,
+                          "cycles": 2,
+                          "points": [[0, 0.5], [1, 1]],
+                          "gain": 20,
+                          "trigger": 40,
+                          "fade": 3,
+                          "timingTrack": "66666666-0000-4000-8000-000000000001"
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "index": 1
+          },
+          { "type": "removeRow", "id": "44444444-0000-4000-8000-000000000001" },
+          { "type": "moveRow", "id": "44444444-0000-4000-8000-000000000001", "index": 2 },
+          { "type": "addLayer", "row": "44444444-0000-4000-8000-000000000001", "index": 1 },
+          { "type": "removeLayer", "row": "44444444-0000-4000-8000-000000000001", "layer": 1 },
+          {
+            "type": "addEffect",
+            "row": "44444444-0000-4000-8000-000000000001",
+            "layer": 1,
+            "effect": {
+              "id": "55555555-0000-4000-8000-000000000001",
+              "startMs": 1000,
+              "endMs": 3000,
+              "params": {
+                "kind": "chase",
+                "speed": 4,
+                "width": 0.5,
+                "bands": 3,
+                "direction": "reverse",
+                "bounce": true,
+                "order": "across",
+                "timingTrack": "66666666-0000-4000-8000-000000000001"
+              },
+              "palette": { "colors": ["#ff0000", "#00ff00"] },
+              "blend": "add",
+              "fadeInMs": 100,
+              "fadeOutMs": 200,
+              "sparkles": 40,
+              "sparkleColor": "#ffcc00",
+              "musicSparkles": true,
+              "blur": 2,
+              "renderStyle": "perPreview",
+              "bufferTransform": "rotateCw90",
+              "curves": {
+                "speed": {
+                  "shape": "musicTrigger",
+                  "from": 1,
+                  "to": 9,
+                  "cycles": 2,
+                  "points": [[0, 0.5], [1, 1]],
+                  "gain": 20,
+                  "trigger": 40,
+                  "fade": 3,
+                  "timingTrack": "66666666-0000-4000-8000-000000000001"
+                }
+              }
+            }
+          },
+          {
+            "type": "updateEffect",
+            "effect": {
+              "id": "55555555-0000-4000-8000-000000000001",
+              "startMs": 1000,
+              "endMs": 3000,
+              "params": {
+                "kind": "chase",
+                "speed": 4,
+                "width": 0.5,
+                "bands": 3,
+                "direction": "reverse",
+                "bounce": true,
+                "order": "across",
+                "timingTrack": "66666666-0000-4000-8000-000000000001"
+              },
+              "palette": { "colors": ["#ff0000", "#00ff00"] },
+              "blend": "add",
+              "fadeInMs": 100,
+              "fadeOutMs": 200,
+              "sparkles": 40,
+              "sparkleColor": "#ffcc00",
+              "musicSparkles": true,
+              "blur": 2,
+              "renderStyle": "perPreview",
+              "bufferTransform": "rotateCw90",
+              "curves": {
+                "speed": {
+                  "shape": "musicTrigger",
+                  "from": 1,
+                  "to": 9,
+                  "cycles": 2,
+                  "points": [[0, 0.5], [1, 1]],
+                  "gain": 20,
+                  "trigger": 40,
+                  "fade": 3,
+                  "timingTrack": "66666666-0000-4000-8000-000000000001"
+                }
+              }
+            }
+          },
+          {
+            "type": "setEffectTiming",
+            "id": "55555555-0000-4000-8000-000000000001",
+            "startMs": 500,
+            "endMs": 1500
+          },
+          {
+            "type": "setEffectParams",
+            "id": "55555555-0000-4000-8000-000000000001",
+            "params": { "kind": "picture", "file": "images/star.gif", "fit": "stretch", "scale": 50 }
+          },
+          {
+            "type": "moveEffect",
+            "id": "55555555-0000-4000-8000-000000000001",
+            "row": "44444444-0000-4000-8000-000000000001",
+            "layer": 1,
+            "startMs": 500,
+            "endMs": 1500
+          },
+          { "type": "removeEffect", "id": "55555555-0000-4000-8000-000000000001" },
+          {
+            "type": "addTimingTrack",
+            "track": {
+              "id": "66666666-0000-4000-8000-000000000001",
+              "name": "Lyrics (words)",
+              "kind": "words",
+              "marks": [
+                { "startMs": 0, "endMs": 400, "label": "afraid", "sung": "fraid" },
+                { "startMs": 400, "endMs": 900, "label": "of the dark" }
+              ]
+            }
+          },
+          {
+            "type": "updateTimingTrack",
+            "track": {
+              "id": "66666666-0000-4000-8000-000000000001",
+              "name": "Lyrics (words)",
+              "kind": "words",
+              "marks": [
+                { "startMs": 0, "endMs": 400, "label": "afraid", "sung": "fraid" },
+                { "startMs": 400, "endMs": 900, "label": "of the dark" }
+              ]
+            }
+          },
+          { "type": "removeTimingTrack", "id": "66666666-0000-4000-8000-000000000001" },
+          { "type": "renameTimingTrack", "id": "66666666-0000-4000-8000-000000000001", "name": "Words" },
+          { "type": "moveTimingTrack", "id": "66666666-0000-4000-8000-000000000001", "index": 2 },
+          {
+            "type": "addMarks",
+            "track": "66666666-0000-4000-8000-000000000001",
+            "marks": [
+              { "startMs": 0, "endMs": 400, "label": "afraid", "sung": "fraid" },
+              { "startMs": 400, "endMs": 900, "label": "of the dark" }
+            ]
+          },
+          {
+            "type": "setMark",
+            "track": "66666666-0000-4000-8000-000000000001",
+            "index": 1,
+            "mark": { "startMs": 0, "endMs": 400, "label": "afraid", "sung": "fraid" }
+          },
+          { "type": "removeMarks", "track": "66666666-0000-4000-8000-000000000001", "indices": [1, 2] },
+          { "type": "splitMark", "track": "66666666-0000-4000-8000-000000000001", "index": 1, "atMs": 600 },
+          { "type": "mergeMarks", "track": "66666666-0000-4000-8000-000000000001", "index": 1 },
+          {
+            "type": "generateMarks",
+            "track": "66666666-0000-4000-8000-000000000001",
+            "everyMs": 500,
+            "fromMs": 1000,
+            "toMs": 5000
+          },
+          {
+            "type": "copyMarks",
+            "from": "66666666-0000-4000-8000-000000000001",
+            "to": "66666666-0000-4000-8000-000000000002",
+            "every": 4
+          },
+          {
+            "type": "spreadLyrics",
+            "track": "66666666-0000-4000-8000-000000000001",
+            "lines": ["Silent night", "Holy night"],
+            "fromMs": 1000,
+            "toMs": 9000
+          },
+          {
+            "type": "labelMarks",
+            "track": "66666666-0000-4000-8000-000000000001",
+            "indices": [1, 2],
+            "labels": ["Silent", "night"]
+          },
+          {
+            "type": "breakIntoWords",
+            "track": "66666666-0000-4000-8000-000000000001",
+            "indices": [1, 2],
+            "words": "66666666-0000-4000-8000-000000000002"
+          }
+        ]
+      }
+    },
+    {
+      "api": "sequencer.editSequence",
+      "command": "edit_sequence",
+      "args": {
+        "edits": [
+          {
+            "type": "addRow",
+            "row": {
+              "id": "44444444-0000-4000-8000-000000000001",
+              "target": { "prop": "11111111-0000-4000-8000-000000000001" },
+              "layers": [
+                {
+                  "effects": [
+                    {
+                      "id": "55555555-0000-4000-8000-000000000001",
+                      "startMs": 1000,
+                      "endMs": 3000,
+                      "params": {
+                        "kind": "chase",
+                        "speed": 4,
+                        "width": 0.5,
+                        "bands": 3,
+                        "direction": "reverse",
+                        "bounce": true,
+                        "order": "across",
+                        "timingTrack": "66666666-0000-4000-8000-000000000001"
+                      },
+                      "palette": { "colors": ["#ff0000", "#00ff00"] },
+                      "blend": "add",
+                      "fadeInMs": 100,
+                      "fadeOutMs": 200,
+                      "sparkles": 40,
+                      "sparkleColor": "#ffcc00",
+                      "musicSparkles": true,
+                      "blur": 2,
+                      "renderStyle": "perPreview",
+                      "bufferTransform": "rotateCw90",
+                      "curves": {
+                        "speed": {
+                          "shape": "musicTrigger",
+                          "from": 1,
+                          "to": 9,
+                          "cycles": 2,
+                          "points": [[0, 0.5], [1, 1]],
+                          "gain": 20,
+                          "trigger": 40,
+                          "fade": 3,
+                          "timingTrack": "66666666-0000-4000-8000-000000000001"
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          { "type": "addLayer", "row": "44444444-0000-4000-8000-000000000001" }
+        ],
+        "gesture": "drag-7"
+      }
+    },
+    { "api": "sequencer.undoSequence", "command": "undo_sequence", "args": {} },
+    { "api": "sequencer.redoSequence", "command": "redo_sequence", "args": {} },
+    { "api": "sequencer.effectCatalog", "command": "effect_catalog", "args": {} },
+    { "api": "sequencer.sequenceDocFrame", "command": "sequence_doc_frame", "args": { "positionMs": 500 } },
+    { "api": "sequencer.playSequenceDoc", "command": "play_sequence_doc", "args": { "positionMs": 500 } },
+    {
+      "api": "sequencer.setSequenceDocOutput",
+      "command": "set_sequence_doc_output",
+      "args": { "send": true }
+    },
+    { "api": "sequencer.setSequenceDocLoop", "command": "set_sequence_doc_loop", "args": { "looping": true } },
+    {
+      "api": "sequencer.addSequenceDocToShow",
+      "command": "add_sequence_doc_to_show",
+      "args": { "path": "/fixture/sequences/Carol.fseq" }
+    },
+    { "api": "sequencer.sequenceExportLayout", "command": "sequence_export_layout", "args": {} },
+    {
+      "api": "sequencer.exportSequenceDoc",
+      "command": "export_sequence_doc",
+      "args": { "path": "/fixture/sequences/Carol.fseq" }
+    },
+    { "api": "sequencer.cancelSequenceExport", "command": "cancel_sequence_export", "args": {} },
+    {
+      "api": "sequencer.analyzeAudio",
+      "command": "analyze_audio",
+      "args": { "path": "/fixture/music/Carol.mp3" }
+    },
+    { "api": "sequencer.detectBeats", "command": "detect_beats", "args": {} },
+    { "api": "sequencer.lyricsGate", "command": "lyrics_gate", "args": { "provider": "anthropic" } },
+    { "api": "sequencer.lyricsGate", "command": "lyrics_gate", "args": { "provider": null } },
+    {
+      "api": "sequencer.findLyrics",
+      "command": "find_lyrics",
+      "args": { "provider": "openai", "upload": true, "language": "es", "fresh": true, "align": true }
+    },
+    {
+      "api": "sequencer.findLyrics",
+      "command": "find_lyrics",
+      "args": { "provider": null, "upload": false, "language": "en", "fresh": false, "align": false }
+    },
+    {
+      "api": "sequencer.chooseLyrics",
+      "command": "choose_lyrics",
+      "args": { "choice": { "candidate": 2 }, "align": true }
+    },
+    {
+      "api": "sequencer.chooseLyrics",
+      "command": "choose_lyrics",
+      "args": { "choice": { "pasted": "Silent night\nHoly night" }, "align": false }
+    },
+    { "api": "sequencer.cancelLyrics", "command": "cancel_lyrics", "args": {} },
+    {
+      "api": "sequencer.syllablesFromWords",
+      "command": "syllables_from_words",
+      "args": { "track": "66666666-0000-4000-8000-000000000001" }
+    },
+    {
+      "api": "sequencer.nudgeLyrics",
+      "command": "nudge_lyrics",
+      "args": { "track": "66666666-0000-4000-8000-000000000001", "ms": -50 }
+    },
+    {
+      "api": "sequencer.retimeLyrics",
+      "command": "retime_lyrics",
+      "args": { "track": "66666666-0000-4000-8000-000000000001" }
+    },
+    {
+      "api": "sequencer.importTimingFile",
+      "command": "import_timing_file",
+      "args": { "path": "/fixture/Vocals.xtiming" }
+    },
+    {
+      "api": "sequencer.exportTimingTrack",
+      "command": "export_timing_track",
+      "args": { "id": "66666666-0000-4000-8000-000000000001", "path": "/fixture/Vocals.xtiming" }
+    },
+    { "api": "sequencer.pickTimingFilePath", "command": "pick_path", "args": { "kind": "timingFile" } },
+    {
+      "api": "sequencer.pickTimingExportPath",
+      "command": "pick_path",
+      "args": { "kind": "timingExport", "name": "Vocals.xtiming" }
+    },
+    {
+      "api": "sequencer.importXlightsSequence",
+      "command": "import_xlights_sequence",
+      "args": { "path": "/fixture/Carol.xsq" }
+    },
+    {
+      "api": "sequencer.importXlightsSequence",
+      "command": "import_xlights_sequence",
+      "args": {
+        "path": "/fixture/Vendor.zip",
+        "sequence": "Vendor/Carol.xsq",
+        "mapping": { "items": { "Mega Tree": ["Mega Tree", "Everything"], "Arch": [] } },
+        "key": "vendor:abc",
+        "musicFolder": "/fixture/Downloads"
+      }
+    },
+    {
+      "api": "sequencer.inspectXlightsSequence",
+      "command": "inspect_xlights_sequence",
+      "args": { "path": "/fixture/Vendor.zip" }
+    },
+    {
+      "api": "sequencer.inspectXlightsSequence",
+      "command": "inspect_xlights_sequence",
+      "args": { "path": "/fixture/Vendor.zip", "sequence": "Vendor/Carol.xsq" }
+    },
+    { "api": "sequencer.readXmap", "command": "read_xmap", "args": { "path": "/fixture/vendor.xmap" } },
+    {
+      "api": "sequencer.writeXmap",
+      "command": "write_xmap",
+      "args": { "path": "/fixture/vendor.xmap", "mapping": { "items": { "Mega Tree": ["Mega Tree"] } } }
+    },
+    { "api": "sequencer.sequenceMusicMissing", "command": "sequence_music_missing", "args": {} },
+    { "api": "sequencer.findSequenceMusic", "command": "find_sequence_music", "args": {} },
+    { "api": "sequencer.locateSequenceMusic", "command": "locate_sequence_music", "args": {} },
+    { "api": "sequencer.pickPicture", "command": "pick_picture", "args": {} },
+    { "api": "sequencer.readPicture", "command": "read_picture", "args": { "file": "images/star.gif" } },
+    { "api": "sequencer.listPictures", "command": "list_pictures", "args": {} },
+    { "api": "sequencer.checkSequencePictures", "command": "check_sequence_pictures", "args": {} },
+    { "api": "sequencer.findSequencePictures", "command": "find_sequence_pictures", "args": {} },
+    {
+      "api": "sequencer.locateSequencePicture",
+      "command": "locate_sequence_picture",
+      "args": { "path": "C:\\xLights\\Images\\star.gif" }
+    },
+    {
+      "api": "sequencer.pickXlightsSequencePath",
+      "command": "pick_path",
+      "args": { "kind": "xlightsSequence" }
+    },
+    {
+      "api": "sequencer.pickXlightsPackageFolder",
+      "command": "pick_path",
+      "args": { "kind": "xlightsPackageFolder" }
+    },
+    { "api": "sequencer.pickXmapPath", "command": "pick_path", "args": { "kind": "xmap" } },
+    {
+      "api": "sequencer.pickXmapSavePath",
+      "command": "pick_path",
+      "args": { "kind": "xmapSave", "name": "vendor.xmap" }
+    },
+    { "api": "sequencer.pickSequenceDocPath", "command": "pick_path", "args": { "kind": "sequenceDoc" } },
+    {
+      "api": "sequencer.pickSequenceDocSavePath",
+      "command": "pick_path",
+      "args": { "kind": "sequenceDocSave", "name": "Carol.pfseq.json" }
+    },
+    {
+      "api": "sequencer.pickExportPath",
+      "command": "pick_path",
+      "args": { "kind": "fseqExport", "name": "Carol.fseq" }
+    },
+    { "api": "sequencer.videoExportChoices", "command": "video_export_choices", "args": {} },
+    {
+      "api": "sequencer.exportVideo",
+      "command": "export_video",
+      "args": {
+        "path": "/fixture/Carol.mp4",
+        "request": {
+          "width": 1920,
+          "height": 1080,
+          "fps": 60,
+          "startMs": 1500,
+          "endMs": 9000,
+          "photo": true,
+          "pixelSize": 1.5,
+          "glow": 0.4,
+          "ffmpeg": true
+        }
+      }
+    },
+    {
+      "api": "sequencer.exportVideo",
+      "command": "export_video",
+      "args": {
+        "path": "/fixture/Carol.mp4",
+        "request": {
+          "width": 1280,
+          "height": 720,
+          "fps": 30,
+          "startMs": 0,
+          "endMs": null,
+          "photo": false,
+          "pixelSize": 1,
+          "glow": 0,
+          "ffmpeg": false
+        }
+      }
+    },
+    { "api": "sequencer.cancelVideoExport", "command": "cancel_video_export", "args": {} },
+    {
+      "api": "sequencer.pickVideoPath",
+      "command": "pick_path",
+      "args": { "kind": "videoExport", "name": "Carol.mp4" }
+    },
+    { "api": "assistant.keyStorage", "command": "ai_key_storage", "args": {} },
+    {
+      "api": "assistant.setApiKey",
+      "command": "set_api_key",
+      "args": { "provider": "anthropic", "key": "sk-test-not-a-key" }
+    },
+    {
+      "api": "assistant.useKeyForSession",
+      "command": "use_api_key_for_session",
+      "args": { "provider": "openai", "key": "sk-test-not-a-key" }
+    },
+    { "api": "assistant.hasApiKey", "command": "has_api_key", "args": { "provider": "anthropic" } },
+    { "api": "assistant.keyLocation", "command": "api_key_location", "args": { "provider": "openai" } },
+    { "api": "assistant.deleteApiKey", "command": "delete_api_key", "args": { "provider": "openai" } },
+    { "api": "assistant.listModels", "command": "list_ai_models", "args": { "provider": "anthropic" } },
+    {
+      "api": "assistant.send",
+      "command": "ai_send",
+      "args": {
+        "provider": "anthropic",
+        "model": "claude-opus-5-5",
+        "message": "Make the tree twinkle",
+        "context": {
+          "screen": "sequence",
+          "selectedProps": ["11111111-0000-4000-8000-000000000001"],
+          "selectedEffects": ["55555555-0000-4000-8000-000000000001"],
+          "playheadMs": 1500
+        }
+      }
+    },
+    {
+      "api": "assistant.send",
+      "command": "ai_send",
+      "args": {
+        "provider": "openai",
+        "model": "gpt-5-mini",
+        "message": "Hello",
+        "context": { "selectedProps": [], "selectedEffects": [] }
+      }
+    },
+    { "api": "assistant.stop", "command": "ai_stop", "args": {} },
+    { "api": "assistant.newChat", "command": "ai_new_chat", "args": {} },
+    { "api": "assistant.apply", "command": "ai_apply", "args": { "id": "proposal-1" } },
+    { "api": "assistant.discard", "command": "ai_discard", "args": { "id": "proposal-1" } },
+    { "api": "assistant.preview", "command": "ai_preview", "args": { "id": "proposal-1" } },
+    {
+      "api": "assistant.previewFrame",
+      "command": "ai_preview_frame",
+      "args": { "id": "proposal-1", "positionMs": 1500 }
+    },
+    { "api": "assistant.alignModels", "command": "alignment_models", "args": {} },
+    { "api": "assistant.downloadAlignModels", "command": "download_alignment_models", "args": {} },
+    { "api": "assistant.cancelAlignDownload", "command": "cancel_alignment_download", "args": {} },
+    { "api": "assistant.removeAlignModels", "command": "remove_alignment_models", "args": {} },
+    { "api": "assistant.sync", "command": "ai_sync", "args": {} },
+    { "api": "appWindow.setFullscreen", "command": "set_fullscreen", "args": { "on": true } },
+    { "api": "appWindow.onFullscreenChange", "command": "is_fullscreen", "args": {} },
+    { "api": "pickPath", "command": "pick_path", "args": { "kind": "show" } },
+    { "api": "pickPath", "command": "pick_path", "args": { "kind": "showSave", "name": "Carol" } },
+    { "api": "pickPath", "command": "pick_path", "args": { "kind": "xlightsFolder" } },
+    { "api": "pickPath", "command": "pick_path", "args": { "kind": "xlightsSequence" } },
+    { "api": "pickPath", "command": "pick_path", "args": { "kind": "fseq" } },
+    { "api": "pickPath", "command": "pick_path", "args": { "kind": "fseqExport", "name": "Carol" } },
+    { "api": "pickPath", "command": "pick_path", "args": { "kind": "videoExport", "name": "Carol" } },
+    { "api": "pickPath", "command": "pick_path", "args": { "kind": "music" } },
+    { "api": "pickPath", "command": "pick_path", "args": { "kind": "sequenceDoc" } },
+    { "api": "pickPath", "command": "pick_path", "args": { "kind": "sequenceDocSave", "name": "Carol" } },
+    { "api": "pickPath", "command": "pick_path", "args": { "kind": "timingFile" } },
+    { "api": "pickPath", "command": "pick_path", "args": { "kind": "timingExport", "name": "Carol" } },
+    { "api": "pickPath", "command": "pick_path", "args": { "kind": "downloadFolder" } },
+    { "api": "pickPath", "command": "pick_path", "args": { "kind": "xlightsPackageFolder" } },
+    { "api": "pickPath", "command": "pick_path", "args": { "kind": "xmap" } },
+    { "api": "pickPath", "command": "pick_path", "args": { "kind": "xmapSave", "name": "Carol" } }
+  ],
+  "listens": [
+    { "api": "backend.fppSend", "event": "fpp-send-progress" },
+    { "api": "backend.fppDownload", "event": "fpp-download-progress" },
+    { "api": "backend.probeAudio", "event": "audio-progress" },
+    { "api": "backend.onAudioProgress", "event": "audio-progress" },
+    { "api": "backend.onMenu", "event": "menu" },
+    { "api": "sequencer.exportSequenceDoc", "event": "sequence-export-progress" },
+    { "api": "sequencer.findLyrics", "event": "lyrics-progress" },
+    { "api": "sequencer.onPicturesArrived", "event": "pictures-arrived" },
+    { "api": "sequencer.exportVideo", "event": "video-export-progress" },
+    { "api": "assistant.send", "event": "assistant-event" },
+    { "api": "assistant.downloadAlignModels", "event": "align-models-progress" }
+  ]
+}

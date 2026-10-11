@@ -1168,24 +1168,21 @@ impl AudioClock for SharedClock {
     fn set_volume(&mut self, _volume: f32) {}
 }
 
+/// Looping on the engine's real threads, in real time: a smoke test.
+///
+/// It shows what only the real thing can: that turning looping on reaches the player, that the
+/// music really is taken back to its top each time the lights reach their end (and never before),
+/// that the controllers are sent every round, and that turning it off or stopping ends it.
+///
+/// It says nothing of how closely the lights and the music keep time. Here that would be measured
+/// on a playback thread a busy machine schedules late, so a limit tight enough to mean something
+/// fails now and then, and trying again until it passes would let real drift through as readily
+/// as a late thread. That the two start every round together and nothing builds up between them
+/// is shown where time is made up and every run is the same: `playback/simulation.rs`
+/// (`a_loop_goes_back_to_the_top_with_the_music_every_time_round`, three hundred rounds, each to
+/// within a few milliseconds). `pf-bench --mode sync` measures it on a real machine.
 #[test]
-fn looping_plays_again_from_the_top_with_the_music_in_step() {
-    // The timing here is measured in real time, on a playback thread a busy machine can
-    // schedule late, so being out of step once proves nothing: only three times running does.
-    // Real drift builds up every loop and fails every attempt.
-    let mut late = Vec::new();
-    for _ in 0..3 {
-        match one_looping_run() {
-            Ok(()) => return,
-            Err(why) => late.push(why),
-        }
-    }
-    panic!("out of step three times running: {late:?}");
-}
-
-/// Plays a looping 200 ms sequence through three loops. What must always hold is asserted;
-/// what depends on the machine keeping time comes back as an `Err`.
-fn one_looping_run() -> Result<(), String> {
+fn looping_plays_again_from_the_top_and_takes_the_music_with_it() {
     let (engine, recorded, _dir) = engine();
     let music: Arc<Mutex<pf_audio::SilentClock>> = Default::default();
     let jumps: Arc<Mutex<Vec<(u64, u64)>>> = Default::default();
@@ -1225,23 +1222,11 @@ fn one_looping_run() -> Result<(), String> {
         jumps.lock().unwrap().len() >= 3
     });
 
-    // Each time round, the music goes back to its very top as soon as the lights reach the end
-    // (within a frame or two), so nothing builds up between them from one loop to the next.
+    // Each time round, the music goes back to its very top, and only once the lights have
+    // reached their end (how soon after is for the simulations to say).
     for &(from, to) in jumps.lock().unwrap().iter().take(3) {
         assert_eq!(to, 0, "the music starts again from the top");
         assert!(from >= 200, "jumped back {from} ms in, before the sequence's end");
-        // A frame or two late is in step.
-        if from >= 350 {
-            return Err(format!("jumped back {from} ms in, for a 200 ms sequence"));
-        }
-    }
-    let lights = engine.playback_status().unwrap().position_ms;
-    let heard = music.lock().unwrap().position().as_millis() as u64;
-    // The two positions are read a moment apart.
-    if heard.abs_diff(lights) > 120 {
-        return Err(format!(
-            "lights at {lights} ms and music at {heard} ms after three loops"
-        ));
     }
 
     // The controllers got every loop: red, green, then red again.
@@ -1262,7 +1247,6 @@ fn one_looping_run() -> Result<(), String> {
     engine.play_sequence_doc(0).unwrap();
     engine.stop_playback();
     assert!(engine.playback_status().is_none());
-    Ok(())
 }
 
 #[test]

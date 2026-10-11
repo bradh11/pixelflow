@@ -1,6 +1,6 @@
 [package]
 name = "pf-fidelity"
-description = "Measures how closely PixelFlow renders an imported xLights sequence, against the frames xLights itself rendered"
+description = "Measures how an xLights sequence imported into PixelFlow looks next to the frames xLights itself rendered"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

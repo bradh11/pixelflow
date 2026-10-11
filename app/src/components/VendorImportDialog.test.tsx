@@ -121,6 +121,11 @@ describe("mapping a vendor's sequence onto the show", () => {
     const report = await screen.findByRole("dialog", { name: "Imported Holiday Mashup" });
     expect(screen.queryByRole("dialog", { name: /Map Holiday Mashup/ })).not.toBeInTheDocument();
     expect(within(report).getByText(/weren't mapped to anything/)).toBeInTheDocument();
+    // The report says how the mapped effects come across, and what a viewer would notice of
+    // the ones that don't look the same.
+    expect(within(report).getByText(/^\d+% of this sequence comes across the same · \d+% looks close · \d+% looks different$/)).toBeInTheDocument();
+    expect(within(report).getByRole("region", { name: "Looks close" })).toHaveTextContent(/Meteors \(\d+\): about as many meteors at about the speed/);
+    expect(within(report).getByRole("region", { name: "Looks different" })).toHaveTextContent(/Fireworks \(\d+\): shown as twinkles/);
     expect(seq.calls).toContain(`importXlightsSequence:${DEMO_VENDOR_PATH}`);
     // Both arches layered on the garage arch; the music next to the show.
     const doc = useSequencer.getState().doc!;

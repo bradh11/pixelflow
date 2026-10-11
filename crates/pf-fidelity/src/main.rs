@@ -1,12 +1,13 @@
-//! `pf-fidelity`: measures PixelFlow's rendering of xLights sequences against the frames xLights
-//! rendered.
+//! `pf-fidelity`: measures how an xLights sequence imported into PixelFlow looks next to the
+//! frames xLights rendered.
 
 use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand};
 use pf_fidelity::compare::{Options, Prepared, Request};
 use pf_fidelity::corpus::{self, MANIFEST_VARIABLE, Manifest};
+use pf_fidelity::labels;
 use pf_fidelity::metrics::Limits;
-use pf_fidelity::report::sequence_markdown;
+use pf_fidelity::report::{headline, sequence_markdown};
 use pf_fidelity::scorecard::Scorecard;
 use pf_fidelity::strips;
 use std::path::PathBuf;
@@ -16,7 +17,7 @@ use std::process::ExitCode;
 #[command(
     name = "pf-fidelity",
     version,
-    about = "Measures PixelFlow's rendering of xLights sequences against the frames xLights rendered"
+    about = "Measures how an xLights sequence imported into PixelFlow looks next to the frames xLights rendered"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -98,6 +99,12 @@ enum Command {
         #[arg(long)]
         out: Option<PathBuf>,
     },
+    /// Hold the importer's table of expected looks against a scorecard (a sequence's or a
+    /// corpus's JSON): what each kind of effect earned, and where the table says otherwise.
+    Labels {
+        /// The scorecard, as `score --out` or `corpus --out` wrote it.
+        scorecard: PathBuf,
+    },
     /// Draw frames as PNGs: xLights' above, PixelFlow's below.
     Strips {
         #[command(flatten)]
@@ -143,20 +150,17 @@ fn main() -> ExitCode {
 
 /// One line on how a sequence scored.
 fn summary(card: &Scorecard) -> String {
-    let coverage = &card.coverage;
-    match &card.overall {
-        Some(s) => format!(
-            "error {:.1}, {:.0}% of pixels within tolerance, lit agreement {:.2}; {} of {} effects and {} \
-             of {} pixels measured",
-            s.mae,
-            s.within_tolerance * 100.0,
-            s.lit_iou,
-            coverage.effects_measured,
-            coverage.effects,
+    let (coverage, look) = (&card.coverage, &card.look);
+    match look.score {
+        Some(score) => format!(
+            "{} (look score {score:.0}, {} of {} effects judged, {} of {} pixels measured)",
+            headline(look),
+            look.judged,
+            look.of,
             coverage.pixels_measured,
             coverage.pixels
         ),
-        None => "nothing could be measured".to_string(),
+        None => "nothing could be judged".to_string(),
     }
 }
 
@@ -214,6 +218,19 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 ExitCode::SUCCESS
             } else {
                 ExitCode::from(1)
+            })
+        }
+        Command::Labels { scorecard } => {
+            let text = std::fs::read_to_string(&scorecard)
+                .with_context(|| format!("could not read {}", scorecard.display()))?;
+            let rows =
+                labels::read(&text).with_context(|| format!("{} isn't a scorecard", scorecard.display()))?;
+            let checked = labels::check(&rows);
+            print!("{}", labels::markdown(&checked));
+            Ok(if checked.iter().any(|c| c.disagrees()) {
+                ExitCode::from(1)
+            } else {
+                ExitCode::SUCCESS
             })
         }
         Command::Strips {

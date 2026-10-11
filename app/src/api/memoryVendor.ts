@@ -2,6 +2,9 @@ import { nodeCount } from "../lib/shows";
 import type { Effect, EffectKind, Row, Sequence, SequenceTarget } from "./sequence";
 import {
   VENDOR_AUTO_MAP,
+  type ByVerdict,
+  type LookGroup,
+  type LookVerdict,
   type SequenceImportSummary,
   type Show,
   type VendorInspection,
@@ -202,6 +205,17 @@ export function inspectVendor(pkg: MemoryVendorPackage, show: Show, sequence: st
 const KINDS: EffectKind[] = ["colorWash", "bars", "spiral", "twinkle", "wave", "chase", "meteors", "shimmer"];
 const COLORS = ["#ff1a1a", "#16c60c", "#ffffff", "#ffb300", "#2a6bff"];
 
+/** How the stand-in's effects come across, by the kind it gives them: as the engine's importer
+ * would say of the xLights effect each stands for. The rest come across the same. */
+const LOOKS: Partial<Record<EffectKind, { verdict: LookVerdict; effect: string; reason: string }>> = {
+  meteors: { verdict: "close", effect: "Meteors", reason: "about as many meteors at about the speed" },
+  wave: { verdict: "close", effect: "Wave", reason: "'Square' wave shown as a sine wave" },
+  shimmer: { verdict: "different", effect: "Fireworks", reason: "shown as twinkles" },
+};
+const ORDER: LookVerdict[] = ["matches", "close", "different", "noEquivalent"];
+/** What a vendor's shader on a spinner comes in as: nothing of PixelFlow's draws it yet. */
+const NO_EQUIVALENT = { verdict: "noEquivalent", effect: "Shader", reason: "shown as a dim fill in the effect's first color" } as const;
+
 function targetOf(show: Show, name: string): SequenceTarget | null {
   const prop = show.props.find((p) => p.name === name);
   if (prop) return { prop: prop.id };
@@ -221,13 +235,16 @@ export function importVendor(
   sequence: string,
   mapping: VendorMapping,
   musicFolder: string | null,
-): { sequence: Sequence; summary: SequenceImportSummary; notes: string[] } {
+): { sequence: Sequence; summary: SequenceImportSummary; looks: LookGroup[]; notes: string[] } {
   const seq = pkg.sequences.find((s) => s.name === sequence) ?? pkg.sequences[0];
   const rows: Row[] = [];
   const rowFor = new Map<string, Row>();
   const unmapped: string[] = [];
   let effects = 0;
   let skipped = 0;
+  const look: ByVerdict = { matches: 0, close: 0, different: 0, noEquivalent: 0 };
+  const lookMs: ByVerdict = { matches: 0, close: 0, different: 0, noEquivalent: 0 };
+  const groups = new Map<string, LookGroup>();
   seq.items.forEach((item, n) => {
     if (item.effects === 0) return;
     const targets = (mapping.items[item.name] ?? []).map((t) => targetOf(show, t)).filter((t): t is SequenceTarget => t !== null);
@@ -249,6 +266,17 @@ export function importVendor(
         fadeOutMs: 0,
       })).filter((e) => e.startMs < e.endMs);
       effects += layer.length;
+      for (const effect of layer) {
+        const how = item.type === "spinner" ? NO_EQUIVALENT : LOOKS[effect.params.kind];
+        const ms = effect.endMs - effect.startMs;
+        look[how?.verdict ?? "matches"] += 1;
+        lookMs[how?.verdict ?? "matches"] += ms;
+        if (!how) continue;
+        const group = groups.get(how.effect) ?? { verdict: how.verdict, effect: how.effect, effects: 0, ms: 0, reasons: [how.reason] };
+        group.effects += 1;
+        group.ms += ms;
+        groups.set(how.effect, group);
+      }
       const key = JSON.stringify(target);
       const row = rowFor.get(key);
       if (row) row.layers.unshift({ effects: layer });
@@ -266,7 +294,24 @@ export function importVendor(
   else if (pkg.music) notes.unshift(`The package's music (${pkg.music}) wasn't saved, because there's no folder for it yet. Save the show, then import again, or choose the music in the sequence's settings.`);
   return {
     sequence: { schemaVersion: 1, name: seq.song, audio, durationMs: seq.durationMs, frameMs: 25, timingTracks: [], rows },
-    summary: { rows: rows.length, effects, exact: effects, approximate: 0, placeholders: 0, skipped, timingTracks: 0, marks: 0, lyricMarks: 0, marksSkipped: 0 },
+    summary: {
+      rows: rows.length,
+      effects,
+      exact: look.matches,
+      approximate: look.close + look.different,
+      placeholders: look.noEquivalent,
+      look,
+      lookMs,
+      skipped,
+      timingTracks: 0,
+      marks: 0,
+      lyricMarks: 0,
+      marksSkipped: 0,
+    },
+    // Worst first, and within a verdict the kind with most effects first, as the engine lists them.
+    looks: [...groups.values()].sort(
+      (a, b) => ORDER.indexOf(b.verdict) - ORDER.indexOf(a.verdict) || b.effects - a.effects || a.effect.localeCompare(b.effect),
+    ),
     notes,
   };
 }

@@ -3,6 +3,7 @@
 use crate::PathArg;
 use crate::{AppState, Reply, message};
 use pf_engine::{CheckedShow, SequenceSnapshot, ShowSnapshot};
+use pf_xlights::sequence::LookGroup;
 use pf_xlights::vendor::{Mapping, Package};
 use pf_xlights::{ImportSummary, SequenceImportSummary};
 use serde::Serialize;
@@ -47,12 +48,14 @@ pub(crate) async fn import_xlights(state: State<'_, AppState>, folder: PathArg) 
     })
 }
 
-/// The imported sequence, opened in the sequence editor, and what wasn't imported exactly.
+/// The imported sequence, opened in the sequence editor; the kinds of effect that don't come
+/// across looking the same, with what a viewer would notice; and what wasn't imported.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct XlightsSequenceImported {
     snapshot: SequenceSnapshot,
     summary: SequenceImportSummary,
+    looks: Vec<LookGroup>,
     notes: Vec<String>,
 }
 
@@ -120,6 +123,7 @@ pub(crate) async fn import_xlights_sequence(
     Ok(XlightsSequenceImported {
         snapshot,
         summary: imported.summary,
+        looks: imported.looks,
         notes: imported.notes,
     })
 }

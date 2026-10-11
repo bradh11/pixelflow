@@ -17,6 +17,7 @@ mod layout;
 mod logging;
 mod lyrics;
 mod menu;
+mod output;
 mod pickers;
 mod pictures;
 mod playback;
@@ -35,9 +36,7 @@ mod xlights;
 
 use commands::with_commands;
 use devices::DeviceAccess;
-use pf_engine::{
-    Edit, Engine, EngineError, HistoryEntry, OutputStatus, PatternSpec, ShowSnapshot, TargetSpec,
-};
+use pf_engine::{Edit, Engine, EngineError, HistoryEntry, ShowSnapshot};
 use pf_model::Show;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -258,25 +257,6 @@ async fn restore_history<R: Runtime>(
     let snapshot = state.trusting(snapshot);
     remember(&app, &state, &snapshot).await;
     Ok(snapshot)
-}
-
-#[tauri::command]
-async fn start_output(
-    state: State<'_, AppState>,
-    pattern: PatternSpec,
-    target: TargetSpec,
-) -> Reply<OutputStatus> {
-    state.engine().start_output(pattern, target).map_err(message)
-}
-
-#[tauri::command]
-async fn stop_output(state: State<'_, AppState>) -> Reply<OutputStatus> {
-    Ok(state.engine().stop_output())
-}
-
-#[tauri::command]
-async fn output_status(state: State<'_, AppState>) -> Reply<OutputStatus> {
-    Ok(state.engine().output_status())
 }
 
 /// The app's compiled configuration and permissions (expanded once, shared with tests).
@@ -745,30 +725,6 @@ mod tests {
         call(&webview, "new_show", json!({ "name": "Other" })).unwrap();
         let snapshot = call(&webview, "open_show", json!({ "path": path })).unwrap();
         assert_eq!(snapshot["show"]["name"], "House");
-    }
-
-    #[test]
-    fn output_commands_accept_the_ui_specs() {
-        let (_app, webview, _dir) = app();
-        let status = call(&webview, "output_status", json!({})).unwrap();
-        assert_eq!(status["running"], false);
-        assert_eq!(status["stopReason"], Value::Null);
-        // An empty show has nothing to light, so starting is refused with a plain message.
-        let error = call(
-            &webview,
-            "start_output",
-            json!({ "pattern": { "kind": "solid", "color": "ff0000" }, "target": { "type": "show" } }),
-        )
-        .unwrap_err();
-        assert!(
-            error
-                .as_str()
-                .unwrap()
-                .starts_with("The chosen target has no pixels to light."),
-            "{error}"
-        );
-        let status = call(&webview, "stop_output", json!({})).unwrap();
-        assert_eq!(status["running"], false);
     }
 
     #[test]

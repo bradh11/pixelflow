@@ -3,7 +3,8 @@
 
 use crate::{
     assistant, camera_map, device_setup, devices, files, fpp_download, fpp_send, house, layout, lyrics,
-    pickers, pictures, playback, preview_window, recent, sequencer, sync, vendor, video, vocals, xlights,
+    output, pickers, pictures, playback, preview_window, recent, sequencer, sync, vendor, video, vocals,
+    xlights,
 };
 use tauri::generate_handler;
 
@@ -22,9 +23,9 @@ macro_rules! command_list {
             crate::save_show_as,
             crate::list_history,
             crate::restore_history,
-            crate::start_output,
-            crate::stop_output,
-            crate::output_status,
+            output::start_output,
+            output::stop_output,
+            output::output_status,
             camera_map::camera_map_target,
             camera_map::camera_map_sync,
             camera_map::camera_map_decode,

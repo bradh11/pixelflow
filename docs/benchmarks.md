@@ -16,6 +16,7 @@ and whether every frame made it.
 - [Reading the results](#reading-the-results)
 - [Baseline](#baseline): the numbers from one machine
 - [What the baseline says](#what-the-baseline-says): verdicts, bottlenecks, recommendations
+- [Lights against the music](#lights-against-the-music): how closely playback keeps to the music
 - [Caveats](#caveats)
 
 ## Run it
@@ -31,11 +32,13 @@ sending to loopback listeners, and prints that run's tables.
 | --- | --- | --- |
 | `--tier` | Pixels in the show: `20k`, `100k`, `200k`, or any count from 500 | `200k` |
 | `--variant` | The sequence: `typical` or `worst` | `typical` |
-| `--mode` | `paced` (real time), `asap` (flat out), `engine` (the engine itself), `effects` (cost by effect) | `paced` |
+| `--mode` | `paced` (real time), `asap` (flat out), `engine` (the engine itself), `effects` (cost by effect), `sync` ([lights against the music](#lights-against-the-music)) | `paced` |
 | `--sink` | `null` (packets are built and dropped) or `loopback` (UDP to 127.0.0.1) | `null` |
 | `--seconds` | Seconds measured | `60` |
 | `--warmup-seconds` | Seconds played first and reported apart | `2` |
 | `--send-hz` | Output passes a second in a paced run, instead of playback's twice the frame rate | |
+| `--load-threads` | In a sync run, threads that do nothing but keep a core busy each | `0` |
+| `--seek-seconds` | In a sync run, seconds between the benchmark's own jumps about the sequence (`0`: none) | `20` |
 | `--calm` | Before each run, wait (up to two minutes) for the one-minute load average to fall below this | |
 | `--json`, `--markdown` | Also write the results to a file | |
 | `--render` | Print a report saved with `--json` again, and run nothing | |
@@ -92,6 +95,10 @@ The modes drive those stages differently:
   write, so this run plays without them.
 - **`effects`** draws each kind of effect on its own, and each synthetic sequence with one kind at
   a time, to say which effects the time goes on.
+- **`sync`** plays in the engine too, on a loop with jumps, following a music clock the benchmark
+  makes, and times every frame against that clock. It answers "do the lights keep to the music?"
+  and has [a section of its own](#lights-against-the-music). Like `engine`, it plays without the
+  music's audio track and the picture.
 
 Three tests keep the rebuilt pipeline honest: a pass over the controllers puts exactly the bytes
 on the wire that `pf-output`'s own output thread does
@@ -630,6 +637,135 @@ On this evidence:
   core does the rendering, and this is a fast one: a core half as fast would still have room for
   the typical 200k sequence, at 14 ms for the 99th percentile, and none for the worst case, at
   40); the app's own cost of drawing the preview; sequences that are not these.
+
+## Lights against the music
+
+Everything above asks whether frames arrive. This asks whether they arrive *with the music*:
+whether the frame on the wire is the one for the moment being heard, and stays so through a
+jump, a round of a loop, and a busy machine.
+
+Two things answer it, and they are kept apart on purpose.
+
+**The guarantees are tests.** `crates/pf-engine/src/playback/simulation.rs` runs the player's own
+loop against a made-up machine: time moves only when the player sleeps or draws, the sound device
+is a stopwatch on that time whose clock can run fast or slow or stop calling back, a frame costs
+whatever the test says to draw, and the user's clicks arrive when scripted. Nothing reads the
+machine's clock, so ten simulated minutes take milliseconds, every run is identical, and a limit
+can be tight without ever failing by accident. They run with `cargo test`, in CI. What they hold
+the player to, with sleeps that overrun by up to 1.5 ms:
+
+| What | Held to |
+| --- | --- |
+| Ten minutes of 25 ms frames, each taking 8 to 21 ms to draw, on a device 0.05% fast or slow | Every frame drawn once, in order, begun within 3.6 ms of its time; the last minute no further behind than the first; the lights follow the music, which by then is 0.3 s from the machine's clock |
+| A frame that takes 60 ms | The frame due is drawn the moment it is done; the frames missed are never shown late; the next is back on time |
+| A jump (a thousand of them, with four offsets) | Its frame is drawn in the same turn the player hears of it, the music is sent to the same place less the offset, and every frame follows in order |
+| A pause, and playing again | Nothing is drawn while paused; music and lights stand still; no frame is repeated or missed |
+| A loop (three hundred rounds) | The music is taken back within 3.6 ms of the lights' end and the first frame drawn in that same turn; each round lasts the sequence's length and no more than that over |
+| A stop | Nothing more is drawn; the player is gone within one sleep |
+| An offset | Lights ahead play their first frames before the song starts; lights behind hold their first frame until the music is that far in; a change moves the lights at once |
+| A sound device that stops calling back | The lights wait a second, then keep time on their own, never ahead of where the music would be; a pause, a jump, a new speed, and the end of the sequence each keep the lights' place; a device that comes back is followed at once |
+
+**What a real machine gives the player is measured.** A sleep overruns by however much the machine
+feels like, and threads wait for cores. `--mode sync` plays the synthetic sequence in the engine
+itself, on a loop, and times every frame:
+
+```sh
+cargo run --release -p pf-bench -- --mode sync --tier 200k --seconds 120 \
+    --sequence-seconds 30 --seek-seconds 15 --calm 4
+# The same with every core kept busy by something else:
+cargo run --release -p pf-bench -- --mode sync --tier 200k --seconds 120 \
+    --sequence-seconds 30 --seek-seconds 15 --load-threads 30
+```
+
+- **The music** is a clock the benchmark makes: a silent stopwatch on the machine's clock that any
+  thread can read. There is no sound device, so nothing here says how long a sound card or a
+  Bluetooth link takes to make a sound; that is what a sequence's offset is for.
+- **Began** is where the music was, past the start of a frame's own time, when the player first
+  read a time in that frame, which is when it begins to draw it. The clock notes this itself, so
+  watching adds nothing. It is the player's own lateness: its sleep's overrun, or a frame before
+  it that took too long to draw.
+- **Sent** is the same when the frame first went out to a controller. Two marker props on a
+  controller of their own, sent after every other, show the frame's number as colors, and the
+  transport reads the number back out of that controller's packet
+  (`the_marker_comes_through_the_engines_own_drawing_and_wiring`). So it is the last controller's
+  view of a frame: began, plus drawing it, plus the wait for the output thread's next pass (up to
+  12.5 ms), plus that pass.
+- **Drift** is the slope of a straight line through the median of *began* in each five seconds of
+  the run, in ms a minute, with its standard error. The median leaves out the frames that began
+  late because the one before took too long to draw, so what is left is the player's own
+  timekeeping and not what was being drawn. Two minutes settle it to about a tenth of a
+  millisecond a minute; a short or jittery run says so in the "±".
+- **Missed** frames never went out (the player skipped them, or the output thread never got to
+  them). **Sent again** counts frames that went out after a later one had, which playback in
+  order never does. **In flight** are frames from the old place that went out after a jump was
+  asked for: they were already on their way.
+- **Jump to wire** is from the benchmark asking for a jump (every `--seek-seconds`: on seven
+  seconds, then back three) to a frame from the new place going out. **New round to wire** is
+  the same from the music being taken back to its top. **Round late** is how far past the
+  lights' end the music was when it was taken back.
+
+A run is **in step** when all of these hold:
+
+| | Limit | Why that |
+| --- | --- | --- |
+| Sent, 99th percentile | The frame time plus one send: 37.5 ms | A frame is on the wire while it is still the frame being heard, or within one pass of the output thread after |
+| Drift | 1 ms a minute, beyond three standard errors | Drift is a steady gain; a millisecond a minute is a frame over a song. The simulations hold it to nothing at all |
+| Frames that went out | 99 in 100 | The same rule as a paced run |
+| Sent again | None | Playback in order never sends a frame after a later one |
+| Jump or new round to wire, at worst | 100 ms | The player looks for a jump every 10 ms, draws a frame, and the output thread sends within 12.5 ms; the rest is room for a busy machine |
+
+CI runs a few seconds of it on a small show to check that the harness works
+(`the_lights_are_timed_against_the_music_in_the_engine`) and asserts none of these: a shared
+runner's timing means nothing.
+
+### On one machine
+
+Measured on 11 October 2026 on the machine of the [baseline](#baseline), with the two commands
+above and the same two again with `--variant worst`: 200,000 pixels, two minutes each after two
+seconds of warm-up, a 30-second sequence on a loop, a jump every 15 seconds. "30 busy threads" is
+twice the machine's cores doing nothing useful. The machine was not idle to begin with (an
+endpoint security scanner and an editor ran throughout); the load averages say how busy it was.
+
+| Sequence | Added load | Began p50 / p95 / p99 / max (ms) | Sent p50 / p95 / p99 / max (ms) | Drift (ms/min) | Load average, before → after | In step |
+| --- | --- | --- | --- | --- | --- | --- |
+| typical | none | 1.78 / 2.82 / 3.18 / 3.51 | 14.0 / 21.5 / 22.3 / 27.3 | +0.01 ± 0.08 | 3.5 → 5.3 | yes |
+| typical | 30 busy threads | 1.85 / 3.25 / 3.95 / 7.83 | 12.9 / 20.8 / 22.5 / 27.9 | -0.04 ± 0.10 | 5.3 → 51.4 | yes |
+| worst | none | 1.32 / 10.5 / 22.1 / 24.9 | 30.0 / 43.6 / 56.1 / 67.0 | -0.47 ± 0.28 | 9.4 → 5.8 | NO |
+| worst | 30 busy threads | 11.6 / 23.3 / 24.7 / 25.0 | 70.2 / 115.5 / 155.8 / 330.4 | -0.23 ± 0.46 | 5.8 → 32.2 | NO |
+
+| Sequence | Added load | Frames due | Missed | Sent again | In flight at a jump | Jump to wire p50 / max ms (jumps) | New round to wire p50 / max ms (rounds) | Round late p50 / max ms (rounds) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| typical | none | 4797 | 0 | 0 | 4 | 15.3 / 28.3 (7) | 12.7 / 15.0 (3) | 1.16 / 2.95 (3) |
+| typical | 30 busy threads | 4799 | 0 | 0 | 1 | 16.5 / 17.8 (7) | 8.53 / 9.88 (3) | 2.79 / 2.84 (3) |
+| worst | none | 4791 | 20 | 0 | 9 | 45.2 / 59.0 (7) | 31.2 / 36.8 (3) | 1.42 / 1.67 (3) |
+| worst | 30 busy threads | 4755 | 2656 | 0 | 9 | 112.0 / 137.7 (7) | 115.5 / 115.7 (3) | 22.8 / 23.1 (3) |
+
+What they say:
+
+- **The typical sequence keeps in step, busy machine or not.** The player begins a frame 1.8 ms
+  into its time at the median and 3.5 ms at worst, which is the simulations' 3.6 ms on a real
+  machine. The frame is on the wire 14 ms into its own 25 at the median and 22 ms at the 99th
+  percentile. With thirty threads fighting it for fifteen cores, the worst start slips from 3.5 to
+  7.8 ms and nothing else moves: a thread that sleeps most of each frame is given a core when it
+  wakes.
+- **Nothing builds up.** Over two minutes the line through *began* is flat to within its own
+  uncertainty in all four runs, the two that can't keep up included. No frame went out again
+  after a later one.
+- **A jump is on the wire within 28 ms** and a new round of the loop within 15 ms, and the music
+  is taken back within 3 ms of the lights' end, as the simulations hold it to.
+- **The worst-case sequence is out of step for want of time to draw, not for drift.** Drawing its
+  frames takes most of a frame's time on this machine (20 to 22 ms of the 25 at the 99th
+  percentile: see [does it hold 40 frames a second?](#does-it-hold-40-frames-a-second)). With
+  the wait for the output thread's next pass, a frame goes out 30 ms into its time at the median,
+  after the next was due, and under load more than half are skipped. Skipping is what keeps the
+  lights with the music: the player draws the frame that is due, however many it missed, so the
+  lateness stays the time one frame takes to draw and send. That is a limit on how much can be
+  drawn, and the paced runs above are the place to measure it.
+
+What these runs do not show: a sound device (the clock here is the machine's own, exact and never
+late), a real network, or how the estimate of what is being heard behaves on a device whose
+buffers differ from what it reports. The simulations cover a device whose clock runs fast or slow
+or stalls; a real sound card's delay is still set by ear, with the sequence's offset.
 
 ## Caveats
 

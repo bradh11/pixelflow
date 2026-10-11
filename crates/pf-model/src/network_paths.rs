@@ -7,7 +7,8 @@
 //! (`\\?\…`, `\\.\…`) reach pipes, raw disks, and the same servers by another spelling.
 //!
 //! So a path of either kind that was read out of a file is never looked at, on any system,
-//! unless the user chose something in the same folder in a file dialog this session
+//! unless the user chose from its folder (or a folder above it) this session: picked something
+//! there in a file dialog, or opened a show or sequence of their own from there
 //! ([`trust_network_folder`]). Everything that turns a path from a file into a look at the disk
 //! asks [`network_path_refusal`] first.
 //!

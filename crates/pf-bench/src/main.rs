@@ -2,9 +2,10 @@
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, ValueEnum};
+use pf_bench::digest::{Digest, digests};
 use pf_bench::effects::{ALONE_SECONDS, breakdown};
 use pf_bench::measure::{Mode, Options};
-use pf_bench::pipeline::{Controllers, Workload};
+use pf_bench::pipeline::{Controllers, RenderThreads, Workload};
 use pf_bench::report::{Report, SequenceInfo, show_info, verdict};
 use pf_bench::run::run;
 use pf_bench::sequence::{DEFAULT_SECONDS, Variant, synthetic_sequence};
@@ -82,6 +83,11 @@ struct Cli {
     /// Leave out the music and the picture, as the engine check has to (to compare with it).
     #[arg(long)]
     without_media: bool,
+    /// Draw every frame on this many threads, however small the frame (1: the thread that asks
+    /// for it), instead of the engine's own choice: its shared pool, for frames worth sharing
+    /// out. A run in the engine itself gets a shared pool of this size.
+    #[arg(long, value_parser = clap::value_parser!(u16).range(1..=256))]
+    render_threads: Option<u16>,
     /// In a sync run: threads that do nothing but keep a core busy each while it plays.
     #[arg(long, default_value_t = 0)]
     load_threads: usize,
@@ -108,6 +114,11 @@ struct Cli {
     /// Print the show and its sequences, and run nothing.
     #[arg(long)]
     describe: bool,
+    /// Print a hash of every frame the tier's sequences draw in their first `--seconds`, and run
+    /// nothing: two builds (or one, on different numbers of threads) that print the same drew
+    /// the same frames.
+    #[arg(long)]
+    digest: bool,
     /// Print a report saved with `--json` as Markdown again, and run nothing.
     #[arg(long, value_name = "FILE")]
     render: Option<PathBuf>,
@@ -135,6 +146,22 @@ fn describe(tier: u32, seconds: u32, variants: &[Variant], report: &mut Report) 
     Ok(())
 }
 
+/// The threads the run's frames are drawn on.
+fn render_threads(cli: &Cli) -> Result<RenderThreads> {
+    match cli.render_threads {
+        Some(threads) => {
+            // A run in the engine itself can't be told which threads to draw on: its renderers
+            // share a pool, started here at the size asked for.
+            pf_render::RenderPool::share(usize::from(threads));
+            RenderThreads::exactly(usize::from(threads))
+        }
+        // What an effect costs is the work it takes, not how soon several threads get through
+        // it: unless told otherwise, effects are costed on one.
+        None if cli.mode == What::Effects => RenderThreads::exactly(1),
+        None => Ok(RenderThreads::engines()),
+    }
+}
+
 /// One run (or one tier's effects), as a report of its own.
 fn one(cli: &Cli) -> Result<Report> {
     let mut report = Report::new();
@@ -145,6 +172,7 @@ fn one(cli: &Cli) -> Result<Report> {
     } else {
         workload
     };
+    let workload = workload.drawn_on(render_threads(cli)?);
     if let Some(limit) = cli.calm {
         wait_for_calm(limit);
     }
@@ -237,6 +265,9 @@ fn all(cli: &Cli) -> Result<Report> {
     if let Some(limit) = cli.calm {
         common.extend(["--calm".to_string(), limit.to_string()]);
     }
+    if let Some(threads) = cli.render_threads {
+        common.extend(["--render-threads".to_string(), threads.to_string()]);
+    }
     let mut runs: Vec<Vec<String>> = Vec::new();
     for &tier in &cli.tiers {
         for variant in Variant::ALL {
@@ -292,6 +323,16 @@ fn work(cli: &Cli) -> Result<()> {
         eprintln!(
             "This is an unoptimized build: its timings say nothing about PixelFlow. Use `cargo run --release -p pf-bench`."
         );
+    }
+    if cli.digest {
+        let threads = render_threads(cli)?;
+        let tiers = if cli.all { &cli.tiers[..] } else { &[cli.tier][..] };
+        let digests: Vec<Digest> = tiers
+            .iter()
+            .flat_map(|&tier| digests(tier, cli.seconds, &threads))
+            .collect();
+        println!("{}", pf_bench::digest::markdown(&digests));
+        return Ok(());
     }
     let report = if let Some(saved) = &cli.render {
         let text =

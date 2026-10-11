@@ -9,7 +9,8 @@
 
 use crate::alloc::counted;
 use crate::measure::{
-    Frames, Mode, Options, Pacing, RunResult, Sinks, Stages, Verdict, Warmup, Window, lit_percent,
+    DrawingTimes, Frames, Mode, Options, Pacing, RunResult, Sinks, Stages, Verdict, Warmup, Window,
+    lit_percent,
 };
 use crate::pipeline::{Controllers, Pass, Workload, engine_send_rate};
 use crate::show::tier_label;
@@ -76,6 +77,7 @@ pub fn run_asap(workload: &Workload, sink: SinkKind, options: Options) -> Result
     let (mut warmup, mut lit) = (Vec::with_capacity(warm as usize), Vec::new());
     // Allocations made drawing frames, and made sending them.
     let (mut drawing, mut sending) = (0u64, 0u64);
+    let mut steps = DrawingTimes::default();
     let mut window = None;
     for index in 0..total {
         if index == warm {
@@ -110,6 +112,7 @@ pub fn run_asap(workload: &Workload, sink: SinkKind, options: Options) -> Result
         for (timing, stage) in timings.iter_mut().zip(stages) {
             timing.push(ms(stage));
         }
+        steps.note(&renderer);
         if index.is_multiple_of(per_second) {
             lit.push(lit_percent(&frame));
         }
@@ -164,6 +167,7 @@ pub fn run_asap(workload: &Workload, sink: SinkKind, options: Options) -> Result
             send,
             output_pass: Spread::of(&sum(&[2, 3, 4])),
             frame: whole,
+            drawing: Some(steps.drawing()),
         },
         pacing: None,
         preview_poll: Spread::of_durations((0..200).map(|_| read_preview(&preview))),
@@ -218,6 +222,8 @@ pub fn run_paced(workload: &Workload, sink: SinkKind, options: Options) -> Resul
     let wiring = controllers.wiring();
     let frame_len = workload.map.frame_len;
     let mut renderer = workload.renderer();
+    // Playback builds every buffer the sequence draws on before it starts.
+    renderer.lay_out_ahead(seq);
     let (mut writer, mut reader) = frame_buffers(frame_len + TRAILER);
     let preview = Mutex::new(vec![0u8; frame_len]);
     let raw = Mutex::new(vec![0u8; frame_len]);
@@ -244,6 +250,7 @@ pub fn run_paced(workload: &Workload, sink: SinkKind, options: Options) -> Resul
             .spawn_scoped(scope, || {
                 let mut drawn: Vec<Drawn> = Vec::with_capacity(total as usize);
                 let mut lit = Vec::new();
+                let mut steps = DrawingTimes::default();
                 let mut shown = Some(0);
                 loop {
                     // The player reads its clock in whole milliseconds.
@@ -264,13 +271,16 @@ pub fn run_paced(workload: &Workload, sink: SinkKind, options: Options) -> Resul
                             preview,
                         });
                         shown = Some(due);
+                        if due >= warm {
+                            steps.note(&renderer);
+                        }
                         if due.is_multiple_of(per_second) {
                             lit.push(lit_percent(&lock(&raw)));
                         }
                     }
                     std::thread::sleep(player_wait(light, u64::from(frame_ms), read.elapsed()));
                 }
-                (drawn, lit)
+                (drawn, lit, steps)
             })
             .context("couldn't start the playback thread")?;
         let sender = std::thread::Builder::new()
@@ -314,15 +324,16 @@ pub fn run_paced(workload: &Workload, sink: SinkKind, options: Options) -> Resul
         stop.store(true, Ordering::Relaxed);
         let (passes, polls) = (sender.join(), poller.join());
         let panicked = || anyhow::anyhow!("a pipeline thread panicked");
-        let (drawn, lit) = drawn.map_err(|_| panicked())?;
+        let (drawn, lit, steps) = drawn.map_err(|_| panicked())?;
         Ok((
-            drawn,
+            (drawn, steps),
             lit,
             closed,
             passes.map_err(|_| panicked())?,
             polls.map_err(|_| panicked())?,
         ))
     })?;
+    let (drawn, steps) = drawn;
     let (resources, network) = closed;
     drop(sinks);
 
@@ -368,6 +379,7 @@ pub fn run_paced(workload: &Workload, sink: SinkKind, options: Options) -> Resul
         send: stage(|p| p.send),
         output_pass: stage(Pass::total),
         frame: Spread::of(&work),
+        drawing: Some(steps.drawing()),
     };
     let due = total - warm;
     let budget = f64::from(frame_ms);

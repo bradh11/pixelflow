@@ -6,13 +6,16 @@
 //! time ([`run`]), into a null sink or UDP listeners on the loopback interface ([`sink`]), and
 //! every stage, frame, packet, and byte of memory is counted ([`measure`]). [`effects`] says
 //! which effects the time goes on, [`engine`] plays the same thing in the engine itself as a
-//! check, and [`sync`] measures how closely the engine's lights keep to the music.
+//! check, and [`sync`] measures how closely the engine's lights keep to the music. [`digest`]
+//! hashes what's drawn, to check that a change to how frames are drawn doesn't change them, with
+//! [`varied`]'s sequence of a little of everything beside the two that are measured.
 //! `docs/benchmarks.md` has the method, the commands, and a baseline.
 //!
 //! Nothing here ever sends to a real controller: every address is on the loopback interface, and
 //! the transport refuses anything else.
 
 pub mod alloc;
+pub mod digest;
 pub mod effects;
 pub mod engine;
 pub mod measure;
@@ -25,3 +28,4 @@ pub mod sink;
 pub mod stats;
 pub mod sync;
 pub mod system;
+pub mod varied;

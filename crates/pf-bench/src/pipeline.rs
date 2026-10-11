@@ -21,9 +21,10 @@ use pf_mapping::ChannelMap;
 use pf_output::ddp::DdpPackets;
 use pf_output::sacn::SacnPackets;
 use pf_output::{ControllerPlan, OutputPlan, OutputSettings, Transport, Wire, render_controller};
-use pf_render::Renderer;
+use pf_render::{RenderPool, Renderer};
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 /// The fastest the output thread sends (`pf-engine`'s `MAX_SEND_RATE`).
@@ -46,6 +47,36 @@ pub struct Setup {
     pub media_ms: f64,
 }
 
+/// The threads a run's frames are drawn on.
+#[derive(Debug, Clone, Default)]
+pub struct RenderThreads(Option<Option<Arc<RenderPool>>>);
+
+impl RenderThreads {
+    /// As the engine chooses: the pool its renderers share, for frames worth sharing out.
+    pub fn engines() -> Self {
+        Self(None)
+    }
+
+    /// Exactly `threads` (one: the thread that asks for the frame), however small the frame: for
+    /// measuring how drawing scales.
+    pub fn exactly(threads: usize) -> Result<Self> {
+        if threads <= 1 {
+            return Ok(Self(Some(None)));
+        }
+        match RenderPool::new(threads) {
+            Some(pool) => Ok(Self(Some(Some(pool)))),
+            None => bail!("couldn't start {threads} threads to draw on"),
+        }
+    }
+
+    /// Has `renderer` draw on these threads.
+    pub fn apply(&self, renderer: &mut Renderer) {
+        if let Some(pool) = &self.0 {
+            renderer.set_pool(pool.clone());
+        }
+    }
+}
+
 /// A synthetic show with its channel map, a synthetic sequence, and the sequence's music and
 /// picture.
 pub struct Workload {
@@ -54,6 +85,8 @@ pub struct Workload {
     pub sequence: SyntheticSequence,
     pub media: Media,
     pub setup: Setup,
+    /// The threads its frames are drawn on.
+    pub threads: RenderThreads,
 }
 
 impl Workload {
@@ -98,6 +131,7 @@ impl Workload {
                 sequence_ms,
                 media_ms: ms(started.elapsed()),
             },
+            threads: RenderThreads::engines(),
         })
     }
 
@@ -105,6 +139,12 @@ impl Workload {
     /// in the engine itself, which can't be handed either from memory.
     pub fn without_media(mut self) -> Self {
         self.media = Media::none();
+        self
+    }
+
+    /// The same workload with its frames drawn on `threads`.
+    pub fn drawn_on(mut self, threads: RenderThreads) -> Self {
+        self.threads = threads;
         self
     }
 
@@ -129,6 +169,7 @@ impl Workload {
         let mut renderer = Renderer::new(&self.show.show, &self.map);
         renderer.set_audio(self.media.audio.clone());
         renderer.set_pictures(self.media.pictures.clone());
+        self.threads.apply(&mut renderer);
         renderer
     }
 

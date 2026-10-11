@@ -3448,6 +3448,7 @@ dependencies = [
  "pf-model",
  "pf-output",
  "pf-sequence",
+ "rayon",
  "serde",
  "thiserror 2.0.21",
 ]

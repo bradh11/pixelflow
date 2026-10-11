@@ -43,6 +43,19 @@ pub(crate) struct Grid {
     near: Vec<(usize, Near)>,
 }
 
+/// What a blur does with its working space (the two grids' worth [`blur_near`] works in).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Working {
+    /// Nothing: there is nothing to blur.
+    Untouched,
+    /// It writes all of both grids and reads only what it wrote, so what the space held before
+    /// doesn't matter, and it can be blurred in any space and what it leaves copied over.
+    Filled,
+    /// It writes the cells near the pixels and, past the ends of each run of them, reads what
+    /// was there before: it has to be blurred in the space the blurs before it used.
+    Read,
+}
+
 /// The cells within some reach of a pixel: the only cells a blur that far needs to draw and blur
 /// (any other cell's color never reaches a pixel). A group's grid is mostly empty, so this is
 /// usually a small part of it.
@@ -143,6 +156,23 @@ impl Grid {
     pub fn near(&self, amount: u32) -> Option<&Near> {
         let reach = reach(self.columns, self.rows, amount);
         self.near.iter().find(|(r, _)| *r == reach).map(|(_, near)| near)
+    }
+
+    /// How a blur of `amount` on this grid (see [`blur_near`]) uses its working space, once
+    /// [`near_pixels`] has worked out the cells it blurs.
+    ///
+    /// [`near_pixels`]: Grid::near_pixels
+    pub fn working(&self, amount: u32) -> Working {
+        let total = self.columns * self.rows;
+        if amount < 2 || (self.columns <= 1 && self.rows <= 1) {
+            return Working::Untouched;
+        }
+        match self.near(amount) {
+            // Every cell is blurred: each is written before it's read, in both of the space's
+            // grids, and no sum starts or ends anywhere but at the grid's edge.
+            Some(near) if near.cells.len() == total => Working::Filled,
+            _ => Working::Read,
+        }
     }
 
     /// The cells a blur of `amount` can carry to a pixel (within its reach of one), worked out
@@ -268,6 +298,42 @@ fn from_px(px: Px, premultiplied: bool) -> Rgba {
     Rgba::new(px[0] * k, px[1] * k, px[2] * k, px[3])
 }
 
+/// Fewest cells near a grid's pixels for a blur's passes (or the drawing of its cells) to be
+/// worth sharing out among threads, and how much of a pass each thread takes at a time: so many
+/// cells, or so many runs of them.
+pub(crate) const SHARE_FROM_CELLS: usize = 8 * 1024;
+pub(crate) const PIECE_OF_CELLS: usize = 2 * 1024;
+const PIECE_OF_RUNS: usize = 16;
+
+/// Does `work` for `items` in pieces, at the same time (on the threads of the pool this is
+/// called in) when there are more than `piece` of them, else as one piece on this thread.
+///
+/// Each item writes somewhere in `out`, and the items are in the order of where they write: no
+/// item writes before the first place the next one does (`place`). So a piece of the items has a
+/// piece of `out` to itself, and `work` is given it, with which place of `out` it starts at.
+/// What each item works out is the same whichever piece it's in.
+pub(crate) fn in_pieces<T: Sync, O: Send>(
+    items: &[T],
+    out: &mut [O],
+    starts_at: usize,
+    piece: Option<usize>,
+    place: &(impl Fn(&T) -> usize + Sync),
+    work: &(impl Fn(&[T], &mut [O], usize) + Sync),
+) {
+    match piece {
+        Some(most) if items.len() > most.max(1) => {
+            let (left, right) = items.split_at(items.len() / 2);
+            let cut = place(&right[0]).saturating_sub(starts_at).min(out.len());
+            let (out_left, out_right) = out.split_at_mut(cut);
+            rayon::join(
+                || in_pieces(left, out_left, starts_at, piece, place, work),
+                || in_pieces(right, out_right, starts_at + cut, piece, place, work),
+            );
+        }
+        _ => work(items, out, starts_at),
+    }
+}
+
 /// Blurs `cells` (a `columns` × `rows` grid, row by row from the bottom) by xLights' Blur
 /// setting `amount` (1 or less: no blur), the colors as drawn or, `premultiplied`, as they show.
 /// `scratch` is reused between calls.
@@ -280,11 +346,17 @@ pub(crate) fn blur(
     premultiplied: bool,
     scratch: &mut Vec<Px>,
 ) {
-    blur_near(cells, columns, rows, amount, premultiplied, scratch, None);
+    blur_near(cells, columns, rows, amount, premultiplied, scratch, None, None);
 }
 
 /// [`blur`], worked out only at the `near` cells (the grid's [`Grid::near_pixels`] for the same
 /// amount) when given: the pixels come out the same, and the other cells are left as they were.
+///
+/// With `turned` (more working space), the passes over a large grid are shared out among the
+/// threads of the pool this is called in. Every run of cells is still summed from its start to
+/// its end by one thread, so the cells, and what's left in `scratch`, are the same to the last
+/// bit as when one thread does it all.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn blur_near(
     cells: &mut [Rgba],
     columns: usize,
@@ -293,6 +365,7 @@ pub(crate) fn blur_near(
     premultiplied: bool,
     scratch: &mut Vec<Px>,
     near: Option<&Near>,
+    turned: Option<&mut Vec<Px>>,
 ) {
     if amount < 2 || (columns <= 1 && rows <= 1) || cells.len() != columns * rows {
         return;
@@ -319,16 +392,69 @@ pub(crate) fn blur_near(
         scratch.resize(2 * total, [0.0; 4]);
     }
     let (grid, pass) = scratch[..2 * total].split_at_mut(total);
-    for &c in &near.cells {
-        grid[c as usize] = to_px(cells[c as usize], premultiplied);
-    }
+    // Shared out among threads only when there's another grid's worth of space to do it in, and
+    // enough cells to be worth it.
+    let turned = turned.filter(|_| near.cells.len() >= SHARE_FROM_CELLS);
+    let (by_cells, by_runs) = match turned {
+        Some(_) => (Some(PIECE_OF_CELLS), Some(PIECE_OF_RUNS)),
+        None => (None, None),
+    };
+    let cell = |c: &u32| *c as usize;
+    let (source, grid_now) = (&*cells, &mut *grid);
+    in_pieces(&near.cells, grid_now, 0, by_cells, &cell, &|part, out, at| {
+        for &c in part {
+            out[c as usize - at] = to_px(source[c as usize], premultiplied);
+        }
+    });
     let blurred = if amount > 2 && columns > 6 && rows > 6 {
+        let mut turned = turned;
+        if let Some(turned) = &mut turned
+            && turned.len() < total
+        {
+            turned.resize(total, [0.0; 4]);
+        }
         for size in boxes_for_gauss(amount - 1) {
             let radius = (size - 1) / 2;
-            box_across(grid, pass, columns, &near.across, radius);
-            box_up(pass, grid, columns, rows, &near.up, radius);
+            let (src, row) = (&*grid, |&(row, first, _): &(u32, u32, u32)| {
+                row as usize * columns + first as usize
+            });
+            in_pieces(&near.across, pass, 0, by_runs, &row, &|runs, out, at| {
+                box_across(src, out, at, columns, runs, radius);
+            });
+            let src = &*pass;
+            match &mut turned {
+                None => {
+                    let place = |column: usize, y: usize| y * columns + column;
+                    box_up(src, grid, 0, place, columns, rows, &near.up, radius);
+                }
+                // A piece of the columns isn't a piece of the grid, which is kept row by row. So
+                // the pass goes up the columns into a grid kept column by column, and from there
+                // into this one.
+                Some(turned) => {
+                    let column =
+                        |&(column, first, _): &(u32, u32, u32)| column as usize * rows + first as usize;
+                    in_pieces(
+                        &near.up,
+                        &mut turned[..total],
+                        0,
+                        by_runs,
+                        &column,
+                        &|runs, out, at| {
+                            let place = |column: usize, y: usize| column * rows + y;
+                            box_up(src, out, at, place, columns, rows, runs, radius);
+                        },
+                    );
+                    let up = &turned[..total];
+                    in_pieces(&near.cells, grid, 0, by_cells, &cell, &|part, out, at| {
+                        for &c in part {
+                            let (y, x) = (c as usize / columns, c as usize % columns);
+                            out[c as usize - at] = up[x * rows + y];
+                        }
+                    });
+                }
+            }
         }
-        grid
+        &*grid
     } else {
         // An even width reaches one further left (and down) than right (and up).
         let b = amount as usize;
@@ -337,12 +463,17 @@ pub(crate) fn blur_near(
         } else {
             ((b - 1) / 2, (b - 1) / 2)
         };
-        small_box(grid, pass, columns, rows, &near.cells, before, after);
-        pass
+        let src = &*grid;
+        in_pieces(&near.cells, pass, 0, by_cells, &cell, &|part, out, at| {
+            small_box(src, out, at, columns, rows, part, before, after);
+        });
+        &*pass
     };
-    for &c in &near.cells {
-        cells[c as usize] = from_px(blurred[c as usize], premultiplied);
-    }
+    in_pieces(&near.cells, cells, 0, by_cells, &cell, &|part, out, at| {
+        for &c in part {
+            out[c as usize - at] = from_px(blurred[c as usize], premultiplied);
+        }
+    });
 }
 
 fn add(sum: &mut Px, px: Px, k: f32) {
@@ -352,8 +483,15 @@ fn add(sum: &mut Px, px: Px, k: f32) {
 }
 
 /// One box blur along each run of cells across a row, `2 * radius + 1` cells wide, edge cells
-/// repeated past the edges.
-fn box_across(src: &[Px], dst: &mut [Px], columns: usize, runs: &[(u32, u32, u32)], radius: usize) {
+/// repeated past the edges. `dst` is the grid from its cell `starts_at` on.
+fn box_across(
+    src: &[Px],
+    dst: &mut [Px],
+    starts_at: usize,
+    columns: usize,
+    runs: &[(u32, u32, u32)],
+    radius: usize,
+) {
     let scale = 1.0 / (2 * radius + 1) as f32;
     for &(row, first, last) in runs {
         let row = row as usize;
@@ -365,15 +503,26 @@ fn box_across(src: &[Px], dst: &mut [Px], columns: usize, runs: &[(u32, u32, u32
             add(&mut sum, at(i), 1.0);
         }
         for x in first..=last as isize {
-            dst[row * columns + x as usize] = sum.map(|s| s * scale);
+            dst[row * columns + x as usize - starts_at] = sum.map(|s| s * scale);
             add(&mut sum, at(x + r + 1), 1.0);
             add(&mut sum, at(x - r), -1.0);
         }
     }
 }
 
-/// One box blur along each run of cells up a column (see [`box_across`]).
-fn box_up(src: &[Px], dst: &mut [Px], columns: usize, rows: usize, runs: &[(u32, u32, u32)], radius: usize) {
+/// One box blur along each run of cells up a column (see [`box_across`]). `place` is where the
+/// cell in a column and row goes in the grid `dst` is part of, from its place `starts_at` on.
+#[allow(clippy::too_many_arguments)]
+fn box_up(
+    src: &[Px],
+    dst: &mut [Px],
+    starts_at: usize,
+    place: impl Fn(usize, usize) -> usize,
+    columns: usize,
+    rows: usize,
+    runs: &[(u32, u32, u32)],
+    radius: usize,
+) {
     let scale = 1.0 / (2 * radius + 1) as f32;
     for &(column, first, last) in runs {
         let column = column as usize;
@@ -384,7 +533,7 @@ fn box_up(src: &[Px], dst: &mut [Px], columns: usize, rows: usize, runs: &[(u32,
             add(&mut sum, at(i), 1.0);
         }
         for y in first..=last as isize {
-            dst[y as usize * columns + column] = sum.map(|s| s * scale);
+            dst[place(column, y as usize) - starts_at] = sum.map(|s| s * scale);
             add(&mut sum, at(y + r + 1), 1.0);
             add(&mut sum, at(y - r), -1.0);
         }
@@ -392,10 +541,13 @@ fn box_up(src: &[Px], dst: &mut [Px], columns: usize, rows: usize, runs: &[(u32,
 }
 
 /// At each of `cells`: the average of the cells from `before` cells left (down) to `after` cells
-/// right (up), counting only cells inside the grid.
+/// right (up), counting only cells inside the grid. `dst` is the grid from its cell `starts_at`
+/// on.
+#[allow(clippy::too_many_arguments)]
 fn small_box(
     src: &[Px],
     dst: &mut [Px],
+    starts_at: usize,
     columns: usize,
     rows: usize,
     cells: &[u32],
@@ -413,7 +565,7 @@ fn small_box(
             }
         }
         let n = ((y1 - y0 + 1) * (x1 - x0 + 1)) as f32;
-        dst[cell as usize] = sum.map(|s| s / n);
+        dst[cell as usize - starts_at] = sum.map(|s| s / n);
     }
 }
 
@@ -564,13 +716,122 @@ mod tests {
                 })
                 .collect();
             let mut scratch = vec![[5.0; 4]; 7];
-            blur_near(&mut part, columns, rows, amount, false, &mut scratch, Some(&near));
+            blur_near(
+                &mut part,
+                columns,
+                rows,
+                amount,
+                false,
+                &mut scratch,
+                Some(&near),
+                None,
+            );
             for &cell in &grid.cell_of {
                 let (a, b) = (whole[cell as usize], part[cell as usize]);
                 assert!(
                     close(a.r, b.r) && close(a.g, b.g) && close(a.b, b.b) && close(a.a, b.a),
                     "blur {amount}, cell {cell}: {a:?} vs {b:?}"
                 );
+            }
+        }
+    }
+
+    #[test]
+    fn work_done_in_pieces_is_the_work_done_in_one() {
+        // Items that each write a run of `out`, in order: every piece has its own part of it.
+        let runs: Vec<(usize, usize)> = (0..200).map(|n| (n * 7, n * 7 + 1 + n % 6)).collect();
+        let fill = |piece: Option<usize>| {
+            let mut out = vec![0usize; 200 * 7];
+            let pool = crate::RenderPool::new(4).expect("four threads");
+            pool.run(|| {
+                in_pieces(&runs, &mut out, 0, piece, &|run| run.0, &|part, out, at| {
+                    for &(from, to) in part {
+                        for place in from..to {
+                            out[place - at] = place * 3 + 1;
+                        }
+                    }
+                });
+            });
+            out
+        };
+        let whole = fill(None);
+        assert!(whole.contains(&0) && whole.contains(&22));
+        for piece in [1, 3, 50, 199, 200, 1000] {
+            assert_eq!(fill(Some(piece)), whole, "pieces of {piece}");
+        }
+    }
+
+    #[test]
+    fn a_blur_shared_out_among_threads_is_the_same_to_the_last_bit() {
+        // Large enough to be shared out: a full grid, and one with gaps between its pixels (every
+        // 4th cell of every 3rd row, but for a bare patch), so the near cells come in many runs.
+        let (columns, rows) = (240, 150);
+        let total = columns * rows;
+        let full: Vec<u32> = (0..total as u32).collect();
+        let gaps: Vec<u32> = (0..total as u32)
+            .filter(|c| {
+                let (x, y) = (c % columns as u32, c / columns as u32);
+                x.is_multiple_of(4) && y.is_multiple_of(3) && !(100..140).contains(&x)
+            })
+            .collect();
+        let drawn: Vec<Rgba> = (0..total)
+            .map(|c| {
+                Rgba::new(
+                    (c % 7) as f32 / 7.0,
+                    (c % 11) as f32 / 11.0,
+                    0.3,
+                    (c % 5) as f32 / 4.0,
+                )
+            })
+            .collect();
+        // What an earlier blur left in the working space: both ways start from the same.
+        let left_over: Vec<Px> = (0..2 * total + 40)
+            .map(|i| [0.37 + (i % 13) as f32 * 0.21, 0.5, (i % 3) as f32, 0.9])
+            .collect();
+        let bits = |px: &[Px]| -> Vec<[u32; 4]> { px.iter().map(|p| p.map(f32::to_bits)).collect() };
+        let pool = crate::RenderPool::new(4).expect("four threads");
+        for cell_of in [full, gaps] {
+            let mut grid = Grid {
+                columns,
+                rows,
+                cell_of,
+                cells: Vec::new(),
+                near: Vec::new(),
+            };
+            for amount in [2, 3, 5, 9, 15] {
+                let near = grid.near_pixels(amount).clone();
+                assert!(near.cells.len() >= SHARE_FROM_CELLS, "{}", near.cells.len());
+                for premultiplied in [false, true] {
+                    let blurred = |shared: bool| {
+                        let (mut cells, mut scratch) = (drawn.clone(), left_over.clone());
+                        // The third grid's worth of space starts as anything too.
+                        let mut turned = vec![[7.5f32; 4]; 11];
+                        pool.run(|| {
+                            blur_near(
+                                &mut cells,
+                                columns,
+                                rows,
+                                amount,
+                                premultiplied,
+                                &mut scratch,
+                                Some(&near),
+                                shared.then_some(&mut turned),
+                            );
+                        });
+                        let colors: Vec<Px> = near
+                            .cells
+                            .iter()
+                            .map(|&c| cells[c as usize])
+                            .map(|c| [c.r, c.g, c.b, c.a])
+                            .collect();
+                        (bits(&colors), bits(&scratch))
+                    };
+                    // The cells, and everything left in the working space for the next blur.
+                    assert!(
+                        blurred(false) == blurred(true),
+                        "blur {amount}, premultiplied {premultiplied}"
+                    );
+                }
             }
         }
     }

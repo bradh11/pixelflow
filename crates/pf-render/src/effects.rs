@@ -840,6 +840,11 @@ impl Fire {
                     } else {
                         u32::from(heat[0][x])
                     };
+                    // A cell with nothing rising into it stays cold whatever it would have cooled
+                    // by, and above the flames (and early on, from a cold grid) that's most cells.
+                    if rising == 0 {
+                        continue;
+                    }
                     let cool = (hash(seed, step, (y * FIRE_COLUMNS + x) as u64) % u64::from(cooling)) as u32;
                     next[y][x] = rising.saturating_sub(cool).min(255) as u8;
                 }
@@ -1290,7 +1295,7 @@ impl Shade for Shader {
     fn shade(&self, px: &Pixel) -> Rgba {
         struct One<'a>(&'a Pixel);
         impl ShaderVisitor<Rgba> for One<'_> {
-            fn visit<S: Shade>(self, shader: &S) -> Rgba {
+            fn visit<S: Shade + Sync>(self, shader: &S) -> Rgba {
                 shader.shade(self.0)
             }
         }
@@ -1298,9 +1303,10 @@ impl Shade for Shader {
     }
 }
 
-/// Something done with a concrete shader type.
+/// Something done with a concrete shader type. Every shader can be read from several threads at
+/// once (shading changes nothing in it), so a visitor may share its work out among them.
 pub(crate) trait ShaderVisitor<R> {
-    fn visit<S: Shade>(self, shader: &S) -> R;
+    fn visit<S: Shade + Sync>(self, shader: &S) -> R;
 }
 
 /// One effect's color at one pixel: `(t_norm, elapsed_ms, pixel, params, palette) -> Rgba`,

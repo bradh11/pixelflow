@@ -61,6 +61,56 @@ pub struct Stages {
     pub output_pass: Spread,
     /// Everything done for one frame: render, preview, and one output pass.
     pub frame: Spread,
+    /// The steps of rendering, as the renderer times them itself (none when the engine drew the
+    /// frames, and in reports saved before it did).
+    #[serde(default)]
+    pub drawing: Option<Drawing>,
+}
+
+/// How long each step of rendering a frame took (`pf_render::FrameTimes`), in milliseconds.
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Drawing {
+    /// Working out what the frame draws, on the thread that asked for it.
+    pub plan: Spread,
+    /// Making the effects ready, with the blurs that needn't wait their turn.
+    pub ready: Spread,
+    /// The blurs that are done one after another.
+    pub blur: Spread,
+    /// Drawing the tiles and writing their bytes.
+    pub tiles: Spread,
+    /// The most threads a frame was drawn on (one: the thread that asked for it).
+    pub threads: usize,
+}
+
+/// Gathers the renderer's own timings of the frames it draws.
+#[derive(Debug, Clone, Default)]
+pub struct DrawingTimes {
+    steps: [Vec<f64>; 4],
+    threads: usize,
+}
+
+impl DrawingTimes {
+    /// Notes the frame `renderer` drew last.
+    pub fn note(&mut self, renderer: &pf_render::Renderer) {
+        let times = renderer.frame_times();
+        let steps = [times.plan, times.ready, times.blur, times.tiles];
+        for (list, step) in self.steps.iter_mut().zip(steps) {
+            list.push(crate::stats::ms(step));
+        }
+        self.threads = self.threads.max(times.threads);
+    }
+
+    pub fn drawing(&self) -> Drawing {
+        let [plan, ready, blur, tiles] = self.steps.each_ref().map(|list| Spread::of(list));
+        Drawing {
+            plan,
+            ready,
+            blur,
+            tiles,
+            threads: self.threads,
+        }
+    }
 }
 
 /// What became of the sequence's frames in the measured part of a run.

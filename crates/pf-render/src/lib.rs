@@ -9,6 +9,11 @@
 //! that follow it: see [`audio`], and the picture files Picture effects draw: see [`Pictures`]), so
 //! seeking and export always give the same picture. [`export`]
 //! writes a sequence as an FPP `.fseq` file.
+//!
+//! A large frame's work is shared out among threads ([`RenderPool`]); its bytes are the same
+//! however many draw it. One thing in a frame does still depend on the frames drawn before it:
+//! the last decimal places of a blurred effect on a buffer with gaps between its pixels (see
+//! `Scene::blur` in `render.rs`), which a few blends turn into whole pixels.
 
 mod adjust;
 pub mod audio;
@@ -34,6 +39,7 @@ mod morph;
 mod picture;
 mod pinwheel;
 mod plasma;
+mod pool;
 mod pulse;
 mod raster;
 mod render;
@@ -46,6 +52,7 @@ mod sparkles;
 mod styles;
 mod tendril;
 mod text;
+mod tiles;
 mod vumeter;
 mod wipe;
 
@@ -58,5 +65,6 @@ pub use effects::{
 };
 pub use geometry::{Members, Pixel, PixelBuffer, SceneGeometry};
 pub use picture::{Pictures, ReadPicture};
-pub use render::Renderer;
+pub use pool::{RenderPool, default_threads};
+pub use render::{FrameTimes, Renderer};
 pub use sing::{mouth_open, openness};

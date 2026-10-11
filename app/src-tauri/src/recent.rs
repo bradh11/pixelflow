@@ -159,6 +159,12 @@ impl RecentShows {
         let mut seen = HashSet::new();
         list.retain(|s| !s.path.is_empty() && seen.insert(s.path.clone()));
         list.truncate(RECENT_LIMIT);
+        // Each of these the user opened or saved before, choosing where: a show kept on a
+        // network share opens from this list like one chosen in a dialog (see
+        // `pf_model::network_path_refusal`).
+        for show in &list {
+            pf_model::trust_network_folder_of(&path_from_text(&show.path));
+        }
         list
     }
 

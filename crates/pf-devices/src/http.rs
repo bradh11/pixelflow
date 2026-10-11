@@ -419,7 +419,9 @@ mod tests {
             let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
             listener.local_addr().unwrap().port()
         };
-        let client = HttpClient::new(Duration::from_millis(500));
+        // Windows tries a refused connection again for a couple of seconds before it says so:
+        // the client waits longer than that, so the refusal is what it reports.
+        let client = HttpClient::new(Duration::from_secs(10));
         let host = format!("127.0.0.1:{port}");
         let err = client.get(&host, "/").unwrap_err();
         assert!(matches!(err, DeviceError::Unreachable { .. }), "{err}");

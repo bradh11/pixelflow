@@ -805,6 +805,28 @@ fn without_working_music_only_the_lights_play() {
 }
 
 #[test]
+fn music_a_show_names_on_a_network_share_is_never_opened() {
+    let (mut engine, log, mut entry, _dir) = engine_with(Music::Endless, 0, FRAMES);
+    entry.audio = Some("\\\\attacker\\drop\\medley.mp3".into());
+    engine
+        .apply(vec![Edit::UpdateSequence {
+            sequence: entry.clone(),
+        }])
+        .unwrap();
+    let status = engine.play_sequence(entry.id, 0).unwrap();
+    assert_eq!(status.state, "playing");
+    assert_eq!(
+        status.notes,
+        vec![
+            "medley.mp3 is on a network share (\\\\attacker\\drop). PixelFlow opens files from a network \
+             folder only after you choose a file in that folder yourself. Only the lights are playing."
+        ]
+    );
+    let opened = log.lock().unwrap().clone();
+    assert!(opened.iter().all(|l| !l.starts_with("open")), "{opened:?}");
+}
+
+#[test]
 fn a_sequence_added_twice_gets_a_different_name() {
     let (mut engine, _log, entry, _dir) = engine_with(Music::Endless, 0, FRAMES);
     let mut again = pf_model::SequenceEntry::new("Medley", entry.path.clone());

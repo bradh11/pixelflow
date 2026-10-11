@@ -16,7 +16,11 @@ pub(crate) const FIXTURE_DIR: &str = "/fixture";
 
 /// The folder both sides read: `app/src/api/contracts`.
 pub(crate) fn contracts_dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/api/contracts")
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("src")
+        .join("api")
+        .join("contracts")
 }
 
 /// Compares `value` with the committed file `relative` (under [`contracts_dir`]), or rewrites

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { App } from "../App";
@@ -89,8 +89,10 @@ describe("Settings", () => {
     expect(backend.calls).toContain("syncClickStart:500");
     await user.click(screen.getByRole("button", { name: "Tap along" }));
     expect(screen.getByText(/Press Space or T on every click/)).toBeInTheDocument();
-    // Taps need to know where the click is: wait for its first answer.
-    await new Promise((resolve) => setTimeout(resolve, 120));
+    // Taps need to know where the click is. The square only lights once that has been read,
+    // however long a slow computer takes over it.
+    const square = screen.getByRole("img", { name: "Flashes on each click" });
+    await waitFor(() => expect(square).toHaveAttribute("data-lit", "true"), { timeout: 5000 });
     for (let i = 0; i < 6; i++) fireEvent.keyDown(window, { key: " " });
     const use = await screen.findByRole("button", { name: /^Use / });
     const suggested = Number(use.textContent!.replace(/^Use \+?/, "").replace(" ms", ""));

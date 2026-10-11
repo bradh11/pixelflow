@@ -714,11 +714,16 @@ fn run_player(
 ) {
     let _guard = CrashGuard(control);
     // The clock lives on this thread (sound devices needn't be shareable). Without working
-    // music, a silent stopwatch keeps time instead.
-    let clock: Box<dyn AudioClock> = match clocks(music) {
+    // music, a silent stopwatch keeps time instead. Music on a network share the user hasn't
+    // chosen from is never opened.
+    let opened = match music.and_then(pf_model::network_path_refusal_of) {
+        Some(refusal) => Err(refusal),
+        None => clocks(music).map_err(|error| error.to_string()),
+    };
+    let clock: Box<dyn AudioClock> = match opened {
         Ok(clock) => clock,
-        Err(error) => {
-            lock(control).music_note = Some(format!("{error} Only the lights are playing."));
+        Err(why) => {
+            lock(control).music_note = Some(format!("{why} Only the lights are playing."));
             Box::new(SilentClock::new())
         }
     };
@@ -992,6 +997,10 @@ impl PlaybackSession {
         settings: OutputSettings,
         clocks: &ClockFactory,
     ) -> Result<Self, EngineError> {
+        // A sequence on a network share the user hasn't chosen from is never looked at.
+        if let Some(refusal) = pf_model::network_path_refusal_of(&request.path) {
+            return Err(EngineError::Playback(refusal));
+        }
         let sequence = Sequence::open(&request.path).map_err(|e| match e {
             pf_fseq::FseqError::Io(io) if io.kind() == std::io::ErrorKind::NotFound => {
                 EngineError::Playback(format!(

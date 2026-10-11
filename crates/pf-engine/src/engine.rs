@@ -1454,8 +1454,18 @@ impl Engine {
         issues.sort_by_key(|i| std::cmp::Reverse(i.severity));
     }
 
-    /// The open sequence's music file (relative paths resolved next to the document), if any.
+    /// The open sequence's music file (relative paths resolved next to the document), if any, to
+    /// open: music on a network share the user hasn't chosen from is never opened, so there is
+    /// none then (see [`pf_model::network_path_refusal`]; [`Engine::sequence_music_check`] says
+    /// so in words).
     pub fn sequence_music(&self) -> Option<PathBuf> {
+        self.sequence_music_named()
+            .filter(|music| pf_model::network_path_refusal_of(music).is_none())
+    }
+
+    /// The music file the open sequence names, wherever it is: for naming it and looking for
+    /// it, not for opening it (that's [`Engine::sequence_music`]).
+    pub fn sequence_music_named(&self) -> Option<PathBuf> {
         let open = self.sequence.as_ref()?;
         document_music(open.path.as_deref(), open.doc.audio.as_deref())
     }
@@ -1465,7 +1475,7 @@ impl Engine {
     pub fn sequence_music_check(&self) -> Option<MusicCheck> {
         let open = self.sequence.as_ref()?;
         Some(MusicCheck {
-            path: self.sequence_music()?,
+            path: self.sequence_music_named()?,
             sequence_name: open.doc.name.clone(),
         })
     }
@@ -1481,7 +1491,7 @@ impl Engine {
     /// [`Engine::use_found_sequence_music`]. Music that is where it says is found there.
     pub fn sequence_music_search(&self) -> Result<FileSearch, EngineError> {
         let open = self.sequence.as_ref().ok_or(EngineError::NoSequence)?;
-        let music = self.sequence_music().ok_or(EngineError::NoSequenceMusic)?;
+        let music = self.sequence_music_named().ok_or(EngineError::NoSequenceMusic)?;
         let mut folders: Vec<PathBuf> = Vec::new();
         // The show's folder first: the files the show owns live there.
         for folder in [
@@ -1534,7 +1544,7 @@ impl Engine {
         };
         let same_sequence = self.sequence_doc_id() == Some(outcome.generation);
         let still_there = self
-            .sequence_music()
+            .sequence_music_named()
             .is_some_and(|music| path_to_text(&music) == found.from);
         if !same_sequence || !still_there || found.to == found.from {
             return Ok(None);
@@ -1743,7 +1753,7 @@ impl Engine {
             name => name.to_string(),
         };
         let path = path_to_text(fseq);
-        let audio = self.sequence_music().map(|p| path_to_text(&p));
+        let audio = self.sequence_music_named().map(|p| path_to_text(&p));
         // Exported to the same file again: bring that entry up to date instead of adding another.
         if let Some(existing) = self.show.sequences.iter().find(|s| s.path == path) {
             let taken = |n: &str| {

@@ -21,6 +21,7 @@ an FPP and choose **Open FPP's web page**.
 - [A sequence import says effects look close or different](#a-sequence-import-says-effects-look-close-or-different)
 - [Lyrics are wrong or in the wrong language](#lyrics-are-wrong-or-in-the-wrong-language)
 - [The app is slow with a big show](#the-app-is-slow-with-a-big-show)
+- [A file is "on a network share"](#a-file-is-on-a-network-share)
 
 ## A quick way to find the problem
 
@@ -339,3 +340,22 @@ screen. Things to try, in order:
 9. **Still slow?** Note the pixel count (the status bar at the foot of the window shows props,
    pixels, and controllers) and your computer's model, and open an issue at the project's
    repository.
+
+## A file is "on a network share"
+
+A show or a sequence can name its music, photo, or pictures by a place on a network share, such
+as `\\server\share\Music\Song.mp3`. PixelFlow lists such a file with the missing ones and says,
+for example: "Song.mp3 is on a network share (\\server\share). PixelFlow opens files from a
+network folder only after you choose a file in that folder yourself."
+
+Nothing is wrong with the file. PixelFlow has not looked for it, because on Windows even looking
+at a network place signs in to that server, and a show from someone else could name a server
+that isn't yours. See [A note on shows from other people](privacy-and-data-flow.md#a-note-on-shows-from-other-people).
+
+1. **If the share is yours,** choose **Locate…** beside the file and pick it. PixelFlow then
+   reads everything else in that folder (and the folders inside it) until you quit, so other
+   files there are found when you choose **Find again** on them.
+2. **To never be asked,** give the share a drive letter in Windows (Map network drive) and
+   choose the files from that drive, or keep the files in the show's own folder.
+3. **If you don't know the server,** don't choose anything on it. Pick your own copy of the
+   file with **Locate…** instead.

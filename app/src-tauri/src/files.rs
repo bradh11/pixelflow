@@ -183,7 +183,7 @@ pub(crate) async fn locate_sequence_music<R: tauri::Runtime>(
 ) -> Reply<Option<SequenceEditResult>> {
     let name = state
         .engine()
-        .sequence_music()
+        .sequence_music_named()
         .map(|music| pf_model::file_name_of(&pf_model::path_to_text(&music)));
     let Some(path) = pick(&app, &state, FileRole::SequenceDocMusic, name.as_deref()).await? else {
         return Ok(None);

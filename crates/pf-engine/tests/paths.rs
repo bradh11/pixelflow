@@ -29,9 +29,9 @@ fn folder() -> Folder {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("Haas 2024");
     touch(&root.join("Christmas Medley 2017.fseq"));
-    touch(&root.join("MP3 Music/Christmas Medley 2017.mp3"));
-    touch(&root.join("photos/house.jpg"));
-    touch(&dir.path().join("Models/house.glb"));
+    touch(&root.join("MP3 Music").join("Christmas Medley 2017.mp3"));
+    touch(&root.join("photos").join("house.jpg"));
+    touch(&dir.path().join("Models").join("house.glb"));
     Folder {
         show: root.join("show.pixelflow.json"),
         data: dir.path().join("data"),
@@ -42,13 +42,13 @@ fn folder() -> Folder {
 
 fn medley(root: &Path) -> SequenceEntry {
     let mut entry = SequenceEntry::new("Medley", text(&root.join("Christmas Medley 2017.fseq")));
-    entry.audio = Some(text(&root.join("MP3 Music/Christmas Medley 2017.mp3")));
+    entry.audio = Some(text(&root.join("MP3 Music").join("Christmas Medley 2017.mp3")));
     entry
 }
 
 fn build(engine: &mut Engine, f: &Folder) -> SequenceEntry {
     let entry = medley(&f.root);
-    let models = f.root.parent().unwrap().join("Models/house.glb");
+    let models = f.root.parent().unwrap().join("Models").join("house.glb");
     engine
         .apply(vec![
             Edit::AddSequence {
@@ -56,7 +56,7 @@ fn build(engine: &mut Engine, f: &Folder) -> SequenceEntry {
             },
             Edit::SetBackground {
                 background: Some(Background::new(
-                    text(&f.root.join("photos/house.jpg")),
+                    text(&f.root.join("photos").join("house.jpg")),
                     0.0,
                     0.0,
                     10.0,
@@ -90,7 +90,7 @@ fn files_in_the_show_folder_are_saved_relative_and_opened_in_full() {
         "MP3 Music/Christmas Medley 2017.mp3"
     );
     assert_eq!(json["background"]["path"], "photos/house.jpg");
-    let model = f.root.parent().unwrap().join("Models/house.glb");
+    let model = f.root.parent().unwrap().join("Models").join("house.glb");
     assert_eq!(
         json["houseModel"]["path"],
         text(&model),
@@ -110,7 +110,7 @@ fn files_in_the_show_folder_are_saved_relative_and_opened_in_full() {
     assert_eq!(snap.show.sequences[0], entry);
     assert_eq!(
         snap.show.background.unwrap().path,
-        text(&f.root.join("photos/house.jpg"))
+        text(&f.root.join("photos").join("house.jpg"))
     );
     assert!(snap.missing_files.is_empty());
 }
@@ -122,7 +122,7 @@ fn a_moved_show_folder_keeps_its_files() {
     build(&mut engine, &f);
     engine.save_as(&f.show).unwrap();
 
-    let moved = f.root.parent().unwrap().join("Synced/Haas 2024");
+    let moved = f.root.parent().unwrap().join("Synced").join("Haas 2024");
     fs::create_dir_all(moved.parent().unwrap()).unwrap();
     fs::rename(&f.root, &moved).unwrap();
 
@@ -134,7 +134,7 @@ fn a_moved_show_folder_keeps_its_files() {
     );
     assert_eq!(
         snap.show.sequences[0].audio.as_deref(),
-        Some(text(&moved.join("MP3 Music/Christmas Medley 2017.mp3")).as_str())
+        Some(text(&moved.join("MP3 Music").join("Christmas Medley 2017.mp3")).as_str())
     );
     assert!(snap.missing_files.is_empty(), "{:?}", snap.missing_files);
 }
@@ -147,7 +147,7 @@ fn save_as_elsewhere_keeps_pointing_at_the_same_files() {
     engine.save_as(&f.show).unwrap();
 
     // Into a subfolder: still relative, from there.
-    let below = f.root.join("photos/copy.pixelflow.json");
+    let below = f.root.join("photos").join("copy.pixelflow.json");
     engine.save_as(&below).unwrap();
     let json = saved_json(&below);
     assert_eq!(json["background"]["path"], "house.jpg");
@@ -158,10 +158,13 @@ fn save_as_elsewhere_keeps_pointing_at_the_same_files() {
     );
 
     // Somewhere else entirely: everything in full, nothing copied.
-    let away = f.root.parent().unwrap().join("Away/show.pixelflow.json");
+    let away = f.root.parent().unwrap().join("Away").join("show.pixelflow.json");
     engine.save_as(&away).unwrap();
     let json = saved_json(&away);
-    assert_eq!(json["background"]["path"], text(&f.root.join("photos/house.jpg")));
+    assert_eq!(
+        json["background"]["path"],
+        text(&f.root.join("photos").join("house.jpg"))
+    );
     assert!(!away.parent().unwrap().join("photos").exists());
     let mut reopened = Engine::new(&f.data);
     assert!(reopened.open(&away).unwrap().missing_files.is_empty());
@@ -192,8 +195,8 @@ fn missing_files_are_listed_plainly() {
     let f = folder();
     let mut engine = Engine::new(&f.data);
     let entry = build(&mut engine, &f);
-    fs::remove_file(f.root.join("MP3 Music/Christmas Medley 2017.mp3")).unwrap();
-    fs::remove_file(f.root.join("photos/house.jpg")).unwrap();
+    fs::remove_file(f.root.join("MP3 Music").join("Christmas Medley 2017.mp3")).unwrap();
+    fs::remove_file(f.root.join("photos").join("house.jpg")).unwrap();
     engine.check_files();
     let missing = engine.snapshot().missing_files;
     assert_eq!(missing.len(), 2, "{missing:?}");
@@ -226,14 +229,14 @@ fn finding_missing_files_repoints_them_in_one_undo_step() {
     // Reorganized: the music moved into another folder, the photo into a deeper one.
     fs::create_dir_all(f.root.join("Audio")).unwrap();
     fs::rename(
-        f.root.join("MP3 Music/Christmas Medley 2017.mp3"),
-        f.root.join("Audio/Christmas Medley 2017.mp3"),
+        f.root.join("MP3 Music").join("Christmas Medley 2017.mp3"),
+        f.root.join("Audio").join("Christmas Medley 2017.mp3"),
     )
     .unwrap();
-    fs::create_dir_all(f.root.join("pics/2024")).unwrap();
+    fs::create_dir_all(f.root.join("pics").join("2024")).unwrap();
     fs::rename(
-        f.root.join("photos/house.jpg"),
-        f.root.join("pics/2024/house.jpg"),
+        f.root.join("photos").join("house.jpg"),
+        f.root.join("pics").join("2024").join("house.jpg"),
     )
     .unwrap();
     // The fseq is gone for good.
@@ -249,7 +252,7 @@ fn finding_missing_files_repoints_them_in_one_undo_step() {
     assert_eq!(report.found[0].name, "Christmas Medley 2017.mp3");
     assert_eq!(
         report.found[0].to,
-        text(&f.root.join("Audio/Christmas Medley 2017.mp3"))
+        text(&f.root.join("Audio").join("Christmas Medley 2017.mp3"))
     );
     assert_eq!(report.found[1].file, FileRole::Photo);
     assert_eq!(report.still_missing.len(), 1);
@@ -278,8 +281,8 @@ fn found_files_are_only_used_while_the_show_still_points_at_the_old_place() {
     engine.save_as(&f.show).unwrap();
     fs::create_dir_all(f.root.join("Audio")).unwrap();
     fs::rename(
-        f.root.join("MP3 Music/Christmas Medley 2017.mp3"),
-        f.root.join("Audio/Christmas Medley 2017.mp3"),
+        f.root.join("MP3 Music").join("Christmas Medley 2017.mp3"),
+        f.root.join("Audio").join("Christmas Medley 2017.mp3"),
     )
     .unwrap();
     engine.check_files();
@@ -287,7 +290,7 @@ fn found_files_are_only_used_while_the_show_still_points_at_the_old_place() {
     assert_eq!(found.found.len(), 1);
     // Meanwhile the user chose other music.
     let mut changed = entry.clone();
-    changed.audio = Some(text(&f.root.join("photos/house.jpg")));
+    changed.audio = Some(text(&f.root.join("photos").join("house.jpg")));
     engine
         .apply(vec![Edit::UpdateSequence {
             sequence: changed.clone(),
@@ -306,11 +309,11 @@ fn finding_one_file_again_leaves_the_others_alone() {
     engine.save_as(&f.show).unwrap();
     fs::create_dir_all(f.root.join("Audio")).unwrap();
     fs::rename(
-        f.root.join("MP3 Music/Christmas Medley 2017.mp3"),
-        f.root.join("Audio/Christmas Medley 2017.mp3"),
+        f.root.join("MP3 Music").join("Christmas Medley 2017.mp3"),
+        f.root.join("Audio").join("Christmas Medley 2017.mp3"),
     )
     .unwrap();
-    fs::rename(f.root.join("photos/house.jpg"), f.root.join("house.jpg")).unwrap();
+    fs::rename(f.root.join("photos").join("house.jpg"), f.root.join("house.jpg")).unwrap();
     engine.check_files();
     let search = engine.file_search().unwrap().only(FileRole::Photo);
     assert_eq!(search.wanted().len(), 1);
@@ -337,14 +340,14 @@ fn locating_a_file_repoints_it_as_one_undo_step() {
     let f = folder();
     let mut engine = Engine::new(&f.data);
     let entry = build(&mut engine, &f);
-    let elsewhere = f.root.parent().unwrap().join("USB/Medley.fseq");
+    let elsewhere = f.root.parent().unwrap().join("USB").join("Medley.fseq");
     touch(&elsewhere);
     let snap = engine
         .relink_file(FileRole::Sequence { id: entry.id }, &elsewhere)
         .unwrap();
     assert_eq!(snap.show.sequences[0].path, text(&elsewhere));
     assert_eq!(snap.show.sequences[0].audio, entry.audio, "music stays");
-    let model = f.root.join("photos/house.jpg");
+    let model = f.root.join("photos").join("house.jpg");
     let snap = engine.relink_file(FileRole::HouseModel, &model).unwrap();
     assert_eq!(snap.show.house_model.unwrap().path, text(&model));
     let snap = engine.undo();
@@ -416,14 +419,14 @@ fn snapshots_never_read_the_disk_files_are_checked_apart() {
     // The check is copied out (to run without the engine), run, then handed back.
     let check = engine.file_check(false);
     assert_eq!(check.len(), 4);
-    fs::remove_file(f.root.join("photos/house.jpg")).unwrap();
+    fs::remove_file(f.root.join("photos").join("house.jpg")).unwrap();
     engine.publish_file_status(check.run());
     let snap = engine.snapshot();
     assert!(snap.files_checked);
     assert_eq!(snap.missing_files.len(), 1);
 
     // A file coming back shows only after another check: snapshots don't look.
-    touch(&f.root.join("photos/house.jpg"));
+    touch(&f.root.join("photos").join("house.jpg"));
     assert_eq!(engine.snapshot().missing_files.len(), 1);
     assert_eq!(engine.file_check(false).len(), 0, "nothing new to check");
     let all = engine.file_check(true);
@@ -451,13 +454,13 @@ fn a_check_or_search_from_before_another_show_opened_is_dropped() {
     let mut engine = Engine::new(&f.data);
     build(&mut engine, &f);
     engine.save_as(&f.show).unwrap();
-    fs::remove_file(f.root.join("photos/house.jpg")).unwrap();
+    fs::remove_file(f.root.join("photos").join("house.jpg")).unwrap();
     let stale = engine.file_check(true).run();
-    touch(&f.root.join("photos/house.jpg"));
+    touch(&f.root.join("photos").join("house.jpg"));
     fs::create_dir_all(f.root.join("Audio")).unwrap();
     fs::rename(
-        f.root.join("MP3 Music/Christmas Medley 2017.mp3"),
-        f.root.join("Audio/Christmas Medley 2017.mp3"),
+        f.root.join("MP3 Music").join("Christmas Medley 2017.mp3"),
+        f.root.join("Audio").join("Christmas Medley 2017.mp3"),
     )
     .unwrap();
     engine.check_files();
@@ -503,8 +506,8 @@ fn a_show_file_moved_on_its_own_still_finds_its_files() {
     // A file gone from there too says where it really was, and that folder is searched too.
     fs::create_dir_all(f.root.join("Audio")).unwrap();
     fs::rename(
-        f.root.join("MP3 Music/Christmas Medley 2017.mp3"),
-        f.root.join("Audio/Christmas Medley 2017.mp3"),
+        f.root.join("MP3 Music").join("Christmas Medley 2017.mp3"),
+        f.root.join("Audio").join("Christmas Medley 2017.mp3"),
     )
     .unwrap();
     let mut engine = Engine::new(&f.data);
@@ -513,14 +516,14 @@ fn a_show_file_moved_on_its_own_still_finds_its_files() {
     let missing = &snap.missing_files[0];
     assert_eq!(
         missing.was_at,
-        text(&f.root.join("MP3 Music/Christmas Medley 2017.mp3"))
+        text(&f.root.join("MP3 Music").join("Christmas Medley 2017.mp3"))
     );
     let search = engine.file_search().unwrap();
     assert_eq!(search.folders(), [elsewhere.clone(), f.root.clone()]);
     let report = engine.use_found_files(search.run()).unwrap();
     assert_eq!(
         report.found[0].to,
-        text(&f.root.join("Audio/Christmas Medley 2017.mp3"))
+        text(&f.root.join("Audio").join("Christmas Medley 2017.mp3"))
     );
     assert!(report.still_missing.is_empty());
 }
@@ -530,11 +533,11 @@ fn a_show_saved_in_the_home_folder_and_moved_keeps_its_files() {
     let dir = tempfile::tempdir().unwrap();
     let home = dir.path().join("home");
     touch(&home.join("Carol.fseq"));
-    touch(&home.join("Music/Carol.mp3"));
+    touch(&home.join("Music").join("Carol.mp3"));
     let open_engine = || Engine::new(dir.path().join("data")).with_home(Some(home.clone()));
     let mut engine = open_engine();
     let mut entry = SequenceEntry::new("Carol", text(&home.join("Carol.fseq")));
-    entry.audio = Some(text(&home.join("Music/Carol.mp3")));
+    entry.audio = Some(text(&home.join("Music").join("Carol.mp3")));
     engine
         .apply(vec![Edit::AddSequence {
             sequence: entry.clone(),
@@ -542,7 +545,7 @@ fn a_show_saved_in_the_home_folder_and_moved_keeps_its_files() {
         .unwrap();
     engine.save_as(&home.join("xmas.pixelflow.json")).unwrap();
     fs::create_dir_all(home.join("Shows")).unwrap();
-    let moved = home.join("Shows/xmas.pixelflow.json");
+    let moved = home.join("Shows").join("xmas.pixelflow.json");
     fs::rename(home.join("xmas.pixelflow.json"), &moved).unwrap();
 
     let mut engine = open_engine();
@@ -552,7 +555,11 @@ fn a_show_saved_in_the_home_folder_and_moved_keeps_its_files() {
 
     // The home folder it was saved in is a search folder too, but only looked at itself.
     fs::create_dir_all(home.join("Other")).unwrap();
-    fs::rename(home.join("Music/Carol.mp3"), home.join("Other/Carol.mp3")).unwrap();
+    fs::rename(
+        home.join("Music").join("Carol.mp3"),
+        home.join("Other").join("Carol.mp3"),
+    )
+    .unwrap();
     engine.check_files();
     let search = engine.file_search().unwrap();
     assert_eq!(search.folders(), [home.join("Shows"), home.clone()]);
@@ -570,7 +577,7 @@ fn a_search_gives_up_after_its_time_limit() {
     let mut engine = Engine::new(&f.data);
     build(&mut engine, &f);
     engine.save_as(&f.show).unwrap();
-    fs::remove_file(f.root.join("photos/house.jpg")).unwrap();
+    fs::remove_file(f.root.join("photos").join("house.jpg")).unwrap();
     engine.check_files();
     let outcome = engine
         .file_search()
@@ -589,10 +596,10 @@ fn finding_a_file_that_came_back_points_nowhere_new() {
     let mut engine = Engine::new(&f.data);
     let entry = build(&mut engine, &f);
     engine.save_as(&f.show).unwrap();
-    fs::rename(f.root.join("photos/house.jpg"), f.root.join("house.tmp")).unwrap();
+    fs::rename(f.root.join("photos").join("house.jpg"), f.root.join("house.tmp")).unwrap();
     engine.check_files();
     assert_eq!(engine.snapshot().missing_files.len(), 1);
-    fs::rename(f.root.join("house.tmp"), f.root.join("photos/house.jpg")).unwrap();
+    fs::rename(f.root.join("house.tmp"), f.root.join("photos").join("house.jpg")).unwrap();
     let report = engine
         .use_found_files(engine.file_search().unwrap().run())
         .unwrap();

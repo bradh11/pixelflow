@@ -128,7 +128,7 @@ pub(crate) async fn set_playback_speed(
 #[tauri::command]
 pub(crate) async fn probe_audio<R: Runtime>(app: AppHandle<R>, path: String) -> Reply<AudioInfo> {
     let report = reporter(&app, AudioTask::Probe, &path);
-    let file = pf_model::path_from_text(&path);
+    let file = crate::window_path(&path)?;
     tauri::async_runtime::spawn_blocking(move || {
         let found = pf_audio::probe(&file, &report);
         if found.is_err() {
@@ -153,7 +153,7 @@ pub(crate) async fn audio_waveform<R: Runtime>(
     slices: usize,
 ) -> Reply<Waveform> {
     let report = reporter(&app, AudioTask::Waveform, &path);
-    let path = pf_model::path_from_text(&path);
+    let path = crate::window_path(&path)?;
     let slices = slices.clamp(1, 20_000);
     let file = path.clone();
     let version = tauri::async_runtime::spawn_blocking(move || std::fs::metadata(&file))

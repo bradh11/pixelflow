@@ -1,0 +1,12 @@
+# Text files are stored and checked out with LF line endings on every OS. Tests compare fixtures and
+# generated files byte for byte, and a Windows checkout would otherwise turn every line ending into
+# CRLF.
+* text=auto eol=lf
+
+# Never converted, whatever their contents look like.
+*.png binary
+*.ico binary
+*.icns binary
+*.mp3 binary
+*.zst binary
+*.fseq binary

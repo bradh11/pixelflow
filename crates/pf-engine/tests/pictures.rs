@@ -109,7 +109,7 @@ fn dark(engine: &mut Engine) -> bool {
 fn a_picture_in_the_images_folder_is_previewed_and_exported() {
     let dir = tempfile::tempdir().unwrap();
     let (mut engine, show, _) = engine(dir.path(), "images/red.png");
-    write(&show.join("images/red.png"), &png([255, 0, 0]));
+    write(&show.join("images").join("red.png"), &png([255, 0, 0]));
     assert_eq!(engine.check_sequence_pictures(), vec![]);
     assert_eq!(shown(&mut engine), [255, 0, 0]);
     assert_eq!(engine.sequence_doc().unwrap().issues, vec![]);
@@ -156,7 +156,7 @@ fn a_missing_picture_draws_nothing_is_named_and_is_found_again() {
     assert_eq!(missing[0].message, "santa dancing.gif isn't where it was.");
     assert_eq!(
         missing[0].path,
-        path_to_text(&show.join("images/santa dancing.gif"))
+        path_to_text(&show.join("images").join("santa dancing.gif"))
     );
     assert_eq!(missing[0].owner, "Picture effect at 0:00.000");
     assert!(dark(&mut engine), "it draws nothing, and nothing crashes");
@@ -188,7 +188,7 @@ fn a_missing_picture_draws_nothing_is_named_and_is_found_again() {
 
     // It turns up elsewhere in the show's folder: found by name and copied into images, where
     // the effect was looking all along.
-    write(&show.join("Assets/santa dancing.gif"), &png([0, 255, 0]));
+    write(&show.join("Assets").join("santa dancing.gif"), &png([0, 255, 0]));
     let search = engine.sequence_picture_search().unwrap();
     assert_eq!(search.folders(), std::slice::from_ref(&show));
     let found = search.run();
@@ -230,7 +230,7 @@ fn a_picture_from_another_computer_is_found_by_name_and_its_effects_follow() {
     let missing = engine.check_sequence_pictures();
     assert_eq!(missing.len(), 1, "one file, however many effects");
     assert_eq!(missing[0].name, "elf.png");
-    write(&show.join("Assets/elf.png"), &png([0, 0, 255]));
+    write(&show.join("Assets").join("elf.png"), &png([0, 0, 255]));
     let found = engine.sequence_picture_search().unwrap().run();
     let stored = engine
         .picture_files()
@@ -268,7 +268,7 @@ fn a_picture_from_another_computer_is_found_by_name_and_its_effects_follow() {
 #[test]
 fn only_the_images_folder_and_chosen_files_are_read() {
     let dir = tempfile::tempdir().unwrap();
-    let outside = dir.path().join("Desktop/secret.png");
+    let outside = dir.path().join("Desktop").join("secret.png");
     write(&outside, &png([255, 255, 255]));
     // A path an edit put in an effect isn't enough: the file is there, but it isn't read.
     let (mut engine, show, effect) = engine(dir.path(), &path_to_text(&outside));
@@ -306,7 +306,7 @@ fn only_the_images_folder_and_chosen_files_are_read() {
 fn a_picture_that_changes_on_disk_is_read_again_at_the_next_check() {
     let dir = tempfile::tempdir().unwrap();
     let (mut engine, show, _) = engine(dir.path(), "images/sign.png");
-    let sign = show.join("images/sign.png");
+    let sign = show.join("images").join("sign.png");
     write(&sign, &png([255, 0, 0]));
     engine.check_sequence_pictures();
     assert_eq!(shown(&mut engine), [255, 0, 0]);
@@ -348,7 +348,7 @@ fn an_unsaved_show_uses_a_chosen_picture_where_it_is() {
     let dir = tempfile::tempdir().unwrap();
     let mut engine = Engine::new(dir.path().join("data")).with_home(None);
     engine.apply(strip()).unwrap();
-    let chosen = dir.path().join("Downloads/star.png");
+    let chosen = dir.path().join("Downloads").join("star.png");
     write(&chosen, &png([255, 255, 0]));
     // No show folder yet, so no images folder: the file itself is used, and may be read.
     let stored = engine.picture_files().adopt(&chosen).unwrap();
@@ -374,7 +374,7 @@ fn an_unsaved_show_uses_a_chosen_picture_where_it_is() {
     assert_eq!(engine.check_sequence_pictures().len(), 1);
     // Saved: the images folder is the place, and what's in it shows.
     let show = dir.path().join("Show");
-    write(&show.join("images/star.png"), &png([0, 255, 255]));
+    write(&show.join("images").join("star.png"), &png([0, 255, 255]));
     engine.save_as(&show.join("House.pixelflow.json")).unwrap();
     assert_eq!(engine.check_sequence_pictures(), vec![]);
     assert_eq!(shown(&mut engine), [0, 255, 255]);

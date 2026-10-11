@@ -1,0 +1,351 @@
+name: release
+
+# Builds the installers for macOS and Windows from a clean checkout, with the lockfiles as they
+# are. It never publishes anything.
+#
+#   - Run by hand (Actions > release > Run workflow, on any branch) it is a dry run: the
+#     installers, SHA256SUMS, and the third-party notices are kept as the run's artifacts.
+#   - Pushed a tag vX.Y.Z, it does the same, then makes a DRAFT GitHub release holding them. A
+#     person reads it over and publishes it.
+#
+# Signing happens only when its secrets exist; without them the installers are unsigned and the
+# run's summary says so. The secrets, and everything else about cutting a release, are in
+# docs/releasing.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "A tag to check the version files against, like v0.2.0 (nothing is tagged or released). Empty: just build."
+        required: false
+        type: string
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  # The version every file agrees on. For a tag, it must be the tag's, and the tag must be on main.
+  version:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: The version helper's own tests
+        run: node --test scripts/version.test.mjs
+      - name: Every file says the same version (and it is the tag's)
+        id: version
+        env:
+          TAG: ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag }}
+        run: |
+          if [ -n "$TAG" ]; then
+            version=$(node scripts/version.mjs check --tag "$TAG")
+          else
+            version=$(node scripts/version.mjs check)
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "PixelFlow $version"
+      - name: A release tag is on main
+        if: github.ref_type == 'tag'
+        run: |
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::$GITHUB_REF_NAME is not on main. Releases are tagged on main: merge develop into main, then tag that commit (CONTRIBUTING.md)."
+            exit 1
+          fi
+
+  build:
+    name: build (${{ matrix.name }})
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macos
+            os: macos-latest
+          - name: windows
+            os: windows-latest
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: bash
+        working-directory: app
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      # The toolchain rust-toolchain.toml names. No build cache: a release starts from nothing.
+      - name: Rust toolchain
+        working-directory: .
+        run: |
+          rustup toolchain install
+          if [ "$RUNNER_OS" = macOS ]; then
+            rustup target add aarch64-apple-darwin x86_64-apple-darwin
+          fi
+          rustc --version
+          cargo --version
+      - run: pnpm install --frozen-lockfile
+
+      # Which signing secrets exist. Only "true" or "false" leaves this step, never a secret.
+      - name: Which signing is set up
+        id: signing
+        env:
+          APPLE_CERTIFICATE_SET: ${{ secrets.APPLE_CERTIFICATE != '' && secrets.APPLE_CERTIFICATE_PASSWORD != '' && secrets.APPLE_SIGNING_IDENTITY != '' }}
+          APPLE_NOTARY_SET: ${{ secrets.APPLE_ID != '' && secrets.APPLE_PASSWORD != '' && secrets.APPLE_TEAM_ID != '' }}
+          WINDOWS_CERTIFICATE_SET: ${{ secrets.WINDOWS_CERTIFICATE != '' && secrets.WINDOWS_CERTIFICATE_PASSWORD != '' }}
+        run: |
+          if [ "$RUNNER_OS" = macOS ]; then
+            sign=$APPLE_CERTIFICATE_SET
+            notarize=false
+            if [ "$sign" = true ]; then notarize=$APPLE_NOTARY_SET; fi
+          else
+            sign=$WINDOWS_CERTIFICATE_SET
+            notarize=false
+          fi
+          echo "sign=$sign" >> "$GITHUB_OUTPUT"
+          echo "notarize=$notarize" >> "$GITHUB_OUTPUT"
+          echo "Signing: $sign. Notarising: $notarize."
+
+      # Signed with the Developer ID certificate when its secrets exist, and notarised when
+      # Apple's do too. Otherwise signed "ad hoc": no identity, but a Mac with Apple silicon
+      # runs nothing that has no signature at all.
+      - name: Build (macOS, both processors in one app)
+        if: matrix.name == 'macos'
+        env:
+          SIGN: ${{ steps.signing.outputs.sign }}
+          NOTARIZE: ${{ steps.signing.outputs.notarize }}
+          CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          NOTARY_APPLE_ID: ${{ secrets.APPLE_ID }}
+          NOTARY_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          NOTARY_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          args=(--target universal-apple-darwin --bundles app,dmg)
+          # Tauri reads these names. A name that is set but empty would be taken for a real
+          # value, so each is set only when there is one.
+          if [ "$SIGN" = true ]; then
+            export APPLE_CERTIFICATE="$CERTIFICATE"
+            export APPLE_CERTIFICATE_PASSWORD="$CERTIFICATE_PASSWORD"
+            export APPLE_SIGNING_IDENTITY="$SIGNING_IDENTITY"
+            if [ "$NOTARIZE" = true ]; then
+              export APPLE_ID="$NOTARY_APPLE_ID"
+              export APPLE_PASSWORD="$NOTARY_PASSWORD"
+              export APPLE_TEAM_ID="$NOTARY_TEAM_ID"
+            fi
+          else
+            printf '{"bundle":{"macOS":{"signingIdentity":"-"}}}\n' > "$RUNNER_TEMP/adhoc.conf.json"
+            args+=(--config "$RUNNER_TEMP/adhoc.conf.json")
+          fi
+          pnpm tauri build "${args[@]}" -- --locked
+
+      # A certificate file (.pfx) from the secrets goes into this runner's own certificate
+      # store, and Tauri is told which one to sign with.
+      - name: Signing certificate (Windows)
+        if: matrix.name == 'windows' && steps.signing.outputs.sign == 'true'
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+          TIMESTAMP_URL: ${{ vars.WINDOWS_TIMESTAMP_URL || 'http://timestamp.digicert.com' }}
+        run: |
+          $pfx = Join-Path $env:RUNNER_TEMP "signing.pfx"
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
+          $password = ConvertTo-SecureString -String $env:WINDOWS_CERTIFICATE_PASSWORD -Force -AsPlainText
+          $certificate = Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My -Password $password
+          Remove-Item $pfx
+          $config = @{ bundle = @{ windows = @{
+            certificateThumbprint = $certificate.Thumbprint
+            digestAlgorithm = "sha256"
+            timestampUrl = $env:TIMESTAMP_URL
+          } } } | ConvertTo-Json -Depth 4
+          Set-Content -Path (Join-Path $env:RUNNER_TEMP "signing.conf.json") -Value $config
+      - name: Build (Windows, 64-bit)
+        if: matrix.name == 'windows'
+        env:
+          SIGN: ${{ steps.signing.outputs.sign }}
+        run: |
+          args=(--bundles nsis,msi)
+          if [ "$SIGN" = true ]; then
+            args+=(--config "$RUNNER_TEMP/signing.conf.json")
+          fi
+          pnpm tauri build "${args[@]}" -- --locked
+
+      # What was built is what was meant: both processors, the right version, the notices inside.
+      - name: Check the app (macOS)
+        if: matrix.name == 'macos'
+        env:
+          SIGN: ${{ steps.signing.outputs.sign }}
+          NOTARIZE: ${{ steps.signing.outputs.notarize }}
+        run: |
+          bundle=src-tauri/target/universal-apple-darwin/release/bundle
+          app="$bundle/macos/PixelFlow.app"
+          cmp "$app/Contents/Resources/THIRD-PARTY-NOTICES.txt" src-tauri/resources/THIRD-PARTY-NOTICES.txt
+          archs=$(lipo -archs "$app/Contents/MacOS/pixelflow-app")
+          echo "Processors: $archs"
+          case "$archs" in *x86_64*arm64*|*arm64*x86_64*) ;; *) echo "::error::The app is not universal: $archs"; exit 1 ;; esac
+          built=$(plutil -extract CFBundleShortVersionString raw "$app/Contents/Info.plist")
+          if [ "$built" != "$VERSION" ]; then echo "::error::The app says version $built, not $VERSION."; exit 1; fi
+          plutil -extract NSLocalNetworkUsageDescription raw "$app/Contents/Info.plist"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          mkdir -p "$RUNNER_TEMP/out"
+          cp "$bundle"/dmg/*.dmg "$RUNNER_TEMP/out/"
+          {
+            echo "## macOS"
+            echo
+            if [ "$SIGN" = true ] && [ "$NOTARIZE" = true ]; then
+              echo "Signed with the Developer ID certificate and notarised by Apple."
+              echo "signed and notarised" > "$RUNNER_TEMP/out/SIGNING-macos.txt"
+            elif [ "$SIGN" = true ]; then
+              echo "**NOT NOTARISED.** Signed with the Developer ID certificate, but Apple's notary secrets are not set, so macOS will still warn before opening it."
+              echo "signed, not notarised" > "$RUNNER_TEMP/out/SIGNING-macos.txt"
+            else
+              echo "**UNSIGNED BUILD.** No Developer ID certificate is set up, so this app is not signed or notarised. macOS refuses to open it until the person says so by hand. Fine for testers who know that (docs/releasing.md says how); not something to hand to the public."
+              echo "unsigned" > "$RUNNER_TEMP/out/SIGNING-macos.txt"
+            fi
+            echo
+            echo '```'
+            codesign --display --verbose=2 "$app" 2>&1 | grep -E '^(Identifier|Format|Signature|Authority|TeamIdentifier|Timestamp|Runtime Version)' || true
+            spctl --assess --type execute --verbose=2 "$app" 2>&1 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Check the installers (Windows)
+        if: matrix.name == 'windows'
+        shell: pwsh
+        env:
+          SIGN: ${{ steps.signing.outputs.sign }}
+        run: |
+          $bundle = "src-tauri/target/release/bundle"
+          $setup = Get-ChildItem "$bundle/nsis/*-setup.exe"
+          $msi = Get-ChildItem "$bundle/msi/*.msi"
+          foreach ($installer in @($setup, $msi)) {
+            if ($installer.Name -notlike "*_${env:VERSION}_*") { throw "$($installer.Name) is not version $env:VERSION." }
+          }
+          $listing = 7z l $setup.FullName
+          if (-not ($listing | Select-String -SimpleMatch "THIRD-PARTY-NOTICES.txt")) {
+            throw "The installer does not hold THIRD-PARTY-NOTICES.txt."
+          }
+          $out = New-Item -ItemType Directory -Force (Join-Path $env:RUNNER_TEMP "out")
+          Copy-Item $setup.FullName, $msi.FullName $out
+          $signatures = @($setup, $msi) | ForEach-Object { Get-AuthenticodeSignature $_.FullName }
+          $lines = @("## Windows", "")
+          if ($env:SIGN -eq "true") {
+            foreach ($signature in $signatures) {
+              if ($signature.Status -ne "Valid") { throw "$($signature.Path) was to be signed, but its signature is $($signature.Status)." }
+            }
+            $lines += "Signed with the code-signing certificate."
+            Set-Content (Join-Path $out "SIGNING-windows.txt") "signed"
+          } else {
+            $lines += "**UNSIGNED BUILD.** No code-signing certificate is set up, so these installers are not signed. Windows SmartScreen warns before running them, and some virus scanners will too. Fine for testers who know that (docs/releasing.md says how); not something to hand to the public."
+            Set-Content (Join-Path $out "SIGNING-windows.txt") "unsigned"
+          }
+          $lines += @("", '```')
+          $lines += $signatures | ForEach-Object { "$(Split-Path $_.Path -Leaf): $($_.Status) $($_.SignerCertificate.Subject)" }
+          $lines += '```'
+          Add-Content $env:GITHUB_STEP_SUMMARY ($lines -join "`n")
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installers-${{ matrix.name }}
+          path: ${{ runner.temp }}/out/
+          if-no-files-found: error
+          retention-days: 14
+
+  # Everything a release holds, in one folder, with its checksums.
+  collect:
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: app/src-tauri/resources
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: installers-*
+          path: dist
+          merge-multiple: true
+      - name: Notices, checksums, and what was built
+        run: |
+          cp app/src-tauri/resources/THIRD-PARTY-NOTICES.txt dist/
+          cd dist
+          macos=$(cat SIGNING-macos.txt)
+          windows=$(cat SIGNING-windows.txt)
+          rm SIGNING-*.txt
+          sha256sum -- * > SHA256SUMS
+          {
+            echo "## PixelFlow $VERSION"
+            echo
+            echo "macOS: **$macos**. Windows: **$windows**."
+            if [ "$macos" != "signed and notarised" ] || [ "$windows" != "signed" ]; then
+              echo
+              echo "**THIS IS NOT A FULLY SIGNED BUILD.** Do not publish it as a public release (docs/releasing.md)."
+            fi
+            echo
+            echo "| File | Size | SHA-256 |"
+            echo "|---|---:|---|"
+            while read -r sum name; do
+              echo "| $name | $(du -h -- "$name" | cut -f1) | \`$sum\` |"
+            done < SHA256SUMS
+          } | tee -a "$GITHUB_STEP_SUMMARY" > ../RELEASE-NOTES-HEAD.md
+          ls -l
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pixelflow-${{ needs.version.outputs.version }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 30
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-notes-head
+          path: RELEASE-NOTES-HEAD.md
+          retention-days: 30
+
+  # Only for a tag: a draft release with the files and GitHub's list of what changed. Nothing is
+  # public until a person publishes the draft.
+  draft:
+    name: draft release
+    needs: [version, collect]
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: pixelflow-${{ needs.version.outputs.version }}
+          path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-notes-head
+      - name: Draft the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            echo "::error::There is already a release for $GITHUB_REF_NAME. Delete that draft first, or tag a new version."
+            exit 1
+          fi
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --draft \
+            --verify-tag \
+            --title "PixelFlow $VERSION" \
+            --notes-file RELEASE-NOTES-HEAD.md \
+            --generate-notes

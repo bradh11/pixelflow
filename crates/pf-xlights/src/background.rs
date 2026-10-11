@@ -76,9 +76,11 @@ fn parts(path: &str) -> Vec<&str> {
 
 /// Where the photo (or a Pictures effect's picture) is on this computer: as written, else by
 /// name in `folder`, else under `folder` with the old show folder's part of the path removed.
+/// A path written as a network share the user hasn't chosen from is never looked at as written
+/// (see [`pf_model::network_path_refusal`]): only its name is looked for in `folder`.
 pub(crate) fn find(written: &str, folder: &Path) -> Option<PathBuf> {
     let as_written = Path::new(written);
-    if as_written.is_absolute() && as_written.is_file() {
+    if as_written.is_absolute() && !pf_model::is_refused_network_path(written) && as_written.is_file() {
         return Some(as_written.to_path_buf());
     }
     let parts = parts(written);
@@ -100,11 +102,18 @@ pub(crate) fn find(written: &str, folder: &Path) -> Option<PathBuf> {
 pub(crate) fn build(x: &XBackground, folder: &Path, notes: &mut Vec<String>) -> Option<Background> {
     let name = parts(&x.image).last().copied().unwrap_or(&x.image);
     let Some(found) = find(&x.image, folder) else {
-        notes.push(format!(
-            "The layout photo {name} wasn't found: xLights has it somewhere on another computer and it \
-             isn't in the xLights folder. Copy it into that folder and import again, or choose it on the \
-             Layout screen."
-        ));
+        notes.push(match pf_model::network_path_refusal(&x.image) {
+            // Not looked for where xLights says, and not in the xLights folder either.
+            Some(refusal) => format!(
+                "The layout photo wasn't brought in. {refusal} Copy it into the xLights folder and import \
+                 again, or choose it on the Layout screen."
+            ),
+            None => format!(
+                "The layout photo {name} wasn't found: xLights has it somewhere on another computer and it \
+                 isn't in the xLights folder. Copy it into that folder and import again, or choose it on \
+                 the Layout screen."
+            ),
+        });
         return None;
     };
     let found = std::path::absolute(&found).unwrap_or(found);
@@ -339,6 +348,31 @@ mod tests {
     }
 
     #[test]
+    fn a_photo_written_as_a_network_path_is_not_looked_at_there() {
+        let dir = scratch("network");
+        let away = scratch("network-away");
+        fs::write(away.join("house.png"), png(10, 10)).unwrap();
+        // The file that is really there, by a spelling that reads as a network or device path:
+        // a second leading `/` on Unix, the `\\?\` prefix on Windows.
+        let there = away.join("house.png");
+        let written = if cfg!(windows) {
+            format!("\\\\?\\{}", there.display())
+        } else {
+            format!("/{}", there.display())
+        };
+        assert!(Path::new(&written).is_file(), "looked at, it would be found");
+        assert_eq!(find(&written, &dir), None);
+        // Its name is still looked for in the xLights folder.
+        fs::write(dir.join("house.png"), png(10, 10)).unwrap();
+        assert_eq!(find(&written, &dir), Some(dir.join("house.png")));
+        // Once the user has chosen something in that folder, it's used as written.
+        pf_model::trust_network_folder_of(Path::new(&written));
+        assert_eq!(find(&written, &dir), Some(PathBuf::from(&written)));
+        fs::remove_dir_all(&dir).unwrap();
+        fs::remove_dir_all(&away).unwrap();
+    }
+
+    #[test]
     fn a_missing_photo_is_left_out_with_its_name_in_the_note() {
         let dir = scratch("missing");
         let mut notes = Vec::new();
@@ -348,6 +382,21 @@ mod tests {
         );
         assert_eq!(notes.len(), 1);
         assert!(notes[0].contains("gone.jpg wasn't found"), "{notes:?}");
+        // One xLights kept on a network share says so: it was never looked for there.
+        notes.clear();
+        assert_eq!(
+            build(&settings("\\\\studio-nas\\xlights\\house.jpg"), &dir, &mut notes),
+            None
+        );
+        assert_eq!(
+            notes,
+            [
+                "The layout photo wasn't brought in. house.jpg is on a network share \
+                 (\\\\studio-nas\\xlights). PixelFlow opens files from a network folder only after you choose a \
+                 file in that folder yourself. Copy it into the xLights folder and import again, or choose it \
+                 on the Layout screen."
+            ]
+        );
         fs::remove_dir_all(&dir).unwrap();
     }
 

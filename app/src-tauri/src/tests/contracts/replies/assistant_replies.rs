@@ -68,7 +68,10 @@ fn sequence_with_song(shell: &Shell) {
 #[test]
 fn assistant_replies() {
     let shell = Shell::new();
-    let mut fixtures = Fixtures::new("assistant", shell.stable());
+    // The credential store is named for the system the shell runs on ("Windows Credential
+    // Manager", "system keyring"); the fixtures hold the Mac's name for it.
+    let stable = shell.stable().swap(pf_ai::keychain_name(), "Keychain");
+    let mut fixtures = Fixtures::new("assistant", stable);
     shell.ok(
         "apply_edits",
         json!({ "edits": [{ "type": "addProp", "prop": strip(1, "Strip", 4) }] }),

@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { demoShow } from "../api/demo";
@@ -23,9 +23,10 @@ describe("test screen", () => {
     const { backend, user } = await setup();
     await user.click(screen.getByRole("button", { name: /^Start/ }));
     await screen.findByText(/Sending/);
-    await user.click(screen.getByRole("button", { name: "Red" }));
-    // Well within the 150 ms the change waits before reaching the lights.
-    await user.click(screen.getByRole("button", { name: /^Stop/ }));
+    // Both clicks land at once, however slow the computer: nothing waits between them, so Stop
+    // is always inside the 150 ms the change waits before reaching the lights.
+    fireEvent.click(screen.getByRole("button", { name: "Red" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Stop/ }));
     await new Promise((resolve) => setTimeout(resolve, 400));
     expect(backend.output.running).toBe(false);
     expect(backend.calls.filter((c) => c === "startOutput")).toHaveLength(1);

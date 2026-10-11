@@ -4,13 +4,22 @@ on:
   push:
     branches: [main, develop]
   pull_request:
+  # Lets a branch be checked on all three systems before it has a pull request.
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
+  # The engine crates. Formatting does not depend on the system, so only Linux checks it.
   rust:
-    runs-on: ubuntu-latest
+    name: rust (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
@@ -18,16 +27,35 @@ jobs:
           toolchain: 1.98.1
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+        with:
+          # A run with a failing test still leaves its compiled dependencies for the next one.
+          cache-on-failure: true
       - name: Install sound headers (for music playback)
+        if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config
       - name: Format
+        if: runner.os == 'Linux'
         run: cargo fmt --all --check
+      - name: Every file says the same version
+        if: runner.os == 'Linux'
+        run: node --test scripts/version.test.mjs && node scripts/version.mjs check
       - name: Lint
+        if: ${{ !cancelled() }}
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      # Every crate's tests run, and run even when a lint failed: one run shows all there is to fix.
       - name: Test
-        run: cargo test --workspace --locked
+        if: ${{ !cancelled() }}
+        run: cargo test --workspace --locked --no-fail-fast
+
+  # The UI and the desktop shell, on the two systems the app ships for.
   app:
-    runs-on: macos-latest
+    name: app (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     defaults:
       run:
         working-directory: app
@@ -48,13 +76,26 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: app/src-tauri
+          cache-on-failure: true
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
+      # The UI's tests run in a simulated browser, which is the same on every system, so one
+      # system runs them. (On the slower Windows runners, the ones that wait a fixed time fail
+      # now and then.)
       - run: pnpm test
+        if: runner.os == 'macOS'
+      # The shell is built and checked even when a UI test failed (it only needs the built UI).
       - run: pnpm build
-      - name: Desktop shell
+        if: ${{ !cancelled() }}
+      - name: Desktop shell format
+        if: ${{ !cancelled() && runner.os == 'macOS' }}
         working-directory: app/src-tauri
-        run: |
-          cargo fmt --check
-          cargo clippy --all-targets --locked -- -D warnings
-          cargo test --locked
+        run: cargo fmt --check
+      - name: Desktop shell lint
+        if: ${{ !cancelled() }}
+        working-directory: app/src-tauri
+        run: cargo clippy --all-targets --locked -- -D warnings
+      - name: Desktop shell test
+        if: ${{ !cancelled() }}
+        working-directory: app/src-tauri
+        run: cargo test --locked --no-fail-fast

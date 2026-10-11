@@ -480,7 +480,10 @@ fn an_unreachable_fpp_is_reported_plainly() {
     let host = format!("127.0.0.1:{port}");
     let dir = tempfile::tempdir().unwrap();
     let path = temp_file(&dir, "Show.fseq", b"data");
-    let err = fpp_upload::stage(&client(), &host, &path, "Show.fseq", &mut |_, _| true).unwrap_err();
+    // Windows tries a refused connection again for a couple of seconds before it says so: the
+    // client waits as long to connect as the app's own does, so the refusal is what it reports.
+    let client = HttpClient::for_uploads_with(Duration::from_secs(5), Duration::from_secs(10));
+    let err = fpp_upload::stage(&client, &host, &path, "Show.fseq", &mut |_, _| true).unwrap_err();
     assert!(matches!(err, UploadError::Unreachable { .. }), "{err:?}");
     let message = err.to_string();
     assert!(

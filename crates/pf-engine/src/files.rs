@@ -62,7 +62,9 @@ impl MissingFile {
         let name = file_name_of(path);
         Self {
             file,
-            message: format!("{name} isn't where it was."),
+            // A network path a file named was never looked for: say that, not that it's gone.
+            message: pf_model::network_path_refusal(path)
+                .unwrap_or_else(|| format!("{name} isn't where it was.")),
             name,
             path: path.to_string(),
             was_at: was_at.unwrap_or(path).to_string(),
@@ -113,9 +115,11 @@ pub(crate) fn files_of(show: &Show) -> Vec<(FileRole, String, &str)> {
     files
 }
 
-/// Whether the file at path text `path` is there (reads the disk).
+/// Whether the file at path text `path` is there (reads the disk). A network or device path
+/// the user hasn't chosen from counts as not there, and is never looked at (see
+/// [`pf_model::network_path_refusal`]).
 pub(crate) fn exists(path: &str) -> bool {
-    path_from_text(path).is_file()
+    !pf_model::is_refused_network_path(path) && path_from_text(path).is_file()
 }
 
 /// Refuses a file the user chose that isn't there (reads the disk: call it before asking the
@@ -190,9 +194,10 @@ pub struct MusicCheck {
 }
 
 impl MusicCheck {
-    /// The music, when it isn't there (reads the disk).
+    /// The music, when it isn't there (reads the disk), or is on a network share the user
+    /// hasn't chosen from (which is never looked at).
     pub fn run(&self) -> Option<MissingFile> {
-        if self.path.is_file() {
+        if exists(&path_to_text(&self.path)) {
             return None;
         }
         let name = match self.sequence_name.trim() {
@@ -487,10 +492,10 @@ mod tests {
     fn finds_by_name_preferring_folders_named_like_the_old_ones_then_the_closest() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().join("show");
-        touch(&root.join("a/House.JPG"));
-        touch(&root.join("photos/house.jpg"));
-        touch(&root.join("x/y/z/deep.png"));
-        touch(&root.join("x/y/z/w/too-deep.png"));
+        touch(&root.join("a").join("House.JPG"));
+        touch(&root.join("photos").join("house.jpg"));
+        touch(&root.join("x").join("y").join("z").join("deep.png"));
+        touch(&root.join("x").join("y").join("z").join("w").join("too-deep.png"));
         let found = search(
             vec![root.clone()],
             vec![
@@ -503,7 +508,7 @@ mod tests {
         .run()
         .found;
         assert_eq!(found.len(), 2, "{found:?}");
-        assert_eq!(found[0].to, path_to_text(&root.join("photos/house.jpg")));
+        assert_eq!(found[0].to, path_to_text(&root.join("photos").join("house.jpg")));
         assert_eq!(found[0].from, "/old/place/photos/house.jpg");
         assert!(found[0].also.is_empty(), "the photos folder fits best");
         assert_eq!(found[1].name, "deep.png");
@@ -513,7 +518,7 @@ mod tests {
             .found;
         assert_eq!(
             closest[0].to,
-            path_to_text(&root.join("a/House.JPG")),
+            path_to_text(&root.join("a").join("House.JPG")),
             "case doesn't matter"
         );
     }
@@ -522,13 +527,13 @@ mod tests {
     fn files_that_fit_as_well_are_listed_not_hidden() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().join("show");
-        touch(&root.join("b/house.jpg"));
-        touch(&root.join("a/house.jpg"));
+        touch(&root.join("b").join("house.jpg"));
+        touch(&root.join("a").join("house.jpg"));
         let found = search(vec![root.clone()], vec![wanted("/old/house.jpg")])
             .run()
             .found;
-        assert_eq!(found[0].to, path_to_text(&root.join("a/house.jpg")));
-        assert_eq!(found[0].also, [path_to_text(&root.join("b/house.jpg"))]);
+        assert_eq!(found[0].to, path_to_text(&root.join("a").join("house.jpg")));
+        assert_eq!(found[0].also, [path_to_text(&root.join("b").join("house.jpg"))]);
     }
 
     #[test]
@@ -546,7 +551,7 @@ mod tests {
     #[test]
     fn a_file_back_in_its_place_is_found_there() {
         let dir = tempfile::tempdir().unwrap();
-        let photo = dir.path().join("show/house.jpg");
+        let photo = dir.path().join("show").join("house.jpg");
         touch(&photo);
         let found = search(vec![], vec![wanted(&path_to_text(&photo))]).run().found;
         assert_eq!(found[0].to, found[0].from);
@@ -570,13 +575,14 @@ mod tests {
     fn skips_hidden_and_library_folders_and_links() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().join("show");
-        touch(&root.join(".cache/song.mp3"));
-        touch(&root.join("Library/song.mp3"));
-        touch(&dir.path().join("outside/song.mp3"));
+        touch(&root.join(".cache").join("song.mp3"));
+        touch(&root.join("Library").join("song.mp3"));
+        touch(&dir.path().join("outside").join("song.mp3"));
         #[cfg(unix)]
         {
             std::os::unix::fs::symlink(dir.path().join("outside"), root.join("linked")).unwrap();
-            std::os::unix::fs::symlink(dir.path().join("outside/song.mp3"), root.join("song.mp3")).unwrap();
+            std::os::unix::fs::symlink(dir.path().join("outside").join("song.mp3"), root.join("song.mp3"))
+                .unwrap();
         }
         let found = search(vec![root], vec![wanted("/old/song.mp3")]).run().found;
         assert!(found.is_empty(), "{found:?}");
@@ -586,7 +592,7 @@ mod tests {
     fn never_searches_the_whole_home_folder() {
         let dir = tempfile::tempdir().unwrap();
         let home = dir.path().join("home");
-        touch(&home.join("Music/song.mp3"));
+        touch(&home.join("Music").join("song.mp3"));
         let search = FileSearch::new(
             vec![home.clone()],
             vec![wanted("/old/song.mp3")],

@@ -181,6 +181,14 @@ pub fn resolve_text(text: &str, folder: &Path) -> String {
 mod tests {
     use super::*;
 
+    /// The text of `folder` with `parts` below it, between this system's own separators (a
+    /// resolved path is joined the way the system joins paths: `\` on Windows).
+    fn below(folder: &Path, parts: &[&str]) -> String {
+        let mut path = folder.to_path_buf();
+        path.extend(parts);
+        path_to_text(&path)
+    }
+
     #[test]
     fn only_marks_the_encoder_writes_are_read() {
         // Bytes below 0x80 are never marked: a mark for "/" or NUL is dropped, digits and all
@@ -191,7 +199,7 @@ mod tests {
         assert_eq!(display_text("x\u{0}00y"), "x00y");
         assert_eq!(
             resolve_text(sneaky, Path::new("/Shows")),
-            "/Shows/a/2fetc2fpasswd"
+            below(Path::new("/Shows"), &["a", "2fetc2fpasswd"])
         );
         assert_eq!(display_text("Caf\u{0}e9"), "Caf\u{FFFD}");
     }
@@ -199,9 +207,18 @@ mod tests {
     #[test]
     fn relative_paths_stay_inside_their_folder() {
         let folder = Path::new("/Shows/Haas");
-        assert_eq!(resolve_text("Music/../Song.mp3", folder), "/Shows/Haas/Song.mp3");
-        assert_eq!(resolve_text("../../etc/x.png", folder), "/Shows/Haas/etc/x.png");
-        assert_eq!(resolve_text("a/./b/../c.mp3", folder), "/Shows/Haas/a/c.mp3");
+        assert_eq!(
+            resolve_text("Music/../Song.mp3", folder),
+            below(folder, &["Song.mp3"])
+        );
+        assert_eq!(
+            resolve_text("../../etc/x.png", folder),
+            below(folder, &["etc", "x.png"])
+        );
+        assert_eq!(
+            resolve_text("a/./b/../c.mp3", folder),
+            below(folder, &["a", "c.mp3"])
+        );
         // Read back and saved again, it is still relative.
         let full = resolve_text("Music/../Song.mp3", folder);
         assert_eq!(relative_text(&full, folder), "Song.mp3");
@@ -329,8 +346,11 @@ mod tests {
     #[test]
     fn relative_and_back_is_the_same_file() {
         let folder = Path::new("/Shows/Haas 2024");
-        for full in ["/Shows/Haas 2024/a/b/c.mp3", "/Shows/Other/c.mp3"] {
-            assert_eq!(resolve_text(&relative_text(full, folder), folder), full);
+        for full in [
+            below(folder, &["a", "b", "c.mp3"]),
+            "/Shows/Other/c.mp3".to_string(),
+        ] {
+            assert_eq!(resolve_text(&relative_text(&full, folder), folder), full);
         }
     }
 }

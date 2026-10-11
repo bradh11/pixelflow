@@ -2659,17 +2659,19 @@ mod tests {
         )
         .unwrap();
         open.rebase_audio(Path::new("/shows/b/song.pfseq.json"));
-        assert_eq!(open.doc.audio.as_deref(), Some("/shows/a/music/song.mp3"));
+        // A full path is joined the way this system joins paths (`\` on Windows).
+        let in_a = |below: &[&str]| {
+            let mut path = PathBuf::from("/shows/a");
+            path.extend(below);
+            pf_model::path_to_text(&path)
+        };
+        assert_eq!(open.doc.audio, Some(in_a(&["music", "song.mp3"])));
         // Undo history follows, so undoing doesn't bring back a path that means another file.
         open.undo().unwrap();
-        assert_eq!(open.doc.audio.as_deref(), Some("/shows/a/song.mp3"));
+        assert_eq!(open.doc.audio, Some(in_a(&["song.mp3"])));
         open.mark_saved(Path::new("/shows/b/song.pfseq.json"));
         open.rebase_audio(Path::new("/shows/song.pfseq.json"));
-        assert_eq!(
-            open.doc.audio.as_deref(),
-            Some("/shows/a/song.mp3"),
-            "full paths stay"
-        );
+        assert_eq!(open.doc.audio, Some(in_a(&["song.mp3"])), "full paths stay");
         assert_eq!(
             rebase_audio(
                 "a/song.mp3",

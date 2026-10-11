@@ -130,6 +130,10 @@ fn decode_photo(bytes: &[u8]) -> Result<image::DynamicImage, String> {
 /// The layout photo, read from its file (turned the way the camera says, as the preview shows
 /// it). Only a real picture file is read, and only up to the size the layout shows.
 pub fn load_photo(background: &Background) -> Result<Photo, String> {
+    // A photo on a network share the user hasn't chosen from is never looked at.
+    if let Some(refusal) = pf_model::network_path_refusal(&background.path) {
+        return Err(format!("{refusal} The video has no photo."));
+    }
     let path = pf_model::path_from_text(&background.path);
     let name = path
         .file_name()
@@ -898,6 +902,34 @@ mod tests {
                 "{error}"
             );
         }
+    }
+
+    #[test]
+    fn a_photo_on_a_network_share_the_user_did_not_choose_from_is_not_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let there = dir.path().join("house.png");
+        image::RgbImage::from_pixel(2, 2, image::Rgb([1, 2, 3]))
+            .save(&there)
+            .unwrap();
+        // The real file by a spelling that reads as a network or device path: a second leading
+        // `/` on Unix, the `\\?\` prefix on Windows. Looked at, it would be read.
+        let named = if cfg!(windows) {
+            format!("\\\\?\\{}", there.display())
+        } else {
+            format!("/{}", there.display())
+        };
+        let error = photo_at(Path::new(&named)).err().unwrap();
+        assert!(error.starts_with("house.png is "), "{error}");
+        assert!(
+            error.ends_with("only after you choose it yourself. The video has no photo.")
+                || error.ends_with(
+                    "only after you choose a file in that folder yourself. The video has no photo."
+                ),
+            "{error}"
+        );
+        // The user chooses it in a dialog: now it's read.
+        pf_model::trust_network_folder_of(Path::new(&named));
+        assert_eq!(photo_at(Path::new(&named)).unwrap().image.dimensions(), (2, 2));
     }
 
     /// A pipe named like a photo is never opened (opening one waits for a writer for ever).

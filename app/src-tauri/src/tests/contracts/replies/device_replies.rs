@@ -424,7 +424,7 @@ fn transfer_replies() {
         &saved,
     );
     // Its music isn't on the FPP, and the folder has the sequence already.
-    std::fs::write(folder.join("sequences/Quiet.fseq"), b"old").unwrap();
+    std::fs::write(folder.join("sequences").join("Quiet.fseq"), b"old").unwrap();
     let plan = shell.ok(
         "fpp_download_plan",
         json!({ "address": fpp.address(), "sequence": "Quiet.fseq", "folder": folder }),

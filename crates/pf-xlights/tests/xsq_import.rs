@@ -16,16 +16,21 @@ use std::path::{Path, PathBuf};
 
 fn fixture(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("fixtures/sequences")
+        .join("fixtures")
+        .join("sequences")
         .join(name)
 }
 
 /// The sample show (props Roofline, Arches, Mega Tree, Window Matrix, Porch Star, Candy Canes;
 /// groups Outline and Everything).
 fn show() -> Show {
-    import_folder(&Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/sample-show"))
-        .unwrap()
-        .show
+    import_folder(
+        &Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("fixtures")
+            .join("sample-show"),
+    )
+    .unwrap()
+    .show
 }
 
 fn import(name: &str) -> SequenceImport {
@@ -1123,13 +1128,13 @@ fn pictures_are_found_where_the_sequence_says_or_by_name_in_the_show_folder() {
     };
     // The show folder (the one with the layout), with its pictures in it and below it.
     touch(xlights.join("xlights_rgbeffects.xml"));
-    let santa = touch(xlights.join("Images/santa dancing.gif"));
+    let santa = touch(xlights.join("Images").join("santa dancing.gif"));
     let star = touch(xlights.join("star.png"));
-    let elsewhere = touch(dir.path().join("Art/elf.gif"));
+    let elsewhere = touch(dir.path().join("Art").join("elf.gif"));
     let elsewhere_text = pf_model::path_to_text(&elsewhere);
     // The sequence is two folders down, as xLights users often keep them.
     let xsq = pictures_xsq(
-        &xlights.join("Sequences/2025"),
+        &xlights.join("Sequences").join("2025"),
         &[
             // From another computer: found under the show folder by the end of its path.
             r"C:\Users\someone\Documents\xlights\Images\santa dancing.gif",

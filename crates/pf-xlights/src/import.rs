@@ -7,14 +7,14 @@
 //! wired exactly isn't wired at all, with a note. Controllers carry their sequence channels.
 
 use crate::channels::{ChannelRequest, resolve};
-use crate::geometry::{Geometry, XNode};
+use crate::geometry::{Buffer, Geometry, XNode};
 use crate::layout::XLayout;
 use crate::model::XmlModel;
 use crate::networks::{OutputDefaults, XController, XOutput};
 use pf_model::{
     ColorOrder, Controller, Group, GroupLayout, GroupMember, LayoutArea, MAX_GRID_SIZE, MAX_NULL_PIXELS,
-    MAX_SHOW_PIXELS, MIN_GRID_SIZE, NodeRange, Port, PortSlot, Prop, PropId, Protocol, Provenance, RegionRef,
-    SacnConfig, SequenceChannels, ShapeSource, Show, UniverseSize, Vec3,
+    MAX_SHOW_PIXELS, MIN_GRID_SIZE, NodeRange, OwnLayout, Port, PortSlot, Prop, PropId, Protocol, Provenance,
+    RegionRef, SacnConfig, SequenceChannels, ShapeSource, Show, UniverseSize, Vec3,
 };
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
@@ -241,6 +241,39 @@ struct Run {
     nodes: u32,
     /// Channel offset of the run's first node from the model's start channel.
     offset: u32,
+}
+
+/// The layout of its own an imported prop needs for an effect on it to land where xLights draws
+/// it: the model's own render buffer, unless the prop's shape lays its pixels out that way
+/// anyway. One row along the wiring is kept as a strand, which still fits when pixels are added.
+fn own_layout(prop: &Prop, buffer: Option<&Buffer>) -> OwnLayout {
+    let Some(buffer) = buffer.filter(|b| b.cells.len() == prop.node_count() as usize) else {
+        return OwnLayout::Shape;
+    };
+    if let ShapeSource::Generator(shape) = &prop.shape
+        && pf_geometry::own_grid(shape)
+            .is_some_and(|g| (g.columns, g.rows) == (buffer.columns, buffer.rows) && g.cells == buffer.cells)
+    {
+        return OwnLayout::Shape;
+    }
+    let last = buffer.cells.len() as u32 - 1;
+    let along = |reversed: bool| {
+        (buffer.columns, buffer.rows) == (last + 1, 1)
+            && (0..=last)
+                .zip(&buffer.cells)
+                .all(|(n, &cell)| cell == [if reversed { last - n } else { n }, 0])
+    };
+    if along(false) {
+        OwnLayout::Strand { reversed: false }
+    } else if along(true) {
+        OwnLayout::Strand { reversed: true }
+    } else {
+        OwnLayout::Cells {
+            columns: buffer.columns,
+            rows: buffer.rows,
+            cells: buffer.cells.clone(),
+        }
+    }
 }
 
 /// Splits nodes (sorted by channel) into gap-free runs; an error when nodes share channels.
@@ -503,6 +536,7 @@ fn build_show_within(
             odd_colors.push(model.name.clone());
         }
         prop.color_order = order;
+        prop.own_layout = own_layout(&prop, g.buffer.as_ref());
         prop.regions = crate::submodels::regions(
             &model.name,
             &model.submodels,
@@ -917,6 +951,7 @@ mod tests {
             approximate: None,
             channels_unknown: None,
             absolute_channels: false,
+            buffer: None,
         }
     }
 
@@ -1362,6 +1397,61 @@ mod tests {
             other => panic!("{other:?}"),
         };
         assert_eq!([12, 15, 27, 30].map(address), [(1, 13), (2, 1), (2, 13), (3, 1)]);
+    }
+
+    #[test]
+    fn lines_and_custom_models_keep_the_layout_xlights_draws_effects_on() {
+        // xLights draws on a single line along its nodes from the first made to the last,
+        // whichever way it runs in the layout and whichever end is wired first.
+        let post = with(model("Post", "1", 4, None), &[("X2", "0"), ("Y2", "100")]);
+        let back = with(model("Back", "13", 4, None), &[("Dir", "R")]);
+        // Two strings, each wired from its far end: not one run either way.
+        let pair = with(model("Pair", "25", 2, None), &[("NumStrings", "2"), ("Dir", "R")]);
+        let custom = |name: &str, start: &str, attrs: &[(&str, &str)]| {
+            let mut m = with(model(name, start, 0, None), attrs);
+            m.display_as = "Custom".into();
+            m
+        };
+        // A custom model that fills its grid is drawn on it as it is; one with an empty column
+        // and row keeps them, as xLights draws on the whole grid.
+        let full = custom(
+            "Full",
+            "40",
+            &[("CustomModel", "1,2;3,4"), ("parm1", "2"), ("parm2", "2")],
+        );
+        let margin = custom(
+            "Margin",
+            "60",
+            &[("CustomModel", "1,2,;3,4,;,,"), ("parm1", "3"), ("parm2", "3")],
+        );
+        let mut arch = model("Arch", "80", 5, None);
+        arch.display_as = "Arches".into();
+        let models = vec![post, back, pair, full, margin, arch];
+        let result = build_show("t", &[falcon()], &layout(models), crate::geometry::geometry);
+        let own = |name: &str| {
+            let prop = result.show.props.iter().find(|p| p.name == name).unwrap();
+            prop.own_layout.clone()
+        };
+        assert_eq!(own("Post"), OwnLayout::Strand { reversed: false });
+        assert_eq!(own("Back"), OwnLayout::Strand { reversed: true });
+        assert_eq!(
+            own("Pair"),
+            OwnLayout::Cells {
+                columns: 4,
+                rows: 1,
+                cells: vec![[1, 0], [0, 0], [3, 0], [2, 0]],
+            }
+        );
+        assert_eq!(own("Full"), OwnLayout::Shape);
+        assert_eq!(
+            own("Margin"),
+            OwnLayout::Cells {
+                columns: 3,
+                rows: 3,
+                cells: vec![[0, 2], [1, 2], [0, 1], [1, 1]],
+            }
+        );
+        assert_eq!(own("Arch"), OwnLayout::Shape);
     }
 
     #[test]

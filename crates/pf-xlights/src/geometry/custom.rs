@@ -15,10 +15,15 @@ struct Cell {
 }
 
 /// `ParseCustomModel`: layers split by `|`, rows by `;`, columns by `,`; empty cells hold nothing.
-fn parse_grid(s: &str) -> Vec<Cell> {
+/// Also the grid's width and height as xLights sizes it: the longest row, and the rows of the
+/// last layer.
+fn parse_grid(s: &str) -> (Vec<Cell>, [i64; 2]) {
     let mut cells = Vec::new();
+    let (mut width, mut height) = (1, 1);
     for (layer, l) in s.split('|').enumerate() {
+        height = l.split(';').count() as i64;
         for (row, r) in l.split(';').enumerate() {
+            width = width.max(r.split(',').count() as i64);
             for (col, c) in r.split(',').enumerate() {
                 let c = c.trim_start_matches(' ');
                 if c.is_empty() {
@@ -36,15 +41,17 @@ fn parse_grid(s: &str) -> Vec<Cell> {
             }
         }
     }
-    cells
+    (cells, [width, height])
 }
 
 /// `ParseCompressed`: `node,row,col[,layer]` records separated by `;`. Returns the cells in grid
-/// order (layer, row, col) with later duplicates of a cell winning, plus whether any record had
-/// a negative position (which xLights cannot represent either).
-fn parse_compressed(s: &str) -> (Vec<Cell>, bool) {
+/// order (layer, row, col) with later duplicates of a cell winning, whether any record had a
+/// negative position (which xLights cannot represent either), and the grid's width and height
+/// (one past the last column and row any record names).
+fn parse_compressed(s: &str) -> (Vec<Cell>, bool, [i64; 2]) {
     let mut grid: BTreeMap<(i64, i64, i64), i64> = BTreeMap::new();
     let mut bad = false;
+    let (mut width, mut height) = (1, 1);
     for rec in s.split(';') {
         let f: Vec<i64> = rec.split(',').map(strtol0).collect();
         let (value, row, col, layer) = match f.len() {
@@ -56,6 +63,10 @@ fn parse_compressed(s: &str) -> (Vec<Cell>, bool) {
             bad = true;
             continue;
         }
+        (width, height) = (
+            width.max(col.saturating_add(1)),
+            height.max(row.saturating_add(1)),
+        );
         grid.insert((layer, row, col), value);
     }
     let cells = grid
@@ -68,16 +79,16 @@ fn parse_compressed(s: &str) -> (Vec<Cell>, bool) {
             layer,
         })
         .collect();
-    (cells, bad)
+    (cells, bad, [width, height])
 }
 
 /// A custom model's occupied cells as `[node number, row, column, layer]`, read as xLights does
 /// (the compressed form when there is one); `None` when some cells had negative positions.
 pub(crate) fn custom_cells(grid: &str, compressed: &str) -> Option<Vec<[i64; 4]>> {
     let cells = if compressed.is_empty() {
-        parse_grid(grid)
+        parse_grid(grid).0
     } else {
-        let (cells, bad) = parse_compressed(compressed);
+        let (cells, bad, _) = parse_compressed(compressed);
         if bad {
             return None;
         }
@@ -91,14 +102,14 @@ pub(super) fn custom(cx: &mut Ctx) -> Raw {
     let depth = cx.int("Depth", 1).max(1);
     let strings = cx.int("CustomStrings", 1);
     let compressed = cx.text("CustomModelCompressed", "");
-    let cells = if compressed.is_empty() {
+    let (cells, [width, height]) = if compressed.is_empty() {
         parse_grid(cx.text("CustomModel", ""))
     } else {
-        let (cells, bad) = parse_compressed(compressed);
+        let (cells, bad, size) = parse_compressed(compressed);
         if bad {
             cx.note("custom model cells with negative positions were skipped");
         }
-        cells
+        (cells, size)
     };
     if cx.over_cap(cells.len() as i64) || cells.is_empty() {
         return Raw::empty();
@@ -115,7 +126,9 @@ pub(super) fn custom(cx: &mut Ctx) -> Raw {
     }
     let center = |a: i64, b: i64| f64::from((a + b) as f32 / 2.0);
     let (cr, cc, cl) = (center(min_r, max_r), center(min_c, max_c), center(min_l, max_l));
-    let mut by_node: HashMap<i64, Vec<V3>> = HashMap::new();
+    // A node's lights, and its cell in the model's own buffer: its first light's, with the
+    // layers side by side and the rows counted from the bottom (`AddBufCoord`).
+    let mut by_node: HashMap<i64, (Vec<V3>, [i64; 2])> = HashMap::new();
     let mut order: Vec<i64> = Vec::new();
     for c in &cells {
         let p = [c.col as f64 - cc, cr - c.row as f64, cl - c.layer as f64];
@@ -123,16 +136,28 @@ pub(super) fn custom(cx: &mut Ctx) -> Raw {
             .entry(c.value)
             .or_insert_with(|| {
                 order.push(c.value);
-                Vec::new()
+                let column = c.layer.saturating_mul(width).saturating_add(c.col);
+                (Vec::new(), [column, height - c.row - 1])
             })
+            .0
             .push(p);
     }
     order.sort_unstable();
     let first = first_start_channel(cx, strings, max_val, order.len() as i64);
     let nodes = order
         .into_iter()
-        .map(|v| RawNode::new(first + (v - 1) * cpn, by_node.remove(&v).unwrap_or_default()))
+        .map(|v| {
+            let (pts, [column, row]) = by_node.remove(&v).unwrap_or_default();
+            RawNode::new(first + (v - 1) * cpn, pts).at(column, row)
+        })
         .collect();
+    // The buffer is the size the model says it is (`SetBufferSize(parm2, parm1 * _depth)`). A
+    // single-color model is drawn on a row of its nodes instead (`InitRenderBufferNodes`), which
+    // isn't worked out here.
+    if !cx.single_node && !cx.single_channel {
+        let (parm1, parm2) = (cx.int("parm1", 0), cx.int("parm2", 0));
+        cx.buffer = Some([parm1.saturating_mul(depth), parm2]);
+    }
     let perspective = if depth > 1 { f64::from(0.1f32) } else { 0.0 };
     let xf = boxed(cx, perspective, [1.0; 3]);
     Raw { nodes, xf }

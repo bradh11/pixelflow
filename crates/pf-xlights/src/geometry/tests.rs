@@ -1,7 +1,7 @@
 //! Tests for the geometry port. Expected positions are worked out by hand from the xLights
 //! formulas (see each test), not by re-running the implementation.
 
-use super::{Geometry, geometry};
+use super::{Buffer, Geometry, geometry};
 use crate::model::XmlModel;
 
 fn model(display_as: &str, attrs: &[(&str, &str)]) -> XmlModel {
@@ -758,6 +758,10 @@ fn huge_negative_and_garbage_inputs_never_panic() {
             let g = geo(t, &attrs);
             assert!(g.nodes.len() <= 1_000_000);
             assert!(g.nodes.windows(2).all(|w| w[0].channel <= w[1].channel));
+            if let Some(b) = &g.buffer {
+                assert_eq!(b.cells.len(), g.nodes.len());
+                assert!(b.cells.iter().all(|c| c[0] < b.columns && c[1] < b.rows));
+            }
             assert!(
                 g.nodes
                     .iter()
@@ -766,4 +770,108 @@ fn huge_negative_and_garbage_inputs_never_panic() {
             );
         }
     }
+}
+
+/// A model's own buffer as `(columns, rows, cells)`.
+fn buffer(g: &Geometry) -> Option<(u32, u32, Vec<[u32; 2]>)> {
+    g.buffer
+        .as_ref()
+        .map(|Buffer { columns, rows, cells }| (*columns, *rows, cells.clone()))
+}
+
+#[test]
+fn a_single_lines_buffer_is_one_row_in_the_order_its_nodes_are_made() {
+    // `InitLine`: `SetBufferSize(1, nodes)`, each node at `bufX` = its index, whichever way the
+    // line runs in the layout.
+    let up = [("NodesPerString", "3"), ("X2", "0"), ("Y2", "100")];
+    let g = geo("Single Line", &up);
+    assert_eq!(buffer(&g), Some((3, 1, vec![[0, 0], [1, 0], [2, 0]])));
+    // Wired from the far end ("Dir" R), the channels run backward along the same row.
+    let mut back = up.to_vec();
+    back.push(("Dir", "R"));
+    let g = geo("Single Line", &back);
+    assert_eq!(channels(&g), [0, 3, 6]);
+    assert_eq!(buffer(&g), Some((3, 1, vec![[2, 0], [1, 0], [0, 0]])));
+    // Two strings of two, each wired backward: nodes 0 and 1 hold channels 3 and 0, nodes 2
+    // and 3 channels 9 and 6.
+    let g = geo("Single Line", &[("parm1", "2"), ("parm2", "2"), ("Dir", "R")]);
+    assert_eq!(buffer(&g), Some((4, 1, vec![[1, 0], [0, 0], [3, 0], [2, 0]])));
+    // Dumb strings: a cell a string.
+    let dumb = [
+        ("NumStrings", "3"),
+        ("NodesPerString", "10"),
+        ("StringType", "Single Color White"),
+    ];
+    let g = geo("Single Line", &dumb);
+    assert_eq!(buffer(&g), Some((3, 1, vec![[0, 0], [1, 0], [2, 0]])));
+}
+
+#[test]
+fn a_poly_lines_buffer_is_a_column_a_drop_from_its_first_point_to_its_last() {
+    // `SetBufferSize(maxH, width + 1)` with `bufX` the drop and `bufY = maxH - y - 1`.
+    let a = [
+        ("NumPoints", "3"),
+        ("PointData", "0,0,0,50,0,0,50,80,0"),
+        ("NodesPerString", "4"),
+    ];
+    let g = geo("Poly Line", &a);
+    assert_eq!(buffer(&g), Some((4, 1, vec![[0, 0], [1, 0], [2, 0], [3, 0]])));
+    let mut back = a.to_vec();
+    back.push(("Dir", "R"));
+    let g = geo("Poly Line", &back);
+    assert_eq!(buffer(&g), Some((4, 1, vec![[3, 0], [2, 0], [1, 0], [0, 0]])));
+    // Drops of two lights hang down from the top row.
+    let mut drops = a.to_vec();
+    drops.push(("DropPattern", "2"));
+    let g = geo("Poly Line", &drops);
+    assert_eq!(buffer(&g), Some((2, 2, vec![[0, 1], [0, 0], [1, 1], [1, 0]])));
+}
+
+#[test]
+fn a_custom_models_buffer_is_its_grid_at_the_size_the_model_says() {
+    // `InitCustomMatrix`: `bufX = layer * width + col`, `bufY = height - row - 1`, in a buffer
+    // of `parm1 * Depth` by `parm2`. A node in two cells is drawn from the first.
+    let a = [
+        ("CustomModel", ",,,;,1,,2;,,5,;,1,,"),
+        ("parm1", "4"),
+        ("parm2", "4"),
+    ];
+    let g = geo("Custom", &a);
+    assert_eq!(buffer(&g), Some((4, 4, vec![[1, 2], [3, 2], [2, 1]])));
+    let c = [("CustomModelCompressed", "1,1,1;2,1,3;5,2,2;1,3,1"), a[1], a[2]];
+    assert_eq!(geo("Custom", &c), g);
+
+    // The compressed form doesn't say how many rows there are below the last one in use, so
+    // xLights counts up from that one: the empty rows end up at the top of the buffer.
+    let full = [("CustomModel", "1,,;,2,;,,;,,"), ("parm1", "3"), ("parm2", "4")];
+    assert_eq!(buffer(&geo("Custom", &full)), Some((3, 4, vec![[0, 3], [1, 2]])));
+    let packed = [("CustomModelCompressed", "1,0,0;2,1,1"), full[1], full[2]];
+    assert_eq!(
+        buffer(&geo("Custom", &packed)),
+        Some((3, 4, vec![[0, 1], [1, 0]]))
+    );
+
+    // Layers sit side by side.
+    let deep = [
+        ("CustomModel", "1|2"),
+        ("Depth", "2"),
+        ("parm1", "1"),
+        ("parm2", "1"),
+    ];
+    assert_eq!(buffer(&geo("Custom", &deep)), Some((2, 1, vec![[0, 0], [1, 0]])));
+
+    // No buffer is worked out when the model's size doesn't hold its cells, or says nothing,
+    // and for a single-color model (drawn on a row of its nodes).
+    let small = [("CustomModel", "1,2"), ("parm1", "1"), ("parm2", "1")];
+    assert_eq!(buffer(&geo("Custom", &small)), None);
+    assert_eq!(buffer(&geo("Custom", &[("CustomModel", "1,2")])), None);
+    let dumb = [
+        ("CustomModel", "1,2"),
+        ("parm1", "2"),
+        ("parm2", "1"),
+        ("StringType", "Single Color White"),
+    ];
+    assert_eq!(buffer(&geo("Custom", &dumb)), None);
+    // Other kinds of model don't have one worked out.
+    assert_eq!(buffer(&geo("Arches", &[("parm1", "1"), ("parm2", "5")])), None);
 }

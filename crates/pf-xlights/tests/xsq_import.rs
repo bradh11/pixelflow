@@ -1,6 +1,6 @@
 //! Importing hand-written xLights sequences onto the sample show.
 
-use pf_model::{Generator, Group, GroupMember, Prop, Provenance, ShapeSource, Show, Vec3};
+use pf_model::{Generator, Group, GroupMember, OwnLayout, Prop, Provenance, ShapeSource, Show, Vec3};
 use pf_sequence::{
     Axis, BarsMotion, BarsParams, Blend, ChaseParams, ColorWashParams, Direction, Effect, EffectParams,
     FaceColorSource, FaceEyes, FacesParams, FireParams, FireStyle, Gradient, Mark, MeteorDirection,
@@ -296,6 +296,13 @@ fn an_effect_on_a_prop_xlights_lays_out_its_own_way_is_an_approximation() {
         &i,
         "Bars (2 effects) approximated: drawn on the prop as it looks from the front",
     );
+
+    // Imported with the layout xLights draws on (one row along the wiring), they match.
+    for prop in &mut show.props {
+        prop.own_layout = OwnLayout::Strand { reversed: false };
+    }
+    let i = build_sequence(&parse_xsq(&xml).unwrap(), &show, "x");
+    assert_eq!((i.summary.exact, i.summary.approximate), (6, 0));
 }
 
 #[test]

@@ -36,7 +36,9 @@ pub fn centre_voice(
     let mut left = Resampler::new(rate, RATE);
     let mut right = Resampler::new(rate, RATE);
     let (mut l, mut r) = (Vec::new(), Vec::new());
-    for (i, (a, b)) in reported(frames, read, &progress, 0.7).enumerate() {
+    // No more of the file than a sequence can be long is ever held.
+    let most = pf_audio::song_samples(rate);
+    for (i, (a, b)) in reported(frames, read, &progress, 0.7).take(most).enumerate() {
         if i % CHECK_EVERY == 0 && stop() {
             return Err(AlignError::Cancelled);
         }

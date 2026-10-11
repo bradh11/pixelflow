@@ -36,6 +36,29 @@ fn every_reader(path: &Path) -> Vec<(&'static str, Option<AudioError>)> {
 }
 
 #[test]
+fn sound_at_a_rate_no_music_has_is_not_read() {
+    let dir = tempfile::tempdir().unwrap();
+    // At 1 Hz a hundred samples are a hundred seconds; at 4 GHz every buffer sized from the rate
+    // is enormous.
+    for (name, rate) in [("slow.wav", 1), ("fast.wav", 4_000_000_000)] {
+        let path = dir.path().join(name);
+        write_wav(&path, rate, 2, 100);
+        for (reader, error) in every_reader(&path) {
+            // Tags are read without looking at the sound.
+            if reader == "tags" {
+                continue;
+            }
+            let error = error.unwrap_or_else(|| panic!("{reader} read {name}"));
+            assert!(matches!(error, AudioError::Decode { .. }), "{reader}: {error:?}");
+        }
+    }
+    let fine = dir.path().join("fine.wav");
+    write_wav(&fine, 44_100, 2, 100);
+    assert_eq!(probe(&fine, &|_| {}).unwrap().sample_rate, 44_100);
+    assert_eq!(MonoSamples::open(&fine).unwrap().count(), 100);
+}
+
+#[test]
 fn a_wav_that_says_its_sample_rate_is_zero_is_an_error_not_a_panic() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("zero.wav");

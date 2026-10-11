@@ -25,5 +25,5 @@ pub use probe::{AudioInfo, FoundBy, probe};
 pub use progress::{Progress, ReadPosition, no_progress, reported};
 pub use stereo::StereoFrames;
 pub use tags::{SongTags, read_tags, title_from_file_name};
-pub use wav::{Resampler, mono_at_rate, mono_at_rate_reporting, wav_bytes};
+pub use wav::{MAX_SONG_MS, Resampler, mono_at_rate, mono_at_rate_reporting, song_samples, wav_bytes};
 pub use waveform::{Waveform, waveform, waveform_reporting};

@@ -9,6 +9,15 @@ use std::path::Path;
 /// Samples between checks for a stop.
 const CHECK_EVERY: usize = 1 << 16;
 
+/// The most of a music file that's ever decoded into memory or analysed: 4 hours, the longest a
+/// sequence can be. What comes after is left out.
+pub const MAX_SONG_MS: u64 = 4 * 60 * 60 * 1000;
+
+/// How many samples (per channel) of sound at `rate` Hz [`MAX_SONG_MS`] is.
+pub fn song_samples(rate: u32) -> usize {
+    usize::try_from(MAX_SONG_MS.saturating_mul(u64::from(rate)) / 1000).unwrap_or(usize::MAX)
+}
+
 /// Brings mono samples at `from` Hz down (or up) to `to` Hz: each output sample is the mean of
 /// the input samples it covers (a box filter, enough to keep speech clear of aliasing), or a
 /// straight line between neighbours when going up.
@@ -69,6 +78,7 @@ pub fn mono_at_rate(path: &Path, rate: u32, stop: &dyn Fn() -> bool) -> Result<V
 }
 
 /// Like [`mono_at_rate`], telling `progress` how far it has got (0–1, ending at 1 when done).
+/// At most the first [`MAX_SONG_MS`] of the file is decoded.
 pub fn mono_at_rate_reporting(
     path: &Path,
     rate: u32,
@@ -76,11 +86,23 @@ pub fn mono_at_rate_reporting(
     progress: &dyn Fn(f32),
 ) -> Result<Vec<f32>, AudioError> {
     let samples = MonoSamples::open(path)?;
+    let most = song_samples(samples.sample_rate());
+    mono_of(samples, most, rate, stop, progress)
+}
+
+/// The first `most` of `samples`, at `rate` Hz.
+fn mono_of(
+    samples: MonoSamples,
+    most: usize,
+    rate: u32,
+    stop: &dyn Fn() -> bool,
+    progress: &dyn Fn(f32),
+) -> Result<Vec<f32>, AudioError> {
     let progress = Progress::new(progress);
     let mut resampler = Resampler::new(samples.sample_rate(), rate);
     let read = samples.position();
     let mut out = Vec::new();
-    for (i, sample) in reported(samples, read, &progress, 1.0).enumerate() {
+    for (i, sample) in reported(samples, read, &progress, 1.0).take(most).enumerate() {
         if i % CHECK_EVERY == 0 && stop() {
             return Err(AudioError::Stopped);
         }
@@ -154,5 +176,21 @@ mod tests {
             mono_at_rate(&path, 16_000, &|| true),
             Err(AudioError::Stopped)
         ));
+    }
+
+    #[test]
+    fn no_more_of_a_file_than_a_song_can_be_long_is_decoded() {
+        // Four hours, whatever the rate.
+        assert_eq!(song_samples(8_000), 8_000 * 4 * 60 * 60);
+        assert_eq!(song_samples(48_000), 48_000 * 4 * 60 * 60);
+        // What's past the most that's kept is left out: here, the second half of a second.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("second.wav");
+        std::fs::write(&path, wav_bytes(&vec![0.25; 16_000], 16_000)).unwrap();
+        let open = || MonoSamples::open(&path).unwrap();
+        let half = mono_of(open(), 8_000, 16_000, &|| false, &no_progress).unwrap();
+        assert_eq!(half.len(), 8_000);
+        let all = mono_of(open(), song_samples(16_000), 16_000, &|| false, &no_progress).unwrap();
+        assert_eq!(all.len(), 16_000);
     }
 }

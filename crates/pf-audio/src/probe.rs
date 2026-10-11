@@ -4,7 +4,7 @@
 //! bitrate, so its frames are counted instead (read, not decoded); a file that says nothing is
 //! decoded as a last resort.
 
-use crate::decode::{guarded, open_decoder};
+use crate::decode::{format_problem, guarded, open_decoder};
 use crate::error::AudioError;
 use crate::progress::{CountedFile, Progress, ReadPosition, reported};
 use rodio::Source;
@@ -90,6 +90,16 @@ fn read_info(path: &Path, progress: &dyn Fn(f32)) -> Result<AudioInfo, AudioErro
         .to_string();
     let sample_rate = params.sample_rate.unwrap_or(0);
     let channels = params.channels.map_or(0, |c| c.count() as u16);
+    // A file that says what it is must be something that's played (one that doesn't say is
+    // decoded below, and checked then).
+    if let (Some(rate), Some(count)) = (params.sample_rate, params.channels)
+        && let Some(problem) = format_problem(rate, count.count().min(usize::from(u16::MAX)) as u16)
+    {
+        return Err(AudioError::Decode {
+            path: shown,
+            reason: problem,
+        });
+    }
     let info = |duration_ms, found_by| AudioInfo {
         duration_ms,
         sample_rate,

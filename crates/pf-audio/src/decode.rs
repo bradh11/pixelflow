@@ -2,17 +2,38 @@
 //!
 //! The decoders are other people's code reading whatever a file says, and a music file's path
 //! can come from a sequence someone else made. A decoder that panics on a file made to trip it
-//! up is a file that can't be read, nothing worse.
+//! up is a file that can't be read, nothing worse; so is sound whose header says something no
+//! music file does.
 
 use crate::error::AudioError;
 use crate::progress::{CountedFile, ReadPosition};
 use rodio::{Decoder, Source};
 use std::fs::File;
 use std::io::BufReader;
+use std::ops::RangeInclusive;
 use std::path::Path;
+
+/// The sample rates read, in Hz: from telephone quality to the highest studio rate. A header can
+/// claim any rate, and everything that works with the sound sizes itself from it: a rate of
+/// 1 Hz makes a second of sound hours long, and one of 4,000,000,000 Hz asks for buffers to
+/// match.
+const SAMPLE_RATES: RangeInclusive<u32> = 8_000..=384_000;
+/// The most channels read (7.1 surround).
+const MAX_CHANNELS: u16 = 8;
 
 /// A decoder reading a music file, keeping count of how far into the file it has read.
 pub(crate) type FileDecoder = Decoder<BufReader<CountedFile>>;
+
+/// Why sound at `rate` Hz in `channels` channels isn't read, or `None` when it is.
+pub(crate) fn format_problem(rate: u32, channels: u16) -> Option<String> {
+    if !SAMPLE_RATES.contains(&rate) {
+        Some(format!("a sample rate of {rate} Hz"))
+    } else if channels == 0 || channels > MAX_CHANNELS {
+        Some(format!("{channels} channels"))
+    } else {
+        None
+    }
+}
 
 /// Runs `work`, which calls into a decoder: a panic there is reported as a file that can't be
 /// decoded.
@@ -36,19 +57,21 @@ pub(crate) fn open_decoder(path: &Path) -> Result<(FileDecoder, ReadPosition), A
         source,
     })?;
     let len = file.len();
+    let decode_error = |reason: String| AudioError::Decode {
+        path: shown.clone(),
+        reason,
+    };
     let decoder = guarded(path, || {
         let decoder = Decoder::builder()
             .with_data(BufReader::new(file))
             .with_byte_len(len)
             .with_seekable(true)
             .build()
-            .map_err(|e| AudioError::Decode {
-                path: shown,
-                reason: e.to_string(),
-            })?;
-        // What every reader asks next: a decoder that can't say is one that can't be used.
-        let _ = (decoder.sample_rate(), decoder.channels());
-        Ok(decoder)
+            .map_err(|e| decode_error(e.to_string()))?;
+        match format_problem(decoder.sample_rate().get(), decoder.channels().get()) {
+            Some(problem) => Err(decode_error(problem)),
+            None => Ok(decoder),
+        }
     })?;
     Ok((decoder, position))
 }
@@ -104,6 +127,28 @@ mod tests {
         let ok = dir.path().join("ok.wav");
         std::fs::write(&ok, wav(44_100, 2, 100)).unwrap();
         assert_eq!(open_decoder(&ok).unwrap().0.count(), 200);
+    }
+
+    #[test]
+    fn only_sample_rates_and_channel_counts_that_make_sense_are_read() {
+        let dir = tempfile::tempdir().unwrap();
+        for (name, rate, problem) in [
+            ("slow.wav", 1, "a sample rate of 1 Hz"),
+            ("low.wav", 7_999, "a sample rate of 7999 Hz"),
+            ("fast.wav", 4_000_000_000, "a sample rate of 4000000000 Hz"),
+        ] {
+            let path = dir.path().join(name);
+            std::fs::write(&path, wav(rate, 2, 100)).unwrap();
+            assert_eq!(decode_problem(open_decoder(&path)), problem);
+        }
+        for rate in [8_000, 44_100, 384_000] {
+            let path = dir.path().join(format!("{rate}.wav"));
+            std::fs::write(&path, wav(rate, 1, 10)).unwrap();
+            assert!(open_decoder(&path).is_ok(), "{rate}");
+        }
+        assert_eq!(format_problem(48_000, 8), None);
+        assert_eq!(format_problem(48_000, 9).as_deref(), Some("9 channels"));
+        assert_eq!(format_problem(48_000, 0).as_deref(), Some("0 channels"));
     }
 
     #[test]

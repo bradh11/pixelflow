@@ -74,7 +74,7 @@ use serde::Serialize;
 use std::path::Path;
 
 /// Longest song analyzed: 4 hours (the longest sequence). Anything after that is ignored.
-pub const MAX_ANALYSIS_MS: u64 = 4 * 60 * 60 * 1000;
+pub const MAX_ANALYSIS_MS: u64 = pf_audio::MAX_SONG_MS;
 
 #[derive(Debug, thiserror::Error)]
 pub enum AnalysisError {

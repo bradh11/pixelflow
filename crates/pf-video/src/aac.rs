@@ -59,7 +59,14 @@ pub struct AacTrack {
 pub fn read_music(path: &Path, first: u64, count: u64, stop: &AtomicBool) -> Result<Pcm, VideoError> {
     let frames = pf_audio::StereoFrames::open(path).map_err(|e| VideoError::Music(e.to_string()))?;
     let rate = frames.sample_rate();
-    let mut samples = Vec::with_capacity(count as usize * CHANNELS);
+    // Before room is made for the sound: `count` follows from the rate the file claims.
+    check_rate(rate)?;
+    let wanted = usize::try_from(count)
+        .ok()
+        .and_then(|pairs| pairs.checked_mul(CHANNELS))
+        .ok_or_else(|| VideoError::Music("The music is too long to go in a video.".into()))?;
+    // Room is made as the sound is read, not all at once from what the file says it holds.
+    let mut samples = Vec::with_capacity(wanted.min(1 << 22));
     for (n, (left, right)) in frames.skip(first as usize).take(count as usize).enumerate() {
         if n % 65_536 == 0 && stop.load(Ordering::Relaxed) {
             return Err(VideoError::Cancelled);
@@ -67,8 +74,25 @@ pub fn read_music(path: &Path, first: u64, count: u64, stop: &AtomicBool) -> Res
         samples.push(to_i16(left));
         samples.push(to_i16(right));
     }
-    samples.resize(count as usize * CHANNELS, 0);
+    samples.resize(wanted, 0);
     Ok(Pcm { rate, samples })
+}
+
+fn encoder_config(rate: u32) -> EncoderConfig {
+    EncoderConfig {
+        sample_rate: rate,
+        channels: CHANNELS as u8,
+        bitrate: BITRATE,
+    }
+}
+
+/// Whether sound at `rate` Hz can be encoded: AAC has a fixed list of rates, up to 96 kHz.
+fn check_rate(rate: u32) -> Result<(), VideoError> {
+    StreamEncoder::new(encoder_config(rate)).map(|_| ()).map_err(|_| {
+        VideoError::Music(format!(
+            "The music's sample rate ({rate} Hz) can't go in a video. Convert it to 44.1 or 48 kHz."
+        ))
+    })
 }
 
 fn to_i16(v: f32) -> i16 {
@@ -93,18 +117,8 @@ fn encode_in_stretches(
     done: &AtomicU64,
     stop: &AtomicBool,
 ) -> Result<AacTrack, VideoError> {
-    let config = EncoderConfig {
-        sample_rate: pcm.rate,
-        channels: CHANNELS as u8,
-        bitrate: BITRATE,
-    };
-    let unsupported = || {
-        VideoError::Music(format!(
-            "The music's sample rate ({} Hz) can't go in a video. Convert it to 44.1 or 48 kHz.",
-            pcm.rate
-        ))
-    };
-    StreamEncoder::new(config).map_err(|_| unsupported())?;
+    let config = encoder_config(pcm.rate);
+    check_rate(pcm.rate)?;
     let hop = FRAME_LEN * CHANNELS;
     let hops: Vec<&[i16]> = pcm.samples.chunks(hop).collect();
     let stretches = hops.len().div_ceil(stretch).max(1);
@@ -238,6 +252,27 @@ mod tests {
         assert_eq!(track.samples, 32_000);
         // AAC-LC, 16 kHz (index 8), stereo.
         assert_eq!(track.config, vec![0b0001_0100, 0b0001_0000]);
+    }
+
+    #[test]
+    fn music_at_a_rate_a_video_cant_hold_is_refused_before_room_is_made_for_it() {
+        let dir = tempfile::tempdir().unwrap();
+        // A real file at a rate AAC has no place for, and a length that follows from that rate.
+        let path = dir.path().join("fast.wav");
+        std::fs::write(&path, pf_audio::wav_bytes(&[0.5; 64], 384_000)).unwrap();
+        let stop = AtomicBool::new(false);
+        let error = read_music(&path, 0, 1 << 40, &stop).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "The music's sample rate (384000 Hz) can't go in a video. Convert it to 44.1 or 48 kHz."
+        );
+        // Sound that can be encoded is read, and padded with silence to the length asked for.
+        let fine = dir.path().join("fine.wav");
+        std::fs::write(&fine, pf_audio::wav_bytes(&[0.5; 64], 48_000)).unwrap();
+        let pcm = read_music(&fine, 0, 100, &stop).unwrap();
+        assert_eq!((pcm.rate, pcm.frames()), (48_000, 100));
+        assert!(pcm.samples[..128].iter().all(|&s| s > 16_000));
+        assert!(pcm.samples[128..].iter().all(|&s| s == 0));
     }
 
     #[test]

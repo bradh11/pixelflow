@@ -184,15 +184,17 @@ fn defined() -> BTreeMap<String, Command> {
     commands
 }
 
-/// The commands the window may call: the names in the shell's `generate_handler!` list.
+/// The commands the window may call: the names in the shell's one list of them
+/// (`command_list!` in `commands.rs`, which `generate_handler!` is given).
 fn registered() -> BTreeSet<String> {
+    const LIST: &str = "$with![";
     let mut names = BTreeSet::new();
     for (_, source) in shell_sources() {
         let source = without_tests(&source);
-        let Some(at) = source.find("generate_handler![") else {
+        let Some(at) = source.find(LIST) else {
             continue;
         };
-        let list = &source[at + "generate_handler![".len()..];
+        let list = &source[at + LIST.len()..];
         let list = &list[..list.find(']').unwrap()];
         names.extend(
             top_level(list)
@@ -200,10 +202,7 @@ fn registered() -> BTreeSet<String> {
                 .map(|path| path.rsplit("::").next().unwrap().to_string()),
         );
     }
-    assert!(
-        !names.is_empty(),
-        "the shell's generate_handler! list wasn't found"
-    );
+    assert!(!names.is_empty(), "the shell's list of commands wasn't found");
     names
 }
 
@@ -345,16 +344,12 @@ fn every_call_names_a_command_and_its_parameters() {
 }
 
 /// Commands that can't be run even against fakes, and why. Their names are still checked.
-const NOT_RUN: [(&str, &str); 4] = [
+const NOT_RUN: [(&str, &str); 3] = [
     ("open_device_page", "opens the system's browser"),
     ("download_alignment_models", "downloads from the internet"),
     (
         "video_export_choices",
         "runs the ffmpeg installed on this computer",
-    ),
-    (
-        "cancel_video_export",
-        "bumps a counter every test in the process shares, so it would stop another test's export",
     ),
 ];
 

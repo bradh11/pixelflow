@@ -6,6 +6,7 @@ use super::super::*;
 use pf_ai::http::RetryPolicy;
 use pf_ai::testing::FakeTransport;
 use std::collections::HashMap;
+use tauri::{App, WebviewWindowBuilder};
 
 /// Set to rewrite the committed files instead of failing when they're stale.
 pub(crate) const UPDATE: &str = "PIXELFLOW_UPDATE_CONTRACTS";
@@ -497,12 +498,20 @@ pub(crate) fn shell_sources() -> Vec<(String, String)> {
     sources
 }
 
-/// The source without its test module (everything from `#[cfg(test)] mod …` on).
+/// The source without its test module (everything from `#[cfg(test)] mod … {` on; a module
+/// only named there, `mod testing;`, is in a file of its own).
 pub(crate) fn without_tests(source: &str) -> &str {
     const MARK: &str = "#[cfg(test)]";
     source
         .match_indices(MARK)
-        .find(|(at, _)| source[at + MARK.len()..].trim_start().starts_with("mod "))
+        .find(|(at, _)| {
+            let after = source[at + MARK.len()..].trim_start();
+            let inline = match (after.find('{'), after.find(';')) {
+                (Some(body), Some(end)) => body < end,
+                (body, _) => body.is_some(),
+            };
+            after.starts_with("mod ") && inline
+        })
         .map_or(source, |(at, _)| &source[..at])
 }
 

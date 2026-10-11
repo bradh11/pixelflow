@@ -3,6 +3,7 @@
 //! fake ones listen on this computer.
 
 use super::*;
+use crate::testing::{add_device, fake_hat, resize};
 use pf_devices::testing::{FALCON, FPP, FakeFpp, WLED};
 
 fn ids(changes: &Value) -> Vec<String> {

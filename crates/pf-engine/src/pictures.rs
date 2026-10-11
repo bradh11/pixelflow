@@ -271,7 +271,7 @@ impl PictureFiles {
             let pf_sequence::EffectParams::Picture(p) = &mut effect.params else {
                 continue;
             };
-            if !is_full_path_text(&p.file) {
+            if !is_full_path_text(&p.file) || pf_model::is_refused_network_path(&p.file) {
                 continue;
             }
             let path = path_from_text(&p.file);
@@ -364,8 +364,10 @@ impl PictureCheck {
         let mut missing = Vec::new();
         for (file, owner) in &self.wanted {
             let path = self.files.resolve(file);
+            // One on a network share the user hasn't chosen from is never looked at.
             let there = path
                 .as_deref()
+                .filter(|p| pf_model::network_path_refusal_of(p).is_none())
                 .and_then(|p| fs::metadata(p).ok())
                 .filter(fs::Metadata::is_file)
                 .map(|m| (m.len(), m.modified().ok()));

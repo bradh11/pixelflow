@@ -128,7 +128,11 @@ pub(crate) fn read_show_in(path: &Path, folder: Option<&Path>) -> Result<LoadedS
             path: path.to_path_buf(),
             source,
         })?;
-    let saved_in = saved_in.map(|s| pf_model::path_from_text(&s));
+    // The folder the file says it was saved in is only somewhere else to look: one on a network
+    // share the user hasn't chosen from is not looked in.
+    let saved_in = saved_in
+        .filter(|s| !pf_model::is_refused_network_path(s))
+        .map(|s| pf_model::path_from_text(&s));
     let mut status = HashMap::new();
     let mut was_at = HashMap::new();
     let mut there = |text: &str| -> bool {

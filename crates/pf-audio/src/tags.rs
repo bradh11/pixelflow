@@ -56,6 +56,10 @@ fn take_tags(revision: &MetadataRevision, tags: &mut SongTags) {
 /// Reads a music file's tags and length. The file is only read; a file with no tags at all
 /// still gets a title from its name.
 pub fn read_tags(path: &Path) -> Result<SongTags, AudioError> {
+    crate::decode::guarded(path, || tags_of(path))
+}
+
+fn tags_of(path: &Path) -> Result<SongTags, AudioError> {
     let shown = path.display().to_string();
     let file = File::open(path).map_err(|source| AudioError::Open {
         path: shown.clone(),

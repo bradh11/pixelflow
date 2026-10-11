@@ -4,7 +4,7 @@
 //! bitrate, so its frames are counted instead (read, not decoded); a file that says nothing is
 //! decoded as a last resort.
 
-use crate::decode::open_decoder;
+use crate::decode::{guarded, open_decoder};
 use crate::error::AudioError;
 use crate::progress::{CountedFile, Progress, ReadPosition, reported};
 use rodio::Source;
@@ -50,6 +50,10 @@ pub enum FoundBy {
 /// Finds how long the music file at `path` plays, telling `progress` how far it has got when it
 /// has to read the whole file (0–1; a header read reports nothing until the final 1).
 pub fn probe(path: &Path, progress: &dyn Fn(f32)) -> Result<AudioInfo, AudioError> {
+    guarded(path, || read_info(path, progress))
+}
+
+fn read_info(path: &Path, progress: &dyn Fn(f32)) -> Result<AudioInfo, AudioError> {
     let progress = Progress::new(progress);
     let shown = path.display().to_string();
     let decode_error = |e: SymphoniaError| AudioError::Decode {

@@ -7,7 +7,7 @@
 //! pitch drops with the speed.
 
 use crate::clock::AudioClock;
-use crate::decode::open_decoder;
+use crate::decode::{next_sample, open_decoder};
 use crate::error::AudioError;
 use rodio::cpal::{BufferSize, StreamError};
 use rodio::stream::DeviceSinkConfig;
@@ -110,9 +110,11 @@ impl<S: Source> MusicSource<S> {
     /// The song's next frame into `frame` (silence after its end).
     fn read_frame(&mut self, frame: &mut [Sample]) {
         for sample in frame {
+            // This runs on the sound output's own thread: a decoder that panics part way
+            // through a damaged file ends the music there, as the end of the file does.
             *sample = if self.ended {
                 0.0
-            } else if let Some(s) = self.inner.next() {
+            } else if let Some(s) = next_sample(&mut self.inner) {
                 s
             } else {
                 self.ended = true;
@@ -171,7 +173,12 @@ impl<S: Source> MusicSource<S> {
         let Some((target, number)) = request else {
             return;
         };
-        match self.inner.try_seek(target) {
+        let inner = &mut self.inner;
+        let jumped = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            inner.try_seek(target).map_err(|e| e.to_string())
+        }))
+        .unwrap_or_else(|_| Err("the music file is damaged".to_string()));
+        match jumped {
             Ok(()) => {
                 self.base = target;
                 self.frames = 0.0;
@@ -189,7 +196,7 @@ impl<S: Source> MusicSource<S> {
                     .shared
                     .seek_error
                     .lock()
-                    .unwrap_or_else(PoisonError::into_inner) = Some(error.to_string());
+                    .unwrap_or_else(PoisonError::into_inner) = Some(error);
             }
         }
         self.shared

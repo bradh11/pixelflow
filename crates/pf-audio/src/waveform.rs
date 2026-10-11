@@ -1,6 +1,6 @@
 //! Loudness over time, for drawing a song under the timeline.
 
-use crate::decode::open_decoder;
+use crate::decode::{guarded, open_decoder};
 use crate::error::AudioError;
 use crate::progress::{Progress, no_progress, reported};
 use rodio::Source;
@@ -30,6 +30,10 @@ pub fn waveform_reporting(
     slices: usize,
     progress: &dyn Fn(f32),
 ) -> Result<Waveform, AudioError> {
+    guarded(path, || peaks_of(path, slices, progress))
+}
+
+fn peaks_of(path: &Path, slices: usize, progress: &dyn Fn(f32)) -> Result<Waveform, AudioError> {
     let (decoder, read) = open_decoder(path)?;
     let progress = Progress::new(progress);
     // The rate and channel count are read once: music files keep them for their whole length

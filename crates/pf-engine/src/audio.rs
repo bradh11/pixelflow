@@ -136,7 +136,14 @@ impl AudioTracks {
         let tracks = Arc::clone(self);
         let worked_out = std::thread::Builder::new()
             .name("audio track".into())
-            .spawn(move || tracks.fill(&request, &fill));
+            .spawn(move || {
+                // Nobody waits on this thread: if working the track out goes wrong part way,
+                // its progress still ends, and the effects draw as in silence.
+                let filling = std::panic::AssertUnwindSafe(|| tracks.fill(&request, &fill));
+                if std::panic::catch_unwind(filling).is_err() {
+                    tracks.report(&request.path, 1.0);
+                }
+            });
         if worked_out.is_err() {
             // No thread to work it out on: the effects draw as in silence.
             return AudioSource::none();
@@ -301,5 +308,31 @@ mod tests {
         // Music that can't be read still ends.
         assert!(tracks.track(&junk, 25).is_none());
         assert_eq!(lock(&seen).last().map(|(_, f)| *f), Some(1.0));
+    }
+
+    #[test]
+    fn a_track_that_goes_wrong_in_the_background_still_ends_its_progress() {
+        let dir = tempfile::tempdir().unwrap();
+        let song = dir.path().join("a.wav");
+        wav(&song, 0.5);
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let tracks = Arc::new(AudioTracks::default());
+        let heard = Arc::clone(&seen);
+        // Whoever is told how far it has got fails the first time it's told.
+        tracks.set_progress(Some(Arc::new(move |_: &Path, f: f32| {
+            let first = lock(&heard).is_empty();
+            lock(&heard).push(f);
+            assert!(!first, "working it out went wrong");
+        })));
+        let source = tracks.source(&song, 25);
+        for _ in 0..500 {
+            if lock(&seen).last() == Some(&1.0) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert_eq!(lock(&seen).last(), Some(&1.0), "{:?}", lock(&seen));
+        // No track: the effects draw as in silence.
+        assert!(source.track().is_none());
     }
 }

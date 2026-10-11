@@ -1,6 +1,6 @@
 //! Decoding a music file to mono samples, a few at a time, for analysis.
 
-use crate::decode::{FileDecoder, open_decoder};
+use crate::decode::{FileDecoder, next_sample, open_decoder};
 use crate::error::AudioError;
 use crate::progress::ReadPosition;
 use rodio::Source;
@@ -47,10 +47,10 @@ impl Iterator for MonoSamples {
         // first part's channel count and timed at its rate: channels may pair up wrongly and
         // times drift for the rest of the file. Beat detection only needs the loudness envelope,
         // so this is accepted rather than handled; playback decodes separately and isn't affected.
-        let first = self.decoder.next()?;
+        let first = next_sample(&mut self.decoder)?;
         let mut sum = first;
         for _ in 1..self.channels {
-            sum += self.decoder.next().unwrap_or(0.0);
+            sum += next_sample(&mut self.decoder).unwrap_or(0.0);
         }
         Some(sum / self.channels as f32)
     }

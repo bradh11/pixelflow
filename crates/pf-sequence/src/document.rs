@@ -109,6 +109,17 @@ impl Sequence {
         self.duration_ms.div_ceil(u64::from(self.frame_ms.max(1)))
     }
 
+    /// The frames an exported file holds: the whole ones. A frame the sequence ends part way
+    /// through is left out, as xLights leaves it out, so the file never plays longer than the
+    /// sequence (and its music). A sequence shorter than one frame still has one.
+    pub fn whole_frame_count(&self) -> u64 {
+        if self.duration_ms == 0 {
+            0
+        } else {
+            (self.duration_ms / u64::from(self.frame_ms.max(1))).max(1)
+        }
+    }
+
     /// Every effect in the sequence.
     pub fn effects(&self) -> impl Iterator<Item = &Effect> {
         self.rows.iter().flat_map(|r| &r.layers).flat_map(|l| &l.effects)
@@ -330,6 +341,22 @@ mod tests {
         assert_eq!(seq.frame_count(), 40);
         seq.duration_ms = 1001;
         assert_eq!(seq.frame_count(), 41);
+    }
+
+    #[test]
+    fn an_exported_file_holds_the_whole_frames() {
+        // 566,635 ms at 50 ms a frame: xLights writes 11,332 frames, not a 11,333rd for the
+        // last 35 ms.
+        let mut seq = Sequence::new("s", 566_635);
+        seq.frame_ms = 50;
+        assert_eq!((seq.whole_frame_count(), seq.frame_count()), (11_332, 11_333));
+        seq.duration_ms = 1000;
+        assert_eq!(seq.whole_frame_count(), 20);
+        // Shorter than a frame is still one frame; no length is none.
+        seq.duration_ms = 30;
+        assert_eq!(seq.whole_frame_count(), 1);
+        seq.duration_ms = 0;
+        assert_eq!(seq.whole_frame_count(), 0);
     }
 
     #[test]

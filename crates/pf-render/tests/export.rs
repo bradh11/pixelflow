@@ -202,6 +202,49 @@ fn exports_with_music_match_the_preview() {
 }
 
 #[test]
+fn a_sequence_that_ends_part_way_through_a_frame_exports_its_whole_frames() {
+    // 230 ms at 50 ms a frame: four whole frames, as xLights would write, not a fifth for the
+    // last 30 ms (which would play past the end of the music).
+    let show = show();
+    let mut seq = sequence(&show);
+    seq.duration_ms = 230;
+    let (map, _) = pf_mapping::map_show(&show);
+    let mut calls = 0;
+    let (out, summary) = export_fseq(
+        &show,
+        &map,
+        &seq,
+        &AudioSource::none(),
+        &Pictures::none(),
+        Cursor::new(Vec::new()),
+        7,
+        |_, total| {
+            calls += 1;
+            assert_eq!(total, 4);
+            true
+        },
+    )
+    .unwrap();
+    assert_eq!((calls, summary.frames, summary.duration_ms), (4, 4, 230));
+    let file = pf_fseq::Sequence::from_reader(Cursor::new(out.into_inner())).unwrap();
+    assert_eq!(file.header().frames, 4);
+    // A sequence shorter than one frame still exports that frame.
+    seq.duration_ms = 30;
+    let (_, summary) = export_fseq(
+        &show,
+        &map,
+        &seq,
+        &AudioSource::none(),
+        &Pictures::none(),
+        Cursor::new(Vec::new()),
+        7,
+        |_, _| true,
+    )
+    .unwrap();
+    assert_eq!(summary.frames, 1);
+}
+
+#[test]
 fn file_exports_are_atomic_and_errors_are_plain() {
     let show = show();
     let seq = sequence(&show);

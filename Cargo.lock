@@ -2139,6 +2139,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "pf-bench"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "image",
+ "nix",
+ "pf-analysis",
+ "pf-engine",
+ "pf-frame",
+ "pf-mapping",
+ "pf-model",
+ "pf-output",
+ "pf-render",
+ "pf-sequence",
+ "serde",
+ "serde_json",
+ "socket2",
+ "tempfile",
+ "uuid",
+]
+
+[[package]]
 name = "pf-camera-map"
 version = "0.1.0"
 dependencies = [

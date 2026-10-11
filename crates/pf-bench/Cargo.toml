@@ -1,0 +1,49 @@
+[package]
+name = "pf-bench"
+description = "End-to-end scale benchmark: synthetic shows and sequences through render, mapping, packetizing, and sending"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "pf-bench"
+path = "src/main.rs"
+
+[features]
+default = ["count-allocations"]
+# Counts the benchmark binary's heap allocations (a few atomic adds per allocation). Turn it off
+# to check that counting doesn't change the timings: `--no-default-features`.
+count-allocations = []
+
+[dependencies]
+pf-model.workspace = true
+pf-mapping.workspace = true
+pf-frame.workspace = true
+pf-output.workspace = true
+pf-sequence.workspace = true
+pf-render.workspace = true
+pf-analysis.workspace = true
+pf-engine.workspace = true
+clap.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+image.workspace = true
+socket2.workspace = true
+
+# Process CPU time and peak memory (getrusage).
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.31.3", default-features = false, features = ["resource"] }
+
+[dev-dependencies]
+tempfile.workspace = true
+
+# Not the workspace's lints: the counting allocator (`src/alloc.rs`) needs one `unsafe impl`, so
+# unsafe code is denied everywhere else instead of forbidden.
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }

@@ -513,16 +513,20 @@ impl Rays {
             // How far counterclockwise of its nearest ray the pixel is (-0.5 to 0.5 degrees):
             // the fraction of its direction counted in degrees.
             let beside = ((u64::from(spot.direction) * 360) as u32 as i32) as f32 * STEP;
-            let own = self.marks(wheel, center, beside, spot, shaded);
-            let other = if self.out_of_reach(next, r) {
-                0.0
-            } else {
-                self.marks(wheel, next, beside, spot, shaded)
-            };
-            // Two arms that both mark the cell do it with the same ray, or near enough.
-            let marks = own.max(other) * unit(10.0 * marked - 4.0);
-            if marks > shown.0 {
-                shown = (marks, other > own);
+            // Far out, most pixels are further from their nearest ray than a mark can be from
+            // the center of the cell it lights: no arm marks those.
+            if r * beside.abs() * RADIANS_PER_DEGREE < MARK_REACH {
+                let own = self.marks(wheel, center, beside, spot, shaded);
+                let other = if self.out_of_reach(next, r) {
+                    0.0
+                } else {
+                    self.marks(wheel, next, beside, spot, shaded)
+                };
+                // Two arms that both mark the cell do it with the same ray, or near enough.
+                let marks = own.max(other) * unit(10.0 * marked - 4.0);
+                if marks > shown.0 {
+                    shown = (marks, other > own);
+                }
             }
         }
         shown
@@ -573,8 +577,12 @@ impl Rays {
                 let ray = ray.clamp(first, last.max(first));
                 // The mark's place from the pixel's center: round the circle and out (the
                 // sine and cosine of the small angle between them, to their third and second
-                // powers), then across and up.
+                // powers), then across and up. A mark too far round is outside the cell
+                // wherever it is along its ray.
                 let turned = (ray as f32 - beside) * RADIANS_PER_DEGREE;
+                if (out * turned).abs() >= MARK_REACH {
+                    continue;
+                }
                 let squared = turned * turned;
                 let round = out * turned * (1.0 - squared * (1.0 / 6.0));
                 let further = along - out * squared * 0.5;

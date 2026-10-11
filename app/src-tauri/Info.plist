@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- What macOS shows when it asks, the first time PixelFlow looks for controllers or sends
+	     to one, whether the app may reach devices on the local network. Tauri merges this file
+	     into the app's own Info.plist. -->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>PixelFlow finds the light controllers on your network and sends them light data.</string>
+</dict>
+</plist>

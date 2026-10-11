@@ -43,6 +43,118 @@ pub fn world_positions(prop: &Prop) -> Vec<Vec3> {
         .collect()
 }
 
+/// The grid a shape's pixels are drawn on when an effect draws on the prop by itself: xLights'
+/// default render buffer for that kind of model, which follows the strings rather than where
+/// the pixels sit in the layout.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OwnGrid {
+    pub columns: u32,
+    pub rows: u32,
+    /// Each pixel's column (from the left) and row (from the bottom), in wiring order. Pixels
+    /// can share a cell, and cells can be empty.
+    pub cells: Vec<[u32; 2]>,
+}
+
+/// The grid of its own that `generator`'s shape is drawn on. `None` for the shapes drawn where
+/// their pixels sit: lines and poly lines (xLights runs their buffer from the first point drawn
+/// to the last, whichever end is wired first, which a PixelFlow line doesn't record), icicles
+/// (the same goes for them), stars and wreaths (whose xLights buffer is a picture of the shape),
+/// cubes, and matrices (which the renderer lays out itself).
+pub fn own_grid(generator: &Generator) -> Option<OwnGrid> {
+    let grid = match *generator {
+        Generator::Tree {
+            strings,
+            nodes_per_string,
+            serpentine,
+            start,
+            strands_per_string,
+            alternate_nodes,
+            ..
+        } => tree::grid(tree::Wiring {
+            strings,
+            nodes_per_string,
+            serpentine,
+            start,
+            strands_per_string,
+            alternate_nodes,
+        }),
+        Generator::Arch {
+            nodes,
+            arches,
+            start_right,
+            ref layers,
+            zig_zag,
+            start_inside,
+            ..
+        } => arch::grid(arch::Wiring {
+            nodes,
+            arches,
+            start_right,
+            layers,
+            zig_zag,
+            start_inside,
+        }),
+        Generator::CandyCanes {
+            canes,
+            nodes_per_cane,
+            alternate_nodes,
+            start_right,
+            ..
+        } => candy_canes::grid(canes, nodes_per_cane, alternate_nodes, start_right),
+        Generator::Circle {
+            nodes,
+            ref layers,
+            start_inside,
+            ..
+        } => circle::grid(nodes, layers, start_inside),
+        Generator::WindowFrame {
+            top,
+            sides,
+            bottom,
+            start,
+            counter_clockwise,
+            ..
+        } => window_frame::grid(top, sides, bottom, start, counter_clockwise),
+        Generator::Spinner {
+            arms,
+            nodes_per_arm,
+            zig_zag,
+            alternate,
+            from_center,
+            clockwise,
+            ..
+        } => spinner::grid(spinner::Wiring {
+            arms,
+            nodes_per_arm,
+            zig_zag,
+            alternate,
+            from_center,
+            clockwise,
+        }),
+        Generator::Sphere {
+            columns,
+            rows,
+            start,
+            strand_style,
+            ..
+        } => sphere::grid(columns, rows, start, strand_style),
+        Generator::CustomGrid {
+            columns,
+            rows,
+            ref cells,
+        } => custom_grid::grid(columns, rows, cells),
+        Generator::Line { .. }
+        | Generator::PolyLine { .. }
+        | Generator::Icicles { .. }
+        | Generator::Star { .. }
+        | Generator::Wreath { .. }
+        | Generator::Cube { .. }
+        | Generator::Matrix { .. } => return None,
+    };
+    // A shape with no pixels has no grid.
+    (grid.columns > 0 && grid.rows > 0 && !grid.cells.is_empty()).then_some(grid)
+}
+
 fn generate(generator: &Generator) -> Vec<Vec3> {
     match *generator {
         Generator::Line { nodes, length } => line::positions(nodes, length),

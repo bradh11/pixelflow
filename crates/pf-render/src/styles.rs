@@ -107,6 +107,10 @@ fn grid_cells(points: &[Point], grid_size: u32, area: Option<[f32; 2]>) -> Cells
             height: 1,
         };
     };
+    // xLights looks for the far edges starting from -1, so a group wholly left of the layout's
+    // origin (or below it) is measured out to there, and scaled down to fit when that makes it
+    // more than the grid size across.
+    (max_x, max_y) = (max_x.max(-1.0), max_y.max(-1.0));
     // Off the layout's bottom or left edge: everything shifts up or right to start at 0.
     let (shift_x, shift_y) = (min_x.min(0.0), min_y.min(0.0));
     (min_x, max_x, min_y, max_y) = (min_x - shift_x, max_x - shift_x, min_y - shift_y, max_y - shift_y);
@@ -517,6 +521,26 @@ mod tests {
         );
         assert_eq!(cells(&c), vec![(0, 0), (199, 119), (399, 59), (0, 119)]);
         assert_eq!((c.width, c.height), (400, 120));
+    }
+
+    #[test]
+    fn a_group_left_of_the_origin_is_measured_out_to_it() {
+        // xLights starts its search for the far edges at -1 (`ModelGroup::Reset`: `maxx = -1`),
+        // so for a group between x = -660 and -320 the far edge stays at -1: 660 units across,
+        // more than the grid, and everything scales by 400 / 660. Left alone, its 341 units
+        // would be a cell each.
+        let c = grid_cells(
+            &points(&[[-660.0, 100.0], [-490.0, 100.0], [-320.0, 300.0]]),
+            400,
+            None,
+        );
+        assert_eq!(cells(&c), vec![(0, 0), (103, 0), (206, 121)]);
+        assert_eq!((c.width, c.height), (207, 122));
+        // The same below the origin; a group that reaches past the origin is measured as it is.
+        let c = grid_cells(&points(&[[10.0, -660.0], [110.0, -320.0]]), 400, None);
+        assert_eq!(cells(&c), vec![(0, 0), (60, 206)]);
+        let c = grid_cells(&points(&[[-300.0, 0.0], [39.0, 0.0]]), 400, None);
+        assert_eq!(cells(&c), vec![(0, 0), (339, 0)]);
     }
 
     #[test]

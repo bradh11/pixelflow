@@ -1,6 +1,7 @@
 //! Spinners as xLights lays them out (`SpinnerModel::SetSpinnerCoord`, one light per node),
 //! scaled so the outermost pixel is the prop's radius from the middle.
 
+use crate::OwnGrid;
 use pf_model::Vec3;
 
 /// The settings of a spinner (see `pf_model::Generator::Spinner`).
@@ -16,6 +17,66 @@ pub(crate) struct Spinner {
     pub from_center: bool,
     pub clockwise: bool,
     pub radius: f32,
+}
+
+/// How a spinner's arms are wired (see `pf_model::Generator::Spinner`).
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Wiring {
+    pub arms: u32,
+    pub nodes_per_arm: u32,
+    pub zig_zag: bool,
+    pub alternate: bool,
+    pub from_center: bool,
+    pub clockwise: bool,
+}
+
+impl Spinner {
+    fn wiring(&self) -> Wiring {
+        Wiring {
+            arms: self.arms,
+            nodes_per_arm: self.nodes_per_arm,
+            zig_zag: self.zig_zag,
+            alternate: self.alternate,
+            from_center: self.from_center,
+            clockwise: self.clockwise,
+        }
+    }
+}
+
+impl Wiring {
+    /// How many steps out from the middle the `n`th pixel of arm `a` (in wiring order) sits.
+    fn step(&self, a: u32, n: u32) -> u32 {
+        let npa = self.nodes_per_arm;
+        let outward = self.from_center != (self.zig_zag && a % 2 == 1);
+        if self.alternate {
+            if n < npa.div_ceil(2) {
+                2 * n
+            } else {
+                (npa - (n + 1)) * 2 + 1
+            }
+        } else if outward {
+            n
+        } else {
+            npa - n - 1
+        }
+    }
+}
+
+/// The grid a spinner's effects are drawn on, as xLights lays it out (`SpinnerModel::InitModel`):
+/// a column for each arm, in the order they go round counter-clockwise, and a row for each pixel
+/// along it, the outermost at the bottom.
+pub(crate) fn grid(w: Wiring) -> OwnGrid {
+    let (arms, npa) = (w.arms, w.nodes_per_arm);
+    OwnGrid {
+        columns: arms,
+        rows: npa,
+        cells: (0..arms)
+            .flat_map(|a| {
+                let column = if w.clockwise { arms - 1 - a } else { a };
+                (0..npa).map(move |n| [column, npa - 1 - w.step(a, n)])
+            })
+            .collect(),
+    }
 }
 
 /// The arms' angles step in single precision as xLights' do, so a spinner of many arms keeps
@@ -36,21 +97,11 @@ pub(crate) fn positions(s: Spinner) -> Vec<Vec3> {
     let hollow = f64::from(s.hollow) * 2.0 * f64::from(npa) / 100.0;
     let unit = f64::from(s.radius) / (f64::from(npa) - 0.5 + hollow);
     let mut out = Vec::with_capacity(arms as usize * npa as usize);
+    let wiring = s.wiring();
     for a in 0..arms {
         let (sin, cos) = f64::from(angle).sin_cos();
-        let outward = s.from_center != (s.zig_zag && a % 2 == 1);
         for n in 0..npa {
-            let step = if s.alternate {
-                if n < npa.div_ceil(2) {
-                    2 * n
-                } else {
-                    (npa - (n + 1)) * 2 + 1
-                }
-            } else if outward {
-                n
-            } else {
-                npa - n - 1
-            };
+            let step = wiring.step(a, n);
             let r = (0.5 + f64::from(step) + hollow) * unit;
             out.push(Vec3::new((r * cos) as f32, (r * sin) as f32, 0.0));
         }
@@ -67,6 +118,23 @@ pub(crate) fn positions(s: Spinner) -> Vec<Vec3> {
 mod tests {
     use super::*;
     use crate::assert_close;
+
+    #[test]
+    fn the_grid_drawn_on_is_a_column_for_each_arm() {
+        let wiring = spinner().wiring();
+        // Wired from the tips: each arm's first pixel is its outermost, the bottom row.
+        let g = grid(wiring);
+        assert_eq!((g.columns, g.rows), (2, 3));
+        assert_eq!(g.cells, [[0, 0], [0, 1], [0, 2], [1, 0], [1, 1], [1, 2]]);
+        // From the middle, zig-zagging, the arms following clockwise.
+        let turned = grid(Wiring {
+            from_center: true,
+            zig_zag: true,
+            clockwise: true,
+            ..wiring
+        });
+        assert_eq!(turned.cells, [[1, 2], [1, 1], [1, 0], [0, 0], [0, 1], [0, 2]]);
+    }
 
     /// Two arms of three pixels, no hollow middle, sized so a pixel step is one unit.
     fn spinner() -> Spinner {

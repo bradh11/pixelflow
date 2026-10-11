@@ -28,6 +28,7 @@ pub use crate::picture::Picture;
 pub use crate::pinwheel::Pinwheel;
 pub use crate::plasma::Plasma;
 pub use crate::pulse::Pulse;
+use crate::raster::{Raster, cell_of, grid_size};
 pub use crate::shape::Shape;
 pub use crate::sing::Sing;
 pub use crate::snowflakes::Snowflakes;
@@ -36,9 +37,9 @@ pub use crate::text::Text;
 pub use crate::vumeter::VuMeter;
 pub use crate::wipe::Wipe;
 use pf_sequence::{
-    Axis, BarsParams, ChaseOrder, ChaseParams, ColorWashParams, Direction, EffectParams, FadeDirection,
-    FadeParams, FireParams, Gradient, MeteorDirection, MeteorsParams, OnParams, RippleParams, ShapeParams,
-    ShimmerParams, SpiralParams, StrobeParams, TwinkleParams, WaveParams,
+    Axis, BarsMotion, BarsParams, ChaseOrder, ChaseParams, ColorWashParams, Direction, EffectParams,
+    FadeDirection, FadeParams, FireParams, Gradient, MeteorDirection, MeteorsParams, OnParams, RippleParams,
+    ShapeParams, ShimmerParams, SpiralParams, StrobeParams, TwinkleParams, WaveParams,
 };
 use std::f32::consts::TAU;
 use std::sync::Arc;
@@ -229,15 +230,29 @@ pub struct On {
     colors: Colors,
     gradient: Gradient,
     level: f32,
+    solid: bool,
+    /// How much it covers at full brightness.
+    cover: f32,
+    /// The palette color it shows (the second on a shimmer's odd frames).
+    color: u64,
+    /// A shimmer's odd frame with no second color: nothing is drawn.
+    dark: bool,
 }
 
 impl On {
     pub fn new(p: &OnParams, time: &EffectTime, colors: Colors) -> Self {
         let (start, end) = (unit(p.start_level), unit(p.end_level));
+        // The ramp is counted in frames and reaches the end level on the last one, as xLights' is.
+        let level = start + (end - start) * time.cycle_position(1.0) as f32;
+        let odd = p.shimmer && time.frame() % 2 == 1;
         Self {
-            colors,
             gradient: p.gradient,
-            level: start + (end - start) * time.t_norm,
+            level,
+            solid: p.solid,
+            cover: 1.0 - unit(p.transparency),
+            color: u64::from(odd),
+            dark: odd && colors.len() < 2,
+            colors,
         }
     }
 }
@@ -245,11 +260,23 @@ impl On {
 impl Shade for On {
     #[inline]
     fn shade(&self, px: &Pixel) -> Rgba {
+        if self.dark {
+            return Rgba::CLEAR;
+        }
         let c = match gradient_position(px, self.gradient) {
-            None => self.colors.get(0),
+            None => self.colors.get(self.color),
             Some(x) => self.colors.ramp(x),
         };
-        Rgba::with_alpha(c, self.level)
+        if self.solid {
+            Rgba::new(
+                c[0] * self.level,
+                c[1] * self.level,
+                c[2] * self.level,
+                self.cover,
+            )
+        } else {
+            Rgba::with_alpha(c, self.level * self.cover)
+        }
     }
 }
 
@@ -457,23 +484,78 @@ impl Shade for Chase {
     }
 }
 
+/// xLights' `BarsEffect::Render`: the palette's colors in bars of whole cells along one axis of
+/// the target's grid, every line of cells across it one color.
 pub struct Bars {
-    colors: Colors,
     axis: Axis,
-    direction: Direction,
-    offset: f32,
-    count: f32,
+    columns: i32,
+    rows: i32,
+    /// The color of each line of cells along the axis.
+    lines: Vec<Rgba>,
 }
 
 impl Bars {
-    pub fn new(p: &BarsParams, time: &EffectTime, colors: Colors) -> Self {
-        let (_, offset) = time.cycles(p.speed);
+    pub fn new(p: &BarsParams, time: &EffectTime, colors: Colors, canvas: Canvas) -> Self {
+        let (columns, rows) = grid_size(canvas);
+        let size = match p.axis {
+            Axis::Horizontal => columns,
+            Axis::Vertical => rows,
+        };
+        let count = p.count.clamp(1, 100) as i32;
+        let shades = colors.len() as i32;
+        // A bar is whole cells, enough that `count` of them reach across; the palette fills a block.
+        let bar = (size + count - 1) / count;
+        let block = shades * bar;
+        // `speed` is prop lengths a second: a block a cycle, or (a bar at a time) the whole prop.
+        let lengths = f64::from(p.speed) * time.length_ms as f64 / 1000.0;
+        let moved = match p.motion {
+            BarsMotion::Step => (time.cycle_position(lengths) * f64::from(count)).floor() as i32 * bar,
+            BarsMotion::Slide | BarsMotion::Split => {
+                let at = time.cycle_position(lengths * f64::from(count) / f64::from(shades));
+                (at * f64::from(block)) as i32
+            }
+        };
+        let center = (f64::from(size) * (100.0 + f64::from(p.center.clamp(-100.0, 100.0))) / 200.0) as i32;
+        let lit = (f64::from(p.fill) * f64::from(bar)).ceil() as i32;
+        let forward = p.direction == Direction::Forward;
+        let line = |at: i32| {
+            // The step of xLights' loop (from two sizes below the grid to two above) that draws
+            // this line: straight, flipped (bars going up or right), or mirrored about the center.
+            let from = match p.motion {
+                BarsMotion::Split if at == center || forward == (at < center) => at,
+                BarsMotion::Split => 2 * center - at,
+                BarsMotion::Slide | BarsMotion::Step if forward => size - 1 - at,
+                BarsMotion::Slide | BarsMotion::Step => at,
+            };
+            if from >= 2 * size {
+                return Rgba::CLEAR;
+            }
+            let n = size + from + moved;
+            let within = n.rem_euclid(bar);
+            if within >= lit {
+                return Rgba::CLEAR;
+            }
+            let index = (n.rem_euclid(block) / bar) as u64;
+            let mut color = colors.get(index);
+            if p.gradient {
+                let (next, by) = (colors.get(index + 1), within as f32 / bar as f32);
+                color = [0, 1, 2].map(|c| color[c] + (next[c] - color[c]) * by);
+            }
+            if p.highlight && within == 0 {
+                color = [1.0; 3];
+            }
+            let cover = if p.shaded {
+                (bar - within - 1) as f32 / bar as f32
+            } else {
+                1.0
+            };
+            Rgba::new(color[0], color[1], color[2], cover)
+        };
         Self {
-            colors,
             axis: p.axis,
-            direction: p.direction,
-            offset,
-            count: p.count.max(1) as f32,
+            columns,
+            rows,
+            lines: (0..size).map(line).collect(),
         }
     }
 }
@@ -481,18 +563,11 @@ impl Bars {
 impl Shade for Bars {
     #[inline]
     fn shade(&self, px: &Pixel) -> Rgba {
-        let x = match self.axis {
-            Axis::Horizontal => px.u,
-            Axis::Vertical => px.v,
-        };
-        // Bars move toward higher x (right or up) going forward.
-        let s = (flip(x, self.direction) - self.offset) * self.count;
-        let bar = s.floor();
-        if s - bar < 0.5 {
-            Rgba::opaque(self.colors.get(bar.rem_euclid(self.count) as u64))
-        } else {
-            Rgba::CLEAR
-        }
+        let (x, y) = cell_of(px, self.columns, self.rows);
+        self.lines[match self.axis {
+            Axis::Horizontal => x,
+            Axis::Vertical => y,
+        } as usize]
     }
 }
 
@@ -634,37 +709,86 @@ impl Shade for Strobe {
     }
 }
 
+/// Stripes winding up the target, drawn cell by cell on its grid as xLights draws Spirals
+/// (`SpiralsEffect::Render`): the stripes start a whole number of cells apart, each is its share
+/// of that plus a cell wide, and each row is shifted a whole number of cells from the one below.
 pub struct Spiral {
-    colors: Colors,
-    count: f32,
-    rotation: f32,
-    thickness: f32,
-    twist: f32,
+    raster: Raster,
 }
 
 impl Spiral {
-    pub fn new(p: &SpiralParams, time: &EffectTime, colors: Colors) -> Self {
-        let (_, rotation) = time.cycles(p.speed);
-        Self {
-            colors,
-            count: p.count.max(1) as f32,
-            rotation: flip(rotation, p.direction),
-            thickness: p.thickness,
-            twist: p.twist,
+    pub fn new(p: &SpiralParams, time: &EffectTime, colors: Colors, canvas: Canvas) -> Self {
+        let mut raster = Raster::new(canvas);
+        let (columns, rows) = (raster.width, raster.height);
+        let count = p.count.clamp(1, 100) as i32;
+        let apart = columns / count;
+        // xLights counts the thickness in whole percent, which lands a stripe's width on a whole
+        // cell where a fraction of 1 would fall just short of it.
+        let percent = (f64::from(p.thickness.clamp(0.0, 1.0)) * 1e6).round() / 1e4;
+        let mut wide = f64::from(apart) * percent / 100.0 + 1.0;
+        let cycles = f64::from(p.speed) * time.length_ms as f64 / 1000.0;
+        let position = time.cycle_position(cycles);
+        // Growing and shrinking: by whole cells of the space the stripes leave between them.
+        let room = f64::from(apart) - wide;
+        wide += match (p.grow, p.shrink) {
+            (true, true) if position <= 0.5 => room * (position * 2.0),
+            (true, true) => room * ((1.0 - position) * 2.0),
+            (true, false) => room * position,
+            (false, true) => room * (1.0 - position),
+            (false, false) => 0.0,
         }
+        .trunc();
+        // A plain stripe more than two cells wide loses its part cell (xLights draws those
+        // through a loop that counts in whole cells); a narrower or blended one keeps it.
+        let cells = if wide > 2.0 && !p.gradient {
+            wide.trunc()
+        } else {
+            wide.ceil()
+        } as i32;
+        // Cells the stripes shift across from the bottom row to the top: xLights' Rotation.
+        let slant = -(f64::from(p.twist) * f64::from(columns) + f64::from(p.lean));
+        // xLights keeps the turn in tenths of a cell, as a whole number.
+        let way = match p.direction {
+            Direction::Forward => 1.0,
+            Direction::Reverse => -1.0,
+        };
+        let turned = (position * f64::from(columns) * 10.0 * way).trunc() / 10.0;
+        // Blended: each row's color, the palette from the top row down.
+        let down: Vec<[f32; 3]> = if p.gradient {
+            (0..rows)
+                .map(|y| colors.ramp((rows - y - 1) as f32 / rows as f32))
+                .collect()
+        } else {
+            Vec::new()
+        };
+        for stripe in 0..count {
+            let own = colors.get(stripe as u64);
+            for thick in 0..cells {
+                let strand = (stripe * apart + thick) % columns;
+                // Shaded: fading across the stripe, from the side it leans toward.
+                let cover = match p.shaded {
+                    true if slant < 0.0 => f64::from(thick + 1) / wide,
+                    true => (wide - f64::from(thick)) / wide,
+                    false => 1.0,
+                }
+                .clamp(0.0, 1.0) as f32;
+                for y in 0..rows {
+                    let at = f64::from(strand) + turned + f64::from(y) * slant / f64::from(rows);
+                    // C's cast and remainder: toward zero, then wrapped back onto the grid.
+                    let x = (at as i64 % i64::from(columns)) as i32;
+                    let [r, g, b] = down.get(y as usize).copied().unwrap_or(own);
+                    raster.set(if x < 0 { x + columns } else { x }, y, Rgba::new(r, g, b, cover));
+                }
+            }
+        }
+        Self { raster }
     }
 }
 
 impl Shade for Spiral {
     #[inline]
     fn shade(&self, px: &Pixel) -> Rgba {
-        let s = (px.u + self.twist * px.v - self.rotation) * self.count;
-        let stripe = s.floor();
-        if s - stripe < self.thickness {
-            Rgba::opaque(self.colors.get(stripe.rem_euclid(self.count) as u64))
-        } else {
-            Rgba::CLEAR
-        }
+        self.raster.at(px)
     }
 }
 
@@ -1046,12 +1170,12 @@ impl Shader {
             EffectParams::ColorWash(p) => Shader::ColorWash(ColorWash::new(p, time, colors)),
             EffectParams::Fade(p) => Shader::Fade(Fade::new(p, time, colors)),
             EffectParams::Chase(p) => Shader::Chase(Chase::in_context(p, time, colors, canvas, cx)),
-            EffectParams::Bars(p) => Shader::Bars(Bars::new(p, time, colors)),
+            EffectParams::Bars(p) => Shader::Bars(Bars::new(p, time, colors, canvas)),
             EffectParams::Wave(p) => Shader::Wave(Wave::new(p, time, colors)),
             EffectParams::Twinkle(p) => Shader::Twinkle(Twinkle::new(p, time, colors, seed)),
             EffectParams::Shimmer(p) => Shader::Shimmer(Shimmer::new(p, time, colors)),
             EffectParams::Strobe(p) => Shader::Strobe(Strobe::new(p, time, colors, seed)),
-            EffectParams::Spiral(p) => Shader::Spiral(Spiral::new(p, time, colors)),
+            EffectParams::Spiral(p) => Shader::Spiral(Spiral::new(p, time, colors, canvas)),
             EffectParams::Fire(p) => Shader::Fire(Fire::new(p, time, seed)),
             EffectParams::Meteors(p) => Shader::Meteors(Meteors::new(p, time, colors, seed, canvas)),
             EffectParams::Ripple(p) => Shader::Ripple(Ripple::new(p, time, colors)),

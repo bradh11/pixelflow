@@ -44,6 +44,33 @@
         "min": 0.0,
         "step": 0.01,
         "type": "number"
+      },
+      {
+        "default": false,
+        "description": "A dimmed color still hides what's below it, as xLights' On does. Otherwise the dimmer it is, the more of what's below shows through.",
+        "key": "solid",
+        "label": "Dim without showing through",
+        "more": true,
+        "type": "bool"
+      },
+      {
+        "default": 0.0,
+        "description": "How much of what's below shows through whatever the brightness (0–1).",
+        "key": "transparency",
+        "label": "Transparency",
+        "max": 1.0,
+        "min": 0.0,
+        "more": true,
+        "step": 0.01,
+        "type": "number"
+      },
+      {
+        "default": false,
+        "description": "Every other frame is the second palette color, or dark with only one color.",
+        "key": "shimmer",
+        "label": "Shimmer",
+        "more": true,
+        "type": "bool"
       }
     ]
   },
@@ -255,7 +282,7 @@
       },
       {
         "default": "forward",
-        "description": "Which way the bars slide.",
+        "description": "Which way the bars slide: forward is right or up, or apart from the center.",
         "key": "direction",
         "label": "Direction",
         "options": [
@@ -269,6 +296,73 @@
           }
         ],
         "type": "choice"
+      },
+      {
+        "default": "slide",
+        "description": "All one way, mirrored about the center, or a bar at a time.",
+        "key": "motion",
+        "label": "Movement",
+        "options": [
+          {
+            "label": "Slide",
+            "value": "slide"
+          },
+          {
+            "label": "From the center",
+            "value": "split"
+          },
+          {
+            "label": "A bar at a time",
+            "value": "step"
+          }
+        ],
+        "type": "choice"
+      },
+      {
+        "default": 0.5,
+        "description": "How much of each bar is lit (0–1); the rest is a gap. xLights' bars have no gaps.",
+        "key": "fill",
+        "label": "Bar size",
+        "max": 1.0,
+        "min": 0.0,
+        "step": 0.05,
+        "type": "number"
+      },
+      {
+        "default": 0.0,
+        "description": "Where bars moving from the center meet: 0 is the middle, ±100 the edges.",
+        "key": "center",
+        "label": "Center",
+        "max": 100.0,
+        "min": -100.0,
+        "more": true,
+        "step": 1.0,
+        "type": "number",
+        "unit": "%"
+      },
+      {
+        "default": false,
+        "description": "Each bar fades away along its length (xLights' \"3D\").",
+        "key": "shaded",
+        "label": "Fade each bar",
+        "more": true,
+        "type": "bool"
+      },
+      {
+        "default": false,
+        "description": "Each bar's first line of cells is white.",
+        "key": "highlight",
+        "label": "Highlight",
+        "more": true,
+        "type": "bool"
+      },
+      {
+        "default": false,
+        "description": "Each bar blends into the next color along its length.",
+        "key": "gradient",
+        "label": "Gradient",
+        "more": true,
+        "type": "bool"
       }
     ]
   },
@@ -449,7 +543,7 @@
       },
       {
         "default": 0.5,
-        "description": "Fraction of each stripe's space that is lit (0–1).",
+        "description": "Fraction of each stripe's space that is lit (0–1), plus a cell.",
         "key": "thickness",
         "label": "Thickness",
         "max": 1.0,
@@ -459,13 +553,24 @@
       },
       {
         "default": 1.0,
-        "description": "How steeply the stripes slant (0 = straight up; negative slants the other way).",
+        "description": "How many times the stripes wind round the prop from bottom to top (0 = straight up; negative winds the other way).",
         "key": "twist",
         "label": "Twist",
         "max": 10.0,
         "min": -10.0,
         "step": 0.1,
         "type": "number"
+      },
+      {
+        "default": 0.0,
+        "description": "Cells the stripes lean across from bottom to top, on top of the twist. xLights counts a spiral's rotation this way, so the same setting winds less on a wider prop.",
+        "key": "lean",
+        "label": "Lean",
+        "max": 300.0,
+        "min": -300.0,
+        "step": 1.0,
+        "type": "number",
+        "unit": "cells"
       },
       {
         "default": "forward",
@@ -483,6 +588,38 @@
           }
         ],
         "type": "choice"
+      },
+      {
+        "default": false,
+        "description": "Each stripe fades away across its width (xLights' \"3D\").",
+        "key": "shaded",
+        "label": "Fade each stripe",
+        "more": true,
+        "type": "bool"
+      },
+      {
+        "default": false,
+        "description": "Every stripe takes the palette blended down the prop, first color at the top (xLights' \"Blend\").",
+        "key": "gradient",
+        "label": "Blend colors down the prop",
+        "more": true,
+        "type": "bool"
+      },
+      {
+        "default": false,
+        "description": "The stripes widen to fill the space between them over each turn.",
+        "key": "grow",
+        "label": "Grow",
+        "more": true,
+        "type": "bool"
+      },
+      {
+        "default": false,
+        "description": "The stripes start filling the space between them and narrow over each turn (with Grow: they widen for half a turn, then narrow).",
+        "key": "shrink",
+        "label": "Shrink",
+        "more": true,
+        "type": "bool"
       }
     ]
   },

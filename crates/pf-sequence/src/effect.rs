@@ -1013,6 +1013,23 @@ pub enum Axis {
 
 choices!(Axis { "horizontal" => "Across", "vertical" => "Up and down" });
 
+/// How bars move.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum BarsMotion {
+    /// All one way.
+    #[default]
+    Slide,
+    /// Apart from the center, mirrored about it (reversed: in to the center). xLights' "expand"
+    /// and "compress".
+    Split,
+    /// One way, a whole bar at a time (xLights' "Alternate").
+    Step,
+}
+
+choices!(BarsMotion { "slide" => "Slide", "split" => "From the center", "step" => "A bar at a time" });
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
@@ -1080,6 +1097,13 @@ effect_params! {
         start_level: f32 = 1.0 => "startLevel", "Start brightness", number(0.0, 1.0, 0.01);
         /// Brightness at the end of the effect (0–1).
         end_level: f32 = 1.0 => "endLevel", "End brightness", number(0.0, 1.0, 0.01);
+        /// A dimmed color still hides what's below it, as xLights' On does. Otherwise the
+        /// dimmer it is, the more of what's below shows through.
+        solid: bool = false => "solid", "Dim without showing through", toggle, more;
+        /// How much of what's below shows through whatever the brightness (0–1).
+        transparency: f32 = 0.0 => "transparency", "Transparency", number(0.0, 1.0, 0.01), more;
+        /// Every other frame is the second palette color, or dark with only one color.
+        shimmer: bool = false => "shimmer", "Shimmer", toggle, more;
     }
 }
 
@@ -1155,7 +1179,8 @@ effect_params! {
 }
 
 effect_params! {
-    /// Stripes in the palette colors sliding across or up the prop.
+    /// Stripes in the palette colors sliding across or up the prop, drawn on its grid as xLights
+    /// draws them: each bar a whole number of cells, enough of them that `count` fill the prop.
     #[derive(Copy)]
     pub struct BarsParams {
         /// Bars visible at once.
@@ -1164,8 +1189,20 @@ effect_params! {
         speed: f32 = 0.5 => "speed", "Speed", number(0.0, 20.0, 0.05, "per second");
         /// Bars sliding across or up and down.
         axis: Axis = Axis::Vertical => "axis", "Axis", choice;
-        /// Which way the bars slide.
+        /// Which way the bars slide: forward is right or up, or apart from the center.
         direction: Direction = Direction::Forward => "direction", "Direction", choice;
+        /// All one way, mirrored about the center, or a bar at a time.
+        motion: BarsMotion = BarsMotion::Slide => "motion", "Movement", choice;
+        /// How much of each bar is lit (0–1); the rest is a gap. xLights' bars have no gaps.
+        fill: f32 = 0.5 => "fill", "Bar size", number(0.0, 1.0, 0.05);
+        /// Where bars moving from the center meet: 0 is the middle, ±100 the edges.
+        center: f32 = 0.0 => "center", "Center", number(-100.0, 100.0, 1.0, "%"), more;
+        /// Each bar fades away along its length (xLights' "3D").
+        shaded: bool = false => "shaded", "Fade each bar", toggle, more;
+        /// Each bar's first line of cells is white.
+        highlight: bool = false => "highlight", "Highlight", toggle, more;
+        /// Each bar blends into the next color along its length.
+        gradient: bool = false => "gradient", "Gradient", toggle, more;
     }
 }
 
@@ -1227,12 +1264,26 @@ effect_params! {
         count: u32 = 3 => "count", "Stripes", int(1, 100);
         /// Turns per second.
         speed: f32 = 0.5 => "speed", "Speed", number(0.0, 20.0, 0.05, "turns per second");
-        /// Fraction of each stripe's space that is lit (0–1).
+        /// Fraction of each stripe's space that is lit (0–1), plus a cell.
         thickness: f32 = 0.5 => "thickness", "Thickness", number(0.0, 1.0, 0.01);
-        /// How steeply the stripes slant (0 = straight up; negative slants the other way).
+        /// How many times the stripes wind round the prop from bottom to top (0 = straight up;
+        /// negative winds the other way).
         twist: f32 = 1.0 => "twist", "Twist", number(-10.0, 10.0, 0.1);
+        /// Cells the stripes lean across from bottom to top, on top of the twist. xLights counts
+        /// a spiral's rotation this way, so the same setting winds less on a wider prop.
+        lean: f32 = 0.0 => "lean", "Lean", number(-300.0, 300.0, 1.0, "cells");
         /// Which way the stripes turn.
         direction: Direction = Direction::Forward => "direction", "Direction", choice;
+        /// Each stripe fades away across its width (xLights' "3D").
+        shaded: bool = false => "shaded", "Fade each stripe", toggle, more;
+        /// Every stripe takes the palette blended down the prop, first color at the top
+        /// (xLights' "Blend").
+        gradient: bool = false => "gradient", "Blend colors down the prop", toggle, more;
+        /// The stripes widen to fill the space between them over each turn.
+        grow: bool = false => "grow", "Grow", toggle, more;
+        /// The stripes start filling the space between them and narrow over each turn (with
+        /// Grow: they widen for half a turn, then narrow).
+        shrink: bool = false => "shrink", "Shrink", toggle, more;
     }
 }
 

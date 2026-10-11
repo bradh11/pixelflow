@@ -91,7 +91,16 @@ export type Blend =
 
 /** Settings for each kind of effect; missing settings take the engine's defaults. */
 export type EffectParams =
-  | { kind: "on"; gradient?: Gradient; startLevel?: number; endLevel?: number }
+  | {
+      kind: "on";
+      gradient?: Gradient;
+      startLevel?: number;
+      endLevel?: number;
+      /** A dimmed color still hides what's below it. */
+      solid?: boolean;
+      transparency?: number;
+      shimmer?: boolean;
+    }
   | { kind: "off" }
   | { kind: "colorWash"; cycles?: number; gradient?: Gradient }
   | { kind: "fade"; direction?: "in" | "out" }
@@ -107,12 +116,39 @@ export type EffectParams =
       /** Steps on this track's marks instead of moving at the speed. */
       timingTrack?: Uuid | null;
     }
-  | { kind: "bars"; count?: number; speed?: number; axis?: Axis; direction?: Direction }
+  | {
+      kind: "bars";
+      count?: number;
+      speed?: number;
+      axis?: Axis;
+      direction?: Direction;
+      /** All one way, mirrored about the center, or a bar at a time. */
+      motion?: "slide" | "split" | "step";
+      /** How much of each bar is lit (0–1). */
+      fill?: number;
+      center?: number;
+      shaded?: boolean;
+      highlight?: boolean;
+      gradient?: boolean;
+    }
   | { kind: "wave"; cycles?: number; speed?: number; height?: number; thickness?: number; direction?: Direction }
   | { kind: "twinkle"; density?: number; rate?: number }
   | { kind: "shimmer"; rate?: number; duty?: number }
   | { kind: "strobe"; rate?: number; density?: number }
-  | { kind: "spiral"; count?: number; speed?: number; thickness?: number; twist?: number; direction?: Direction }
+  | {
+      kind: "spiral";
+      count?: number;
+      speed?: number;
+      thickness?: number;
+      twist?: number;
+      lean?: number;
+      direction?: Direction;
+      shaded?: boolean;
+      /** Every stripe takes the palette blended down the prop. */
+      gradient?: boolean;
+      grow?: boolean;
+      shrink?: boolean;
+    }
   | { kind: "fire"; height?: number; sparks?: number }
   | { kind: "meteors"; count?: number; speed?: number; length?: number; direction?: "down" | "up" | "left" | "right" }
   | { kind: "ripple"; speed?: number; spacing?: number; thickness?: number }
@@ -595,7 +631,16 @@ export interface TimingTrack {
   marks: Mark[];
 }
 
-/** An authored sequence (`*.pfseq.json`). Later rows draw over earlier ones. */
+/**
+ * How a row meets what the rows before it drew on the same pixels. "cover": where it's lit it
+ * covers, where it's clear the earlier rows show (its lowest effect covers whatever its blend).
+ * The other two are xLights' ways, kept by imported sequences: "blend" (Model Blending on) mixes
+ * the row's lowest effect with the earlier rows by its own blend; "replace" (Model Blending off)
+ * takes over all the row's pixels, lit or not, while it has an effect playing.
+ */
+export type RowBlending = "cover" | "blend" | "replace";
+
+/** An authored sequence (`*.pfseq.json`). Rows are drawn in order. */
 export interface Sequence {
   schemaVersion: number;
   name: string;
@@ -603,6 +648,8 @@ export interface Sequence {
   durationMs: number;
   frameMs: number;
   timingTracks: TimingTrack[];
+  /** Left out when rows cover. */
+  rowBlending?: RowBlending;
   rows: Row[];
 }
 

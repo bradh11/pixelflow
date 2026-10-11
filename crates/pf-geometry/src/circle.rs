@@ -1,3 +1,4 @@
+use crate::OwnGrid;
 use pf_model::Vec3;
 use std::f64::consts::{PI, TAU};
 
@@ -52,10 +53,74 @@ pub(crate) fn positions(c: Circle) -> Vec<Vec3> {
     out
 }
 
+/// The grid a circle's effects are drawn on, as xLights lays it out (`CircleModel::InitCircle`):
+/// a row for each ring (the outermost at the bottom), as wide as the longest; each ring's pixels
+/// run along its row in wiring order, a shorter ring's spread across it. Pixels beyond the rings
+/// share the first cell.
+pub(crate) fn grid(nodes: u32, layers: &[u32], start_inside: bool) -> OwnGrid {
+    let single = [nodes];
+    let rings = if layers.len() > 1 { layers } else { &single[..] };
+    let lc = rings.len();
+    // Each ring's row and how many pixels it holds (its own count, or what's left), in wiring
+    // order.
+    let mut left = nodes;
+    let held: Vec<(u32, u32)> = (0..lc)
+        .map(|k| {
+            let ring = if start_inside { k } else { lc - 1 - k };
+            let count = left.min(rings[ring]);
+            left -= count;
+            ((lc - 1 - ring) as u32, count)
+        })
+        .collect();
+    let longest = held.iter().map(|&(_, count)| count).max().unwrap_or(0).max(1);
+    let mut cells = Vec::with_capacity(nodes as usize);
+    for (row, count) in held {
+        if count == 0 {
+            continue;
+        }
+        // xLights keeps a ring that doesn't divide the longest evenly off the last column.
+        let fudge = 1 - i64::from(longest / count);
+        let span = (i64::from(longest) - 1 + fudge) as f64;
+        for n in 0..count {
+            let column = if count == longest || count == 1 {
+                n
+            } else {
+                (f64::from(n) / f64::from(count - 1) * span).floor() as u32
+            };
+            cells.push([column, row]);
+        }
+    }
+    cells.resize(nodes as usize, [0, 0]);
+    OwnGrid {
+        columns: longest,
+        rows: lc as u32,
+        cells,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::assert_close;
+
+    #[test]
+    fn the_grid_drawn_on_is_a_row_for_each_ring() {
+        // One ring is a single row, its pixels in wiring order.
+        let one = grid(5, &[], false);
+        assert_eq!((one.columns, one.rows), (5, 1));
+        assert_eq!(one.cells, [[0, 0], [1, 0], [2, 0], [3, 0], [4, 0]]);
+        // Rings of 2 (inside) and 4, wired from the outside: the outer ring is the bottom row,
+        // and the inner ring's pixels spread over the row but stay off its last column (xLights'
+        // "fudge" for a ring that divides the longest evenly: floor(n / 1 × (4 - 1 - 1))).
+        let two = grid(6, &[2, 4], false);
+        assert_eq!((two.columns, two.rows), (4, 2));
+        assert_eq!(two.cells, [[0, 0], [1, 0], [2, 0], [3, 0], [0, 1], [2, 1]]);
+        // Wired from the inside, the inner ring still has the top row; a pixel beyond the rings
+        // shares the first cell.
+        let inside_out = grid(7, &[2, 4], true);
+        assert_eq!(inside_out.cells[..3], [[0, 1], [2, 1], [0, 0]]);
+        assert_eq!(inside_out.cells[6], [0, 0]);
+    }
 
     fn ring(nodes: u32) -> Circle<'static> {
         Circle {

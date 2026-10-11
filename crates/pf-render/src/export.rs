@@ -204,7 +204,7 @@ pub fn export_fseq<W: Write + Seek>(
     if layout.channels == 0 {
         return Err(ExportError::NoChannels);
     }
-    let frames = u32::try_from(seq.frame_count()).unwrap_or(u32::MAX);
+    let frames = u32::try_from(seq.whole_frame_count()).unwrap_or(u32::MAX);
     if frames == 0 {
         return Err(ExportError::Empty);
     }

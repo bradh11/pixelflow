@@ -1,13 +1,13 @@
 //! Importing hand-written xLights sequences onto the sample show.
 
-use pf_model::{Generator, Prop, ShapeSource, Show};
+use pf_model::{Generator, Group, GroupMember, Prop, Provenance, ShapeSource, Show, Vec3};
 use pf_sequence::{
-    Axis, BarsParams, Blend, ChaseParams, ColorWashParams, Direction, Effect, EffectParams, FaceColorSource,
-    FaceEyes, FacesParams, FireParams, Gradient, Mark, MeteorDirection, MeteorsParams, OnParams, Rgb,
-    RippleParams, Row, ShapeObject, ShimmerParams, SpiralParams, StrobeParams, Target, TimingKind,
-    TwinkleParams, WaveParams,
+    Axis, BarsMotion, BarsParams, Blend, ChaseParams, ColorWashParams, Direction, Effect, EffectParams,
+    FaceColorSource, FaceEyes, FacesParams, FireParams, Gradient, Mark, MeteorDirection, MeteorsParams,
+    OnParams, Rgb, RippleParams, Row, RowBlending, ShapeObject, ShimmerParams, SpiralParams, StrobeParams,
+    Target, TimingKind, TwinkleParams, WaveParams,
 };
-use pf_xlights::sequence::{SequenceImport, build_sequence, parse_xsq};
+use pf_xlights::sequence::{Fidelity, SequenceImport, build_sequence, parse_xsq};
 use pf_xlights::{import_folder, import_sequence_file};
 use std::path::{Path, PathBuf};
 
@@ -209,6 +209,116 @@ fn a_fixed_track_never_exceeds_the_mark_limit() {
     pf_sequence::check_sequence(&i.sequence).unwrap();
 }
 
+#[test]
+fn model_blending_comes_across_as_how_rows_meet() {
+    // xLights reads a file that doesn't say as Model Blending off: each model replaces what the
+    // models above it drew. New xLights sequences have it on: models mix.
+    let import = |root: &str| {
+        let xml = format!(
+            r#"<xsequence FixedPointTiming="1"{root}><head><sequenceTiming>50 ms</sequenceTiming><sequenceDuration>10</sequenceDuration></head></xsequence>"#
+        );
+        let i = build_sequence(&parse_xsq(&xml).unwrap(), &show(), "x");
+        assert_opens(&i);
+        i.sequence.row_blending
+    };
+    assert_eq!(import(r#" ModelBlending="true""#), RowBlending::Blend);
+    assert_eq!(import(r#" ModelBlending="false""#), RowBlending::Replace);
+    assert_eq!(import(""), RowBlending::Replace);
+}
+
+#[test]
+fn an_effect_on_a_prop_xlights_lays_out_its_own_way_is_an_approximation() {
+    // xLights draws an effect on a line along its pixels, whichever way the line runs, and on a
+    // poly line or a custom model by how it's strung. PixelFlow draws on those as they look
+    // from the front: the same for a line running across, not for the rest.
+    let line = || {
+        ShapeSource::Generator(Generator::Line {
+            nodes: 10,
+            length: 1.0,
+        })
+    };
+    let mut upright = Prop::new("Upright", line());
+    upright.transform.rotation_deg = Vec3::new(0.0, 0.0, 90.0);
+    let loose = Prop::new(
+        "Loose",
+        ShapeSource::Measured {
+            points: (0..10).map(|i| Vec3::new(i as f32 * 0.1, 0.0, 0.0)).collect(),
+            provenance: Provenance::Import,
+        },
+    );
+    let mut both = Group::new("Both");
+    both.members = vec![GroupMember::Prop(upright.id), GroupMember::Prop(loose.id)];
+    let mut show = Show::new("Lines");
+    show.props = vec![Prop::new("Flat", line()), upright, loose];
+    show.groups = vec![both];
+
+    let bars = r#"<EffectLayer><Effect name="Bars" startTime="0" endTime="1000">E_CHOICE_Bars_Direction=Left</Effect></EffectLayer>"#;
+    let xml = format!(
+        r#"<xsequence FixedPointTiming="1"><head><sequenceTiming>50 ms</sequenceTiming><sequenceDuration>2</sequenceDuration></head>
+        <ElementEffects>
+          <Element type="model" name="Flat">{bars}</Element>
+          <Element type="model" name="Upright">{bars}
+            <EffectLayer>
+              <Effect name="On" startTime="0" endTime="1000"/>
+              <Effect name="Bars" startTime="1000" endTime="2000">E_CHOICE_Bars_Direction=Left,B_CHOICE_BufferStyle=Per Preview</Effect>
+            </EffectLayer>
+          </Element>
+          <Element type="model" name="Loose">{bars}</Element>
+          <Element type="model" name="Both">{bars}</Element>
+        </ElementEffects></xsequence>"#
+    );
+    let i = build_sequence(&parse_xsq(&xml).unwrap(), &show, "x");
+    assert_opens(&i);
+    let note = "drawn on the prop as it looks from the front, where xLights draws along its pixels";
+    let labels: Vec<(&str, bool)> = i
+        .effects
+        .iter()
+        .map(|e| {
+            let noted =
+                matches!(&e.fidelity, Fidelity::Approximate(notes) if notes.iter().any(|n| n == note));
+            (e.xlights_name.as_str(), noted)
+        })
+        .collect();
+    assert_eq!(
+        labels,
+        [
+            ("Bars", false), // Flat: across, as xLights lays it out.
+            // Upright, its lower layer first: one color looks the same on any layout,
+            ("On", false),
+            ("Bars", false), // "Per Preview" is the front view in xLights too,
+            ("Bars", true),  // but on its own layout PixelFlow sees a column.
+            ("Bars", true),  // Loose: measured points.
+            ("Bars", false), // The group: both lay props out where they are.
+        ]
+    );
+    assert_eq!((i.summary.exact, i.summary.approximate), (4, 2));
+    assert_note(
+        &i,
+        "Bars (2 effects) approximated: drawn on the prop as it looks from the front",
+    );
+}
+
+#[test]
+fn canvas_mode_is_an_approximation_above_the_bottom_layer() {
+    // xLights draws the layers below into a canvas effect before the effect itself. On a row's
+    // bottom layer there are none, and the effect is like any other.
+    let on = r#"<Effect name="On" startTime="0" endTime="1000">T_CHECKBOX_Canvas=1</Effect>"#;
+    let xml = format!(
+        r#"<xsequence FixedPointTiming="1"><head><sequenceTiming>50 ms</sequenceTiming><sequenceDuration>2</sequenceDuration></head>
+        <ElementEffects>
+          <Element type="model" name="Roofline"><EffectLayer>{on}</EffectLayer><EffectLayer>{on}</EffectLayer></Element>
+          <Element type="model" name="Arches"><EffectLayer>{on}</EffectLayer></Element>
+        </ElementEffects></xsequence>"#
+    );
+    let i = build_sequence(&parse_xsq(&xml).unwrap(), &show(), "x");
+    assert_opens(&i);
+    assert_eq!((i.summary.exact, i.summary.approximate), (2, 1));
+    assert_note(
+        &i,
+        "On (1 effect) approximated: canvas mode not applied: the layers below aren't drawn into the effect.",
+    );
+}
+
 /// The sample show plus a prop whose name needs escaping.
 fn show_with_santa() -> Show {
     let mut show = show();
@@ -265,7 +375,9 @@ fn effects_translate_with_their_settings_palettes_blends_and_fades() {
         EffectParams::On(OnParams {
             gradient: Gradient::None,
             start_level: 1.0,
-            end_level: 0.0
+            end_level: 0.0,
+            solid: true,
+            ..OnParams::default()
         })
     );
     // The disabled green is left out of the palette.
@@ -281,14 +393,19 @@ fn effects_translate_with_their_settings_palettes_blends_and_fades() {
     );
     assert_eq!(wash.palette.colors, vec![Rgb::new(128, 64, 0)], "50% brightness");
 
+    // Two palettes of three bars, with no gaps, moving a palette's length (half the prop) in
+    // each of the 4 cycles over 2 s.
     let bars = &row(&i, &show, "Arches").layers[0].effects[0];
     assert_eq!(
         bars.params,
         EffectParams::Bars(BarsParams {
             count: 6,
-            speed: 2.0,
+            speed: 1.0,
             axis: Axis::Horizontal,
-            direction: Direction::Reverse
+            direction: Direction::Reverse,
+            motion: BarsMotion::Slide,
+            fill: 1.0,
+            ..BarsParams::default()
         })
     );
     assert_eq!(bars.blend, Blend::Add);
@@ -361,12 +478,16 @@ fn effects_translate_with_their_settings_palettes_blends_and_fades() {
                 rate: 10.0,
                 density: 0.1
             }),
+            // Rotation 15: xLights shifts the stripes 15 cells across the height (not 1.5 turns),
+            // the other way from PixelFlow's lean.
             EffectParams::Spiral(SpiralParams {
                 count: 6,
                 speed: 1.0,
                 thickness: 0.4,
-                twist: 1.5,
-                direction: Direction::Reverse
+                twist: 0.0,
+                lean: -15.0,
+                direction: Direction::Reverse,
+                ..SpiralParams::default()
             }),
             EffectParams::Fire(FireParams {
                 height: 0.7,
@@ -394,6 +515,8 @@ fn effects_translate_with_their_settings_palettes_blends_and_fades() {
         expand.params,
         EffectParams::Bars(BarsParams {
             axis: Axis::Vertical,
+            direction: Direction::Forward,
+            motion: BarsMotion::Split,
             speed: 0.0,
             ..
         })
@@ -441,13 +564,16 @@ fn effects_translate_with_their_settings_palettes_blends_and_fades() {
         &i,
         "weren't imported (a stand-in would light the prop wrongly): Adjust (1).",
     );
-    assert_note(&i, "Bars (2 effects) approximated: bars have gaps between them, ");
+    // The bars moving left come across whole; the 'expand' ones only for their transition.
+    assert_note(
+        &i,
+        "Bars (1 effect) approximated: 'Wipe' transition shown as a fade",
+    );
     assert!(
         !has_note(&i, "layer blending"),
         "every layer method in the sample translates: {:#?}",
         i.notes
     );
-    assert_note(&i, "'Wipe' transition shown as a fade (1)");
     assert!(!has_note(&i, "kept at one value"), "{:#?}", i.notes);
     assert!(!has_note(&i, "Butterfly"), "{:#?}", i.notes);
     assert_note(
@@ -954,12 +1080,16 @@ fn pictures_are_found_where_the_sequence_says_or_by_name_in_the_show_folder() {
         &i,
         "Couldn't find a picture near the sequence (gone.gif); choose it in the Picture effects' settings.",
     );
-    // They're real Picture effects now, not dim stand-ins, and none is approximate.
+    // They're real Picture effects, not dim stand-ins: approximate only for being resized.
     assert_eq!(
         (i.summary.placeholders, i.summary.approximate, i.summary.exact),
-        (0, 0, 6),
+        (0, 6, 0),
         "{:#?}",
         i.notes
+    );
+    assert_note(
+        &i,
+        "Pictures (6 effects) approximated: resized by blending its pixels, where xLights takes the nearest one.",
     );
     assert!(!has_note(&i, "no matching effect"));
 

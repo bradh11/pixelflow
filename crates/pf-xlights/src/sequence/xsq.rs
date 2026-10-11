@@ -98,6 +98,10 @@ pub struct XsqFile {
     pub head: XsqHead,
     /// Times are whole milliseconds (`FixedPointTiming`), not seconds.
     pub fixed_point: bool,
+    /// xLights' "Model Blending" (`ModelBlending="true"`; off when the file doesn't say, as
+    /// xLights reads it): a model's effects mix with what the models above it in the sequence
+    /// drew, instead of replacing it.
+    pub model_blending: bool,
     pub palettes: Vec<String>,
     pub effect_db: Vec<String>,
     pub elements: Vec<XsqElement>,
@@ -340,6 +344,7 @@ pub fn parse_xsq(input: &str) -> Result<XsqFile, XlightsError> {
     }
     let mut out = XsqFile {
         fixed_point: root.attribute("FixedPointTiming").is_some(),
+        model_blending: root.attribute("ModelBlending") == Some("true"),
         ..XsqFile::default()
     };
     let mut reader = Reader {
@@ -415,6 +420,17 @@ mod tests {
 </xsequence>"#;
         let f = parse_xsq(xml).unwrap();
         assert!(f.fixed_point);
+        assert!(!f.model_blending, "off unless the file says \"true\"");
+        assert!(
+            parse_xsq(r#"<xsequence ModelBlending="true"/>"#)
+                .unwrap()
+                .model_blending
+        );
+        assert!(
+            !parse_xsq(r#"<xsequence ModelBlending="false"/>"#)
+                .unwrap()
+                .model_blending
+        );
         assert_eq!(f.head.song, "Song");
         assert_eq!(f.head.timing, "50 ms");
         assert_eq!(f.effect_db, vec!["E_X=1"]);

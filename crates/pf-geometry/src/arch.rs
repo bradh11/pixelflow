@@ -1,4 +1,4 @@
-use crate::spread;
+use crate::{OwnGrid, spread};
 use pf_model::Vec3;
 
 pub(crate) struct Arch<'a> {
@@ -66,21 +66,32 @@ pub(crate) fn positions(a: Arch) -> Vec<Vec3> {
     }
 }
 
-/// Each pixel of a layered arch: its angle and its layer's size (1 for the outermost).
-fn layered(a: &Arch, theta: f64, half: f64) -> Vec<(f64, f64)> {
-    let lc = a.layers.len();
-    let max_len = i64::from(a.layers.iter().copied().max().unwrap_or(1));
-    let nodes = a.nodes as usize;
-    // xLights' buffer spot (along the outermost layer, and which layer) of each pixel.
+/// How an arch's pixels are wired (see [`positions`]).
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Wiring<'a> {
+    pub nodes: u32,
+    pub arches: u32,
+    pub start_right: bool,
+    pub layers: &'a [u32],
+    pub zig_zag: bool,
+    pub start_inside: bool,
+}
+
+/// Each pixel of a layered arch in xLights' buffer for one (`ArchesModel::InitModel`): its spot
+/// along the longest layer and its layer (0 is the innermost), and the longest layer's length.
+fn layered_spots(w: Wiring) -> (Vec<(i64, usize)>, i64) {
+    let lc = w.layers.len();
+    let max_len = i64::from(w.layers.iter().copied().max().unwrap_or(1));
+    let nodes = w.nodes as usize;
     let mut spots = vec![(0i64, 0usize); nodes];
     let mut idx = 0usize;
-    let mut forward = !a.start_right;
+    let mut forward = !w.start_right;
     for layer in 0..lc {
         if idx >= nodes {
             break;
         }
-        let yy = if a.start_inside { layer } else { lc - layer - 1 };
-        let it = a.layers[yy];
+        let yy = if w.start_inside { layer } else { lc - layer - 1 };
+        let it = w.layers[yy];
         if it == 1 {
             spots[idx] = (max_len / 2, yy);
             idx += 1;
@@ -99,10 +110,50 @@ fn layered(a: &Arch, theta: f64, half: f64) -> Vec<(f64, f64)> {
                 idx += 1;
             }
         }
-        if a.zig_zag {
+        if w.zig_zag {
             forward = !forward;
         }
     }
+    (spots, max_len)
+}
+
+/// The grid arches' effects are drawn on, as xLights lays it out: a row for each arch (the
+/// leftmost at the bottom) and a column for each pixel along it from its left foot, whichever
+/// end is wired first; for a layered arch, a row for each layer (the innermost at the bottom),
+/// as wide as the longest, with the shorter layers' pixels spread across it.
+pub(crate) fn grid(w: Wiring) -> OwnGrid {
+    if w.layers.is_empty() {
+        let mut cells: Vec<[u32; 2]> = (0..w.arches)
+            .flat_map(|k| (0..w.nodes).map(move |i| [i, k]))
+            .collect();
+        if w.start_right {
+            cells.reverse();
+        }
+        return OwnGrid {
+            columns: w.nodes,
+            rows: w.arches,
+            cells,
+        };
+    }
+    let (spots, max_len) = layered_spots(w);
+    OwnGrid {
+        columns: u32::try_from(max_len).unwrap_or(1),
+        rows: w.layers.len() as u32,
+        cells: spots.into_iter().map(|(x, y)| [x as u32, y as u32]).collect(),
+    }
+}
+
+/// Each pixel of a layered arch: its angle and its layer's size (1 for the outermost).
+fn layered(a: &Arch, theta: f64, half: f64) -> Vec<(f64, f64)> {
+    let lc = a.layers.len();
+    let (spots, max_len) = layered_spots(Wiring {
+        nodes: a.nodes,
+        arches: a.arches,
+        start_right: a.start_right,
+        layers: a.layers,
+        zig_zag: a.zig_zag,
+        start_inside: a.start_inside,
+    });
     let midpt = (max_len - 1) as f64 / 2.0;
     let layer_gap = if lc > 1 {
         (1.0 - f64::from(a.hollow) / 100.0) / (lc - 1) as f64
@@ -126,6 +177,39 @@ fn layered(a: &Arch, theta: f64, half: f64) -> Vec<(f64, f64)> {
 mod tests {
     use super::*;
     use crate::assert_close;
+
+    #[test]
+    fn the_grid_drawn_on_is_a_row_for_each_arch_or_layer() {
+        let wiring = |layers: &'static [u32]| Wiring {
+            nodes: if layers.is_empty() { 3 } else { layers.iter().sum() },
+            arches: 2,
+            start_right: false,
+            layers,
+            zig_zag: false,
+            start_inside: false,
+        };
+        // Two arches of three: each a row, its pixels in order from its left foot.
+        let plain = grid(wiring(&[]));
+        assert_eq!((plain.columns, plain.rows), (3, 2));
+        assert_eq!(plain.cells, [[0, 0], [1, 0], [2, 0], [0, 1], [1, 1], [2, 1]]);
+        // Wired from the right, the buffer still runs from the left: the first pixel is the
+        // last arch's right foot.
+        let from_right = grid(Wiring {
+            start_right: true,
+            ..wiring(&[])
+        });
+        assert_eq!(from_right.cells[..2], [[2, 1], [1, 1]]);
+        // Layers of 2 and 4 (innermost first), wired from the outside: the outer layer fills
+        // the top row, the inner one's two pixels sit at the ends of the bottom row.
+        let layered = grid(wiring(&[2, 4]));
+        assert_eq!((layered.columns, layered.rows), (4, 2));
+        assert_eq!(layered.cells, [[0, 1], [1, 1], [2, 1], [3, 1], [0, 0], [3, 0]]);
+        let zig_zag = grid(Wiring {
+            zig_zag: true,
+            ..wiring(&[2, 4])
+        });
+        assert_eq!(zig_zag.cells[4..], [[3, 0], [0, 0]]);
+    }
 
     fn arch(nodes: u32, width: f32, height: f32) -> Arch<'static> {
         Arch {

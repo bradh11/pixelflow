@@ -21,11 +21,11 @@ use crate::XlightsError;
 use crate::vendor::Mapping;
 pub use effects::Fidelity;
 use effects::Tally;
-use pf_model::Show;
+use pf_model::{Generator, RenderStyle, ShapeSource, Show};
 use pf_sequence::{
-    Effect, EffectId, EffectParams, Layer, MAX_DURATION_MS, MAX_EFFECTS, MAX_FRAME_MS, MAX_LAYERS_PER_ROW,
-    MAX_MARKS, MAX_ROWS, MAX_TEXT_LEN, MAX_TIMING_TRACKS, MIN_FRAME_MS, Mark, Row, RowId, Sequence, Target,
-    TimingKind, TimingTrack, TimingTrackId,
+    ChaseOrder, Effect, EffectId, EffectParams, Gradient, Layer, MAX_DURATION_MS, MAX_EFFECTS, MAX_FRAME_MS,
+    MAX_LAYERS_PER_ROW, MAX_MARKS, MAX_ROWS, MAX_TEXT_LEN, MAX_TIMING_TRACKS, MIN_FRAME_MS, Mark, Row,
+    RowBlending, RowId, Sequence, Target, TimingKind, TimingTrack, TimingTrackId,
 };
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
@@ -186,6 +186,43 @@ fn with_note(fidelity: Fidelity, note: String) -> Fidelity {
     }
 }
 
+/// What to say of an effect drawn on `target` alone when PixelFlow doesn't lay the prop's pixels
+/// out the way xLights does: a line that runs up and down, a poly line, or a model imported as
+/// measured points is drawn as it looks from the front, where xLights lays its pixels out by how
+/// the model is strung. `None` when the two agree, and for a group or a submodel.
+fn own_layout_note(show: &Show, target: Target) -> Option<&'static str> {
+    let Target::Prop(id) = target else {
+        return None;
+    };
+    let prop = show.prop(id)?;
+    let differs = match &prop.shape {
+        ShapeSource::Measured { .. } | ShapeSource::Generator(Generator::PolyLine { .. }) => true,
+        ShapeSource::Generator(Generator::Line { .. }) => {
+            let at = pf_geometry::world_positions(prop);
+            match (at.first(), at.last()) {
+                (Some(a), Some(b)) => (b.y - a.y).abs() > (b.x - a.x).abs(),
+                _ => false,
+            }
+        }
+        ShapeSource::Generator(_) => false,
+    };
+    differs.then_some("drawn on the prop as it looks from the front, where xLights draws along its pixels")
+}
+
+/// Whether an effect looks the same however its target's pixels are laid out.
+fn same_on_any_layout(params: &EffectParams) -> bool {
+    match params {
+        EffectParams::On(p) => p.gradient == Gradient::None,
+        EffectParams::ColorWash(p) => p.gradient == Gradient::None,
+        EffectParams::Chase(p) => p.order == ChaseOrder::Wiring,
+        EffectParams::Off(_)
+        | EffectParams::Twinkle(_)
+        | EffectParams::Shimmer(_)
+        | EffectParams::Strobe(_) => true,
+        _ => false,
+    }
+}
+
 /// The face a Faces effect names, among the row's faces (`faces`, as PixelFlow named them).
 /// "Default" (blank here) is the model's first face in name order, as xLights keeps its faces in
 /// a sorted map. A face that clashed with a submodel's name was imported as "<name> (face)"; an
@@ -321,8 +358,16 @@ impl<'a> Builder<'a> {
         Some((start, end.min(self.duration_ms)))
     }
 
-    /// One effect, on a row whose props have the faces `faces` (by name, in show order).
-    fn effect(&mut self, x: &XsqEffect, faces: &[&str]) -> Option<Effect> {
+    /// One effect, on a row whose props have the faces `faces` (by name, in show order) and
+    /// whose own layout differs from xLights' as `layout` says; `lowest` on the row's bottom
+    /// layer.
+    fn effect(
+        &mut self,
+        x: &XsqEffect,
+        faces: &[&str],
+        layout: Option<&str>,
+        lowest: bool,
+    ) -> Option<Effect> {
         let name = x.name.trim();
         if name == "Random" {
             self.random += 1;
@@ -399,6 +444,25 @@ impl<'a> Builder<'a> {
                 .to_string();
                 translated.fidelity = with_note(translated.fidelity, missing);
             }
+        }
+        // xLights draws the layers below into a canvas effect's buffer first (even when they're
+        // dark), so its blur, fades, and blending take them along and nothing shows through it.
+        // On the bottom layer there's nothing to draw in, and it's an effect like any other.
+        if !lowest
+            && settings.flag("T_CHECKBOX_Canvas", false)
+            && translated.fidelity != Fidelity::Placeholder
+        {
+            translated.fidelity = with_note(
+                translated.fidelity,
+                "canvas mode not applied: the layers below aren't drawn into the effect".into(),
+            );
+        }
+        if let Some(note) = layout
+            && translated.render_style == RenderStyle::Default
+            && translated.fidelity != Fidelity::Placeholder
+            && !same_on_any_layout(&translated.params)
+        {
+            translated.fidelity = with_note(translated.fidelity, note.to_string());
         }
         for (key, track) in std::mem::take(&mut translated.curve_tracks) {
             let found = self.mark_tracks.get(unxml_safe(&track).as_str()).copied();
@@ -721,6 +785,12 @@ fn build(file: &XsqFile, show: &Show, fallback_name: &str, mapping: Option<&Mapp
 
     let mut sequence = Sequence::new(fallback_name, duration_ms);
     sequence.frame_ms = frame_ms;
+    // xLights' Model Blending: each model mixes with the models above it, or replaces them.
+    sequence.row_blending = if file.model_blending {
+        RowBlending::Blend
+    } else {
+        RowBlending::Replace
+    };
     let song = unxml_safe(file.head.song.trim());
     if !song.trim().is_empty() {
         sequence.name = song.trim().to_string();
@@ -971,6 +1041,7 @@ fn build(file: &XsqFile, show: &Show, fallback_name: &str, mapping: Option<&Mapp
                         .collect()
                 })
                 .unwrap_or_default();
+            let layout = own_layout_note(show, target);
             // xLights' first layer is drawn on top; PixelFlow draws its last layer on top.
             let mut layers: Vec<Layer> = Vec::with_capacity(x_layers.len().max(1));
             for (i, x_layer) in x_layers.iter().enumerate().rev() {
@@ -979,7 +1050,11 @@ fn build(file: &XsqFile, show: &Show, fallback_name: &str, mapping: Option<&Mapp
                     b.summary.skipped += x_layer.len();
                     continue;
                 }
-                let effects = x_layer.iter().filter_map(|x| b.effect(x, &faces)).collect();
+                let lowest = i + 1 == x_layers.len();
+                let effects = x_layer
+                    .iter()
+                    .filter_map(|x| b.effect(x, &faces, layout, lowest))
+                    .collect();
                 layers.push(Layer { effects });
             }
             if layers.is_empty() {

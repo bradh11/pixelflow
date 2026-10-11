@@ -1,4 +1,4 @@
-use crate::spread;
+use crate::{OwnGrid, spread};
 use pf_model::{Corner, TreeStyle, Vec3};
 
 pub(crate) struct Tree {
@@ -37,8 +37,6 @@ pub(crate) fn positions(t: Tree) -> Vec<Vec3> {
     } else {
         t.degrees / n.max(1) as f32
     };
-    let from_right = matches!(t.start, Corner::BottomRight | Corner::TopRight);
-    let from_top = matches!(t.start, Corner::TopLeft | Corner::TopRight);
     let spiral = (t.style == TreeStyle::Round && t.spiral_rotations != 0.0 && t.spiral_rotations.is_finite())
         .then(|| {
             // xLights' spiral, in its own units: the tree 3 per row tall.
@@ -47,27 +45,16 @@ pub(crate) fn positions(t: Tree) -> Vec<Vec3> {
                 .then(|| spiral_offsets(per, t.spiral_rotations, t.base_radius / unit, t.top_radius / unit))
         })
         .flatten();
+    let wiring = t.wiring();
     for s in 0..n {
-        let spot = if from_right { n - 1 - s } else { s };
+        let spot = wiring.spot(s);
         let angle = t.start_angle + spot as f32 * step;
         // Flat and ribbon: the string's place across the base and the top, -1 to 1 of the width.
         let across = (spot as f32 + 0.5 - n as f32 / 2.0) / (n as f32 / 2.0);
         let (xb, xt) = (across * t.base_radius, across * t.top_radius);
         let slant = (t.height * t.height + (xt - xb) * (xt - xb)).sqrt();
-        let fold = if t.strands_per_string > 0 {
-            s % t.strands_per_string
-        } else {
-            s
-        };
         for j in 0..per {
-            let along = if t.alternate_nodes {
-                interleave(j, per)
-            } else if t.serpentine && fold % 2 == 1 {
-                per - 1 - j
-            } else {
-                j
-            };
-            let row = if from_top { per - 1 - along } else { along };
+            let row = wiring.row(s, j);
             let (f, turn) = match &spiral {
                 Some((heights, turns)) => (
                     if per > 1 {
@@ -99,6 +86,77 @@ pub(crate) fn positions(t: Tree) -> Vec<Vec3> {
         }
     }
     out
+}
+
+/// How a tree's strings are wired (see [`positions`]).
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Wiring {
+    pub strings: u32,
+    pub nodes_per_string: u32,
+    pub serpentine: bool,
+    pub start: Corner,
+    pub strands_per_string: u32,
+    pub alternate_nodes: bool,
+}
+
+impl Tree {
+    fn wiring(&self) -> Wiring {
+        Wiring {
+            strings: self.strings,
+            nodes_per_string: self.nodes_per_string,
+            serpentine: self.serpentine,
+            start: self.start,
+            strands_per_string: self.strands_per_string,
+            alternate_nodes: self.alternate_nodes,
+        }
+    }
+}
+
+impl Wiring {
+    /// String `s`'s place from the left (in wiring order, `s` is the `s`th string wired).
+    fn spot(&self, s: u32) -> u32 {
+        if matches!(self.start, Corner::BottomRight | Corner::TopRight) {
+            self.strings - 1 - s
+        } else {
+            s
+        }
+    }
+
+    /// The row, from the base, of the `j`th pixel of string `s`.
+    fn row(&self, s: u32, j: u32) -> u32 {
+        let per = self.nodes_per_string;
+        let fold = if self.strands_per_string > 0 {
+            s % self.strands_per_string
+        } else {
+            s
+        };
+        let along = if self.alternate_nodes {
+            interleave(j, per)
+        } else if self.serpentine && fold % 2 == 1 {
+            per - 1 - j
+        } else {
+            j
+        };
+        if matches!(self.start, Corner::TopLeft | Corner::TopRight) {
+            per - 1 - along
+        } else {
+            along
+        }
+    }
+}
+
+/// The grid a tree's effects are drawn on, as xLights lays it out (a vertical matrix's,
+/// `MatrixModel::InitVMatrix`): a column for each string, in order round (or across) the tree,
+/// and a row for each pixel up it, so what's drawn goes round a round tree.
+pub(crate) fn grid(w: Wiring) -> OwnGrid {
+    let (n, per) = (w.strings, w.nodes_per_string);
+    OwnGrid {
+        columns: n,
+        rows: per,
+        cells: (0..n)
+            .flat_map(|s| (0..per).map(move |j| [w.spot(s), w.row(s, j)]))
+            .collect(),
+    }
 }
 
 /// The row a string's `y`th pixel sits on when it goes up every other spot and comes back down
@@ -163,6 +221,37 @@ pub(crate) fn spiral_offsets(rows: u32, spiral: f32, radius: f32, top_radius: f3
 mod tests {
     use super::*;
     use crate::assert_close;
+
+    #[test]
+    fn the_grid_drawn_on_is_strings_by_the_pixels_up_them() {
+        // xLights' buffer for a tree: bufX is the string's place from the left and bufY the
+        // pixel's height, however the strings are wired.
+        let wired = |serpentine, start, alternate_nodes| {
+            grid(Wiring {
+                strings: 3,
+                nodes_per_string: 4,
+                serpentine,
+                start,
+                strands_per_string: 0,
+                alternate_nodes,
+            })
+        };
+        let plain = wired(false, Corner::BottomLeft, false);
+        assert_eq!((plain.columns, plain.rows), (3, 4));
+        assert_eq!(plain.cells[..5], [[0, 0], [0, 1], [0, 2], [0, 3], [1, 0]]);
+        assert_eq!(plain.cells[11], [2, 3]);
+        // Every other string runs back down.
+        let zig = wired(true, Corner::BottomLeft, false);
+        assert_eq!(zig.cells[4..8], [[1, 3], [1, 2], [1, 1], [1, 0]]);
+        assert_eq!(zig.cells[8], [2, 0]);
+        // From the top right: the first string is the last column, and runs down.
+        let turned = wired(false, Corner::TopRight, false);
+        assert_eq!(turned.cells[..2], [[2, 3], [2, 2]]);
+        assert_eq!(turned.cells[4], [1, 3]);
+        // Up every other spot and back down the ones between.
+        let alternate = wired(false, Corner::BottomLeft, true);
+        assert_eq!(alternate.cells[..4], [[0, 0], [0, 2], [0, 3], [0, 1]]);
+    }
 
     fn plain(strings: u32, nodes: u32) -> Tree {
         Tree {

@@ -91,14 +91,47 @@ fn on_is_solid_or_a_palette_ramp_with_a_level_ramp() {
         end_level: 0.0,
         ..OnParams::default()
     });
-    assert_eq!(
-        shade(&dimming, time(250, 1000), strip(0), &[Rgb::WHITE], STRIP).a,
-        0.75
-    );
-    assert_eq!(
-        rgb(shade(&dimming, time(500, 1000), strip(0), &[Rgb::WHITE], STRIP)),
-        [128; 3]
-    );
+    // The ramp is counted in frames, as xLights counts it: over 5 frames (0-4) it is a quarter
+    // of the way on frame 1 and at the end level on the last frame.
+    let white = |p: &EffectParams, ms: u64| shade(p, time(ms, 250), strip(0), &[Rgb::WHITE], STRIP);
+    assert_eq!(white(&dimming, 50).a, 0.75);
+    assert_eq!(rgb(white(&dimming, 100)), [128; 3]);
+    assert_eq!(white(&dimming, 200).a, 0.0);
+    // Dimmed, it lets what's below show through; solid (xLights' On), the color itself dims
+    // and still covers.
+    let c = white(&dimming, 50);
+    assert_eq!(([c.r, c.g, c.b], c.a), ([1.0; 3], 0.75));
+    let solid = EffectParams::On(OnParams {
+        start_level: 1.0,
+        end_level: 0.0,
+        solid: true,
+        ..OnParams::default()
+    });
+    let c = white(&solid, 50);
+    assert_eq!(([c.r, c.g, c.b], c.a), ([0.75; 3], 1.0));
+    assert_eq!(white(&solid, 200), Rgba::BLACK, "black, not clear");
+    // Transparency is how much shows through whatever the brightness.
+    let sheer = EffectParams::On(OnParams {
+        start_level: 0.5,
+        end_level: 0.5,
+        solid: true,
+        transparency: 0.25,
+        ..OnParams::default()
+    });
+    let c = white(&sheer, 0);
+    assert_eq!(([c.r, c.g, c.b], c.a), ([0.5; 3], 0.75));
+
+    // Shimmer: every other frame the second palette color, or nothing when there's only one.
+    let shimmer = EffectParams::On(OnParams {
+        shimmer: true,
+        ..OnParams::default()
+    });
+    let frame = |ms: u64, palette: &[Rgb]| shade(&shimmer, time(ms, 1000), strip(0), palette, STRIP);
+    assert_eq!(rgb(frame(0, &[Rgb::RED, Rgb::BLUE])), [255, 0, 0]);
+    assert_eq!(rgb(frame(50, &[Rgb::RED, Rgb::BLUE])), [0, 0, 255]);
+    assert_eq!(rgb(frame(100, &[Rgb::RED, Rgb::BLUE])), [255, 0, 0]);
+    assert_eq!(frame(50, &[Rgb::RED]), Rgba::CLEAR);
+    assert_eq!(rgb(frame(100, &[Rgb::RED])), [255, 0, 0]);
 }
 
 #[test]
@@ -215,38 +248,185 @@ fn chase_moves_bands_along_the_wiring() {
     assert_eq!(shade(&marquee, time(0, 4000), strip(3), &pal, STRIP), Rgba::CLEAR);
 }
 
-#[test]
-fn bars_slide_along_the_chosen_axis() {
-    let bars = EffectParams::Bars(BarsParams {
-        count: 2,
-        speed: 0.25,
-        axis: Axis::Vertical,
-        direction: Direction::Forward,
-    });
-    let pal = [Rgb::RED, Rgb::GREEN];
-    let color = |ms: u64, v: f32| rgb(shade(&bars, time(ms, 10_000), at(0.3, v), &pal, GRID));
-    // Bars of half a slot: v in [0, 0.25) red, [0.5, 0.75) green.
-    assert_eq!(color(0, 0.1), [255, 0, 0]);
-    assert_eq!(color(0, 0.3), [0, 0, 0]);
-    assert_eq!(color(0, 0.6), [0, 255, 0]);
-    // After 1 s the bars moved up a quarter.
-    assert_eq!(color(1000, 0.3), [255, 0, 0]);
-    assert_eq!(color(1000, 0.1), [0, 0, 0]);
+/// Red and green bars on a grid 12 cells long their way and 4 across, `elapsed_ms` into a 1 s
+/// effect (20 frames): the color of each line of cells, from the bottom or the left.
+fn bars_colors(p: BarsParams, elapsed_ms: u64) -> Vec<Rgba> {
+    let params = EffectParams::Bars(p);
+    (0..12)
+        .map(|line| {
+            let along = line as f32 / 11.0;
+            let (px, canvas) = match p.axis {
+                Axis::Vertical => (at(0.4, along), Canvas { columns: 4, rows: 12 }),
+                Axis::Horizontal => (at(along, 0.4), Canvas { columns: 12, rows: 4 }),
+            };
+            shade(
+                &params,
+                time(elapsed_ms, 1000),
+                px,
+                &[Rgb::RED, Rgb::GREEN],
+                canvas,
+            )
+        })
+        .collect()
+}
 
-    let across = EffectParams::Bars(BarsParams {
-        count: 2,
+/// [`bars_colors`] as 'r', 'g', 'w' (white), or '.' (clear) for each line of cells.
+fn bars_line(p: BarsParams, elapsed_ms: u64) -> String {
+    bars_colors(p, elapsed_ms)
+        .iter()
+        .map(|c| match [c.r, c.g, c.b].map(|v| (v * 255.0).round() as u8) {
+            _ if c.a <= 0.0 => '.',
+            [255, 0, 0] => 'r',
+            [0, 255, 0] => 'g',
+            [255, 255, 255] => 'w',
+            _ => '?',
+        })
+        .collect()
+}
+
+#[test]
+fn bars_are_drawn_cell_by_cell_as_xlights_draws_them() {
+    // xLights' Bars with the palette twice over (4 bars) and no gaps: each bar is
+    // ceil(12 / 4) = 3 cells, and the palette a block of 6. Bars going down count cells up
+    // from the bottom; bars going up count down from the top, so the colors run the other way.
+    let down = BarsParams {
+        count: 4,
         speed: 0.0,
-        axis: Axis::Horizontal,
+        axis: Axis::Vertical,
+        direction: Direction::Reverse,
+        motion: BarsMotion::Slide,
+        fill: 1.0,
+        ..BarsParams::default()
+    };
+    let up = BarsParams {
         direction: Direction::Forward,
-    });
+        ..down
+    };
+    assert_eq!(bars_line(down, 0), "rrrgggrrrggg");
+    assert_eq!(bars_line(up, 0), "gggrrrgggrrr");
+    // Bars that don't divide the grid are the next whole size: 5 bars of ceil(12 / 5) = 3.
+    assert_eq!(bars_line(BarsParams { count: 5, ..down }, 0), "rrrgggrrrggg");
+    // Across the prop they count from the left going left, from the right going right.
+    let left = BarsParams {
+        axis: Axis::Horizontal,
+        ..down
+    };
+    assert_eq!(bars_line(left, 0), "rrrgggrrrggg");
+
+    // Moving: a block a cycle. At a prop's length a second that's 2 cycles over the second,
+    // 10 frames each, and xLights counts the last frame of a cycle as its end: frame 4 is 4/9
+    // of the way, trunc(4/9 × 6) = 2 cells; frame 9 is a whole block on (the same as none),
+    // and frame 10 starts again.
+    let moving_up = BarsParams { speed: 1.0, ..up };
+    assert_eq!(bars_line(moving_up, 200), "rrgggrrrgggr", "2 cells up");
+    assert_eq!(bars_line(moving_up, 450), bars_line(up, 0));
+    assert_eq!(bars_line(moving_up, 500), bars_line(up, 0));
+    let moving_down = BarsParams { speed: 1.0, ..down };
+    assert_eq!(bars_line(moving_down, 200), "rgggrrrgggrr", "2 cells down");
+
+    // 'expand': drawn like bars going down from the center's line (cell 6 of 12) and below,
+    // mirrored above it, so they move apart. 'compress': drawn from the center up, mirrored
+    // below, so they close in.
+    let expand = BarsParams {
+        motion: BarsMotion::Split,
+        direction: Direction::Forward,
+        ..down
+    };
+    let compress = BarsParams {
+        direction: Direction::Reverse,
+        ..expand
+    };
+    assert_eq!(bars_line(expand, 0), "rrrgggrgggrr");
+    assert_eq!(bars_line(compress, 0), "rgggrrrrrggg");
     assert_eq!(
-        rgb(shade(&across, time(0, 1000), at(0.6, 0.0), &pal, GRID)),
-        [0, 255, 0]
+        bars_line(BarsParams { speed: 1.0, ..expand }, 200),
+        "rgggrrrrrggg",
+        "2 cells out from the center"
     );
     assert_eq!(
-        rgb(shade(&across, time(0, 1000), at(0.3, 0.0), &pal, GRID)),
-        [0, 0, 0]
+        bars_line(
+            BarsParams {
+                speed: 1.0,
+                ..compress
+            },
+            200
+        ),
+        "rrrgggrgggrr",
+        "2 cells in toward it"
     );
+    // The center moves: 50% is cell trunc(12 × 150 / 200) = 9.
+    assert_eq!(
+        bars_line(
+            BarsParams {
+                center: 50.0,
+                ..expand
+            },
+            0
+        ),
+        "rrrgggrrrgrr"
+    );
+
+    // 'Alternate': a whole bar at a time, the prop's length (4 bars) a cycle. At a prop's
+    // length a second, frame 4 of 0-19 is floor(4/19 × 4) = 0 bars on; frame 5 is 1.
+    let stepping = BarsParams {
+        motion: BarsMotion::Step,
+        speed: 1.0,
+        ..up
+    };
+    assert_eq!(bars_line(stepping, 200), "gggrrrgggrrr");
+    assert_eq!(bars_line(stepping, 250), "rrrgggrrrggg");
+}
+
+#[test]
+fn bars_take_xlights_3d_highlight_and_gradient_looks_and_pixelflows_gaps() {
+    let down = BarsParams {
+        count: 4,
+        speed: 0.0,
+        axis: Axis::Vertical,
+        direction: Direction::Reverse,
+        motion: BarsMotion::Slide,
+        fill: 1.0,
+        ..BarsParams::default()
+    };
+    // "3D": each 3-cell bar covers 2/3, 1/3, then nothing, from the edge it leads with (never
+    // fully: xLights takes a cell off the count).
+    let shaded = bars_colors(BarsParams { shaded: true, ..down }, 0);
+    let cover: Vec<f32> = shaded.iter().take(4).map(|c| c.a).collect();
+    assert_eq!(cover, [2.0 / 3.0, 1.0 / 3.0, 0.0, 2.0 / 3.0]);
+    assert_eq!([shaded[0].r, shaded[0].g], [1.0, 0.0], "the color stays whole");
+    // Going up, the leading edge is the bar's top.
+    let up = BarsParams {
+        direction: Direction::Forward,
+        shaded: true,
+        ..down
+    };
+    let cover: Vec<f32> = bars_colors(up, 0).iter().take(3).map(|c| c.a).collect();
+    assert_eq!(cover, [0.0, 1.0 / 3.0, 2.0 / 3.0]);
+
+    // Highlight: each bar's leading line is white.
+    let highlight = BarsParams {
+        highlight: true,
+        ..down
+    };
+    assert_eq!(bars_line(highlight, 0), "wrrwggwrrwgg");
+
+    // Gradient: each bar blends into the next color, a third of the way per cell.
+    let gradient = bars_colors(
+        BarsParams {
+            gradient: true,
+            ..down
+        },
+        0,
+    );
+    let rgb8: Vec<[u8; 3]> = gradient.iter().take(5).map(|c| rgb(*c)).collect();
+    assert_eq!(
+        rgb8,
+        [[255, 0, 0], [170, 85, 0], [85, 170, 0], [0, 255, 0], [85, 170, 0]]
+    );
+
+    // PixelFlow's own bars leave part of each dark: half of 3 cells lights 2.
+    assert_eq!(bars_line(BarsParams { fill: 0.5, ..down }, 0), "rr.gg.rr.gg.");
+    assert_eq!(bars_line(BarsParams { fill: 0.0, ..down }, 0), "............");
 }
 
 #[test]
@@ -357,25 +537,202 @@ fn strobe_flashes_a_random_set_each_flash() {
     assert_ne!(first, count(260), "the next flash picks new pixels");
 }
 
+/// A tree of 16 strings of 50 pixels, as its strings-by-pixels grid.
+const TREE: Canvas = Canvas {
+    columns: 16,
+    rows: 50,
+};
+
+/// Row `y` of a red and green spiral on the tree, `elapsed_ms` into a 1 s effect (20 frames):
+/// the color of each of its 16 cells.
+fn spiral_cells(p: SpiralParams, elapsed_ms: u64, y: u32) -> Vec<Rgba> {
+    let params = EffectParams::Spiral(p);
+    (0..16)
+        .map(|x| {
+            let px = at(x as f32 / 15.0, y as f32 / 49.0);
+            shade(&params, time(elapsed_ms, 1000), px, &[Rgb::RED, Rgb::GREEN], TREE)
+        })
+        .collect()
+}
+
+/// [`spiral_cells`] as 'r', 'g', or '.' for each cell.
+fn spiral_row(p: SpiralParams, elapsed_ms: u64, y: u32) -> String {
+    spiral_cells(p, elapsed_ms, y)
+        .iter()
+        .map(|c| match rgb(*c) {
+            [255, 0, 0] => 'r',
+            [0, 255, 0] => 'g',
+            _ => '.',
+        })
+        .collect()
+}
+
 #[test]
-fn spiral_stripes_rotate() {
-    let spiral = EffectParams::Spiral(SpiralParams {
+fn spirals_are_drawn_cell_by_cell_as_xlights_draws_them() {
+    // xLights' Spirals with 2 stripes, Thickness 49, Rotation 37, still: the stripes start
+    // 16 / 2 = 8 cells apart, each trunc(8 × 0.49 + 1) = 4 wide, and row y is shifted
+    // trunc(y × 37 / 50) cells: the rotation counts cells across the height, not turns, so
+    // from the bottom row to the top the stripes go 36 cells round (2.25 times).
+    let still = SpiralParams {
         count: 2,
-        speed: 0.5,
-        thickness: 0.5,
-        twist: 1.0,
+        speed: 0.0,
+        thickness: 0.49,
+        twist: 0.0,
+        lean: -37.0,
         direction: Direction::Forward,
+        ..SpiralParams::default()
+    };
+    assert_eq!(spiral_row(still, 0, 0), "rrrr....gggg....");
+    assert_eq!(
+        spiral_row(still, 0, 1),
+        "rrrr....gggg....",
+        "0.74 of a cell: not yet"
+    );
+    assert_eq!(spiral_row(still, 0, 2), ".rrrr....gggg...");
+    assert_eq!(
+        spiral_row(still, 0, 25),
+        "..rrrr....gggg..",
+        "18 cells: once round and 2"
+    );
+    assert_eq!(spiral_row(still, 0, 49), "....rrrr....gggg", "36 cells");
+    // The same setting on a group's 400-cell grid would lean the stripes a tenth of the way
+    // across; counted in turns it would wind as tightly there as on the tree.
+
+    // PixelFlow's twist counts turns, winding the other way: one turn is 16 cells here.
+    let twisted = SpiralParams {
+        twist: 1.0,
+        lean: 0.0,
+        ..still
+    };
+    let leaning = SpiralParams { lean: 16.0, ..still };
+    for y in [0, 10, 30, 49] {
+        assert_eq!(spiral_row(twisted, 0, y), spiral_row(leaning, 0, y), "row {y}");
+    }
+    assert_eq!(
+        spiral_row(twisted, 0, 25),
+        "gggg....rrrr....",
+        "half way up, half way round"
+    );
+
+    // A stripe over two cells wide loses its part cell; a narrower one keeps it. A full-width
+    // one is a cell over its share, and the next stripe covers that.
+    let wide = |thickness| spiral_row(SpiralParams { thickness, ..still }, 0, 0);
+    assert_eq!(wide(0.1), "rr......gg......", "ceil(1.8)");
+    assert_eq!(wide(0.2), "rr......gg......", "trunc(2.6)");
+    assert_eq!(
+        wide(1.0),
+        "grrrrrrrgggggggg",
+        "9 each: the second wraps onto the first"
+    );
+
+    // Turning: one turn over the effect's 20 frames. A quarter of the way (frame 5 of 0-19)
+    // the stripes have moved trunc(5 / 19 × 160) / 10 = 4.2 cells, forward or back.
+    let turning = SpiralParams {
+        speed: 1.0,
+        lean: 0.0,
+        ..still
+    };
+    assert_eq!(spiral_row(turning, 250, 0), "....rrrr....gggg");
+    let back = SpiralParams {
+        direction: Direction::Reverse,
+        ..turning
+    };
+    // Going back, cells below zero round the other way (C's cast), so the stripe that wraps
+    // sits a cell further on than the one that doesn't.
+    assert_eq!(spiral_row(back, 250, 0), "...gggg.....rrrr");
+
+    // The width is counted in whole percent: 70% of 10 cells is 7 and a cell, not a hair
+    // under 8 that loses its part cell.
+    let one = EffectParams::Spiral(SpiralParams {
+        count: 1,
+        thickness: 0.7,
+        ..still
     });
-    let pal = [Rgb::RED, Rgb::GREEN];
-    let color = |ms: u64, u: f32, v: f32| rgb(shade(&spiral, time(ms, 10_000), at(u, v), &pal, GRID));
-    // s = (u + v - rotation) * 2: stripe 0 for s in [0, 0.5), gap [0.5, 1), stripe 1 in [1, 1.5).
-    assert_eq!(color(0, 0.1, 0.1), [255, 0, 0]);
-    assert_eq!(color(0, 0.2, 0.2), [0, 0, 0]);
-    assert_eq!(color(0, 0.3, 0.3), [0, 255, 0]);
-    // Same diagonal, same color: stripes slant.
-    assert_eq!(color(0, 0.0, 0.6), [0, 255, 0]);
-    // After 0.5 s the stripes turned a quarter (rotation 0.25).
-    assert_eq!(color(500, 0.2, 0.2), [255, 0, 0]);
+    let lit = (0..10)
+        .filter(|&x| shade(&one, time(0, 1000), at(x as f32 / 9.0, 0.0), &[Rgb::RED], GRID).a > 0.0)
+        .count();
+    assert_eq!(lit, 8);
+}
+
+#[test]
+fn spirals_take_xlights_3d_blend_grow_and_shrink() {
+    // 2 stripes 8 cells apart, 8 × 49 / 100 + 1 = 4.92 cells wide.
+    let still = SpiralParams {
+        count: 2,
+        speed: 0.0,
+        thickness: 0.49,
+        twist: 0.0,
+        lean: -37.0,
+        direction: Direction::Forward,
+        ..SpiralParams::default()
+    };
+    let cover = |p: SpiralParams| -> Vec<f32> { spiral_cells(p, 0, 0).iter().take(5).map(|c| c.a).collect() };
+    let near = |got: Vec<f32>, want: [f64; 5]| {
+        for (g, w) in got.iter().zip(want) {
+            assert!((f64::from(*g) - w).abs() < 1e-6, "{got:?} {want:?}");
+        }
+    };
+    // "3D": each cell of a stripe covers the share of the width from it on, so the stripe
+    // fades across; leaning the other way it fades the other way (a cell's share and up).
+    let shaded = SpiralParams {
+        shaded: true,
+        ..still
+    };
+    near(cover(shaded), [1.0, 3.92 / 4.92, 2.92 / 4.92, 1.92 / 4.92, 0.0]);
+    let other_way = SpiralParams { lean: 37.0, ..shaded };
+    near(
+        cover(other_way),
+        [1.0 / 4.92, 2.0 / 4.92, 3.0 / 4.92, 4.0 / 4.92, 0.0],
+    );
+    assert_eq!(
+        spiral_cells(shaded, 0, 0)[1].to_rgb8(),
+        [(255.0f64 * 3.92 / 4.92).round() as u8, 0, 0],
+        "the color itself stays whole"
+    );
+
+    // "Blend": every stripe takes the palette from the top row (red) down to the bottom
+    // (49/50 of the way to green), and keeps its part cell: 5 wide.
+    let blended = SpiralParams {
+        gradient: true,
+        ..still
+    };
+    let row = |y: u32| -> Vec<[u8; 3]> {
+        spiral_cells(blended, 0, y)
+            .iter()
+            .filter(|c| c.a > 0.0)
+            .map(|c| rgb(*c))
+            .collect()
+    };
+    assert_eq!(row(49), vec![[255, 0, 0]; 10]);
+    assert_eq!(row(0), vec![[5, 250, 0]; 10]);
+
+    // Grow: stripes a cell wide take up whole cells of the 7 between them as the turn goes,
+    // trunc(7 × 5/19) = 1 more at frame 5 and all 7 at the last. Shrink runs it backward.
+    let thin = SpiralParams {
+        thickness: 0.0,
+        speed: 1.0,
+        lean: 0.0,
+        ..still
+    };
+    assert_eq!(spiral_row(thin, 250, 0), "....r.......g...");
+    let growing = SpiralParams { grow: true, ..thin };
+    assert_eq!(spiral_row(growing, 250, 0), "....rr......gg..");
+    assert_eq!(spiral_row(growing, 950, 0), "rrrrrrrrgggggggg");
+    let shrinking = SpiralParams { shrink: true, ..thin };
+    assert_eq!(spiral_row(shrinking, 0, 0), "rrrrrrrrgggggggg");
+    assert_eq!(spiral_row(shrinking, 950, 0), "r.......g.......");
+    // Both: out for the first half of the turn, back for the second. Frame 9 is 9/19 of the
+    // way, trunc(7 × 18/19) = 6 more, and the last frame none.
+    let both = SpiralParams {
+        grow: true,
+        shrink: true,
+        ..thin
+    };
+    assert_eq!(
+        spiral_cells(both, 450, 0).iter().filter(|c| c.a > 0.0).count(),
+        14
+    );
+    assert_eq!(spiral_row(both, 950, 0), "r.......g.......");
 }
 
 #[test]
@@ -503,6 +860,13 @@ fn hostile_settings_never_panic_or_produce_garbage() {
         EffectParams::Bars(BarsParams {
             count: 0,
             speed: f32::MAX,
+            ..BarsParams::default()
+        }),
+        EffectParams::Bars(BarsParams {
+            count: u32::MAX,
+            motion: BarsMotion::Split,
+            fill: f32::NAN,
+            center: f32::INFINITY,
             ..BarsParams::default()
         }),
         EffectParams::Wave(WaveParams {

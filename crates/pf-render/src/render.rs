@@ -9,8 +9,8 @@ use crate::picture::Pictures;
 use crate::sim::Sims;
 use crate::sparkles::Sparkles;
 use pf_mapping::ChannelMap;
-use pf_model::{BufferTransform, RenderStyle, Show};
-use pf_sequence::{Blend, Effect, EffectId, EffectParams, Sequence, Target};
+use pf_model::{BufferTransform, PropId, RenderStyle, Show};
+use pf_sequence::{Blend, Effect, EffectId, EffectParams, RowBlending, Sequence, Target};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -46,6 +46,9 @@ pub struct Renderer {
     row_acc: Vec<Acc>,
     /// One member of a per-model buffer being drawn.
     part_acc: Vec<Acc>,
+    /// The props whose own rows have drawn on the frame being built (see
+    /// [`RowBlending::Replace`]).
+    drew: Vec<PropId>,
     /// The effects worked out frame by frame (falling snow, Lines, Life, Tendril, VU Meter),
     /// kept from frame to frame by effect and the buffer (or part) they draw on.
     sims: Sims<(EffectId, BufferKey, usize)>,
@@ -72,6 +75,7 @@ impl Renderer {
             blur_scratch: Vec::new(),
             row_acc: Vec::new(),
             part_acc: Vec::new(),
+            drew: Vec::new(),
             sims: Sims::default(),
             audio: AudioSource::none(),
             pictures: Pictures::none(),
@@ -160,6 +164,7 @@ impl Renderer {
             seq.frame_ms,
         )
         .with_pictures(&pictures);
+        self.drew.clear();
         if t_ms < seq.duration_ms {
             for row in &seq.rows {
                 let mut active = row
@@ -180,16 +185,44 @@ impl Renderer {
                 if len == 0 {
                     continue;
                 }
+                // Whether the row starts from what the rows before it drew on its pixels, and
+                // mixes with that.
+                let onto = match seq.row_blending {
+                    RowBlending::Cover => false,
+                    RowBlending::Blend => true,
+                    RowBlending::Replace => {
+                        matches!(row.target, Target::Region { prop, .. } if self.drew.contains(&prop))
+                    }
+                };
+                if let Target::Prop(prop) = row.target {
+                    self.drew.push(prop);
+                }
                 self.row_acc.clear();
-                self.row_acc.resize(len, Acc::ZERO);
-                // Layers draw bottom (first) to top (last). The lowest effect drawn covers,
-                // whatever its blend: there is nothing below it to mix with (as in xLights).
+                if onto {
+                    // Each pixel's own color: xLights keeps what's there on a layer below the
+                    // row's own, laid out as a single line so no two pixels share a cell.
+                    let show = &self.show_acc;
+                    self.row_acc.extend(
+                        self.buffers[&base]
+                            .global
+                            .iter()
+                            .map(|&g| show.get(g as usize).copied().unwrap_or(Acc::ZERO)),
+                    );
+                } else {
+                    self.row_acc.resize(len, Acc::ZERO);
+                }
+                // Layers draw bottom (first) to top (last). With nothing below it to mix with,
+                // the lowest effect drawn covers, whatever its blend (as in xLights).
                 for (n, source) in active.enumerate() {
                     // Settings that change over the effect, at this moment.
                     let effect = &*cx.effect_at(source, t_ms);
                     let time =
                         EffectTime::within(effect.start_ms, effect.end_ms, t_ms).with_frame_ms(seq.frame_ms);
-                    let blend = if n == 0 { Blend::Normal } else { effect.blend };
+                    let blend = if n == 0 && !onto {
+                        Blend::Normal
+                    } else {
+                        effect.blend
+                    };
                     let key: BufferKey = (row.target, effect.render_style, effect.buffer_transform);
                     let buffer = &*self
                         .buffers
@@ -307,10 +340,15 @@ impl Renderer {
                     }
                 }
                 let buffer = &self.buffers[&base];
+                let covers = seq.row_blending == RowBlending::Cover;
                 for (&global, &top) in buffer.global.iter().zip(&self.row_acc) {
-                    if top.a > 0.0
-                        && let Some(pixel) = self.show_acc.get_mut(global as usize)
-                    {
+                    let Some(pixel) = self.show_acc.get_mut(global as usize) else {
+                        continue;
+                    };
+                    if !covers {
+                        // xLights' rows write every pixel they have, lit or not.
+                        *pixel = top;
+                    } else if top.a > 0.0 {
                         pixel.cover_with(top);
                     }
                 }
@@ -350,18 +388,26 @@ fn canvas_of(buffer: &PixelBuffer) -> Canvas {
     }
 }
 
-/// How much of the effect shows at `t_ms`, from its fade-in and fade-out.
-pub(crate) fn fade_level(effect: &Effect, t_ms: u64) -> f32 {
-    let mut level = 1.0f32;
-    if effect.fade_in_ms > 0 {
-        let since = t_ms.saturating_sub(effect.start_ms) as f32;
-        level = level.min(since / effect.fade_in_ms as f32);
+/// How much of the effect shows at `t_ms`, from its fade-in and fade-out, stepped frame by frame
+/// as xLights steps them (`PixelBufferClass::HandleLayerTransitions`): a fade lasts a whole
+/// number of frames; fading in, the effect's first frame is already one step up; fading out,
+/// its last frame is dark; and where the two overlap, it shows their average.
+pub(crate) fn fade_level(effect: &Effect, t_ms: u64, frame_ms: u32) -> f32 {
+    let frame = u64::from(frame_ms.max(1));
+    let (fade_in, fade_out) = (
+        u64::from(effect.fade_in_ms) / frame,
+        u64::from(effect.fade_out_ms) / frame,
+    );
+    let at = t_ms / frame;
+    let since = at.saturating_sub(effect.start_ms / frame);
+    let left = (effect.end_ms.saturating_sub(1) / frame).saturating_sub(at);
+    let fading_in = (since < fade_in).then(|| (since + 1) as f32 / fade_in as f32);
+    let fading_out = (left < fade_out).then(|| left as f32 / fade_out as f32);
+    match (fading_in, fading_out) {
+        (Some(up), Some(down)) => (up + down) / 2.0,
+        (Some(level), None) | (None, Some(level)) => level,
+        (None, None) => 1.0,
     }
-    if effect.fade_out_ms > 0 {
-        let left = effect.end_ms.saturating_sub(t_ms) as f32;
-        level = level.min(left / effect.fade_out_ms as f32);
-    }
-    level.clamp(0.0, 1.0)
 }
 
 /// One effect being drawn onto a row.
@@ -388,7 +434,7 @@ impl Draw<'_> {
     /// (Faces).
     fn run(self, shader: Option<&Shader>) {
         let effect = self.effect;
-        let fade = fade_level(effect, self.t_ms);
+        let fade = fade_level(effect, self.t_ms, self.frame_ms);
         // A fully faded effect changes nothing, except under the blends that black out what's
         // below where the effect is unlit.
         if fade <= 0.0

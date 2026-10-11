@@ -12,13 +12,13 @@ use super::settings::{ParsedPalette, Settings};
 use super::{list, plural};
 use pf_model::{BufferTransform, RenderStyle};
 use pf_sequence::{
-    Axis, BarsParams, Blend, ButterflyColors, ButterflyParams, ChaseParams, CirclesLook, CirclesParams,
-    ColorWashParams, Curve, CurveShape, Direction, EffectParams, FaceColorSource, FaceEyes, FacesParams,
-    FanParams, FireParams, GarlandShape, GarlandsDirection, GarlandsParams, Gradient, LifeParams, LifeRules,
-    LightningParams, LinesParams, MAX_CURVE_CYCLES, MIN_CURVE_CYCLES, MeteorDirection, MeteorsParams,
-    MorphParams, OffParams, OnParams, Palette, PictureFit, PictureMovement, PictureParams, PictureTiming,
-    PinwheelParams, PinwheelShading, PinwheelStyle, PlasmaColors, PlasmaParams, Rgb, RippleParams,
-    SettingRange, ShapeObject, ShapeParams, ShimmerParams, SnowflakeShape, SnowflakesMotion,
+    Axis, BarsMotion, BarsParams, Blend, ButterflyColors, ButterflyParams, ChaseParams, CirclesLook,
+    CirclesParams, ColorWashParams, Curve, CurveShape, Direction, EffectParams, FaceColorSource, FaceEyes,
+    FacesParams, FanParams, FireParams, GarlandShape, GarlandsDirection, GarlandsParams, Gradient,
+    LifeParams, LifeRules, LightningParams, LinesParams, MAX_CURVE_CYCLES, MIN_CURVE_CYCLES, MeteorDirection,
+    MeteorsParams, MorphParams, OffParams, OnParams, Palette, PictureFit, PictureMovement, PictureParams,
+    PictureTiming, PinwheelParams, PinwheelShading, PinwheelStyle, PlasmaColors, PlasmaParams, Rgb,
+    RippleParams, SettingRange, ShapeObject, ShapeParams, ShimmerParams, SnowflakeShape, SnowflakesMotion,
     SnowflakesParams, SpiralParams, StrobeParams, TendrilMovement, TendrilParams, TextCountdown,
     TextMovement, TextOrientation, TextParams, TwinkleParams, VuMeterParams, VuMeterShape, VuMeterType,
     WaveParams,
@@ -423,19 +423,19 @@ fn effect_key(name: &str) -> String {
         .to_lowercase()
 }
 
-fn on(r: &Reader, diff: &mut Diff) -> EffectParams {
+/// xLights' On (`OnEffect::Render`): the color dimmed to its level and still solid, see-through
+/// only by its transparency, and with shimmer on, every other frame the second color (or
+/// nothing).
+fn on(r: &Reader) -> EffectParams {
     let start = r.get("Eff_On_Start", 100.0, 0.0, 100.0);
     let end = r.get("Eff_On_End", 100.0, 0.0, 100.0);
-    if r.check("On_Shimmer") {
-        diff.add("shimmer not shown");
-    }
-    if r.get("On_Transparency", 0.0, 0.0, 100.0) > 0.0 {
-        diff.add("transparency not applied");
-    }
     EffectParams::On(OnParams {
         gradient: Gradient::None,
         start_level: unit(start / 100.0),
         end_level: unit(end / 100.0),
+        solid: true,
+        transparency: unit(r.get("On_Transparency", 0.0, 0.0, 100.0) / 100.0),
+        shimmer: r.check("On_Shimmer"),
     })
 }
 
@@ -459,46 +459,84 @@ fn color_wash(r: &Reader, colors: &[Rgb], diff: &mut Diff) -> EffectParams {
     })
 }
 
+/// xLights' Bars (`BarsEffect::Render`), which PixelFlow's Bars draws the same way: the palette
+/// `repeats` times over in bars with no gaps, moving a palette's length each cycle (a bar at a
+/// time: the whole prop's).
 fn bars(r: &Reader, n_colors: f64, duration_ms: u64, diff: &mut Diff) -> EffectParams {
+    use BarsMotion::{Slide, Split, Step};
     let repeats = r.get("Bars_BarCount", 1.0, 1.0, 5.0);
     let cycles = r.get("Bars_Cycles", 1.0, 0.0, 30.0);
-    diff.add("bars have gaps between them");
-    let (axis, reverse, moving) = match r.choice("Bars_Direction", "up") {
-        "up" => (Axis::Vertical, false, true),
-        "down" => (Axis::Vertical, true, true),
-        "Right" => (Axis::Horizontal, false, true),
-        "Left" => (Axis::Horizontal, true, true),
+    let center = r.get("Bars_Center", 0.0, -100.0, 100.0);
+    let center_moves = r.s.curve_active("E_VALUECURVE_Bars_Center");
+    let way = r.choice("Bars_Direction", "up");
+    let (axis, reverse, motion, moving) = match way {
+        "up" => (Axis::Vertical, false, Slide, true),
+        "down" => (Axis::Vertical, true, Slide, true),
+        "Right" => (Axis::Horizontal, false, Slide, true),
+        "Left" => (Axis::Horizontal, true, Slide, true),
+        "expand" => (Axis::Vertical, false, Split, true),
+        "compress" => (Axis::Vertical, true, Split, true),
+        "H-expand" => (Axis::Horizontal, false, Split, true),
+        "H-compress" => (Axis::Horizontal, true, Split, true),
+        "Alternate Up" => (Axis::Vertical, false, Step, true),
+        "Alternate Down" => (Axis::Vertical, true, Step, true),
+        "Alternate Right" => (Axis::Horizontal, false, Step, true),
+        "Alternate Left" => (Axis::Horizontal, true, Step, true),
+        // Bars that stand still, set along the prop by the center.
+        "Custom Horz" | "Custom Vert" => {
+            if center != 0.0 || center_moves {
+                diff.add(format!(
+                    "'{way}' bars not moved along the prop by the center setting"
+                ));
+            }
+            let axis = if way == "Custom Horz" {
+                Axis::Horizontal
+            } else {
+                Axis::Vertical
+            };
+            (axis, false, Slide, false)
+        }
         other => {
+            // "Custom": the closest of up, down, left, and right to the angle.
             diff.add(format!("'{other}' direction shown as straight movement"));
-            match other {
-                "expand" | "Alternate Up" => (Axis::Vertical, false, true),
-                "compress" | "Alternate Down" => (Axis::Vertical, true, true),
-                "H-expand" | "Alternate Right" => (Axis::Horizontal, false, true),
-                "H-compress" | "Alternate Left" => (Axis::Horizontal, true, true),
-                "Custom Horz" => (Axis::Horizontal, false, false),
-                "Custom Vert" => (Axis::Vertical, false, false),
-                _ => {
-                    // "Custom": the closest of up, down, left, and right to the angle.
-                    let angle = r.get("Bars_Angle", 90.0, -180.0, 180.0);
-                    if angle.abs() <= 45.0 {
-                        (Axis::Horizontal, false, true)
-                    } else if angle.abs() >= 135.0 {
-                        (Axis::Horizontal, true, true)
-                    } else {
-                        (Axis::Vertical, angle < 0.0, true)
-                    }
-                }
+            let angle = r.get("Bars_Angle", 90.0, -180.0, 180.0);
+            if angle.abs() <= 45.0 {
+                (Axis::Horizontal, false, Slide, true)
+            } else if angle.abs() >= 135.0 {
+                (Axis::Horizontal, true, Slide, true)
+            } else {
+                (Axis::Vertical, angle < 0.0, Slide, true)
             }
         }
     };
-    if r.check("Bars_Highlight") || r.check("Bars_3D") || r.check("Bars_Gradient") {
-        diff.add("highlight, 3D, or gradient look not shown");
+    // xLights reads a center that changes by where the bars are in their cycle, not the effect.
+    if motion == Split && center_moves && (cycles - 1.0).abs() > 1e-6 {
+        diff.add("a center that changes follows the effect, not each cycle of the bars");
+    }
+    let highlight = r.check("Bars_Highlight");
+    if highlight && r.check("Bars_UseFirstColorForHighlight") && n_colors > 1.0 {
+        diff.add("highlight in the palette's first color shown white, with that color as a bar");
+    }
+    // On a layer that isn't Normal, xLights takes the color out of an up-and-down bar's highlight
+    // rather than making it white.
+    if highlight && axis == Axis::Vertical && r.s.text("T_CHOICE_LayerMethod", "Normal") != "Normal" {
+        diff.add("highlight shown white rather than the bar's color greyed");
     }
     EffectParams::Bars(BarsParams {
         count: count(repeats * n_colors, 1, 1000),
-        speed: if moving { rate(cycles, duration_ms) } else { 0.0 },
+        speed: match motion {
+            _ if !moving => 0.0,
+            Step => rate(cycles, duration_ms),
+            Slide | Split => rate(cycles / repeats, duration_ms),
+        },
         axis,
         direction: direction(reverse),
+        motion,
+        fill: 1.0,
+        center: if motion == Split { center as f32 } else { 0.0 },
+        shaded: r.check("Bars_3D"),
+        highlight,
+        gradient: r.check("Bars_Gradient"),
     })
 }
 
@@ -668,32 +706,37 @@ fn lightning(r: &Reader, diff: &mut Diff) -> EffectParams {
     })
 }
 
-fn spirals(r: &Reader, n_colors: f64, duration_ms: u64, diff: &mut Diff) -> EffectParams {
+fn spirals(r: &Reader, n_colors: f64, duration_ms: u64) -> EffectParams {
     let repeats = r.get("Spirals_Count", 1.0, 1.0, 5.0);
     let movement = r.get("Spirals_Movement", 1.0, -20.0, 20.0);
-    if r.check("Spirals_Blend") || r.check("Spirals_3D") {
-        diff.add("blended or 3D look not shown");
-    }
-    if r.check("Spirals_Grow") || r.check("Spirals_Shrink") {
-        diff.add("growing or shrinking arms not shown");
-    }
     EffectParams::Spiral(SpiralParams {
         // One arm per palette color, repeated.
         count: count(repeats * n_colors, 1, 1000),
         speed: rate(movement.abs(), duration_ms),
         thickness: unit(r.get("Spirals_Thickness", 50.0, 0.0, 100.0) / 100.0),
-        // Wraps around the prop from bottom to top. Unlike most effects, Spirals stores its
-        // slider (tenths of a wrap), not the text box.
-        twist: match r.s.num("E_SLIDER_Spirals_Rotation") {
-            Some(tenths) => tenths / 10.0,
-            None => r.s.num("E_TEXTCTRL_Spirals_Rotation").unwrap_or(2.0),
-        }
-        .clamp(-30.0, 30.0) as f32,
+        // xLights shifts each row by `y * Rotation / height` cells, Rotation being the slider's
+        // number as it is (Spirals stores its slider, not the text box, and `SpiralsEffect`
+        // reads it undivided): cells across the height, not turns. It leans the other way from
+        // PixelFlow's.
+        twist: 0.0,
+        lean: -r
+            .s
+            .num("E_SLIDER_Spirals_Rotation")
+            .or_else(|| r.s.num("E_TEXTCTRL_Spirals_Rotation"))
+            .unwrap_or(0.0)
+            .clamp(-300.0, 300.0) as f32,
         direction: direction(movement < 0.0),
+        shaded: r.check("Spirals_3D"),
+        gradient: r.check("Spirals_Blend"),
+        grow: r.check("Spirals_Grow"),
+        shrink: r.check("Spirals_Shrink"),
     })
 }
 
+/// PixelFlow's Fire is a simulation of its own, not xLights' (`FireEffect::Render` builds each
+/// frame's flames afresh on the target's grid): the same kind of look, measurably different.
 fn fire(r: &Reader, diff: &mut Diff) -> EffectParams {
+    diff.add("PixelFlow's own flames: their shape and random placement differ from xLights'");
     if r.get("Fire_HueShift", 0.0, 0.0, 100.0) > 0.0 {
         diff.add("hue shift not applied");
     }
@@ -1538,6 +1581,14 @@ fn pictures(r: &Reader, duration_ms: u64, diff: &mut Diff) -> EffectParams {
         PictureFit::Actual => r.get("Pictures_StartScale", 100.0, 0.0, 1000.0),
         _ => 100.0,
     };
+    // xLights resizes by taking the nearest pixel (`wxImage::Rescale` as it calls it); PixelFlow
+    // blends them, so a resized picture's pixels aren't the same ones.
+    let resized = fit != PictureFit::Actual
+        || scale != 100.0
+        || r.get("Pictures_EndScale", 100.0, 0.0, 1000.0) != 100.0;
+    if resized {
+        diff.add("resized by blending its pixels, where xLights takes the nearest one");
+    }
     // A scrolling picture's offset up is taken downward by xLights.
     let up = r.get("PicturesYC", 0.0, -100.0, 100.0);
     let y_offset = if scrolls || movement == M::ZoomIn { -up } else { up };
@@ -1654,7 +1705,7 @@ fn effect_params(
         params
     };
     Kind::Params(match effect_key(name).as_str() {
-        "on" => on(&r, diff),
+        "on" => on(&r),
         "off" => EffectParams::Off(OffParams {}),
         "colorwash" => color_wash(&r, colors, diff),
         "bars" => bars(&r, n_colors, duration_ms, diff),
@@ -1664,7 +1715,7 @@ fn effect_params(
         "twinkle" => twinkle(&r, frame, diff),
         "shimmer" => shimmer(&r, duration_ms, diff),
         "strobe" => strobe(&r, frame, diff),
-        "spirals" => spirals(&r, n_colors, duration_ms, diff),
+        "spirals" => spirals(&r, n_colors, duration_ms),
         "fire" => fire(&r, diff),
         "meteors" => meteors(&r, diff),
         "ripple" => ripple(&r, duration_ms, diff),
@@ -2042,6 +2093,7 @@ pub fn translate(
                     gradient: Gradient::None,
                     start_level: PLACEHOLDER_LEVEL,
                     end_level: PLACEHOLDER_LEVEL,
+                    ..OnParams::default()
                 }),
                 palette: Palette::new(colors.first().copied().map_or_else(Vec::new, |c| vec![c])),
                 blend,
@@ -2218,6 +2270,7 @@ mod tests {
                 gradient: Gradient::None,
                 start_level: PLACEHOLDER_LEVEL,
                 end_level: PLACEHOLDER_LEVEL,
+                ..OnParams::default()
             })
         );
     }
@@ -2363,28 +2416,30 @@ mod tests {
 
     #[test]
     fn effect_settings_that_change_get_curves_through_the_translation() {
-        // Spirals' rotation (tenths of a wrap on the slider) on xLights' sine: two cycles,
-        // starting three quarters in, between -9 and 9 wraps.
+        // Spirals' rotation (cells across the height, on the slider) on xLights' sine: two
+        // cycles, starting three quarters in, between -90 and 90 cells. PixelFlow's lean counts
+        // the other way.
         let s = Settings::parse(
             "E_SLIDER_Spirals_Rotation=20,E_TEXTCTRL_Spirals_Movement=1.0,\
              E_VALUECURVE_Spirals_Rotation=Active=TRUE|Id=ID_VALUECURVE_Spirals_Rotation|Type=Sine|Min=-90.00|Max=90.00|P1=75.00|P2=90.00|P3=20.00|RV=TRUE|",
         );
         let t = translate("Spirals", &s, &palette(&[Rgb::RED]), 4000, 25).unwrap();
         assert_eq!(t.fidelity, Fidelity::Exact, "{:?}", t.fidelity);
-        let twist = &t.curves["twist"];
-        assert_eq!(twist.shape, CurveShape::Custom);
-        assert_eq!((twist.from, twist.to), (-9.0, 9.0));
+        let lean = &t.curves["lean"];
+        assert_eq!(lean.shape, CurveShape::Custom);
+        assert_eq!((lean.from, lean.to), (-90.0, 90.0));
         let EffectParams::Spiral(p) = t.params else {
             panic!("{:?}", t.params)
         };
-        assert_eq!(p.twist, -9.0, "the setting holds the curve's start");
+        assert_eq!(
+            (p.twist, p.lean),
+            (0.0, 90.0),
+            "the setting holds the curve's start"
+        );
         for time in [0.0f64, 0.1, 0.125, 0.25, 0.4, 0.5, 0.75] {
             let r = time * 2.0 * std::f64::consts::TAU + 0.75 * std::f64::consts::TAU;
-            let want = (9.0 * r.sin()) as f32;
-            assert!(
-                (twist.value_at(time as f32) - want).abs() < 0.01,
-                "{time}: {want}"
-            );
+            let want = (-90.0 * r.sin()) as f32;
+            assert!((lean.value_at(time as f32) - want).abs() < 0.1, "{time}: {want}");
         }
         assert!(t.curves.len() == 1, "nothing else changes: {:?}", t.curves.keys());
 
@@ -2408,12 +2463,158 @@ mod tests {
             [10.0, 10.0, 40.0, 40.0, 10.0, 40.0]
         );
 
-        // Curves on settings PixelFlow doesn't use change nothing.
+        // Curves on settings that do nothing change nothing: bars going one way have no center.
         let s = Settings::parse(
             "E_VALUECURVE_Bars_Center=Active=TRUE|Type=Ramp|Min=-100.00|Max=100.00|P1=-100.00|P2=100.00|RV=TRUE|",
         );
         let t = translate("Bars", &s, &palette(&[Rgb::RED]), 2000, 25).unwrap();
         assert!(t.curves.is_empty());
+        // Bars from the center follow it.
+        let s = Settings::parse(
+            "E_CHOICE_Bars_Direction=expand,\
+             E_VALUECURVE_Bars_Center=Active=TRUE|Type=Ramp|Min=-100.00|Max=100.00|P1=-100.00|P2=100.00|RV=TRUE|",
+        );
+        let t = translate("Bars", &s, &palette(&[Rgb::RED]), 2000, 25).unwrap();
+        assert_eq!(t.curves["center"], Curve::ramp(-100.0, 100.0));
+        assert_eq!(t.fidelity, Fidelity::Exact);
+    }
+
+    #[test]
+    fn spirals_come_across_with_their_looks() {
+        let s = Settings::parse(
+            "E_CHECKBOX_Spirals_3D=1,E_CHECKBOX_Spirals_Blend=1,E_CHECKBOX_Spirals_Grow=1,\
+             E_SLIDER_Spirals_Count=1,E_SLIDER_Spirals_Rotation=20,E_SLIDER_Spirals_Thickness=50,\
+             E_TEXTCTRL_Spirals_Movement=1.0",
+        );
+        let t = translate(
+            "Spirals",
+            &s,
+            &palette(&[Rgb::RED, Rgb::GREEN, Rgb::BLUE]),
+            5000,
+            50,
+        )
+        .unwrap();
+        assert_eq!(
+            t.params,
+            EffectParams::Spiral(SpiralParams {
+                count: 3,
+                speed: 0.2,
+                thickness: 0.5,
+                twist: 0.0,
+                lean: -20.0,
+                direction: Direction::Forward,
+                shaded: true,
+                gradient: true,
+                grow: true,
+                shrink: false,
+            })
+        );
+        assert_eq!(t.fidelity, Fidelity::Exact);
+    }
+
+    #[test]
+    fn bars_come_across_with_their_movement_and_looks() {
+        let bars = |settings: &str| {
+            let t = translate(
+                "Bars",
+                &Settings::parse(settings),
+                &palette(&[Rgb::RED, Rgb::GREEN]),
+                4000,
+                50,
+            )
+            .unwrap();
+            match t.params {
+                EffectParams::Bars(p) => (p, t.fidelity),
+                other => panic!("{other:?}"),
+            }
+        };
+        // xLights' defaults: one palette of bars with no gaps, going up a palette's length (the
+        // whole prop) once over the effect.
+        let (p, fidelity) = bars("");
+        assert_eq!(
+            p,
+            BarsParams {
+                count: 2,
+                speed: 0.25,
+                axis: Axis::Vertical,
+                direction: Direction::Forward,
+                motion: BarsMotion::Slide,
+                fill: 1.0,
+                center: 0.0,
+                shaded: false,
+                highlight: false,
+                gradient: false,
+            }
+        );
+        assert_eq!(fidelity, Fidelity::Exact);
+
+        // Three palettes: each of the 6 cycles moves a third of the prop. 'compress' closes in on
+        // the center; the looks come along.
+        let (p, fidelity) = bars(
+            "E_CHOICE_Bars_Direction=H-compress,E_SLIDER_Bars_BarCount=3,E_TEXTCTRL_Bars_Cycles=6.0,\
+             E_TEXTCTRL_Bars_Center=57,E_CHECKBOX_Bars_3D=1,E_CHECKBOX_Bars_Gradient=1,E_CHECKBOX_Bars_Highlight=1",
+        );
+        assert_eq!(
+            p,
+            BarsParams {
+                count: 6,
+                speed: 0.5,
+                axis: Axis::Horizontal,
+                direction: Direction::Reverse,
+                motion: BarsMotion::Split,
+                fill: 1.0,
+                center: 57.0,
+                shaded: true,
+                highlight: true,
+                gradient: true,
+            }
+        );
+        assert_eq!(fidelity, Fidelity::Exact);
+        let (p, _) = bars("E_CHOICE_Bars_Direction=expand");
+        assert_eq!(
+            (p.axis, p.direction, p.motion),
+            (Axis::Vertical, Direction::Forward, BarsMotion::Split)
+        );
+
+        // A bar at a time crosses the whole prop each cycle, however many palettes there are.
+        let (p, fidelity) = bars(
+            "E_CHOICE_Bars_Direction=Alternate Left,E_SLIDER_Bars_BarCount=3,E_TEXTCTRL_Bars_Cycles=6.0",
+        );
+        assert_eq!(
+            (p.axis, p.direction, p.motion, p.speed),
+            (Axis::Horizontal, Direction::Reverse, BarsMotion::Step, 1.5)
+        );
+        assert_eq!(fidelity, Fidelity::Exact);
+
+        // 'Custom Horz' bars stand still where the center puts them: whole only in the middle.
+        let (p, fidelity) = bars("E_CHOICE_Bars_Direction=Custom Horz,E_TEXTCTRL_Bars_Cycles=6.0");
+        assert_eq!(
+            (p.axis, p.direction, p.motion, p.speed),
+            (Axis::Horizontal, Direction::Forward, BarsMotion::Slide, 0.0)
+        );
+        assert_eq!(fidelity, Fidelity::Exact);
+        let approximate = |settings: &str, note: &str| match bars(settings).1 {
+            Fidelity::Approximate(notes) => assert_eq!(notes, [note], "{settings}"),
+            other => panic!("{settings}: {other:?}"),
+        };
+        approximate(
+            "E_CHOICE_Bars_Direction=Custom Vert,E_TEXTCTRL_Bars_Center=20",
+            "'Custom Vert' bars not moved along the prop by the center setting",
+        );
+        // What PixelFlow's bars don't do is said.
+        approximate(
+            "E_CHECKBOX_Bars_Highlight=1,E_CHECKBOX_Bars_UseFirstColorForHighlight=1",
+            "highlight in the palette's first color shown white, with that color as a bar",
+        );
+        approximate(
+            "E_CHECKBOX_Bars_Highlight=1,T_CHOICE_LayerMethod=Additive",
+            "highlight shown white rather than the bar's color greyed",
+        );
+        approximate(
+            "E_CHOICE_Bars_Direction=compress,E_TEXTCTRL_Bars_Cycles=2.0,\
+             E_VALUECURVE_Bars_Center=Active=TRUE|Type=Ramp|Min=-100.00|Max=100.00|P1=-100.00|P2=100.00|RV=TRUE|",
+            "a center that changes follows the effect, not each cycle of the bars",
+        );
     }
 
     #[test]
@@ -2493,6 +2694,35 @@ mod tests {
                 .curves
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn on_comes_across_solid_with_its_shimmer_and_transparency() {
+        // xLights' On dims its color and still covers what's below; only its transparency
+        // lets that through.
+        let s = Settings::parse(
+            "E_TEXTCTRL_Eff_On_Start=80,E_TEXTCTRL_Eff_On_End=20,E_CHECKBOX_On_Shimmer=1,E_TEXTCTRL_On_Transparency=30",
+        );
+        let t = translate("On", &s, &palette(&[Rgb::RED, Rgb::BLUE]), 1000, 50).unwrap();
+        assert_eq!(
+            t.params,
+            EffectParams::On(OnParams {
+                gradient: Gradient::None,
+                start_level: 0.8,
+                end_level: 0.2,
+                solid: true,
+                transparency: 0.3,
+                shimmer: true,
+            })
+        );
+        assert_eq!(t.fidelity, Fidelity::Exact);
+        // A transparency that follows the music becomes a curve that does.
+        let s = Settings::parse(
+            "E_VALUECURVE_On_Transparency=Active=TRUE|Id=ID_VALUECURVE_On_Transparency|Type=Music|Min=0.00|Max=100.00|P2=100.00|RV=TRUE|",
+        );
+        let t = translate("On", &s, &palette(&[Rgb::RED]), 1000, 50).unwrap();
+        assert_eq!(t.curves["transparency"], Curve::music(0.0, 1.0, 0.0, false));
+        assert_eq!(t.fidelity, Fidelity::Exact);
     }
 
     #[test]
@@ -3210,14 +3440,41 @@ mod tests {
     }
 
     #[test]
+    fn fire_is_pixelflows_own_and_says_so() {
+        // Even with nothing set that PixelFlow's fire lacks, its flames aren't xLights'.
+        let s = Settings::parse("E_SLIDER_Fire_Height=70");
+        let t = translate("Fire", &s, &palette(&[]), 2000, 25).unwrap();
+        assert!(matches!(&t.params, EffectParams::Fire(p) if (p.height - 0.7).abs() < 1e-6));
+        assert_eq!(
+            t.fidelity,
+            Fidelity::Approximate(vec![
+                "PixelFlow's own flames: their shape and random placement differ from xLights'".into()
+            ])
+        );
+        let s = Settings::parse("E_SLIDER_Fire_HueShift=40,E_CHOICE_Fire_Location=Top");
+        let Fidelity::Approximate(reasons) = translate("Fire", &s, &palette(&[]), 2000, 25).unwrap().fidelity
+        else {
+            panic!("approximate")
+        };
+        assert_eq!(
+            reasons,
+            [
+                "PixelFlow's own flames: their shape and random placement differ from xLights'",
+                "hue shift not applied",
+                "fire from the top shown rising from the bottom",
+            ]
+        );
+    }
+
+    #[test]
     fn settings_beyond_pixelflows_ranges_are_clamped_and_reported() {
-        // 25 wraps is more twist than PixelFlow's spiral allows.
-        let s = Settings::parse("E_SLIDER_Spirals_Rotation=250,E_TEXTCTRL_Spirals_Movement=1.0");
-        let t = translate("Spirals", &s, &palette(&[Rgb::RED]), 1000, 25).unwrap();
+        // 20 turns in half a second is faster than PixelFlow's spiral turns.
+        let s = Settings::parse("E_SLIDER_Spirals_Rotation=250,E_TEXTCTRL_Spirals_Movement=20.0");
+        let t = translate("Spirals", &s, &palette(&[Rgb::RED]), 500, 25).unwrap();
         let EffectParams::Spiral(p) = t.params else {
             panic!("{:?}", t.params)
         };
-        assert_eq!(p.twist, 10.0);
+        assert_eq!((p.speed, p.lean), (20.0, -250.0));
         assert_eq!(t.params.setting_problem(), None);
         assert_eq!(
             t.fidelity,
@@ -3309,7 +3566,11 @@ mod tests {
             r"E_TEXTCTRL_Pictures_Filename=C:\Users\me\xlights\Images\santa dancing.gif,E_CHOICE_Scaling=Scale Keep Aspect Ratio,E_CHOICE_Pictures_Direction=left,E_TEXTCTRL_Pictures_Speed=2,E_SLIDER_PicturesXC=10,E_SLIDER_PicturesYC=-20,E_CHECKBOX_Pictures_WrapX=1,E_CHECKBOX_LoopGIF=1,E_TEXTCTRL_Pictures_FrameRateAdj=1.5,E_CHECKBOX_Pictures_TransparentBlack=1,E_TEXTCTRL_Pictures_TransparentBlack=153",
             10_000,
         );
-        assert_eq!(t.fidelity, Fidelity::Exact);
+        // Everything comes across; only the resizing isn't xLights' (it takes the nearest pixel).
+        assert_eq!(
+            notes(&t),
+            ["resized by blending its pixels, where xLights takes the nearest one"]
+        );
         assert!(
             (p.black_level - 20.0).abs() < 1e-4,
             "153 of 765 is a fifth: {}",
@@ -3371,11 +3632,10 @@ mod tests {
                 &format!("E_CHOICE_Scaling={scaling},E_SLIDER_PicturesYC=30"),
                 1000,
             );
-            assert_eq!(
-                (p.fit, p.y_offset, &t.fidelity),
-                (fit, 30.0, &Fidelity::Exact),
-                "{scaling}"
-            );
+            assert_eq!((p.fit, p.y_offset), (fit, 30.0), "{scaling}");
+            // Only a picture at its own size is the same pixels as xLights'.
+            let same = notes(&t).is_empty();
+            assert_eq!(same, fit == PictureFit::Actual, "{scaling}: {:?}", t.fidelity);
         }
         let (old, t) = picture(
             "E_FILEPICKER_Pictures_Filename=tree.png,E_CHECKBOX_Pictures_ScaleToFit=1,E_CHECKBOX_Pictures_PixelOffsets=1",
@@ -3385,7 +3645,10 @@ mod tests {
             (old.file.as_str(), old.fit, old.pixel_offsets),
             ("tree.png", PictureFit::Stretch, true)
         );
-        assert_eq!(t.fidelity, Fidelity::Exact);
+        assert_eq!(
+            notes(&t),
+            ["resized by blending its pixels, where xLights takes the nearest one"]
+        );
         let (older, _) = picture("E_FILEPICKERCTRL_Pictures_Filename= star.bmp ", 1000);
         assert_eq!(older.file, "star.bmp");
         // Up and down scroll too (xLights never wraps them); a frame rate out of range is noted.
@@ -3502,6 +3765,12 @@ mod tests {
         );
         assert_eq!(p.scale, 50.0);
         assert_eq!(t.curves["scale"], Curve::ramp(50.0, 200.0));
+        assert_eq!(
+            notes(&t),
+            ["resized by blending its pixels, where xLights takes the nearest one"]
+        );
+        // At its own size the whole time, nothing is resized.
+        let (_, t) = picture("E_CHOICE_Scaling=No Scaling", 4_000);
         assert_eq!(t.fidelity, Fidelity::Exact);
         // Three times over, with the movement's speed.
         let (_, t) = picture(

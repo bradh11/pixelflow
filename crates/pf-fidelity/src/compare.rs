@@ -771,8 +771,7 @@ impl Prepared {
         }
         if missing > 0 {
             notes.push(format!(
-                "The reference is shorter: {missing} of {frames} frames have nothing to compare with \
-                 (PixelFlow keeps a last, partial frame that xLights leaves out)."
+                "The reference is shorter: {missing} of {frames} frames have nothing to compare with."
             ));
         }
         if !gaps.is_empty() {

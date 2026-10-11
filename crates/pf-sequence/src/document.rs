@@ -17,11 +17,52 @@ use serde::{Deserialize, Serialize};
 /// music (`musicSparkles`, the music and timing curve shapes), the VU Meter effect, and Shape and
 /// Tendril settings that follow the music; 7 = the show effects (Impact, Wipe, Lightning, Pulse,
 /// Sing, Color Shift) and Chase's order and timing track; 8 = the Dancer effect; 9 = the Picture
-/// effect.
-pub const CURRENT_SCHEMA_VERSION: u32 = 9;
+/// effect; 10 = the sequence says how its rows meet the rows before them (`rowBlending`), and
+/// Spiral has a `lean` and looks, Bars a movement, bar size, center, and looks, and On can be
+/// solid, see-through, and shimmer.
+pub const CURRENT_SCHEMA_VERSION: u32 = 10;
 
 fn default_frame_ms() -> u32 {
     25
+}
+
+/// How a row's result meets what the rows before it drew on the same pixels.
+///
+/// Rows are drawn in order. `Cover` is PixelFlow's own way. The other two are xLights' two ways,
+/// which an imported sequence keeps: its "Model Blending" setting on (`Blend`) or off
+/// (`Replace`). In both, a row with an effect playing writes every one of its pixels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(
+    feature = "schema",
+    schemars(
+        description = "How a row meets the rows before it: cover, blend (xLights' Model Blending), or replace."
+    )
+)]
+#[serde(rename_all = "camelCase")]
+pub enum RowBlending {
+    /// Where the row is lit it covers what's there; where it's clear, the earlier rows show. The
+    /// row's lowest effect covers whatever its blend.
+    #[cfg_attr(feature = "schema", schemars(description = ""))]
+    #[default]
+    Cover,
+    /// The row's lowest effect mixes with what the earlier rows drew by its own blend, as its
+    /// other effects do with the layers below them.
+    #[cfg_attr(feature = "schema", schemars(description = ""))]
+    Blend,
+    /// The row replaces what's there on all its pixels, lit or not (its lowest effect covers
+    /// whatever its blend), except that a submodel's row mixes, as in `Blend`, with what its
+    /// prop's own row drew at that moment.
+    #[cfg_attr(feature = "schema", schemars(description = ""))]
+    Replace,
+}
+
+impl RowBlending {
+    pub const ALL: [RowBlending; 3] = [RowBlending::Cover, RowBlending::Blend, RowBlending::Replace];
+
+    fn is_cover(&self) -> bool {
+        *self == RowBlending::Cover
+    }
 }
 
 /// An authored sequence: effects on the show's props and groups, timed to music.
@@ -40,7 +81,11 @@ pub struct Sequence {
     pub frame_ms: u32,
     #[serde(default)]
     pub timing_tracks: Vec<TimingTrack>,
-    /// Drawn in order: a later row covers an earlier one where both light the same pixels.
+    /// How each row meets the rows before it (left out of the file when rows cover).
+    #[serde(default, skip_serializing_if = "RowBlending::is_cover")]
+    pub row_blending: RowBlending,
+    /// Drawn in order: a later row covers an earlier one where both light the same pixels (or
+    /// mixes with it, or replaces it: see [`RowBlending`]).
     #[serde(default)]
     pub rows: Vec<Row>,
 }
@@ -55,6 +100,7 @@ impl Sequence {
             duration_ms,
             frame_ms: default_frame_ms(),
             timing_tracks: Vec::new(),
+            row_blending: RowBlending::default(),
             rows: Vec::new(),
         }
     }
@@ -62,6 +108,17 @@ impl Sequence {
     /// Frames needed to cover the whole duration (the last one may be partial).
     pub fn frame_count(&self) -> u64 {
         self.duration_ms.div_ceil(u64::from(self.frame_ms.max(1)))
+    }
+
+    /// The frames an exported file holds: the whole ones. A frame the sequence ends part way
+    /// through is left out, as xLights leaves it out, so the file never plays longer than the
+    /// sequence (and its music). A sequence shorter than one frame still has one.
+    pub fn whole_frame_count(&self) -> u64 {
+        if self.duration_ms == 0 {
+            0
+        } else {
+            (self.duration_ms / u64::from(self.frame_ms.max(1))).max(1)
+        }
     }
 
     /// Every effect in the sequence.
@@ -285,6 +342,22 @@ mod tests {
         assert_eq!(seq.frame_count(), 40);
         seq.duration_ms = 1001;
         assert_eq!(seq.frame_count(), 41);
+    }
+
+    #[test]
+    fn an_exported_file_holds_the_whole_frames() {
+        // 566,635 ms at 50 ms a frame: xLights writes 11,332 frames, not a 11,333rd for the
+        // last 35 ms.
+        let mut seq = Sequence::new("s", 566_635);
+        seq.frame_ms = 50;
+        assert_eq!((seq.whole_frame_count(), seq.frame_count()), (11_332, 11_333));
+        seq.duration_ms = 1000;
+        assert_eq!(seq.whole_frame_count(), 20);
+        // Shorter than a frame is still one frame; no length is none.
+        seq.duration_ms = 30;
+        assert_eq!(seq.whole_frame_count(), 1);
+        seq.duration_ms = 0;
+        assert_eq!(seq.whole_frame_count(), 0);
     }
 
     #[test]

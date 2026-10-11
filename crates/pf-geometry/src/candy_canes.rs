@@ -1,6 +1,7 @@
 //! Candy canes as xLights lays them out (`CandyCaneModel::SetCaneCoord`, one light per node),
 //! scaled to the prop's width.
 
+use crate::OwnGrid;
 use pf_model::Vec3;
 use std::f64::consts::PI;
 
@@ -31,6 +32,22 @@ fn spot(x: u32, n: u32, alternate: bool) -> u32 {
         2 * x
     } else {
         (n - (x + 1)) * 2 + 1
+    }
+}
+
+/// The grid candy canes' effects are drawn on, as xLights lays it out
+/// (`CandyCaneModel::InitModel`): a column for each cane, from the left, and a row for each
+/// pixel along it, from its foot.
+pub(crate) fn grid(canes: u32, nodes_per_cane: u32, alternate_nodes: bool, start_right: bool) -> OwnGrid {
+    OwnGrid {
+        columns: canes,
+        rows: nodes_per_cane,
+        cells: (0..canes)
+            .flat_map(|nth| {
+                let i = if start_right { canes - 1 - nth } else { nth };
+                (0..nodes_per_cane).map(move |x| [i, spot(x, nodes_per_cane, alternate_nodes)])
+            })
+            .collect(),
     }
 }
 
@@ -86,6 +103,20 @@ pub(crate) fn positions(c: Canes) -> Vec<Vec3> {
 mod tests {
     use super::*;
     use crate::assert_close;
+
+    #[test]
+    fn the_grid_drawn_on_is_a_column_for_each_cane() {
+        let g = grid(2, 3, false, false);
+        assert_eq!((g.columns, g.rows), (2, 3));
+        assert_eq!(g.cells, [[0, 0], [0, 1], [0, 2], [1, 0], [1, 1], [1, 2]]);
+        // Wired from the right, the first cane is the last column; with alternate nodes its
+        // pixels go up every other spot and come back down the ones between.
+        assert_eq!(
+            grid(2, 3, false, true).cells[..4],
+            [[1, 0], [1, 1], [1, 2], [0, 0]]
+        );
+        assert_eq!(grid(1, 4, true, false).cells, [[0, 0], [0, 2], [0, 3], [0, 1]]);
+    }
 
     /// One cane of nine pixels, three wide: six up the stick, three round the hook.
     fn cane() -> Canes {

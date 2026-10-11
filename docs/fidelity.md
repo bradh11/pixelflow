@@ -145,3 +145,67 @@ stand-ins. One reference was unrendered for 39% of its pixel-time and one had no
 - Of the 215 "exact" labels, 154 could be judged; 8 differ when judged alone (the tree spiral, a
   wash's fade, a plasma, a fan, a morph, and three pictures), 73 only with other effects mixed in,
   and 30 stochastic ones by their distribution.
+
+## What the first round of fixes changed
+
+The same seven sequences, scored again after the fixes below (error per channel, share of pixels
+within tolerance, lit agreement):
+
+| Sequence | Before | After |
+|---|---|---|
+| A | 57.8, 43%, 0.78 | 26.2, 68%, 0.92 |
+| B | 70.0, 25%, 0.86 | 55.0, 43%, 0.87 |
+| C | 26.9, 63%, 0.89 | 29.0, 63%, 0.88 |
+| D | 77.8, 28%, 0.81 | 22.0, 77%, 0.91 |
+| E | 62.2, 17%, 0.48 | 62.1, 17%, 0.48 |
+| G | 56.9, 33%, 0.75 | 28.1, 56%, 0.91 |
+
+What xLights does, as read from its source (2024.19) and checked against the references:
+
+- **Rows.** Rows render top to bottom of the sequence. With Model Blending on, what the rows so
+  far have put on a model's pixels becomes one more layer under the row, and the row's lowest
+  effect mixes with it by its own layer method. With it off, a row writes all its pixels, lit or
+  not, whenever it has an effect playing. A sequence now says which (`rowBlending`); an import
+  sets it, and a sequence made in PixelFlow keeps PixelFlow's rule (a later row covers where it's
+  lit).
+- **Fades** are counted in frames (the first frame of a fade-in is already one step up, the last
+  frame of a fade-out is dark), are transparency only under the Normal layer method, and are
+  brightness under every other.
+- **A model's own buffer.** Trees, arches, candy canes, circles, window frames, spinners,
+  spheres, and custom models draw on the grid xLights gives them (a tree's strings by the pixels
+  up them), and so do their groups under the per-model render styles.
+- **A group left of or below the layout's origin** is measured out to the origin by xLights'
+  "minimal grid", which changes its scale.
+- **Spirals** are drawn cell by cell: stripes a whole number of cells apart, rotation counted in
+  cells across the height rather than turns, with 3D, Blend, Grow, and Shrink.
+- **Bars** are drawn cell by cell: bars of whole cells, 'expand' and 'compress' mirrored about
+  the center, 'Alternate' a bar at a time, with 3D, highlight, and gradient.
+- **On** dims its color and stays solid; only its transparency lets what's below through. With
+  shimmer it draws every other frame.
+- **An exported file** holds the sequence's whole frames, not one more for a part frame.
+
+The label audit, over all seven: 230 effects are now labelled exact (215 before), 101 approximate
+(116), 10 placeholders. Of 168 exact ones that could be judged, 6 differ when judged alone, 63
+only with other effects mixed in, and 20 stochastic ones by their distribution (8, 73, and 30 of
+154 before). Fire, resized pictures, canvas mode above a row's bottom layer, and effects on a
+line that runs up and down, a poly line, or a measured model are now imported as approximations,
+each with its reason.
+
+What the remaining differences are:
+
+- **The references themselves.** The six "exact" effects that still differ alone all belong to
+  one group that spans the layout, and are alone only on three props whose pixel counts differ
+  between this layout and an older one: the reference holds other content there (a plain wash
+  is another color), while the same effects match on every other prop. One long reference is
+  also only partly rendered in its second half. A second pass should start from references
+  rendered on the layout as it is now.
+- **Effects that share pixels with a random or approximated one** can't be told apart from it.
+  Most of the 63 are of this kind: a wash under random shapes, a flash under fire.
+- **Fire** is the largest effect still drawn differently: PixelFlow's is a simulation of its
+  own, where xLights builds each frame's flames afresh on the target's grid.
+- **Shader** effects are placeholders; **Shockwave** and **Fill** are shown as the nearest
+  PixelFlow effect; a layer's hue, saturation, and brightness shifts aren't applied.
+- **Lines, poly lines, and measured models** still draw on their front view when an effect is on
+  the prop alone. A line needs to keep the direction it was drawn in, and an imported model the
+  buffer cell xLights gives each pixel, for those to match.
+- **Pictures** are resized by blending; xLights takes the nearest pixel.

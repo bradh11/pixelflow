@@ -29,6 +29,12 @@ pub(crate) fn app_in(
 /// The app, with its data in `dir`, before its window is made (running it makes the
 /// window from the app's configuration).
 pub(crate) fn app_without_window(dir: &std::path::Path) -> App<MockRuntime> {
+    builder(dir).build(context()).unwrap()
+}
+
+/// The app with its data in `dir`, before it's built: tests that need more state than every
+/// command's (the assistant's, Find lyrics') manage it first.
+pub(crate) fn builder(dir: &std::path::Path) -> tauri::Builder<MockRuntime> {
     // Nothing reaches the network or a sound device: packets are recorded and music is timed
     // by a silent stopwatch.
     let (transport, _recorded) = pf_output::RecordingTransport::new();
@@ -64,12 +70,14 @@ pub(crate) fn app_without_window(dir: &std::path::Path) -> App<MockRuntime> {
             ))
         })))
         .manage(vocals::VocalsState::default())
-        .build(context())
-        .unwrap()
 }
 
-/// Calls a command the way the UI does and returns its JSON reply (or error message).
-pub(crate) fn call(webview: &WebviewWindow<MockRuntime>, cmd: &str, args: Value) -> Result<Value, Value> {
+/// Calls a command the way the UI does and returns its reply as it came (or error message).
+pub(crate) fn request(
+    webview: &WebviewWindow<MockRuntime>,
+    cmd: &str,
+    args: Value,
+) -> Result<InvokeResponseBody, Value> {
     get_ipc_response(
         webview,
         InvokeRequest {
@@ -82,7 +90,11 @@ pub(crate) fn call(webview: &WebviewWindow<MockRuntime>, cmd: &str, args: Value)
             invoke_key: INVOKE_KEY.to_string(),
         },
     )
-    .map(|body| body.deserialize::<Value>().unwrap())
+}
+
+/// Calls a command the way the UI does and returns its JSON reply (or error message).
+pub(crate) fn call(webview: &WebviewWindow<MockRuntime>, cmd: &str, args: Value) -> Result<Value, Value> {
+    request(webview, cmd, args).map(|body| body.deserialize::<Value>().unwrap())
 }
 
 /// Calls a command that answers with raw bytes.
@@ -91,19 +103,7 @@ pub(crate) fn call_raw(
     cmd: &str,
     args: Value,
 ) -> Result<Vec<u8>, Value> {
-    let reply = get_ipc_response(
-        webview,
-        InvokeRequest {
-            cmd: cmd.into(),
-            callback: CallbackFn(0),
-            error: CallbackFn(1),
-            url: webview.url().unwrap(),
-            body: InvokeBody::Json(args),
-            headers: Default::default(),
-            invoke_key: INVOKE_KEY.to_string(),
-        },
-    )?;
-    match reply {
+    match request(webview, cmd, args)? {
         InvokeResponseBody::Raw(bytes) => Ok(bytes.to_vec()),
         other => panic!("expected raw bytes, got {other:?}"),
     }

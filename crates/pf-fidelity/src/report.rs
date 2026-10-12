@@ -1,7 +1,7 @@
 //! The scorecards as markdown, for reading: how the import looks first, the pixel-for-pixel
 //! diagnostics last.
 
-use crate::look::{Component, Components};
+use crate::look::{Chance, Component, Components};
 use crate::metrics::Scores;
 use crate::scorecard::{
     AuditEntry, Basis, ByVerdict, Class, CorpusCard, EffectScore, ExactKind, Improve, KindScore, LabelAudit,
@@ -84,7 +84,12 @@ pub fn headline(look: &LookSummary) -> String {
     parts.join(" · ")
 }
 
-fn look_summary(out: &mut String, look: &LookSummary) {
+/// Whether judging every effect moment by moment gives another summary.
+fn another(look: &LookSummary, by_moment: &LookSummary) -> bool {
+    look.score != by_moment.score || look.time != by_moment.time || look.effects != by_moment.effects
+}
+
+fn look_summary(out: &mut String, look: &LookSummary, by_moment: &LookSummary) {
     let _ = writeln!(out, "**{}**\n", headline(look));
     if look.judged == 0 {
         return;
@@ -125,6 +130,128 @@ fn look_summary(out: &mut String, look: &LookSummary) {
         let _ = writeln!(out, "\n| {} |", component_names().join(" | "));
         let _ = writeln!(out, "|{}", "---|".repeat(Component::ALL.len()));
         let _ = writeln!(out, "| {} |", component_cells(components).join(" | "));
+    }
+    if another(look, by_moment) {
+        let _ = writeln!(
+            out,
+            "\nEffects that draw on chance are judged next to PixelFlow's own renders from other \
+             seeds. With every effect held moment by moment against xLights' render alone, as all \
+             were before: {}; look score {}.",
+            headline(by_moment).to_lowercase(),
+            maybe(by_moment.score, whole)
+        );
+        if let Some(components) = &by_moment.components {
+            let _ = writeln!(out, "\n| {} |", component_names().join(" | "));
+            let _ = writeln!(out, "|{}", "---|".repeat(Component::ALL.len()));
+            let _ = writeln!(out, "| {} |", component_cells(components).join(" | "));
+        }
+    }
+}
+
+/// A score beside the one an effect is judged on, when it is another.
+fn beside(score: f64, judged: f64) -> String {
+    if (score - judged).abs() < 0.05 {
+        "–".to_string()
+    } else {
+        whole(score)
+    }
+}
+
+/// A look next to other seeds within this of what it scores by moment is taken as unmoved.
+const UNMOVED: f64 = 0.5;
+
+/// The effects judged next to PixelFlow's other seeds: how many, and those whose look that
+/// changed, or says little, the longest first.
+fn chance_effects(out: &mut String, card: &Scorecard) {
+    let held: Vec<&EffectScore> = card
+        .effects
+        .iter()
+        .filter(|e| e.look.as_ref().is_some_and(|l| l.chance != Chance::Nothing))
+        .collect();
+    let judged = card.effects.iter().filter(|e| e.look.is_some()).count();
+    if held.is_empty() {
+        let _ = writeln!(
+            out,
+            "None of the {judged} effects judged: each is held moment by moment against xLights' \
+             render alone."
+        );
+        return;
+    }
+    let draws = |chance: Chance| held.iter().filter(|e| e.chance == chance).count();
+    let moved = |e: &EffectScore| {
+        e.look.as_ref().map_or(0.0, |l| {
+            l.by_moment
+                .map_or(0.0, |by_moment| (l.score - by_moment.score).abs())
+        })
+    };
+    let mut listed: Vec<&EffectScore> = held
+        .iter()
+        .copied()
+        .filter(|e| moved(e) > UNMOVED || e.look.as_ref().is_some_and(|l| l.caveat.is_some()))
+        .collect();
+    let _ = writeln!(
+        out,
+        "{} of the {judged} effects judged: {} whose moments are chance, {} that draw on chance \
+         with their moments set, and {} that draw on none but share their pixels with one that \
+         does. For {} of them the look is within {UNMOVED} of what they score by moment. The rest, \
+         and those that say little:\n",
+        held.len(),
+        draws(Chance::Moments),
+        draws(Chance::Drawn),
+        draws(Chance::Nothing),
+        held.iter().filter(|e| moved(e) <= UNMOVED).count(),
+    );
+    if listed.is_empty() {
+        let _ = writeln!(out, "None.");
+        return;
+    }
+    listed.sort_by(|a, b| {
+        (moved(b) * b.seconds())
+            .total_cmp(&(moved(a) * a.seconds()))
+            .then(a.index.cmp(&b.index))
+    });
+    let _ = writeln!(
+        out,
+        "| # | Effect | On | At | Chance decides | Because | Looks | Score | By moment | Judged | Itself | |"
+    );
+    let _ = writeln!(out, "|---|---|---|---|---|---|---|---|---|---|---|---|");
+    for e in listed.iter().take(MOST_ROWS) {
+        let (Some(judged), Some((_, look))) = (&e.look, e.look_basis(&card.method.audit)) else {
+            continue;
+        };
+        let _ = writeln!(
+            out,
+            "| {} | {} | {} | {}–{} | {} | {} | {} | {} | {} | {} | {} | {} |",
+            e.index,
+            cell(&e.kind),
+            cell(&e.target),
+            time(e.start_ms),
+            time(e.end_ms),
+            e.chance.title(),
+            e.chance_reason.as_deref().map_or_else(
+                || "it shares its pixels with an effect that draws on chance".to_string(),
+                cell
+            ),
+            judged.verdict.title(),
+            whole(judged.score),
+            judged.by_moment.map_or_else(
+                || "–".to_string(),
+                |m| format!("{} ({})", whole(m.score), m.verdict.title().to_lowercase())
+            ),
+            basis(judged.basis),
+            maybe(look.itself, two),
+            judged
+                .caveat
+                .as_deref()
+                .map_or_else(String::new, |c| cell(c.split(':').next().unwrap_or(c))),
+        );
+    }
+    if listed.len() > MOST_ROWS {
+        let _ = writeln!(
+            out,
+            "\n…and {} more (the JSON scorecard lists them all).",
+            listed.len() - MOST_ROWS
+        );
     }
 }
 
@@ -175,12 +302,12 @@ fn improve(out: &mut String, ranked: &[Improve]) {
 fn kind_looks(out: &mut String, kinds: &[KindScore]) {
     let _ = writeln!(
         out,
-        "| Effect | Instances | Judged (alone) | Look | {} | Matches / close / different / no equivalent |",
+        "| Effect | Instances | Judged (alone) | Look | By moment | {} | Matches / close / different / no equivalent |",
         component_names().join(" | ")
     );
     let _ = writeln!(
         out,
-        "|---|---|---|---|{}---|",
+        "|---|---|---|---|---|{}---|",
         "---|".repeat(Component::ALL.len())
     );
     let mut kinds: Vec<&KindScore> = kinds.iter().collect();
@@ -195,11 +322,12 @@ fn kind_looks(out: &mut String, kinds: &[KindScore]) {
             Some(look) => {
                 let _ = writeln!(
                     out,
-                    "| {name} | {} | {} ({}) | {} | {} | {} |",
+                    "| {name} | {} | {} ({}) | {} | {} | {} | {} |",
                     k.instances,
                     look.judged,
                     look.judged_alone,
                     whole(look.score),
+                    beside(look.by_moment, look.score),
                     component_cells(&look.components).join(" | "),
                     counts(&look.verdicts)
                 );
@@ -207,7 +335,7 @@ fn kind_looks(out: &mut String, kinds: &[KindScore]) {
             None => {
                 let _ = writeln!(
                     out,
-                    "| {name} | {} | 0 | – | {} | – |",
+                    "| {name} | {} | 0 | – | – | {} | – |",
                     k.instances,
                     vec!["–"; Component::ALL.len()].join(" | ")
                 );
@@ -561,7 +689,7 @@ pub fn sequence_markdown(card: &Scorecard) -> String {
             .map_or_else(String::new, |p| format!(" written by {p}"))
     );
     let _ = writeln!(o, "## How it looks\n");
-    look_summary(o, &card.look);
+    look_summary(o, &card.look, &card.look_by_moment);
 
     let _ = writeln!(o, "\n## What to improve first\n");
     let _ = writeln!(
@@ -574,6 +702,28 @@ pub fn sequence_markdown(card: &Scorecard) -> String {
 
     let _ = writeln!(o, "\n## Every effect kind\n");
     kind_looks(o, &card.kinds);
+
+    let _ = writeln!(o, "\n## Effects held against other seeds\n");
+    let _ = writeln!(
+        o,
+        "{} An effect that draws on chance is judged next to PixelFlow's own renders of it from \
+         other seeds, and so is the layered look of one that shares its pixels with such an effect; \
+         where its moments are chance, the parts chance moves are read over the whole effect. \"By \
+         moment\" is what it scores held moment by moment against xLights' render alone, as every \
+         effect was judged before. \"Itself\" is how alike two of PixelFlow's own renders are in \
+         the part of the look chance moves most: under {}, the look says little.\n",
+        if card.method.by_moment {
+            "Every effect was judged moment by moment in this scorecard (`--by-moment`).".to_string()
+        } else {
+            format!(
+                "PixelFlow rendered the sequence {} more time{} from other seeds.",
+                card.method.other_seeds,
+                if card.method.other_seeds == 1 { "" } else { "s" }
+            )
+        },
+        two(card.method.little)
+    );
+    chance_effects(o, card);
 
     let _ = writeln!(o, "\n## The importer's labels\n");
     labels(o, &card.labels);
@@ -643,12 +793,12 @@ pub fn sequence_markdown(card: &Scorecard) -> String {
     worst.sort_by(|a, b| lost(b).total_cmp(&lost(a)).then(a.index.cmp(&b.index)));
     let _ = writeln!(
         o,
-        "| # | Effect | On | At | Expected | Looks | Score | Judged | {} | What a viewer would notice | Pixel-seconds |",
+        "| # | Effect | On | At | Expected | Looks | Score | By moment | Judged | {} | What a viewer would notice | Pixel-seconds |",
         component_names().join(" | ")
     );
     let _ = writeln!(
         o,
-        "|---|---|---|---|---|---|---|---|{}---|---|",
+        "|---|---|---|---|---|---|---|---|---|{}---|---|",
         "---|".repeat(Component::ALL.len())
     );
     for e in worst.iter().take(MOST_ROWS) {
@@ -657,7 +807,7 @@ pub fn sequence_markdown(card: &Scorecard) -> String {
         };
         let _ = writeln!(
             o,
-            "| {} | {} | {} | {}–{} | {} | {} | {} | {} | {} | {} | {:.0} |",
+            "| {} | {} | {} | {}–{} | {} | {} | {} | {} | {} | {} | {} | {:.0} |",
             e.index,
             cell(&e.kind),
             cell(&e.target),
@@ -666,6 +816,9 @@ pub fn sequence_markdown(card: &Scorecard) -> String {
             e.expected.title(),
             judged.verdict.title(),
             whole(judged.score),
+            judged
+                .by_moment
+                .map_or_else(|| "–".to_string(), |m| whole(m.score)),
             basis(judged.basis),
             component_cells(&look.components).join(" | "),
             judged.differs.as_deref().map_or_else(|| "–".to_string(), cell),
@@ -803,18 +956,18 @@ pub fn corpus_markdown(card: &CorpusCard) -> String {
         card.tool
     );
     let _ = writeln!(o, "## How they look\n");
-    look_summary(o, &card.look);
+    look_summary(o, &card.look, &card.look_by_moment);
     let _ = writeln!(o, "\n## Sequences\n");
     let _ = writeln!(
         o,
-        "| Sequence | Length | Matches | Close | Different | No equivalent | Look | As seen | Effects judged | Not judged |"
+        "| Sequence | Length | Matches | Close | Different | No equivalent | Look | By moment | As seen | Effects judged | Not judged |"
     );
-    let _ = writeln!(o, "|---|---|---|---|---|---|---|---|---|---|");
+    let _ = writeln!(o, "|---|---|---|---|---|---|---|---|---|---|---|");
     for s in &card.sequences {
         let look = &s.look;
         let _ = writeln!(
             o,
-            "| {} | {} | {} | {} | {} | {} | {} | {} | {} of {} | {} |",
+            "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} of {} | {} |",
             cell(&s.label),
             time(s.duration_ms),
             pct(look.time.matches),
@@ -822,6 +975,10 @@ pub fn corpus_markdown(card: &CorpusCard) -> String {
             pct(look.time.different),
             pct(look.time.no_equivalent),
             maybe(look.score, whole),
+            match (s.look_by_moment.score, look.score) {
+                (Some(by_moment), Some(score)) => beside(by_moment, score),
+                _ => "–".to_string(),
+            },
             maybe(look.as_seen, whole),
             look.judged,
             look.of,

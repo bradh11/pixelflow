@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Four seconds on the fidelity tests' show with an effect that draws on chance:
+     0-4 s    fireworks over everything in the group (bursts at chance moments, in chance places)
+     0-4 s    Strip red under them: nothing of its own is chance, the picture it is in is
+     0-4 s    Far blue, on its own: nothing is chance -->
+<xsequence BaseChannel="0" ChanCtrlBasic="0" ChanCtrlColor="0" FixedPointTiming="1" ModelBlending="true">
+  <head>
+    <version>2024.19</version>
+    <song>Chance</song>
+    <sequenceTiming>50 ms</sequenceTiming>
+    <sequenceType>Animation</sequenceType>
+    <sequenceDuration>4.000</sequenceDuration>
+  </head>
+  <ColorPalettes>
+    <ColorPalette>C_BUTTON_Palette1=#FF0000,C_CHECKBOX_Palette1=1</ColorPalette>
+    <ColorPalette>C_BUTTON_Palette1=#0000FF,C_CHECKBOX_Palette1=1</ColorPalette>
+    <ColorPalette>C_BUTTON_Palette1=#FFFFFF,C_CHECKBOX_Palette1=1</ColorPalette>
+  </ColorPalettes>
+  <EffectDB>
+    <Effect></Effect>
+  </EffectDB>
+  <DisplayElements>
+    <Element collapsed="0" type="model" name="Strip" visible="1"/>
+    <Element collapsed="0" type="model" name="Far" visible="1"/>
+    <Element collapsed="0" type="model" name="All" visible="1"/>
+  </DisplayElements>
+  <ElementEffects>
+    <Element type="model" name="Strip">
+      <EffectLayer>
+        <Effect ref="0" name="On" palette="0" startTime="0" endTime="4000"/>
+      </EffectLayer>
+    </Element>
+    <Element type="model" name="Far">
+      <EffectLayer>
+        <Effect ref="0" name="On" palette="1" startTime="0" endTime="4000"/>
+      </EffectLayer>
+    </Element>
+    <Element type="model" name="All">
+      <EffectLayer>
+        <Effect ref="0" name="Fireworks" palette="2" startTime="0" endTime="4000"/>
+      </EffectLayer>
+    </Element>
+  </ElementEffects>
+</xsequence>

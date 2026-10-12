@@ -5,11 +5,11 @@ use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand};
 use pf_fidelity::compare::{Options, Prepared, Request};
 use pf_fidelity::corpus::{self, MANIFEST_VARIABLE, Manifest};
-use pf_fidelity::labels;
 use pf_fidelity::metrics::Limits;
 use pf_fidelity::report::{headline, sequence_markdown};
 use pf_fidelity::scorecard::Scorecard;
 use pf_fidelity::strips;
+use pf_fidelity::{calibrate, labels};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -56,6 +56,15 @@ struct How {
     /// PixelFlow lights it: xLights hadn't rendered it. 0 scores everything.
     #[arg(long, default_value_t = Limits::default().dark_run_ms)]
     dark_run_ms: u32,
+    /// Judge every effect moment by moment against xLights' render alone, whatever chance
+    /// decides in it: the numbers from before effects that draw on chance were held against
+    /// PixelFlow's own renders from other seeds.
+    #[arg(long)]
+    by_moment: bool,
+    /// How many more times to render the sequence from other seeds, for the effects that draw
+    /// on chance to be held against. More is steadier and slower.
+    #[arg(long, default_value_t = pf_fidelity::compare::OTHER_SEEDS)]
+    seeds: u32,
 }
 
 impl How {
@@ -69,6 +78,8 @@ impl How {
             },
             frame_offset: self.frame_offset,
             skip_music: self.no_music,
+            by_moment: self.by_moment,
+            seeds: Some(self.seeds.max(1)),
             ..Options::default()
         }
     }
@@ -104,6 +115,27 @@ enum Command {
     Labels {
         /// The scorecard, as `score --out` or `corpus --out` wrote it.
         scorecard: PathBuf,
+    },
+    /// Hold the look score against PixelFlow's own renders, where the answer is known: every
+    /// seeded effect against itself from another seed, and against itself with one setting
+    /// wrong. No xLights files are needed.
+    Calibrate {
+        /// How long each effect runs, in seconds.
+        #[arg(long, default_value_t = calibrate::Settings::default().seconds)]
+        seconds: u32,
+        /// Pairs of seeds each line is scored over.
+        #[arg(long, default_value_t = calibrate::Settings::default().pairs)]
+        pairs: u32,
+        /// Milliseconds a frame.
+        #[arg(long, default_value_t = calibrate::Settings::default().frame_ms)]
+        frame_ms: u32,
+        /// How many more renders from other seeds an effect that draws on chance is held
+        /// against.
+        #[arg(long, default_value_t = calibrate::Settings::default().seeds)]
+        seeds: u32,
+        /// Write the tables here as calibration.md.
+        #[arg(long)]
+        out: Option<PathBuf>,
     },
     /// Draw frames as PNGs: xLights' above, PixelFlow's below.
     Strips {
@@ -232,6 +264,33 @@ fn run(cli: Cli) -> Result<ExitCode> {
             } else {
                 ExitCode::SUCCESS
             })
+        }
+        Command::Calibrate {
+            seconds,
+            pairs,
+            frame_ms,
+            seeds,
+            out,
+        } => {
+            let settings = calibrate::Settings {
+                seconds: seconds.max(1),
+                pairs: pairs.max(1),
+                frame_ms: frame_ms.max(1),
+                seeds,
+            };
+            let tables = calibrate::markdown(&calibrate::run(settings, |line| eprintln!("{line}")));
+            match out {
+                Some(dir) => {
+                    std::fs::create_dir_all(&dir)
+                        .with_context(|| format!("could not create {}", dir.display()))?;
+                    let path = dir.join("calibration.md");
+                    std::fs::write(&path, tables)
+                        .with_context(|| format!("could not write {}", path.display()))?;
+                    println!("{}", path.display());
+                }
+                None => print!("{tables}"),
+            }
+            Ok(ExitCode::SUCCESS)
         }
         Command::Strips {
             files,

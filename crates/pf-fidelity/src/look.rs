@@ -27,13 +27,50 @@
 //! Each is passed through [`felt`], because people notice ratios: a fifth off passes for the
 //! same, half off is half alike.
 //!
-//! **Random effects score like any other.** Twinkles, snow and fire light different pixels on
-//! every render, so each measure asks how alike the two renders are *next to how alike a render
-//! is to itself*: the pixels are split in two at random, and what the two halves of one render
-//! disagree on is chance, not a difference between the renders. A layout that doesn't hold
-//! still in one render (blobs coming and going) isn't asked to be where the other has it, and a
-//! speed is only as sure as its readings agree.
+//! **A render isn't asked to be more like the other than it is like itself.** Twinkles and fire
+//! light different pixels on every render, so each measure asks how alike the two renders are
+//! *next to how alike a render is to itself*: the pixels are split in two at random, and what
+//! the two halves of one render disagree on is chance, not a difference between the renders. A
+//! layout that doesn't hold still in one render (blobs coming and going) isn't asked to be where
+//! the other has it, and a speed is only as sure as its readings agree.
+//!
+//! **What chance decides is held against PixelFlow's own renders from other seeds.** Splitting
+//! the pixels allows for chance that is each pixel's own. It can't allow for chance that moves
+//! many pixels together: both halves of a render see a burst go off, and no other render has
+//! that burst at that moment or in that place. For an effect that draws on chance ([`Chance`]),
+//! and for the layered look of one that shares its pixels with such an effect, PixelFlow renders
+//! the sequence again from other seeds, and each part of the look is how alike PixelFlow's
+//! renders and xLights' are *next to how alike two of PixelFlow's own renders are*
+//! ([`next_to_seeds`]). What PixelFlow's renders disagree on among themselves is chance,
+//! whatever it is: where a ball started, which color a burst took, how many bursts crossed a
+//! prop. Where they agree, nothing is allowed.
+//!
+//! **Where the moments are chance, the parts it moves are compared over the whole effect.** Held
+//! moment against moment, two renders of bursts at chance moments have nothing in common, and
+//! that says nothing of whether the colors are right. So for such an effect
+//! ([`Chance::Moments`]), a part that PixelFlow's own renders have less than half of in common
+//! moment by moment is read with the order of the moments set aside:
+//!
+//! - **Coverage** and **brightness**: the same two curves, each sorted from its highest moment
+//!   to its lowest, so they say how much of the time how much is lit and never when.
+//! - **Color**: all the light of the effect sorted into the same bins, once.
+//! - **Pattern**: where the light fell over the whole effect, on the same coarse grid, in place
+//!   of where it is at each look; light a single burst left where it happened to go off counts
+//!   for no layout of the render's own. The texture is as before.
+//! - **Motion**: each render's movement averaged over its windows, and how fast it moves, in
+//!   place of whether the two move the same way in each window.
+//! - **Rhythm**: how often dark pixels light up. Whether the two pulse in step is not asked.
+//!
+//! An effect that keeps its moments, whatever else it draws by chance ([`Chance::Drawn`]), is
+//! still read moment by moment, so that coming in late shows, and held against the other seeds
+//! as it is.
+//!
+//! **And there has to be as much light.** What chance leaves in common between two renders can
+//! be little, and half of little passes for little. So next to other seeds, coverage and
+//! brightness are also held to how much is lit and how brightly over the whole effect: as much
+//! as in PixelFlow's own seeds, or outside what those do among themselves ([`as_much`]).
 
+pub use crate::chance::Chance;
 use crate::metrics::{Limits, PIXELFLOW, Pair, XLIGHTS};
 pub use pf_xlights::sequence::Verdict;
 use serde::Serialize;
@@ -88,6 +125,13 @@ const AS_WEAK: f64 = 0.05;
 /// A picture moving at least this fast (target lengths a second) is taken to light its pixels
 /// by moving over them.
 const SWEEPING: f64 = 0.2;
+
+/// Two of PixelFlow's own renders less alike than this in some part of their look are moved
+/// more than a factor of two by chance alone: the look has too little to go on there to say
+/// much.
+pub const LITTLE: f64 = 0.5;
+/// How many times what chance is seen to do a difference has to be before it counts.
+const BEYOND_CHANCE: f64 = 1.5;
 
 /// The share of the composite that is the weakest component: one thing badly wrong reads as a
 /// different look however well the rest agrees.
@@ -214,6 +258,8 @@ pub fn verdict(score: f64) -> Verdict {
 pub struct Seen {
     /// Share of pixels lit, 0–1.
     pub lit: Pair,
+    /// The share of the time nothing is lit, 0–1.
+    pub dark: Pair,
     /// Mean brightness, 0–1.
     pub level: Pair,
     /// How the two brightness envelopes rise and fall together, −1 to 1; `None` when either
@@ -254,9 +300,25 @@ pub struct Look {
     /// How much was looked at: pixels times seconds, and seconds.
     pub pixel_seconds: f64,
     pub seconds: f64,
+    /// What chance decides in the effect, and so how it was compared: [`Chance::Nothing`]
+    /// moment by moment against xLights' render alone, anything else next to PixelFlow's own
+    /// renders from other seeds (and over the whole effect for [`Chance::Moments`]).
+    pub chance: Chance,
+    /// For a look next to PixelFlow's other seeds: how alike two of PixelFlow's own renders
+    /// are in the part of the look chance moves most, 0–1 (see [`LITTLE`]).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub itself: Option<f64>,
 }
 
 impl Look {
+    /// Why a look next to PixelFlow's other seeds says less than its score seems to; `None`
+    /// when it doesn't, and for a look moment by moment.
+    pub fn caveat(&self) -> Option<&'static str> {
+        self.itself
+            .filter(|&itself| itself < LITTLE)
+            .map(|_| "says little: PixelFlow's own renders differ as much from one seed to the next")
+    }
+
     /// What a viewer would notice first, in a few words ("moves the opposite way"); `None` when
     /// the two match.
     pub fn differs(&self) -> Option<String> {
@@ -273,7 +335,23 @@ impl Look {
         if seen.level.pixelflow < LEVEL_FLOOR && seen.level.xlights >= LEVEL_FLOOR {
             return "dark where xLights is lit".to_string();
         }
+        // Over the whole effect two renders can be lit as much, and as brightly, and still
+        // differ in how that is spread over the time.
+        let in_all = self.chance == Chance::Moments;
+        let much_the_same =
+            |pair: Pair| times(pair.pixelflow.min(pair.xlights), pair.pixelflow.max(pair.xlights)) >= 0.8;
         match component {
+            Component::Coverage if in_all && much_the_same(seen.lit) => {
+                if (seen.dark.pixelflow - seen.dark.xlights).abs() >= 0.1 {
+                    format!(
+                        "dark {:.0}% of the time against {:.0}%",
+                        seen.dark.pixelflow * 100.0,
+                        seen.dark.xlights * 100.0
+                    )
+                } else {
+                    "as much lit on the whole, more of it at once or less".to_string()
+                }
+            }
             Component::Coverage => format!(
                 "{} of the target lit ({:.0}% against {:.0}%)",
                 if seen.lit.pixelflow > seen.lit.xlights {
@@ -290,6 +368,8 @@ impl Look {
                     format!("dimmer ({ratio:.1}× as bright)")
                 } else if ratio > 1.25 {
                     format!("brighter ({ratio:.1}× as bright)")
+                } else if in_all {
+                    "as bright on the whole, in brighter or dimmer moments".to_string()
                 } else {
                     "brightens and dims at different moments".to_string()
                 }
@@ -304,6 +384,9 @@ impl Look {
                 let [ours_up, theirs_up] = seen.repeats_up;
                 match repeats(ours, theirs).or(repeats(ours_up, theirs_up)) {
                     Some((a, b)) => format!("{a:.0} repeats where xLights has {b:.0}"),
+                    None if seen.layout <= seen.texture && self.chance != Chance::Nothing => {
+                        "the light falls on other parts of the target".to_string()
+                    }
                     None if seen.layout <= seen.texture => "the light is laid out differently".to_string(),
                     None => "finer or coarser detail".to_string(),
                 }
@@ -337,6 +420,8 @@ impl Look {
                         "flashes {} often ({ours:.1} a second per pixel against {theirs:.1})",
                         if ours > theirs { "more" } else { "less" }
                     )
+                } else if in_all {
+                    format!("flashes {} often", if ours > theirs { "more" } else { "less" })
                 } else {
                     "pulses out of step".to_string()
                 }
@@ -516,6 +601,346 @@ impl Mean {
     }
 }
 
+/// How much of each part of the look two renders have the same, 0–1, before [`felt`], and how
+/// much light each has: what [`next_to_seeds`] holds against the same between two of
+/// PixelFlow's own renders.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Parts {
+    /// Moment by moment, by [`Component`] in the order of [`Component::ALL`].
+    pub same: [f64; 6],
+    /// How alike the layouts are moment by moment, and how the movements agree (as
+    /// [`Seen::layout`] and [`Seen::heading`]).
+    pub layout: f64,
+    pub heading: f64,
+    /// The same three over the whole effect, when [`LookStats::over`] asked for them.
+    pub whole: Option<([f64; 6], f64, f64)>,
+    /// Each render's share of pixels lit and its brightness, over everything added.
+    pub lit: [f64; 2],
+    pub level: [f64; 2],
+    /// Each render's flashes a pixel a second, the share of its light that changes from frame
+    /// to frame, how fast it moves on average, and its movement across and up over all its
+    /// windows (the last two in target lengths a second).
+    pub flashes: [f64; 2],
+    pub change: [f64; 2],
+    pub speed: [f64; 2],
+    pub net: [[f64; 2]; 2],
+}
+
+/// How many times the spread of `renders` values a difference from their average has to be
+/// before it is outside what chance does. With many renders that is [`BEYOND_CHANCE`]. A spread
+/// read from two or three is itself a matter of chance, and often too small, so it is allowed
+/// more: as much as keeps the odds the same (Student's t, at the odds of [`BEYOND_CHANCE`]
+/// spreads of a sure one: about 87 in 100 inside).
+fn beyond(renders: usize) -> f64 {
+    match renders {
+        0 | 1 => BEYOND_CHANCE,
+        2 => 4.7,
+        3 => 2.45,
+        4 => 2.03,
+        5 => 1.87,
+        6 => 1.78,
+        more => BEYOND_CHANCE + 1.4 / (more - 1) as f64,
+    }
+}
+
+/// How much of a difference of `apart` counts next to `spread`, what PixelFlow's own `renders`
+/// values differ by among themselves: none of it within the band chance gives ([`beyond`], and
+/// a little more for their average being only so sure), all of it from twice that far, and in
+/// between a share. All of it when the renders agree.
+fn counted(apart: f64, spread: f64, renders: usize) -> f64 {
+    let chance = beyond(renders) * spread * (1.0 + 1.0 / renders.max(1) as f64).sqrt();
+    if chance > 0.0 {
+        (apart / chance - 1.0).clamp(0.0, 1.0)
+    } else {
+        1.0
+    }
+}
+
+/// Whether there is as much of something in xLights' render (`theirs`) as in PixelFlow's (one
+/// value for each seed), 0–1. PixelFlow's renders differ among themselves by chance, and a
+/// difference from their average within what they do isn't one ([`counted`]). What counts is
+/// the smaller amount over the larger, a `floor` keeping next to nothing from being told from
+/// next to nothing.
+fn as_much(ours: &[f64], theirs: f64, floor: f64) -> f64 {
+    if ours.is_empty() {
+        return 1.0;
+    }
+    let n = ours.len() as f64;
+    let mean = ours.iter().sum::<f64>() / n;
+    let spread = if ours.len() > 1 {
+        (ours.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (n - 1.0)).sqrt()
+    } else {
+        0.0
+    };
+    let counts = counted((theirs - mean).abs(), spread, ours.len());
+    1.0 - counts * (1.0 - (mean.min(theirs) + floor) / (mean.max(theirs) + floor))
+}
+
+/// Whether xLights' render moves the way PixelFlow's do over the whole effect (each a movement
+/// across and up), 0–1: as far from the average of PixelFlow's seeds as they are from one
+/// another is chance ([`counted`]). Balls that set off every way by chance drift another way in
+/// every render. What counts is how far apart the two movements are next to how fast the
+/// picture moves (`fastest`): opposite ways is nothing alike, half the speed a half.
+fn same_way(ours: &[[f64; 2]], theirs: [f64; 2], fastest: f64) -> f64 {
+    if ours.is_empty() {
+        return 1.0;
+    }
+    let n = ours.len() as f64;
+    let mean = [0, 1].map(|axis| ours.iter().map(|v| v[axis]).sum::<f64>() / n);
+    let from_mean = |v: [f64; 2]| (v[0] - mean[0]).hypot(v[1] - mean[1]);
+    let spread = if ours.len() > 1 {
+        (ours.iter().map(|&v| from_mean(v).powi(2)).sum::<f64>() / (n - 1.0)).sqrt()
+    } else {
+        0.0
+    };
+    let apart = from_mean(theirs);
+    1.0 - counted(apart, spread, ours.len()) * (apart / fastest.max(1e-9)).min(1.0)
+}
+
+/// The look of PixelFlow's render next to its own renders of the same effect from other seeds.
+///
+/// `between` is PixelFlow's renders against xLights' (one [`Parts`] for each seed, the render
+/// `by_moment` is of among them), and `within` PixelFlow's renders against one another (one
+/// for each two seeds). Each part of the look is how alike PixelFlow's renders are to xLights'
+/// on average, next to how alike the two of its own that are least alike: PixelFlow isn't asked
+/// to be more like xLights than it is like itself from another seed.
+///
+/// A part is read moment by moment. Where `chance` is the effect's moments and PixelFlow's own
+/// renders have less than half of that part in common moment by moment ([`LITTLE`]), chance
+/// moves it too far for the moments to say anything, and it is read over the whole effect.
+///
+/// The ratio allows for what chance does to *when* and *where*. It would also pass a render
+/// with half the light, where chance leaves little in common to halve. So coverage and
+/// brightness are, besides, no better than [`as_much`] finds of each on the whole: as large a
+/// share lit and as bright as in PixelFlow's seeds, or outside what they do among themselves.
+///
+/// Over the whole effect, movement and rhythm are amounts and nothing else: which way and how
+/// fast the picture moves, how much of it changes from frame to frame, how often dark pixels
+/// light up. Each is held against PixelFlow's seeds the same way ([`same_way`], [`as_much`]),
+/// which reads chance that is drawn once for the whole effect (which way three balls set off)
+/// better than how alike any two renders happen to be.
+///
+/// What the look shows of each side ([`Look::seen`]) is from the render `by_moment` is of.
+pub fn next_to_seeds(by_moment: &Look, chance: Chance, between: &[Parts], within: &[Parts]) -> Look {
+    let mean = |of: &dyn Fn(&Parts) -> f64| {
+        if between.is_empty() {
+            1.0
+        } else {
+            between.iter().map(of).sum::<f64>() / between.len() as f64
+        }
+    };
+    let least = |of: &dyn Fn(&Parts) -> f64| within.iter().map(of).fold(1.0, f64::min);
+    let over_whole = |part: &Parts, at: usize| part.whole.map_or(part.same[at], |(same, _, _)| same[at]);
+    let every = between.iter().chain(within).all(|part| part.whole.is_some());
+    let mut same = [0.0; 6];
+    let mut itself: f64 = 1.0;
+    // Which parts are read over the whole effect.
+    let mut whole = [false; 6];
+    for component in Component::ALL {
+        let at = component as usize;
+        let mut own = least(&|p| p.same[at]);
+        let mut alike = mean(&|p| p.same[at]);
+        if chance == Chance::Moments && every && own < LITTLE {
+            whole[at] = true;
+            own = least(&|p| over_whole(p, at));
+            alike = mean(&|p| over_whole(p, at));
+        }
+        itself = itself.min(own);
+        let mut part = (alike / own.max(1e-6)).min(1.0);
+        let amounts = |of: &dyn Fn(&Parts) -> [f64; 2], floor: f64| {
+            let ours: Vec<f64> = between.iter().map(|p| of(p)[PIXELFLOW]).collect();
+            as_much(&ours, mean(&|p| of(p)[XLIGHTS]), floor)
+        };
+        match component {
+            Component::Coverage => part = part.min(amounts(&|p| p.lit, LIT_FLOOR)),
+            Component::Brightness => part = part.min(amounts(&|p| p.level, LEVEL_FLOOR)),
+            Component::Motion if whole[at] => {
+                let ours: Vec<[f64; 2]> = between.iter().map(|p| p.net[PIXELFLOW]).collect();
+                let theirs = [0, 1].map(|axis| mean(&|p| p.net[XLIGHTS][axis]));
+                let fastest = mean(&|p| p.speed[PIXELFLOW]).max(mean(&|p| p.speed[XLIGHTS])) + STILL;
+                part = same_way(&ours, theirs, fastest)
+                    .min(amounts(&|p| p.speed, STILL))
+                    .min(amounts(&|p| p.change, CHANGE_FLOOR));
+            }
+            Component::Rhythm if whole[at] => part = amounts(&|p| p.flashes, FLASH_FLOOR),
+            _ => {}
+        }
+        same[at] = round(felt(part));
+    }
+    let components = Components {
+        coverage: same[Component::Coverage as usize],
+        brightness: same[Component::Brightness as usize],
+        color: same[Component::Color as usize],
+        pattern: same[Component::Pattern as usize],
+        motion: same[Component::Motion as usize],
+        rhythm: same[Component::Rhythm as usize],
+    };
+    let score = round(components.score());
+    let layout = if whole[Component::Pattern as usize] {
+        mean(&|p| p.whole.map_or(p.layout, |(_, layout, _)| layout))
+    } else {
+        mean(&|p| p.layout)
+    };
+    let heading = if whole[Component::Motion as usize] {
+        mean(&|p| p.whole.map_or(p.heading, |(_, _, heading)| heading))
+    } else {
+        mean(&|p| p.heading)
+    };
+    Look {
+        score,
+        verdict: verdict(score),
+        components,
+        weakest: components.weakest(),
+        seen: Seen {
+            layout: round(layout),
+            heading: round(heading),
+            ..by_moment.seen
+        },
+        chance,
+        itself: Some(round(itself.clamp(0.0, 1.0))),
+        ..*by_moment
+    }
+}
+
+/// What a look over the whole effect adds up besides, for an effect whose moments are chance.
+#[derive(Debug, Clone)]
+struct Whole {
+    /// Light by color, by side.
+    palette: [[f64; BINS]; 2],
+    /// Where the light fell: each coarse cell's color added up over the frames it had pixels
+    /// on, and how many frames that is. The windows are dealt in turn to two halves, and each
+    /// half is added up apart: by side, then half; and by half.
+    fallen: [[[[f64; 3]; MAX_COARSE * MAX_COARSE]; 2]; 2],
+    fallen_frames: [[u32; MAX_COARSE * MAX_COARSE]; 2],
+    /// Frames added so far.
+    frames: u32,
+    /// Each window's movement; by side, then axis.
+    velocities: Vec<[[f64; 2]; 2]>,
+}
+
+impl Whole {
+    /// One side's light as it fell over the whole effect, on the coarse grid, as a [`Coarse`]
+    /// picture. Its own structure is what the two halves of its windows agree on: a burst is
+    /// in one window and so in one half, and the light it left where it happened to go off
+    /// counts for none, while light that keeps to one part of the prop is in both. `None` when
+    /// the side was dark on the whole: as dim, all its light spread over all its time, as a
+    /// picture too dim to have a pattern ([`DARK`]). A few sparks crossing a prop are that.
+    fn fell(&self, side: usize, cells: usize, there: &[bool; MAX_COARSE * MAX_COARSE]) -> Option<Coarse> {
+        let (sums, frames) = (&self.fallen[side], &self.fallen_frames);
+        let n = there.iter().filter(|t| **t).count() as f64;
+        let mut whole = [[0.0f32; 3]; MAX_COARSE * MAX_COARSE];
+        let mut squares = 0.0;
+        for c in (0..cells).filter(|&c| there[c]) {
+            let count = f64::from(frames[0][c] + frames[1][c]);
+            for k in 0..3 {
+                whole[c][k] = ((sums[0][c][k] + sums[1][c][k]) / count) as f32;
+            }
+            squares += dot(whole[c], whole[c]);
+        }
+        let size = (squares / n).sqrt();
+        if size < DARK {
+            return None;
+        }
+        let scale = (1.0 / size) as f32;
+        let mut mean = [0.0f64; 3];
+        for c in (0..cells).filter(|&c| there[c]) {
+            whole[c] = whole[c].map(|v| v * scale);
+            for (sum, v) in mean.iter_mut().zip(whole[c]) {
+                *sum += f64::from(v);
+            }
+        }
+        let mean = mean.map(|v| (v / n) as f32);
+        let (mut spread, mut agreed, mut halved) = (0.0, 0.0, 0.0);
+        for c in (0..cells).filter(|&c| there[c]) {
+            if frames[0][c] > 0 && frames[1][c] > 0 {
+                let half = |h: usize| {
+                    let color = sums[h][c].map(|v| (v / f64::from(frames[h][c])) as f32 * scale);
+                    less(color, mean)
+                };
+                agreed += dot(half(0), half(1));
+                halved += 1.0;
+            }
+            whole[c] = less(whole[c], mean);
+            spread += dot(whole[c], whole[c]);
+        }
+        Some(Coarse {
+            cells: whole,
+            // An effect of a single window has only its structure as it is.
+            own: if halved > 0.0 {
+                (agreed / halved).max(0.0)
+            } else {
+                spread / n
+            },
+        })
+    }
+
+    /// How alike the two renders are in where their light fell over the whole effect, 0–1 (see
+    /// [`agreement`]): 1 when neither put its light anywhere in particular.
+    fn layout(&self, grid: &Grid) -> f64 {
+        let cells = grid.coarse_columns * grid.coarse_rows;
+        let mut there = [false; MAX_COARSE * MAX_COARSE];
+        for (c, there) in there.iter_mut().enumerate().take(cells) {
+            *there = self.fallen_frames[0][c] + self.fallen_frames[1][c] > 0;
+        }
+        if !there.contains(&true) {
+            return 1.0;
+        }
+        let sides = [PIXELFLOW, XLIGHTS].map(|side| self.fell(side, cells, &there));
+        agreement(grid, (&sides[PIXELFLOW], &there), (&sides[XLIGHTS], &there)).unwrap_or(1.0)
+    }
+
+    /// How alike the two renders move over the whole effect, 0–1, and how their movements
+    /// agree (as [`Seen::heading`]). Each render's movement is its windows' averaged, and how
+    /// fast it moves is the average of their speeds: opposite ways scores 0 and half the speed
+    /// a half, as moment by moment. Each is only as sure as its windows agree with one another
+    /// (something wandering every way averages out to no movement, and to another nothing in
+    /// every render), and as the readings in them (`reading`, squared, for all the windows
+    /// together).
+    fn movement(&self, reading: f64) -> (f64, f64) {
+        let n = self.velocities.len() as f64;
+        if n == 0.0 {
+            return (1.0, 0.0);
+        }
+        let mean = |of: &dyn Fn(&[[f64; 2]; 2]) -> f64| self.velocities.iter().map(of).sum::<f64>() / n;
+        // How far off a mean over the windows may be, squared.
+        let unsure = |of: &dyn Fn(&[[f64; 2]; 2]) -> f64, mean: f64| {
+            if n < 2.0 {
+                return 0.0;
+            }
+            self.velocities
+                .iter()
+                .map(|v| (of(v) - mean).powi(2))
+                .sum::<f64>()
+                / (n - 1.0)
+                / n
+        };
+        let (mut net, mut speed) = ([[0.0; 2]; 2], [0.0; 2]);
+        let (mut net_unsure, mut speed_unsure) = (reading, reading);
+        for side in [PIXELFLOW, XLIGHTS] {
+            for axis in 0..2 {
+                net[side][axis] = mean(&|v| v[side][axis]);
+                net_unsure += unsure(&|v| v[side][axis], net[side][axis]);
+            }
+            let fast = |v: &[[f64; 2]; 2]| v[side][0].hypot(v[side][1]);
+            speed[side] = mean(&fast);
+            speed_unsure += unsure(&fast, speed[side]);
+        }
+        let [ours, theirs] = net;
+        let fastest = speed[PIXELFLOW].max(speed[XLIGHTS]) + STILL;
+        let beyond = |apart: f64, unsure: f64| (apart - BEYOND_CHANCE * unsure.sqrt()).max(0.0);
+        let way = beyond((ours[0] - theirs[0]).hypot(ours[1] - theirs[1]), net_unsure);
+        let pace = beyond((speed[PIXELFLOW] - speed[XLIGHTS]).abs(), speed_unsure);
+        let alike = 1.0 - (way.max(pace) / fastest).min(1.0);
+        let most = (ours[0].powi(2) + ours[1].powi(2)).max(theirs[0].powi(2) + theirs[1].powi(2));
+        let heading = if most > 0.0 {
+            (ours[0] * theirs[0] + ours[1] * theirs[1]) / most
+        } else {
+            0.0
+        };
+        (alike, heading)
+    }
+}
+
 /// Sums over one set of pixel-frames (an effect's, alone or layered), from which its [`Look`]
 /// is worked out. Pixels are added frame by frame with [`LookStats::add`], each frame ended
 /// with [`LookStats::end_frame`].
@@ -567,6 +992,8 @@ pub struct LookStats {
     light: [f64; 2],
     flashes: [f64; 2],
     watched: u64,
+    /// For reading the parts over the whole effect (see [`LookStats::over`]).
+    whole: Option<Box<Whole>>,
 }
 
 fn hue_sixths(rgb: [u8; 3], max: u8, chroma: u8) -> f32 {
@@ -772,7 +1199,23 @@ impl LookStats {
             light: [0.0; 2],
             flashes: [0.0; 2],
             watched: 0,
+            whole: None,
         }
+    }
+
+    /// Reads the parts ([`LookStats::looks`]) over the whole effect as well as moment by
+    /// moment, when `chance` decides the effect's moments.
+    pub fn over(mut self, chance: Chance) -> Self {
+        self.whole = (chance == Chance::Moments).then(|| {
+            Box::new(Whole {
+                palette: [[0.0; BINS]; 2],
+                fallen: [[[[0.0; 3]; MAX_COARSE * MAX_COARSE]; 2]; 2],
+                fallen_frames: [[0; MAX_COARSE * MAX_COARSE]; 2],
+                frames: 0,
+                velocities: Vec::new(),
+            })
+        });
+        self
     }
 
     /// Adds the grid's pixel `pixel` as each side drew it in frame `frame`.
@@ -862,6 +1305,31 @@ impl LookStats {
         }
         self.watched += u64::from(now.watched);
         self.series.push(point);
+        if let Some(whole) = &mut self.whole {
+            for side in [PIXELFLOW, XLIGHTS] {
+                for pixels in &now.palette[side] {
+                    for (sum, light) in whole.palette[side].iter_mut().zip(pixels) {
+                        *sum += f64::from(*light);
+                    }
+                }
+            }
+            let half = (whole.frames / self.window % 2) as usize;
+            whole.frames += 1;
+            let counts = &scratch.half_count;
+            for c in 0..self.grid.coarse_columns * self.grid.coarse_rows {
+                let pixels = counts[0][c] + counts[1][c];
+                if pixels == 0 {
+                    continue;
+                }
+                whole.fallen_frames[half][c] += 1;
+                for side in [PIXELFLOW, XLIGHTS] {
+                    let sums = &scratch.halves[side];
+                    for (k, sum) in whole.fallen[side][half][c].iter_mut().enumerate() {
+                        *sum += f64::from(sums[0][c][k] + sums[1][c][k]) / f64::from(pixels);
+                    }
+                }
+            }
+        }
 
         let first = *self.first.get_or_insert(frame);
         if (frame - first).is_multiple_of(self.every) {
@@ -947,6 +1415,9 @@ impl LookStats {
             self.speed[PIXELFLOW] += speed(ours).sqrt();
             self.speed[XLIGHTS] += speed(theirs).sqrt();
             self.windows += 1;
+            if let Some(whole) = &mut self.whole {
+                whole.velocities.push(velocity);
+            }
         }
         self.drift = [[Drift::default(); 2]; 2];
         self.drift_looks = 0;
@@ -1052,8 +1523,15 @@ impl LookStats {
         }
     }
 
-    /// The look of everything added; `None` when nothing was.
-    pub fn finish(mut self) -> Option<Look> {
+    /// The look of everything added, moment by moment; `None` when nothing was.
+    pub fn finish(self) -> Option<Look> {
+        self.looks().map(|(by_moment, _)| by_moment)
+    }
+
+    /// The look of everything added moment by moment, and how much of each part the two
+    /// renders have the same, for [`next_to_seeds`]: moment by moment, and over the whole
+    /// effect when [`LookStats::over`] asked. `None` when nothing was added.
+    pub fn looks(mut self) -> Option<(Look, Parts)> {
         if self.frames == 0 {
             return None;
         }
@@ -1217,13 +1695,16 @@ impl LookStats {
             pixelflow: round(values[PIXELFLOW]),
             xlights: round(values[XLIGHTS]),
         };
-        Some(Look {
+        let dark = [PIXELFLOW, XLIGHTS]
+            .map(|side| self.series.iter().filter(|p| p.lit[side] <= 0.0).count() as f64 / frames as f64);
+        let by_moment = Look {
             score,
             verdict: verdict(score),
             components,
             weakest: components.weakest(),
             seen: Seen {
                 lit: pair(lit),
+                dark: pair(dark),
                 level: pair(means),
                 envelope_correlation: envelope_correlation.map(round),
                 layout: round(layout),
@@ -1239,8 +1720,72 @@ impl LookStats {
             },
             pixel_seconds: round(self.samples as f64 * seconds),
             seconds: round(f64::from(self.frames) * seconds),
-        })
+            chance: Chance::Nothing,
+            itself: None,
+        };
+        let mut parts = Parts {
+            same: [
+                coverage,
+                brightness,
+                self.color.get().unwrap_or(1.0),
+                layout * texture,
+                moving.min(changing),
+                rhythm,
+            ],
+            layout,
+            heading,
+            whole: None,
+            lit,
+            level: means,
+            flashes,
+            change,
+            speed: speeds,
+            net: velocity,
+        };
+        let Some(whole) = &self.whole else {
+            return Some((by_moment, parts));
+        };
+
+        // Over the whole effect: the same curves, each sorted from its highest moment to its
+        // lowest; all of each render's light, once; where it fell; how it moved over all its
+        // windows; and how often dark pixels lit up.
+        let sorted = |of: &dyn Fn(&Point, usize) -> f32, floor: f64| {
+            let [ours, theirs] = [PIXELFLOW, XLIGHTS].map(|side| smoothed(&series(&|p| of(p, side)), width));
+            sorted_overlap(ours, theirs, floor)
+        };
+        let fell = whole.layout(&self.grid);
+        let windows = whole.velocities.len() as f64;
+        let reading = if windows > 0.0 {
+            (self.unsure - windows * STILL * STILL).max(0.0) / (windows * windows)
+        } else {
+            0.0
+        };
+        let (moved, headed) = whole.movement(reading);
+        let same = [
+            sorted(&|p, s| p.lit[s], LIT_FLOOR),
+            sorted(&|p, s| p.level[s], LEVEL_FLOOR),
+            palette_overlap(&whole.palette[PIXELFLOW], &whole.palette[XLIGHTS]),
+            fell * texture,
+            moved.min(changing),
+            rate,
+        ];
+        parts.whole = Some((same, fell, headed));
+        Some((by_moment, parts))
     }
+}
+
+/// How much of two curves is the same when neither has to be in step with the other, 0–1: each
+/// sorted from its highest moment to its lowest, then [`overlap`]. That is how much of the time
+/// each is how high, and nothing of when. A shorter curve is read at the same shares of the way
+/// along; 1 when either is empty.
+fn sorted_overlap(mut a: Vec<f64>, mut b: Vec<f64>, floor: f64) -> f64 {
+    if a.is_empty() || b.is_empty() {
+        return 1.0;
+    }
+    a.sort_by(|x, y| y.total_cmp(x));
+    b.sort_by(|x, y| y.total_cmp(x));
+    let n = a.len().max(b.len());
+    overlap((0..n).map(|i| (a[i * a.len() / n], b[i * b.len() / n])), floor)
 }
 
 /// Pearson's correlation of two series; `None` when either barely moves.
@@ -1935,5 +2480,483 @@ mod tests {
         assert!((0.4..0.6).contains(&pastel), "{pastel}");
         // Dimmer is the same color.
         assert!((palette_overlap(&of(&[[100, 0, 0]]), &of(&[RED])) - 1.0).abs() < 1e-6);
+    }
+
+    /// Renders in a made-up test: PixelFlow's (0 the one scored, then its other seeds) and, last,
+    /// xLights'.
+    const OTHER_SEEDS: usize = 2;
+    const THEIRS: usize = OTHER_SEEDS + 1;
+
+    /// The look of `frames` frames (25 ms each) on a matrix, moment by moment and next to
+    /// PixelFlow's other seeds as an effect in which chance decides `chance`: `draw(render,
+    /// frame, x, y)` is the pixel in PixelFlow's render from seed `render`, or in xLights' for
+    /// [`THEIRS`].
+    fn held(
+        columns: u32,
+        rows: u32,
+        frames: u32,
+        chance: Chance,
+        draw: impl Fn(usize, u32, u32, u32) -> [u8; 3],
+    ) -> (Look, Look) {
+        let between = |a: usize, b: usize| {
+            let mut stats = LookStats::new(matrix(columns, rows), 25, &Limits::default()).over(chance);
+            let mut scratch = Scratch::default();
+            for frame in 0..frames {
+                for y in 0..rows {
+                    for x in 0..columns {
+                        let colors = [draw(a, frame, x, y), draw(b, frame, x, y)];
+                        stats.add(&mut scratch, frame, (y * columns + x) as usize, colors);
+                    }
+                }
+                stats.end_frame(&mut scratch, frame);
+            }
+            stats.looks().expect("frames were added")
+        };
+        let (by_moment, first) = between(0, THEIRS);
+        let mut with_theirs = vec![first];
+        let mut own = Vec::new();
+        for seed in 1..=OTHER_SEEDS {
+            with_theirs.push(between(seed, THEIRS).1);
+            for other in 0..seed {
+                own.push(between(other, seed).1);
+            }
+        }
+        (by_moment, next_to_seeds(&by_moment, chance, &with_theirs, &own))
+    }
+
+    /// Bursts at chance moments in chance places: time is cut into stretches of `every` frames,
+    /// and in each a disc `radius` pixels across lights up at a moment and a place of its own,
+    /// in one of `colors`, and fades over `glow` frames.
+    #[derive(Clone, Copy)]
+    struct Bursts {
+        every: u32,
+        glow: u32,
+        radius: f32,
+        colors: &'static [[u8; 3]],
+        /// Every burst here instead of at a chance place.
+        at: Option<(f32, f32)>,
+        level: f32,
+    }
+
+    impl Bursts {
+        const USUAL: Bursts = Bursts {
+            every: 20,
+            glow: 12,
+            radius: 7.0,
+            colors: &[RED, GREEN, WHITE],
+            at: None,
+            level: 1.0,
+        };
+
+        fn draw(self, seed: u32, size: (u32, u32), frame: u32, x: u32, y: u32) -> [u8; 3] {
+            let mut most = BLACK;
+            // The stretch the frame is in, and the one before (its burst may still glow).
+            for stretch in (frame / self.every).saturating_sub(1)..=frame / self.every {
+                let start = stretch * self.every
+                    + (chance(seed, stretch, 1) * (self.every - self.glow.min(self.every - 1)) as f32) as u32;
+                let Some(age) = frame.checked_sub(start).filter(|&age| age < self.glow) else {
+                    continue;
+                };
+                let (cx, cy) = self.at.unwrap_or((
+                    chance(seed, stretch, 2) * size.0 as f32,
+                    chance(seed, stretch, 3) * size.1 as f32,
+                ));
+                if (x as f32 - cx).hypot(y as f32 - cy) > self.radius {
+                    continue;
+                }
+                let color = self.colors[(chance(seed, stretch, 4) * self.colors.len() as f32) as usize];
+                let fade = self.level * (1.0 - age as f32 / self.glow as f32);
+                let lit = color.map(|c| (f32::from(c) * fade) as u8);
+                if lit.iter().max() > most.iter().max() {
+                    most = lit;
+                }
+            }
+            most
+        }
+    }
+
+    const SIZE: (u32, u32) = (32, 16);
+    const LONG: u32 = 2400;
+
+    /// PixelFlow shows `ours` and xLights `theirs`, every render from a seed of its own.
+    fn bursts(ours: Bursts, theirs: Bursts, frames: u32) -> (Look, Look) {
+        held(SIZE.0, SIZE.1, frames, Chance::Moments, |render, frame, x, y| {
+            let of = if render == THEIRS { theirs } else { ours };
+            of.draw(100 + render as u32, SIZE, frame, x, y)
+        })
+    }
+
+    #[test]
+    fn bursts_at_other_moments_fail_moment_by_moment_and_match_next_to_other_seeds() {
+        let (by_moment, held) = bursts(Bursts::USUAL, Bursts::USUAL, LONG);
+        // Second by second the two never pulse together, and that alone makes them look apart.
+        assert!(by_moment.components.rhythm < 0.5, "{by_moment:?}");
+        assert_ne!(by_moment.verdict, Verdict::Matches);
+        assert_eq!((by_moment.chance, by_moment.itself), (Chance::Nothing, None));
+        // As many bursts, as big, as bright, in the same colors: the same look.
+        for component in Component::ALL {
+            assert!(held.components.get(component) > 0.9, "{component:?}: {held:?}");
+        }
+        assert_eq!(
+            (held.verdict, held.chance, held.differs()),
+            (Verdict::Matches, Chance::Moments, None)
+        );
+        // A hundred and twenty bursts: PixelFlow's own renders are much alike, and the look
+        // can be taken at its word.
+        assert!(held.itself.is_some_and(|itself| itself > LITTLE), "{held:?}");
+        assert_eq!(held.caveat(), None);
+        // What each side showed is the same in both looks.
+        assert_eq!(held.seen.lit, by_moment.seen.lit);
+        assert_eq!(
+            (held.pixel_seconds, held.seconds),
+            (by_moment.pixel_seconds, by_moment.seconds)
+        );
+    }
+
+    #[test]
+    fn twice_or_half_as_many_bursts_is_not_the_same_look() {
+        for (every, more) in [(10, true), (40, false)] {
+            let ours = Bursts {
+                every,
+                ..Bursts::USUAL
+            };
+            let (_, held) = bursts(ours, Bursts::USUAL, LONG);
+            assert!(held.components.coverage < 0.8, "{every}: {held:?}");
+            assert!(held.components.brightness < 0.8, "{every}: {held:?}");
+            assert!(held.components.color > 0.9, "{every}: {held:?}");
+            assert_ne!(held.verdict, Verdict::Matches, "{every}: {held:?}");
+            let lit = held.seen.lit;
+            assert_eq!(lit.pixelflow > lit.xlights, more, "{held:?}");
+        }
+    }
+
+    #[test]
+    fn bursts_in_another_color_or_half_as_bright_are_caught_over_the_whole_effect() {
+        let green = Bursts {
+            colors: &[GREEN],
+            ..Bursts::USUAL
+        };
+        let red = Bursts {
+            colors: &[RED],
+            ..Bursts::USUAL
+        };
+        let (_, recolored) = bursts(green, red, LONG);
+        assert!(recolored.components.color < 0.01, "{recolored:?}");
+        assert_eq!(
+            (recolored.verdict, recolored.differs().as_deref()),
+            (Verdict::Different, Some("different colors"))
+        );
+        assert!(recolored.components.coverage > 0.9, "{recolored:?}");
+        let dim = Bursts {
+            level: 0.5,
+            ..Bursts::USUAL
+        };
+        let (_, dimmer) = bursts(dim, Bursts::USUAL, LONG);
+        assert!((0.3..0.8).contains(&dimmer.components.brightness), "{dimmer:?}");
+        assert_eq!(dimmer.weakest, Component::Brightness);
+        assert_ne!(dimmer.verdict, Verdict::Matches, "{dimmer:?}");
+        assert!(
+            dimmer.differs().is_some_and(|d| d.starts_with("dimmer")),
+            "{:?}",
+            dimmer.differs()
+        );
+    }
+
+    #[test]
+    fn steady_light_where_there_should_be_bursts_with_dark_between_is_caught() {
+        // A burst every two seconds, dark the rest of the time, against every pixel glowing
+        // dimly all the time.
+        let sparse = Bursts {
+            every: 80,
+            ..Bursts::USUAL
+        };
+        let (_, held) = held(SIZE.0, SIZE.1, LONG, Chance::Moments, |render, frame, x, y| {
+            if render == THEIRS {
+                sparse.draw(9, SIZE, frame, x, y)
+            } else {
+                [40; 3]
+            }
+        });
+        assert!(held.components.coverage < 0.2, "{held:?}");
+        assert_eq!(held.verdict, Verdict::Different, "{held:?}");
+        // xLights is dark most of the time, and PixelFlow never.
+        assert!(
+            held.seen.dark.xlights > 0.5 && held.seen.dark.pixelflow == 0.0,
+            "{held:?}"
+        );
+    }
+
+    #[test]
+    fn every_burst_in_one_place_is_not_bursts_all_over() {
+        let middle = Bursts {
+            at: Some((16.0, 8.0)),
+            ..Bursts::USUAL
+        };
+        let (_, held) = bursts(middle, Bursts::USUAL, LONG);
+        assert!(held.components.pattern < 0.6, "{held:?}");
+        assert_eq!(held.weakest, Component::Pattern);
+        assert_ne!(held.verdict, Verdict::Matches);
+        assert_eq!(
+            held.differs().as_deref(),
+            Some("the light falls on other parts of the target")
+        );
+        // As much is lit, as brightly, in the same colors.
+        assert!(
+            held.components.coverage > 0.8 && held.components.color > 0.9,
+            "{held:?}"
+        );
+        // And both in the same one place is the same look.
+        let (_, same) = bursts(middle, middle, LONG);
+        assert_eq!(same.verdict, Verdict::Matches, "{same:?}");
+    }
+
+    #[test]
+    fn a_few_bursts_say_little_and_the_look_says_so() {
+        // Two seconds and one burst in each render, where and in which color chance has it:
+        // PixelFlow's own renders have as little in common as any of them has with xLights'.
+        let once = Bursts {
+            every: 80,
+            radius: 3.0,
+            ..Bursts::USUAL
+        };
+        let (_, held) = bursts(once, once, 80);
+        assert!(held.itself.is_some_and(|itself| itself < LITTLE), "{held:?}");
+        assert!(held.caveat().is_some_and(|c| c.starts_with("says little")));
+        // Nothing is held against it that chance alone would do.
+        assert_eq!(held.verdict, Verdict::Matches, "{held:?}");
+    }
+
+    /// Four columns flashing for 8 frames in every 40, starting `late` frames into each: on the
+    /// clock, in columns drawn by chance.
+    fn flashes(seed: u32, late: u32, frame: u32, x: u32) -> [u8; 3] {
+        let Some(at) = frame.checked_sub(late) else {
+            return BLACK;
+        };
+        let column = (chance(seed, at / 40, 5) * 28.0) as u32;
+        if at % 40 < 8 && (column..column + 4).contains(&x) {
+            WHITE
+        } else {
+            BLACK
+        }
+    }
+
+    #[test]
+    fn an_effect_that_keeps_time_in_chance_places_is_still_held_to_its_time() {
+        let on_time = held(32, 8, 800, Chance::Drawn, |render, frame, x, _| {
+            flashes(render as u32, 0, frame, x)
+        });
+        // The flashes are in other columns in every render, PixelFlow's other seeds too: the
+        // same flashes.
+        assert_eq!(on_time.1.verdict, Verdict::Matches, "{:?}", on_time.1);
+        assert!(on_time.1.components.pattern > 0.9, "{:?}", on_time.1);
+        // Half a second late, the flashes come while xLights is dark. PixelFlow's own renders
+        // all flash together, so this isn't chance.
+        let late = held(32, 8, 800, Chance::Drawn, |render, frame, x, _| {
+            flashes(render as u32, if render == THEIRS { 0 } else { 20 }, frame, x)
+        });
+        assert!(late.1.components.rhythm < 0.3, "{:?}", late.1);
+        assert_ne!(late.1.verdict, Verdict::Matches, "{:?}", late.1);
+        // Even were its moments taken as chance, it would be held to them: PixelFlow's own
+        // renders have their flashes in common moment by moment, so chance doesn't move them,
+        // and they are read moment by moment.
+        let mistaken = held(32, 8, 800, Chance::Moments, |render, frame, x, _| {
+            flashes(render as u32, if render == THEIRS { 0 } else { 20 }, frame, x)
+        });
+        assert!(mistaken.1.components.rhythm < 0.3, "{:?}", mistaken.1);
+        assert_ne!(mistaken.1.verdict, Verdict::Matches, "{:?}", mistaken.1);
+    }
+
+    #[test]
+    fn half_the_light_is_caught_however_little_chance_leaves_in_common() {
+        // A ball wandering the matrix, somewhere else in every render: moment by moment two
+        // renders have little in common, and one with a ball of half the size has half of
+        // that. Next to how little PixelFlow's own renders share, that would pass.
+        let ball = |seed: u32, radius: f32, frame: u32, x: u32, y: u32| {
+            let at = |k: u32, size: f32| {
+                let (from, to) = (chance(seed, frame / 40, k), chance(seed, frame / 40 + 1, k));
+                (from + (to - from) * (frame % 40) as f32 / 40.0) * size
+            };
+            if (x as f32 - at(1, 32.0)).hypot(y as f32 - at(2, 16.0)) <= radius {
+                WHITE
+            } else {
+                BLACK
+            }
+        };
+        let (_, small) = held(32, 16, 800, Chance::Drawn, |render, frame, x, y| {
+            let radius = if render == THEIRS { 5.0 } else { 3.5 };
+            ball(render as u32, radius, frame, x, y)
+        });
+        // Half the area lit, and the look says so.
+        assert!(small.components.coverage < 0.75, "{small:?}");
+        assert!(small.components.brightness < 0.75, "{small:?}");
+        assert_ne!(small.verdict, Verdict::Matches, "{small:?}");
+        assert!(
+            small
+                .differs()
+                .is_some_and(|d| d.starts_with("less of the target lit")),
+            "{:?}",
+            small.differs()
+        );
+        // The same ball in every render is the same look.
+        let (_, same) = held(32, 16, 800, Chance::Drawn, |render, frame, x, y| {
+            ball(render as u32, 5.0, frame, x, y)
+        });
+        assert_eq!(same.verdict, Verdict::Matches, "{same:?}");
+    }
+
+    #[test]
+    fn as_much_of_something_is_judged_by_what_pixelflows_own_seeds_do() {
+        // The seeds agree to within a few percent: half as much is half as much.
+        assert!((as_much(&[0.20, 0.21, 0.19], 0.40, 0.0) - 0.5).abs() < 1e-9);
+        assert!((as_much(&[0.20, 0.21, 0.19], 0.10, 0.0) - 0.5).abs() < 1e-9);
+        // Inside what they do among themselves, nothing counts.
+        assert_eq!(as_much(&[0.10, 0.30, 0.20], 0.33, 0.0), 1.0);
+        assert_eq!(as_much(&[0.20, 0.21, 0.19], 0.205, 0.0), 1.0);
+        // Just outside, a share of it does; well outside, all of it.
+        let near = as_much(&[0.10, 0.30, 0.20], 0.55, 0.0);
+        assert!(near < 1.0 && near > 0.2 / 0.55, "{near}");
+        assert!((as_much(&[0.10, 0.30, 0.20], 0.80, 0.0) - 0.25).abs() < 1e-9);
+        // A spread read from two renders is trusted less than one read from three, and one
+        // from many is taken as it is.
+        assert!(beyond(2) > beyond(3) && beyond(3) > beyond(6) && beyond(6) > beyond(40));
+        assert!((beyond(1000) - BEYOND_CHANCE).abs() < 0.01);
+        assert_eq!(as_much(&[0.10, 0.30], 0.9, 0.0), 1.0);
+        // One seed, or seeds that agree to the last digit, have no spread: any difference counts.
+        assert!((as_much(&[0.2], 0.4, 0.0) - 0.5).abs() < 1e-9);
+        assert!((as_much(&[0.2, 0.2], 0.25, 0.0) - 0.8).abs() < 1e-9);
+        // Next to nothing against next to nothing is the same.
+        assert!(as_much(&[0.001, 0.001], 0.002, 0.01) > 0.9);
+        assert_eq!(as_much(&[], 0.5, 0.0), 1.0);
+    }
+
+    #[test]
+    fn where_pixelflows_seeds_agree_an_effect_is_judged_as_it_is_moment_by_moment() {
+        // Nothing here is chance: bars at half the speed, the same from every seed.
+        let (ours, theirs) = (bars(4, 0.25, WHITE), bars(4, 0.5, RED));
+        let (by_moment, held) = held(32, 8, 400, Chance::Drawn, |render, frame, x, _| {
+            if render == THEIRS {
+                theirs(frame, x)
+            } else {
+                ours(frame, x)
+            }
+        });
+        assert_eq!(held.components, by_moment.components);
+        assert_eq!((held.score, held.verdict), (by_moment.score, by_moment.verdict));
+        assert_eq!(held.itself, Some(1.0));
+    }
+
+    #[test]
+    fn over_the_whole_effect_movement_is_which_way_and_how_fast() {
+        let moving = |per_frame: f32, backwards: bool| {
+            let draw = bars(4, per_frame, WHITE);
+            move |frame: u32, x: u32| draw(frame, if backwards { 31 - x } else { x })
+        };
+        let motion = |ours: &dyn Fn(u32, u32) -> [u8; 3], theirs: &dyn Fn(u32, u32) -> [u8; 3]| {
+            held(32, 8, 400, Chance::Moments, |render, frame, x, _| {
+                if render == THEIRS {
+                    theirs(frame, x)
+                } else {
+                    ours(frame, x)
+                }
+            })
+            .1
+        };
+        let same = motion(&moving(0.5, false), &moving(0.5, false));
+        assert!(same.components.motion > 0.95, "{same:?}");
+        let opposite = motion(&moving(0.5, true), &moving(0.5, false));
+        assert!(opposite.components.motion < 0.1, "{opposite:?}");
+        assert!(opposite.seen.heading < -0.9, "{opposite:?}");
+        assert_eq!(opposite.differs().as_deref(), Some("moves the opposite way"));
+        let slow = motion(&moving(0.25, false), &moving(0.5, false));
+        assert!((0.3..0.7).contains(&slow.components.motion), "{slow:?}");
+        let still = motion(&moving(0.0, false), &moving(0.5, false));
+        assert!(still.components.motion < 0.1, "{still:?}");
+    }
+
+    #[test]
+    fn which_way_a_render_moves_is_judged_by_which_ways_pixelflows_seeds_move() {
+        // Every seed moves right at the same speed: the other way is nothing alike, half the
+        // speed a half, and the same is the same.
+        let right = [[1.0, 0.0], [1.0, 0.0], [1.0, 0.0]];
+        assert_eq!(same_way(&right, [1.0, 0.0], 1.0), 1.0);
+        assert_eq!(same_way(&right, [-1.0, 0.0], 1.0), 0.0);
+        assert!((same_way(&right, [0.5, 0.0], 1.0) - 0.5).abs() < 1e-9);
+        assert!((same_way(&right, [0.0, 1.0], 1.0)).abs() < 1e-9);
+        // Every seed drifts another way: so may xLights' render, whichever way that is.
+        let every_way = [[1.0, 0.0], [-0.5, 0.8], [-0.4, -0.9]];
+        for theirs in [[0.0, 1.0], [-1.0, 0.0], [0.7, -0.7], [0.0, 0.0]] {
+            assert_eq!(same_way(&every_way, theirs, 1.0), 1.0, "{theirs:?}");
+        }
+        // But not three times as fast as any of them.
+        assert!(same_way(&every_way, [9.0, 0.0], 9.0) < 0.5);
+        assert_eq!(same_way(&[], [1.0, 0.0], 1.0), 1.0);
+    }
+
+    #[test]
+    fn sorted_curves_say_how_much_of_the_time_and_never_when() {
+        let rising: Vec<f64> = (0..100).map(|i| f64::from(i) / 100.0).collect();
+        let falling: Vec<f64> = rising.iter().rev().copied().collect();
+        // The same heights at other moments.
+        assert!((sorted_overlap(rising.clone(), falling.clone(), 0.0) - 1.0).abs() < 1e-9);
+        // Moment by moment the two have a third in common.
+        let in_step = overlap(rising.iter().copied().zip(falling.iter().copied()), 0.0);
+        assert!((0.3..0.4).contains(&in_step), "{in_step}");
+        // Half as high throughout is half the same, however it's ordered.
+        let half: Vec<f64> = falling.iter().map(|v| v / 2.0).collect();
+        assert!((sorted_overlap(rising.clone(), half, 0.0) - 0.5).abs() < 1e-9);
+        // Lit a tenth of the time against lit all the time at a tenth of the height: as much
+        // light, and next to nothing the same.
+        let bursts: Vec<f64> = (0..100).map(|i| if i % 10 == 0 { 1.0 } else { 0.0 }).collect();
+        let steady = vec![0.1; 100];
+        assert!(sorted_overlap(bursts.clone(), steady, 0.0) < 0.06);
+        // A curve of another length is read at the same shares of the way along.
+        let twice: Vec<f64> = bursts.iter().flat_map(|&v| [v, v]).collect();
+        assert!((sorted_overlap(bursts, twice, 0.0) - 1.0).abs() < 1e-9);
+        assert_eq!(sorted_overlap(Vec::new(), rising, 0.0), 1.0);
+    }
+
+    #[test]
+    fn a_look_next_to_other_seeds_is_the_one_over_the_other_part_by_part() {
+        let draw = bars(4, 0.5, RED);
+        let by_moment = look(32, 8, 80, |_, frame, x, _| draw(frame, x));
+        let parts = |same: f64| Parts {
+            same: [same; 6],
+            layout: same,
+            heading: same,
+            whole: None,
+            lit: [0.5; 2],
+            level: [0.5; 2],
+            flashes: [1.0; 2],
+            change: [0.1; 2],
+            speed: [0.0; 2],
+            net: [[0.0; 2]; 2],
+        };
+        // Half as alike to xLights as PixelFlow's own renders are to one another.
+        let half = next_to_seeds(&by_moment, Chance::Moments, &[parts(0.4)], &[parts(0.8)]);
+        for component in Component::ALL {
+            assert!((half.components.get(component) - 0.5).abs() < 1e-3, "{half:?}");
+        }
+        assert_eq!((half.itself, half.chance), (Some(0.8), Chance::Moments));
+        // As alike as its own renders are, or more: the same.
+        let same = next_to_seeds(
+            &by_moment,
+            Chance::Moments,
+            &[parts(0.5), parts(0.7)],
+            &[parts(0.6)],
+        );
+        assert_eq!((same.score, same.verdict), (100.0, Verdict::Matches));
+        // Its renders to xLights' on average, next to the least alike two of its own.
+        let least = next_to_seeds(
+            &by_moment,
+            Chance::Drawn,
+            &[parts(0.2), parts(0.4)],
+            &[parts(0.9), parts(0.6), parts(0.8)],
+        );
+        assert!((least.components.color - felt(0.5)).abs() < 1e-3, "{least:?}");
+        assert_eq!(least.itself, Some(0.6));
+        // With no other seed to hold it against, it is judged as it is.
+        let alone = next_to_seeds(&by_moment, Chance::Drawn, &[parts(0.5)], &[]);
+        assert!((alone.components.coverage - 0.5).abs() < 1e-3, "{alone:?}");
+        assert_eq!(alone.seen.lit, by_moment.seen.lit);
     }
 }

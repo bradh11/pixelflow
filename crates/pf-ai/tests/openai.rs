@@ -4,7 +4,7 @@
 use pf_ai::http::RetryPolicy;
 use pf_ai::openai::{OpenAi, is_chat_tool_model};
 use pf_ai::provider::{
-    AssistantTurn, Message, StopReason, StreamEvent, ToolCall, ToolResult, ToolSpec, TurnRequest,
+    AssistantTurn, Message, StopReason, StreamEvent, ToolCall, ToolResult, ToolSpec, TurnRequest, Usage,
 };
 use pf_ai::testing::{FAKE_KEY, FakeTransport, Reply, fake_key};
 use pf_ai::{AiError, Cancel, LlmProvider, ProviderId};
@@ -411,6 +411,67 @@ fn refusals_and_safety_stops() {
     ];
     let (provider, _) = setup(vec![Reply::ok(sse(&filtered))]);
     assert_eq!(turn(&provider, &hi()).0.unwrap().stop, StopReason::Refusal);
+}
+
+fn usage_turn(provider: &OpenAi) -> Result<(AssistantTurn, Option<Usage>), AiError> {
+    let tools = tools();
+    let messages = hi();
+    let request = TurnRequest {
+        model: "gpt-5.1",
+        system: "You are a test.",
+        tools: &tools,
+        messages: &messages,
+        max_tokens: 1000,
+    };
+    provider.stream_turn_with_usage(&fake_key(), &request, &Cancel::new(), &mut |_| {})
+}
+
+#[test]
+fn the_tokens_billed_come_from_the_final_response() {
+    // The recorded replies: 1,900 in and 40 out, nothing cached; the turn is the same as without.
+    let (provider, fake) = setup(vec![Reply::ok(TEXT), Reply::ok(TEXT), Reply::ok(INCOMPLETE)]);
+    let (turn, usage) = usage_turn(&provider).unwrap();
+    assert_eq!(
+        usage,
+        Some(Usage {
+            input: 1_900,
+            cache_read: 0,
+            cache_write: 0,
+            output: 40,
+        })
+    );
+    assert_eq!(Ok(turn), turn_with(&provider, "gpt-5.1", &hi()).0);
+    // A cut-off reply is billed too, and says so.
+    let (turn, usage) = usage_turn(&provider).unwrap();
+    assert_eq!(turn.stop, StopReason::MaxTokens);
+    assert!(usage.is_some_and(|u| u.output > 0));
+    // The request is the one the app sends: the Responses API needs no option to report usage.
+    let body = fake.body(0);
+    assert!(body.get("stream_options").is_none(), "{body}");
+    assert_eq!(fake.body(0), fake.body(1));
+
+    // Cached input is part of input_tokens; reasoning is part of output_tokens.
+    let cached = [
+        json!({ "type": "response.completed", "response": { "status": "completed", "output": [], "usage": {
+        "input_tokens": 50_000, "input_tokens_details": { "cached_tokens": 42_000 },
+        "output_tokens": 3_000, "output_tokens_details": { "reasoning_tokens": 2_500 }, "total_tokens": 53_000,
+    } } }),
+    ];
+    let (provider, _) = setup(vec![Reply::ok(sse(&cached))]);
+    assert_eq!(
+        usage_turn(&provider).unwrap().1,
+        Some(Usage {
+            input: 8_000,
+            cache_read: 42_000,
+            cache_write: 0,
+            output: 3_000,
+        })
+    );
+
+    // A reply that leaves it out reports none.
+    let bare = [json!({ "type": "response.completed", "response": { "status": "completed", "output": [] } })];
+    let (provider, _) = setup(vec![Reply::ok(sse(&bare))]);
+    assert_eq!(usage_turn(&provider).unwrap().1, None);
 }
 
 fn sse(events: &[Value]) -> String {

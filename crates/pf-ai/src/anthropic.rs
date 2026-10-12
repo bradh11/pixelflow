@@ -8,6 +8,11 @@
 //! `error` events may come at any time. The assistant's content blocks (thinking with its
 //! signature included) are echoed back unchanged on the next request, and the history is only
 //! ever appended to. Models come from `GET /v1/models`.
+//!
+//! Usage: `message_start` carries the reply's `usage` (`input_tokens`,
+//! `cache_read_input_tokens`, `cache_creation_input_tokens`, and a first `output_tokens`), and
+//! `message_delta` carries the running totals (always `output_tokens`, sometimes the others
+//! again), the last of which stand. [`LlmProvider::stream_turn_with_usage`] returns them.
 
 use crate::error::{AiError, sanitize};
 use crate::http::{
@@ -15,7 +20,7 @@ use crate::http::{
 };
 use crate::provider::{
     AssistantTurn, Cancel, LlmProvider, Message, ModelInfo, ProviderId, StopReason, StreamEvent, ToolCall,
-    TurnRequest,
+    TurnRequest, Usage,
 };
 use crate::secret::ApiKey;
 use crate::sse::SseReader;
@@ -35,6 +40,12 @@ const FALLBACK_MODELS: &[&str] = &[
     "claude-sonnet-5-5",
 ];
 const FALLBACK_BETA: &str = "server-side-fallback-2026-07-01";
+
+/// Whether requests to `model` opt in to server-side fallbacks (so a declined request may be
+/// answered again by another model).
+pub fn takes_fallbacks(model: &str) -> bool {
+    FALLBACK_MODELS.contains(&model)
+}
 
 pub struct Anthropic {
     transport: Arc<dyn Transport>,
@@ -363,8 +374,19 @@ impl LlmProvider for Anthropic {
         cancel: &Cancel,
         on_event: &mut dyn FnMut(StreamEvent),
     ) -> Result<AssistantTurn, AiError> {
+        self.stream_turn_with_usage(key, request, cancel, on_event)
+            .map(|(turn, _)| turn)
+    }
+
+    fn stream_turn_with_usage(
+        &self,
+        key: &ApiKey,
+        request: &TurnRequest<'_>,
+        cancel: &Cancel,
+        on_event: &mut dyn FnMut(StreamEvent),
+    ) -> Result<(AssistantTurn, Option<Usage>), AiError> {
         let body = request_body(request);
-        let fallbacks = FALLBACK_MODELS.contains(&request.model);
+        let fallbacks = takes_fallbacks(request.model);
         let first = self.message_request(key, &body, fallbacks);
         let sent = send_with_retries(
             self.transport.as_ref(),
@@ -433,6 +455,39 @@ struct Block {
     partial_json: String,
 }
 
+/// The usage counts a reply has reported so far: each is the latest seen.
+#[derive(Default)]
+struct Counted {
+    input: Option<u64>,
+    cache_read: Option<u64>,
+    cache_write: Option<u64>,
+    output: Option<u64>,
+}
+
+impl Counted {
+    fn update(&mut self, usage: &Value) {
+        let take = |slot: &mut Option<u64>, field: &str| {
+            if let Some(n) = usage[field].as_u64() {
+                *slot = Some(n);
+            }
+        };
+        take(&mut self.input, "input_tokens");
+        take(&mut self.cache_read, "cache_read_input_tokens");
+        take(&mut self.cache_write, "cache_creation_input_tokens");
+        take(&mut self.output, "output_tokens");
+    }
+
+    /// The reply's usage, when it said both what was sent and what was written.
+    fn usage(&self) -> Option<Usage> {
+        Some(Usage {
+            input: self.input?,
+            cache_read: self.cache_read.unwrap_or(0),
+            cache_write: self.cache_write.unwrap_or(0),
+            output: self.output?,
+        })
+    }
+}
+
 /// Reads one streamed reply.
 fn read_stream(
     body: Box<dyn std::io::BufRead + Send>,
@@ -440,11 +495,12 @@ fn read_stream(
     model: &str,
     cancel: &Cancel,
     on_event: &mut dyn FnMut(StreamEvent),
-) -> Result<AssistantTurn, AiError> {
+) -> Result<(AssistantTurn, Option<Usage>), AiError> {
     let p = ProviderId::Anthropic;
     let mut reader = SseReader::new(body);
     let mut blocks: Vec<Block> = Vec::new();
     let mut stop: Option<String> = None;
+    let mut counted = Counted::default();
     let mut finished = false;
     while !finished {
         cancel.check()?;
@@ -510,10 +566,12 @@ fn read_stream(
                 }
             }
             "content_block_stop" => {}
+            "message_start" => counted.update(&data["message"]["usage"]),
             "message_delta" => {
                 if let Some(reason) = data["delta"]["stop_reason"].as_str() {
                     stop = Some(reason.to_string());
                 }
+                counted.update(&data["usage"]);
             }
             "message_stop" => finished = true,
             "error" => {
@@ -527,14 +585,14 @@ fn read_stream(
                 };
                 return Err(status_error(status, kind, message, key, Some(model)));
             }
-            // message_start, ping, and anything newer.
+            // ping, and anything newer.
             _ => {}
         }
     }
     if !finished {
         return Err(AiError::Interrupted(p));
     }
-    finish(blocks, stop)
+    finish(blocks, stop).map(|turn| (turn, counted.usage()))
 }
 
 /// Content blocks in one reply, at most.

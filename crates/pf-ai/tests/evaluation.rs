@@ -1,12 +1,15 @@
 //! The evaluation harness, held to its word without a model: a careful scripted answer to each
 //! scenario passes that scenario's checks and an idle one fails them; what goes to the model is
-//! counted; and the command line makes no provider and reads no key unless it is told to send.
+//! counted; the command line makes no provider and reads no key unless it is told to send; and a
+//! run that sends keeps to a hard spending ceiling, from the usage the provider reports.
 
+use pf_ai::agent::{MAX_OUTPUT_TOKENS, SYSTEM_PROMPT};
 use pf_ai::eval::cli::{self, KEY_VARIABLE, stand_in_outcomes};
-use pf_ai::eval::{self, Metered, Prices, Traffic, scenarios, stand_in};
+use pf_ai::eval::{self, Billed, Budget, Metered, Prices, Stop, Traffic, scenarios, stand_in, worst_tokens};
+use pf_ai::provider::{Message, TurnRequest, Usage};
 use pf_ai::stage::Stage;
 use pf_ai::testing::{ScriptedProvider, calls, fake_key, says};
-use pf_ai::{ApiKey, Cancel, LlmProvider, ProviderId};
+use pf_ai::{ApiKey, Cancel, LlmProvider, ProviderId, Toolbox, anthropic, openai};
 use serde_json::json;
 use std::sync::Arc;
 
@@ -185,6 +188,7 @@ fn what_goes_to_the_model_is_counted() {
         input: 2.0,
         output: 10.0,
         cached: 0.5,
+        cache_write: 1.25,
     };
     assert_eq!(round.tokens(), (1_000_000, 1_000_000));
     let (full, cached) = round.cost(&prices);
@@ -254,7 +258,7 @@ fn the_command_line_sends_nothing_unless_told_to() {
         KEY_VARIABLE,
         "Roughly what it costs: the scripted answers to these 1 scenarios take 2 requests",
         "At $1/$2 a million tokens in/out (assumed: check Anthropic's price list",
-        "Nothing was sent. To run it against some-model, put your Anthropic key in PIXELFLOW_EVAL_KEY and add --send.",
+        "Nothing was sent. To run it against some-model, put your Anthropic key in PIXELFLOW_EVAL_KEY and add --send with --max-usd and the prices (--price-in, --price-out, --price-cached, --price-cache-write).",
     ] {
         assert!(said.contains(words), "{words}:\n{said}");
     }
@@ -272,6 +276,14 @@ fn the_command_line_sends_nothing_unless_told_to() {
             "--send",
             "--runs",
             "2",
+            "--max-usd",
+            "10",
+            "--price-in",
+            "1",
+            "--price-out",
+            "2",
+            "--price-cached",
+            "0.1",
         ],
         vec![says("They are different.")],
     );
@@ -321,7 +333,9 @@ fn the_command_line_says_what_it_takes() {
     }
     let (status, said, _) = command(&["--help"], Vec::new());
     assert!(
-        status == 0 && said.contains("--send               really send"),
+        status == 0
+            && said.contains("--send                   really send")
+            && said.contains("--max-usd <usd>          the most the whole run may spend; --send needs it"),
         "{said}"
     );
 }
@@ -341,5 +355,432 @@ fn every_scenario_starts_from_a_sound_made_up_sequence() {
         assert_eq!(outcome.request, scenario.request);
         assert!(!scenario.opens.is_empty() && !scenario.title.is_empty());
         assert_eq!(outcome.measures.props, stage.show.props.len());
+    }
+}
+
+// Spending: a run that sends keeps to a hard ceiling, from what the provider reports.
+
+fn prices() -> Prices {
+    Prices {
+        input: 1.0,
+        output: 2.0,
+        cached: 0.1,
+        cache_write: 1.25,
+    }
+}
+
+fn used(input: u64, cache_read: u64, cache_write: u64, output: u64) -> Option<Usage> {
+    Some(Usage {
+        input,
+        cache_read,
+        cache_write,
+        output,
+    })
+}
+
+fn scenario(key: &str) -> eval::Scenario {
+    scenarios().into_iter().find(|s| s.key == key).unwrap()
+}
+
+/// The request the chat loop sent as `messages`, rebuilt to work out its worst case.
+fn worst_of(provider: ProviderId, model: &str, messages: &[Message]) -> (u64, u64) {
+    let tools = Toolbox::default().specs();
+    let request = TurnRequest {
+        model,
+        system: SYSTEM_PROMPT,
+        tools: &tools,
+        messages,
+        max_tokens: MAX_OUTPUT_TOKENS,
+    };
+    worst_tokens(provider, &request)
+}
+
+/// Runs the command line with `provider` standing in for the real one.
+fn command_on(args: &[&str], provider: Arc<ScriptedProvider>) -> (i32, String, usize) {
+    let args: Vec<String> = args.iter().map(|a| a.to_string()).collect();
+    let mut connected = 0;
+    let mut connect = |_: ProviderId| -> Result<(Arc<dyn LlmProvider>, ApiKey), String> {
+        connected += 1;
+        Ok((provider.clone(), fake_key()))
+    };
+    let mut out = Vec::new();
+    let status = cli::main(&args, &mut connect, &mut out);
+    (status, String::from_utf8(out).unwrap(), connected)
+}
+
+const PRICED: [&str; 8] = [
+    "--max-usd",
+    "10",
+    "--price-in",
+    "1",
+    "--price-out",
+    "2",
+    "--price-cached",
+    "0.1",
+];
+
+#[test]
+fn a_run_that_sends_needs_a_ceiling_and_explicit_prices_or_it_doesnt_start() {
+    let base = [
+        "--scenario",
+        "question",
+        "--provider",
+        "openai",
+        "--model",
+        "some-model",
+        "--send",
+    ];
+    for (extra, words) in [
+        (vec![], "--send needs --max-usd <dollars>"),
+        (
+            vec!["--max-usd", "10"],
+            "missing --price-in, --price-out, --price-cached. Nothing was sent.",
+        ),
+        (
+            vec!["--max-usd", "10", "--price-in", "1", "--price-out", "2"],
+            "missing --price-cached. Nothing was sent.",
+        ),
+        (
+            vec!["--max-usd", "0"],
+            "--max-usd takes an amount of dollars above 0, not \"0\".",
+        ),
+        (
+            vec!["--max-requests", "0"],
+            "--max-requests takes a whole number from 1, not \"0\".",
+        ),
+    ] {
+        let args: Vec<&str> = base.iter().copied().chain(extra.iter().copied()).collect();
+        let provider = Arc::new(ScriptedProvider::new(vec![says("Hi.")]));
+        let (status, said, connected) = command_on(&args, provider.clone());
+        // Refused before any provider is made or any key is read.
+        assert_eq!((status, connected), (2, 0), "{args:?}: {said}");
+        assert!(said.contains(words), "{args:?}: {said}");
+        assert!(provider.requests().is_empty());
+    }
+
+    // Anthropic charges for writing its cache, so that price is needed too.
+    let mut args = vec![
+        "--scenario",
+        "question",
+        "--provider",
+        "anthropic",
+        "--model",
+        "some-model",
+        "--send",
+    ];
+    args.extend(PRICED);
+    let (status, said, connected) = command_on(&args, Arc::new(ScriptedProvider::new(Vec::new())));
+    assert_eq!((status, connected), (2, 0), "{said}");
+    assert!(said.contains("missing --price-cache-write."), "{said}");
+
+    // Ceiling and prices without --send: still nothing made, no key read.
+    let mut args = vec![
+        "--scenario",
+        "question",
+        "--provider",
+        "openai",
+        "--model",
+        "some-model",
+    ];
+    args.extend(PRICED);
+    let provider = Arc::new(ScriptedProvider::new(vec![says("Hi.")]));
+    let (status, said, connected) = command_on(&args, provider.clone());
+    assert_eq!((status, connected), (0, 0), "{said}");
+    assert!(provider.requests().is_empty());
+    assert!(!said.contains("Prices for this run"), "{said}");
+
+    // With them all, it starts, and says first what it will charge itself.
+    args.push("--send");
+    let provider =
+        Arc::new(ScriptedProvider::new(vec![says("They differ.")]).reporting(vec![used(1_000, 0, 0, 20)]));
+    let (status, said, connected) = command_on(&args, provider.clone());
+    assert_eq!((status, connected), (0, 1), "{said}");
+    let terms = said.find("Prices for this run").expect("the prices are printed");
+    assert!(
+        terms < said.find("question: ").expect("the scenario ran"),
+        "{said}"
+    );
+    for words in [
+        "Prices for this run, in dollars for a million tokens: sent $1, received $2, read from the cache $0.1000 (a share of 0.1), written to the cache not charged.",
+        "Spending ceiling: $10.00 for the whole run.",
+        "output limit of 32000 tokens",
+        "question: 2 of 4 checks, 1 requests. Spent so far: $0.0010 of $10.00.",
+        "Final total: $0.0010 of the $10.00 ceiling",
+    ] {
+        assert!(said.contains(words), "{words}:\n{said}");
+    }
+}
+
+#[test]
+fn a_request_whose_worst_case_would_pass_the_ceiling_is_never_sent() {
+    let whole = scenario("whole-song");
+    let stage = Stage::new();
+    let turns = stand_in::script(&whole, &stage).len();
+    // Every reply reports a heavy request: 40,000 tokens in, 2,000 out ($0.044 at these prices).
+    let heavy = used(40_000, 0, 0, 2_000).unwrap();
+    let mut stopped_at = Vec::new();
+    for ceiling in [0.05, 0.15, 0.3, 0.45, 100.0] {
+        let provider =
+            ScriptedProvider::new(stand_in::script(&whole, &stage)).reporting(vec![Some(heavy); turns]);
+        let budget = Budget::new(ceiling, prices(), None);
+        let outcome = eval::run_within(
+            &whole,
+            &stage,
+            &provider,
+            &fake_key(),
+            "some-model",
+            &Cancel::new(),
+            Some(&budget),
+        );
+        let spending = budget.spending();
+        let sent = provider.requests();
+        assert_eq!(sent.len(), spending.requests, "{ceiling}");
+        assert_eq!(outcome.measures.requests, sent.len());
+        // The true total is what the replies reported, and never passes the ceiling.
+        let mut reported = Usage::default();
+        for _ in 0..sent.len() {
+            reported.add(&heavy);
+        }
+        assert!((spending.spent - prices().cost(&reported)).abs() < 1e-12);
+        assert!(spending.spent <= ceiling, "{ceiling}: {spending:?}");
+        // Every request sent fit, at its worst case, in what was left.
+        let mut spent = 0.0;
+        for messages in &sent {
+            let (s, r) = worst_of(ProviderId::Anthropic, "some-model", messages);
+            assert!(spent + prices().worst_case(s, r) <= ceiling, "{ceiling}");
+            spent += prices().cost(&heavy);
+        }
+        match outcome.stopped {
+            Some(Stop::Budget) => {
+                // The one not sent wouldn't have: it was refused, cleanly.
+                let worst = spending.refused_worst_case.unwrap();
+                assert!(spending.spent + worst > ceiling, "{ceiling}");
+                assert!(sent.len() < turns && outcome.error.is_none(), "{outcome:?}");
+                assert_eq!(budget.stopped(), Some(Stop::Budget));
+                stopped_at.push(sent.len());
+            }
+            other => {
+                assert_eq!(other, None);
+                assert_eq!(sent.len(), turns, "{ceiling}");
+            }
+        }
+    }
+    // The smallest ceiling can't bear even one request's worst case (32,000 tokens out alone
+    // cost $0.064 here); the larger ones stop later; the largest doesn't stop.
+    assert_eq!(stopped_at.first(), Some(&0), "{stopped_at:?}");
+    assert!(
+        stopped_at.len() >= 3 && stopped_at.windows(2).all(|w| w[0] < w[1]),
+        "{stopped_at:?}"
+    );
+}
+
+#[test]
+fn a_reply_without_usage_is_counted_at_its_worst_case() {
+    let question = scenario("question");
+    let stage = Stage::new();
+    let light = used(1_000, 3_000, 500, 100);
+    let provider = ScriptedProvider::new(stand_in::script(&question, &stage)).reporting(vec![light, None]);
+    let budget = Budget::new(100.0, prices(), None);
+    let outcome = eval::run_within(
+        &question,
+        &stage,
+        &provider,
+        &fake_key(),
+        "some-model",
+        &Cancel::new(),
+        Some(&budget),
+    );
+    let sent = provider.requests();
+    assert_eq!(sent.len(), 2);
+    // The harness's requests carry the chat loop's own output limit.
+    assert_eq!(provider.max_tokens_seen(), [MAX_OUTPUT_TOKENS; 2]);
+    let (worst_sent, worst_received) = worst_of(ProviderId::Anthropic, "some-model", &sent[1]);
+    assert_eq!(worst_received, u64::from(MAX_OUTPUT_TOKENS));
+    let billed = outcome.measures.billed;
+    assert_eq!(
+        billed,
+        Billed {
+            reported: 1,
+            tokens: light.unwrap(),
+            unreported: 1,
+            unreported_sent: worst_sent,
+            unreported_received: worst_received,
+        }
+    );
+    let expected = prices().cost(&light.unwrap()) + prices().worst_case(worst_sent, worst_received);
+    assert!((budget.spending().spent - expected).abs() < 1e-12);
+    // Cache writes cost more than plain input here, so the worst case charges every token sent
+    // at the cache-write price.
+    assert!(
+        (prices().worst_case(1_000_000, 0) - 1.25).abs() < 1e-12
+            && (prices().worst_case(0, 1_000_000) - 2.0).abs() < 1e-12
+    );
+
+    // A reply that fails says nothing about usage either: it too is counted at its worst case.
+    let provider = ScriptedProvider::new(vec![Err(pf_ai::AiError::Overloaded(ProviderId::Openai))]);
+    let budget = Budget::new(100.0, prices(), None);
+    let outcome = eval::run_within(
+        &question,
+        &stage,
+        &provider,
+        &fake_key(),
+        "some-model",
+        &Cancel::new(),
+        Some(&budget),
+    );
+    assert!(outcome.error.is_some() && outcome.stopped.is_none());
+    assert_eq!(budget.spending().billed.unreported, 1);
+    assert!(budget.spending().spent >= prices().worst_case(0, u64::from(MAX_OUTPUT_TOKENS)));
+}
+
+#[test]
+fn the_worst_case_is_everything_sent_and_the_output_limit() {
+    let messages = vec![Message::User("Make a light show for this song.".into())];
+    let tools = Toolbox::default().specs();
+    let request = TurnRequest {
+        model: "gpt-5.1",
+        system: SYSTEM_PROMPT,
+        tools: &tools,
+        messages: &messages,
+        max_tokens: MAX_OUTPUT_TOKENS,
+    };
+    let body = openai::request_body(&request, true).to_string().len() as u64;
+    assert_eq!(
+        worst_tokens(ProviderId::Openai, &request),
+        (body + eval::FRAMING_TOKENS, u64::from(MAX_OUTPUT_TOKENS))
+    );
+    // Every byte of text a model reads is in that.
+    assert!(body > eval::request_bytes(&request) as u64);
+    // A model whose declined requests Anthropic may answer again with another counts twice.
+    let anthropic_request = TurnRequest {
+        model: "claude-opus-5-5",
+        ..request
+    };
+    let body = anthropic::request_body(&anthropic_request).to_string().len() as u64;
+    assert!(anthropic::takes_fallbacks("claude-opus-5-5"));
+    assert_eq!(
+        worst_tokens(ProviderId::Anthropic, &anthropic_request),
+        (
+            2 * (body + eval::FRAMING_TOKENS),
+            2 * u64::from(MAX_OUTPUT_TOKENS)
+        )
+    );
+}
+
+#[test]
+fn the_report_and_results_show_the_tokens_billed_and_what_they_cost() {
+    let folder = tempfile::tempdir().unwrap();
+    let out = folder.path().join("run");
+    let mut args = vec![
+        "--scenario",
+        "question",
+        "--provider",
+        "anthropic",
+        "--model",
+        "some-model",
+        "--send",
+        "--price-cache-write",
+        "1.25",
+        "--out",
+        out.to_str().unwrap(),
+    ];
+    args.extend(PRICED);
+    let stage = Stage::new();
+    let provider = Arc::new(
+        ScriptedProvider::new(stand_in::script(&scenario("question"), &stage))
+            .reporting(vec![used(1_000, 500, 200, 50), used(1_000, 500, 200, 50)]),
+    );
+    let (status, said, connected) = command_on(&args, provider);
+    assert_eq!((status, connected), (0, 1), "{said}");
+    // (2,000 + 1,000 × 0.1 + 400 × 1.25) × $1 + 100 × $2, a million tokens at a time.
+    for words in [
+        "Billed, as the provider reported it: 2 of 2 requests reported their tokens: 3400 sent (2000 at the full price, 1000 read from the cache, 400 written to it) and 100 received, $0.0028 at the prices. Total: $0.0028.",
+        "| question | 4/4 |",
+        "| $0.0028 |",
+        "## Spending",
+        "2 requests sent. Ceiling $10.00; spent $0.0028.",
+        "Final total: $0.0028 of the $10.00 ceiling, from what Anthropic reported (2 of 2 requests",
+        "written to the cache $1.2500 (a share of 1.25)",
+        "Estimated from sizes:",
+    ] {
+        assert!(said.contains(words), "{words}:\n{said}");
+    }
+    let report = std::fs::read_to_string(out.join("report.md")).unwrap();
+    assert!(report.contains("## Spending") && report.contains("Total: $0.0028."));
+    let results: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(out.join("results.json")).unwrap()).unwrap();
+    assert_eq!(results["maxUsd"], 10.0);
+    assert_eq!(results["prices"]["cacheWrite"], 1.25);
+    assert_eq!(results["spending"]["requests"], 2);
+    assert_eq!(
+        results["spending"]["billed"]["tokens"],
+        json!({ "input": 2000, "cacheRead": 1000, "cacheWrite": 400, "output": 100 })
+    );
+    assert!((results["spending"]["spent"].as_f64().unwrap() - 0.0028).abs() < 1e-12);
+    assert_eq!(results["outcomes"][0]["measures"]["billed"]["reported"], 2);
+    assert_eq!(results["outcomes"][0]["stopped"], serde_json::Value::Null);
+    // The sizes are still there beside them.
+    assert!(
+        results["outcomes"][0]["measures"]["traffic"]["sentBytes"]
+            .as_u64()
+            .unwrap()
+            > 0
+    );
+}
+
+#[test]
+fn once_the_budget_or_the_request_limit_stops_a_scenario_no_other_starts() {
+    let base = [
+        "--scenario",
+        "dancers,question",
+        "--provider",
+        "openai",
+        "--model",
+        "some-model",
+        "--send",
+        "--price-in",
+        "1",
+        "--price-out",
+        "2",
+        "--price-cached",
+        "0.1",
+    ];
+    // A ceiling no request's worst case fits under: nothing is sent at all.
+    let mut args = base.to_vec();
+    args.extend(["--max-usd", "0.05"]);
+    let provider = Arc::new(ScriptedProvider::new(vec![says("Done.")]));
+    let (status, said, _) = command_on(&args, provider.clone());
+    assert_eq!(status, 0, "{said}");
+    assert!(provider.requests().is_empty(), "{said}");
+    for words in [
+        "0 requests (stopped: budget). Spent so far: $0.0000 of $0.05.",
+        "| dancers (stopped: budget) |",
+        "Stopped: budget. The next request's worst case would have passed the spending ceiling",
+        "Stopped: budget (the next request could have cost up to $",
+        "Not started: question.",
+        "0 requests sent. Ceiling $0.05; spent $0.0000.",
+    ] {
+        assert!(said.contains(words), "{words}:\n{said}");
+    }
+    assert!(!said.contains("question: "), "{said}");
+
+    // At most one request: the first scenario stops after it, the second never starts.
+    let mut args = base.to_vec();
+    args.extend(["--max-usd", "10", "--max-requests", "1"]);
+    let stage = Stage::new();
+    let provider = Arc::new(
+        ScriptedProvider::new(stand_in::script(&scenario("dancers"), &stage))
+            .reporting(vec![used(500, 0, 0, 10)]),
+    );
+    let (status, said, _) = command_on(&args, provider.clone());
+    assert_eq!(status, 0, "{said}");
+    assert_eq!(provider.requests().len(), 1, "{said}");
+    for words in [
+        "(stopped: request limit)",
+        "Stopped: request limit.",
+        "Not started: question.",
+        "At most 1 requests.",
+    ] {
+        assert!(said.contains(words), "{words}:\n{said}");
     }
 }

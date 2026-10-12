@@ -27,6 +27,11 @@
 //! `max_output_tokens`), or `response.failed` (`response.error`); an `error` event may come at
 //! any time. A stream that ends before one of those three is an interrupted reply.
 //!
+//! **Usage.** The Responses API puts the tokens billed in the final response's `usage`
+//! (`response.completed` or `response.incomplete`) on every streamed reply; it needs no stream
+//! option (`stream_options.include_usage` is Chat Completions'). [`usage_of`] reads it, and
+//! [`LlmProvider::stream_turn_with_usage`] returns it with the turn.
+//!
 //! **Errors** (`{"error": {"message", "type", "param", "code"}}`) become plain messages; the
 //! provider's own words, sanitized, ride along as details. "This model can't use tools" is only
 //! said for `unsupported_parameter` / `unsupported_value` naming `tools` itself (or a tool's
@@ -47,7 +52,7 @@ use crate::http::{
 };
 use crate::provider::{
     AssistantTurn, Cancel, LlmProvider, Message, ModelInfo, ProviderId, StopReason, StreamEvent, ToolCall,
-    TurnRequest,
+    TurnRequest, Usage,
 };
 use crate::secret::ApiKey;
 use crate::sse::SseReader;
@@ -461,6 +466,17 @@ impl LlmProvider for OpenAi {
         cancel: &Cancel,
         on_event: &mut dyn FnMut(StreamEvent),
     ) -> Result<AssistantTurn, AiError> {
+        self.stream_turn_with_usage(key, request, cancel, on_event)
+            .map(|(turn, _)| turn)
+    }
+
+    fn stream_turn_with_usage(
+        &self,
+        key: &ApiKey,
+        request: &TurnRequest<'_>,
+        cancel: &Cancel,
+        on_event: &mut dyn FnMut(StreamEvent),
+    ) -> Result<(AssistantTurn, Option<Usage>), AiError> {
         let refused = self
             .no_reasoning
             .lock()
@@ -501,13 +517,38 @@ enum End {
     Incomplete(String),
 }
 
+/// The tokens a reply was billed for, from its final `response.usage`: `input_tokens` counts
+/// the cached ones too (`input_tokens_details.cached_tokens`), and `output_tokens` counts the
+/// reasoning. (The Chat Completions names, `prompt_tokens` and `completion_tokens`, are read as
+/// well.) `None` when the reply doesn't say.
+pub fn usage_of(response: &Value) -> Option<Usage> {
+    let usage = &response["usage"];
+    let input = usage["input_tokens"]
+        .as_u64()
+        .or_else(|| usage["prompt_tokens"].as_u64())?;
+    let output = usage["output_tokens"]
+        .as_u64()
+        .or_else(|| usage["completion_tokens"].as_u64())?;
+    let cached = usage["input_tokens_details"]["cached_tokens"]
+        .as_u64()
+        .or_else(|| usage["prompt_tokens_details"]["cached_tokens"].as_u64())
+        .unwrap_or(0)
+        .min(input);
+    Some(Usage {
+        input: input - cached,
+        cache_read: cached,
+        cache_write: 0,
+        output,
+    })
+}
+
 fn read_stream(
     body: Box<dyn std::io::BufRead + Send>,
     key: &ApiKey,
     model: &str,
     cancel: &Cancel,
     on_event: &mut dyn FnMut(StreamEvent),
-) -> Result<AssistantTurn, AiError> {
+) -> Result<(AssistantTurn, Option<Usage>), AiError> {
     let p = ProviderId::Openai;
     let mut reader = SseReader::new(body);
     let mut items: Vec<Option<Item>> = Vec::new();
@@ -594,7 +635,8 @@ fn read_stream(
         return Err(AiError::Interrupted(p));
     };
     let streamed: Vec<Item> = items.into_iter().flatten().collect();
-    finish(streamed, &response, text, refusal, end, model)
+    let usage = usage_of(&response);
+    finish(streamed, &response, text, refusal, end, model).map(|turn| (turn, usage))
 }
 
 /// Turns the reply's output items into a turn. The final response's `output` (when it has one)

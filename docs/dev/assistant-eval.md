@@ -44,7 +44,8 @@ No audio is analyzed: `analyze_song` is answered with that hand-written analysis
   the words can be read; a question was answered without changing anything; a small job took few
   steps; the method guide was read before the first effect was placed.
 - **What it took**: model requests, tool calls by name, tool calls refused (with the reason),
-  guides read, and the size of everything sent and received.
+  guides read, the size of everything sent and received, and (on a real run) the tokens the
+  provider billed and what they cost.
 
 `crates/pf-ai/src/eval/scenarios.rs` has each scenario's checks; adding a scenario is adding an
 entry there (and a scripted answer in `stand_in.rs`, which the tests require to pass it).
@@ -63,27 +64,38 @@ Against a model, with your own key. First see what would be sent and roughly wha
 (this still sends nothing):
 
 ```
-cargo run --release -p pf-ai --example assistant_eval -- --provider anthropic --model <model id>
+cargo run --release -p pf-ai --example assistant_eval -- --provider openai --model <model id>
 ```
 
-Then run it:
+Then run it, with a ceiling on what it may spend and the model's prices from the provider's
+price list:
 
 ```
 PIXELFLOW_EVAL_KEY=<your key> cargo run --release -p pf-ai --example assistant_eval -- \
-    --provider anthropic --model <model id> --send --out ~/pixelflow-eval/first-run
+    --provider openai --model <model id> --send --max-usd 10 \
+    --price-in <$ per million tokens sent> --price-out <$ per million received> \
+    --price-cached <cached input price as a share of --price-in> \
+    --out ~/pixelflow-eval/first-run
 ```
+
+For Anthropic, add `--price-cache-write <share of --price-in>` (what writing to its cache costs).
 
 - `--provider` is `anthropic` or `openai`; `--model` is the model's id as that company names it.
 - `--send` is what makes it real. Without it no provider is contacted and the key is not read.
+- `--max-usd <dollars>` is the most the whole run may spend; `--send` won't start without it
+  (see [Spending](#spending)). `--max-requests <n>` is a second, plainer brake: at most that many
+  requests in the whole run.
 - `--scenario whole-song,halloween` runs only those.
 - `--runs 3` answers each scenario three times: models vary from one run to the next, and one
   run is an anecdote.
-- `--out <folder>` writes `report.md` (what is printed) and `results.json` (every measure, and
-  every tool call the model made with the start of each answer). Keep that folder outside the
-  repository: results are not committed.
+- `--out <folder>` writes `report.md` (what is printed) and `results.json` (the model, the prices,
+  the ceiling, what was spent and the tokens billed, the scenarios the budget kept from starting,
+  and for each scenario every measure, its tokens billed, and every tool call the model made with
+  the start of each answer). Keep that folder outside the repository: results are not committed.
 
 The key is read from the `PIXELFLOW_EVAL_KEY` environment variable, by the example binary, only
-on a run with `--send`. It is not read from the app's saved key, and it is not written anywhere.
+on a run with `--send`, and only once the ceiling and prices have been accepted. It is not read
+from the app's saved key, and it is not written anywhere.
 
 ## What a real run sends
 
@@ -99,12 +111,51 @@ Nothing of yours is read or sent: no show, sequence, song, lyrics, picture, file
 Requests to Anthropic ask for prompt caching; requests to OpenAI ask it not to store the
 conversation, as in the app.
 
+## Spending
+
+A run with `--send` spends real money, so it keeps to a hard ceiling that it can't pass.
+
+**It won't start without one.** `--send` needs `--max-usd`, and the prices given explicitly:
+`--price-in` and `--price-out` (dollars for a million tokens), `--price-cached` (a token read from
+the provider's cache, as a share of `--price-in`), and for Anthropic `--price-cache-write` (a
+token written to its cache, as a share of `--price-in`; OpenAI doesn't charge for that). With
+any of them missing it stops before making a provider or reading the key, and says which. It
+prints the prices and ceiling it will use before the first request.
+
+**Before every request** it works out the most that request could cost: every byte of the body it
+would send counted as a token (no token is shorter than a byte, so this is more than the provider
+will count), plus 4,096 tokens for what the provider wraps around it, all at the full input price
+(or the cache-write price, where that is dearer); plus the request's own output limit (32,000
+tokens, the chat loop's `MAX_OUTPUT_TOKENS`, which both providers are sent and which counts
+reasoning and thinking) at the output price. An Anthropic model that takes server-side fallbacks
+could be billed for a second model's answer too, so its worst case counts twice. If what has been
+spent plus that worst case would pass the ceiling, the request is not sent: the scenario stops
+there, is marked "stopped: budget" in the report, and no further scenario starts. `--max-requests`
+stops the run the same way ("stopped: request limit").
+
+**After every request** it adds what the request really cost, from the tokens the provider
+reports for it: OpenAI's `usage` on the final `response.completed` (or `response.incomplete`)
+event, with the cached part of `input_tokens` at the cached price (the Responses API reports it on
+every streamed reply; it needs no stream option); Anthropic's `usage` on `message_start` and the
+running totals on `message_delta`: input, cache reads, cache writes, and output. A reply that
+reports nothing (a failed request, say) is counted at its worst case.
+
+It prints what has been spent after each scenario and the final total at the end, and the report
+gives the tokens billed and their cost for the run and for each scenario, beside the sizes below.
+The ceiling holds against the prices you give it: if they are lower than the provider's, so is
+the real bill's limit. The provider's own usage page is still the last word.
+
+One request to the chat loop can be sent more than once only when the earlier try ran nothing:
+it never reached the provider, the provider said "come back later" (429, 503, or 529 with a
+`retry-after`), or it refused an option with a 400 and PixelFlow sends it once more without that
+option. None of those is billed, so each request is counted once.
+
 ## What it costs, roughly
 
-The harness counts the text it sends and receives and turns that into tokens at about 3.5 bytes
-each. It does not know anyone's prices: `--price-in` and `--price-out` (dollars for a million
-tokens) and `--price-cached` (a cached token's price as a share of `--price-in`) are yours to
-set from the provider's price list, and the defaults (3, 15, and 0.1) are placeholders.
+Besides the tokens billed, the harness counts the text it sends and receives and turns that into
+tokens at about 3.5 bytes each: that is the estimate the dry run gives before anything is sent.
+`--price-in`, `--price-out`, and `--price-cached` set the prices it uses; without them (and only
+without `--send`) the defaults (3, 15, and 0.1) are placeholders.
 
 When this was written, the scripted answers to all nine scenarios took 45 requests and sent
 about 990,000 tokens in all, receiving about 4,000 (the dry run prints today's figures as the
@@ -119,15 +170,20 @@ times that. At the placeholder prices, that is roughly:
 | `whole-song` alone | $0.97 ($0.23) | $2 to $4 | $0.50 to $1 |
 | A small one (`dancers`, `halloween`) | $0.21 ($0.07) | $0.40 to $0.85 | $0.15 to $0.30 |
 
-Those are estimates from sizes, not bills: the provider's own usage page has the real figure, and
-what a provider charges to write to its cache isn't counted.
-The dry run (`--provider` and `--model` without `--send`) prints the estimate for the scenarios
-and prices you give it.
+Those are estimates from sizes, not bills; a run that sends reports the tokens actually billed
+(see [Spending](#spending)). The dry run (`--provider` and `--model` without `--send`) prints the
+estimate for the scenarios and prices you give it.
 
 ## What it has and hasn't been run against
 
 The harness is tested with the scripted provider the crate's other tests use
 (`crates/pf-ai/tests/evaluation.rs`): a careful scripted answer passes every scenario's checks,
 an idle one fails them, a refused tool call and a failing provider are reported rather than
-fatal, and the command line makes no provider and reads no key unless it is given `--send`. It
-has not been run against a real model as part of building it.
+fatal, and the command line makes no provider and reads no key unless it is given `--send`.
+The spending ceiling is tested with that provider reporting usage: `--send` refuses to start
+without `--max-usd` and explicit prices; a request whose worst case would pass the ceiling is
+not sent, and later scenarios don't start; the true total never passes the ceiling; a reply
+without usage is counted at its worst case; the report and `results.json` carry the tokens
+billed and their cost. The providers' reading of usage is tested against recorded replies
+(`crates/pf-ai/tests/openai.rs`, `anthropic.rs`). It has not been run against a real model as
+part of building it.

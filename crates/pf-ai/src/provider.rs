@@ -96,6 +96,36 @@ pub struct AssistantTurn {
     pub native: Option<(ProviderId, Value)>,
 }
 
+/// The tokens one request was billed for, as the provider reported them. The four parts don't
+/// overlap: everything sent is `input + cache_read + cache_write`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Usage {
+    /// Sent and charged at the full input price.
+    pub input: u64,
+    /// Sent, and read from the provider's cache (charged at its cached price).
+    pub cache_read: u64,
+    /// Sent, and written to the provider's cache (Anthropic charges extra for these; OpenAI
+    /// reports none).
+    pub cache_write: u64,
+    /// Written by the model, its reasoning or thinking included.
+    pub output: u64,
+}
+
+impl Usage {
+    /// Everything sent.
+    pub fn sent(&self) -> u64 {
+        self.input + self.cache_read + self.cache_write
+    }
+
+    pub fn add(&mut self, other: &Usage) {
+        self.input += other.input;
+        self.cache_read += other.cache_read;
+        self.cache_write += other.cache_write;
+        self.output += other.output;
+    }
+}
+
 /// A tool's answer.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ToolResult {
@@ -177,4 +207,17 @@ pub trait LlmProvider: Send + Sync {
         cancel: &Cancel,
         on_event: &mut dyn FnMut(StreamEvent),
     ) -> Result<AssistantTurn, AiError>;
+
+    /// [`LlmProvider::stream_turn`], with the tokens the provider reported for the reply
+    /// (`None` when it reported none). The request sent and the turn returned are the same.
+    fn stream_turn_with_usage(
+        &self,
+        key: &ApiKey,
+        request: &TurnRequest<'_>,
+        cancel: &Cancel,
+        on_event: &mut dyn FnMut(StreamEvent),
+    ) -> Result<(AssistantTurn, Option<Usage>), AiError> {
+        self.stream_turn(key, request, cancel, on_event)
+            .map(|turn| (turn, None))
+    }
 }

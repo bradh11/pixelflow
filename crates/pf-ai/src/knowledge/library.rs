@@ -37,15 +37,17 @@ const TOPICS: &[(&str, &str)] = &[
 /// **Adding an effect kind? This match is where the build stops until the Assistant has been
 /// taught about it.** To get past it:
 ///
-/// 1. Draw the new effect on every kind of prop and look at it:
+/// 1. Create `crates/pf-ai/guides/effects/<kind>.md` (named for the kind's key, like
+///    `colorWash.md`) with a first line of `# <its label>`, and add its line below. The crate
+///    builds again, and `cargo test -p pf-ai --test knowledge` now fails with everything the
+///    guide has to say, spelled out for this effect (its settings and choices by name).
+/// 2. Draw the effect on every kind of prop and look at it:
 ///    `cargo run -p pf-ai --example guide_sheets -- <a scratch folder> --kinds <kind> --auto`
-/// 2. Write `crates/pf-ai/guides/effects/<kind>.md` (the file is named for the kind's key, like
-///    `colorWash.md`) from what you saw: what it draws on a string, an arch, a matrix, a tree, and
-///    the whole house; what each of its settings and choices is for; when to use it; and at
+/// 3. Write the guide from what you saw: what it draws on a string, an arch, a matrix, a tree,
+///    and the whole house; what each of its settings and choices is for; when to use it; and at
 ///    least two named looks. `docs/dev/assistant-guides.md` has the format and the rules.
-/// 3. Add its line below.
 /// 4. `cargo run -p pf-ai --example guide_sheets -- --check --kinds <kind> --guides crates/pf-ai/guides`
-///    says what the guide still lacks, as `cargo test -p pf-ai --test knowledge` will.
+///    says what the guide still lacks, as the tests will.
 pub fn effect_source(kind: EffectKind) -> &'static str {
     match kind {
         EffectKind::On => include_str!("../../guides/effects/on.md"),

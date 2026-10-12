@@ -362,20 +362,37 @@ fn a_guide_that_falls_behind_its_effect_is_told_what_to_write() {
     );
     let problems = |source: &str| check::effect_problems(EffectKind::Bars, Some(source), &stage).join("\n");
 
-    // No guide at all (a new effect kind): what to draw, what to write, and where.
+    // No guide at all, or one only begun (a new effect kind, its file holding just a title so
+    // the crate builds): everything to write, for this effect, and where.
     let missing = check::effect_problems(EffectKind::Bars, None, &stage).join("\n");
     for words in [
-        "The Assistant has no guide for the Bars effect",
+        "The Assistant has no guide for the Bars effect yet",
         "crates/pf-ai/guides/effects/bars.md",
-        "knowledge/library.rs",
-        "--example guide_sheets",
-        "--kinds bars --auto",
-        "What it draws, Settings, When to use it, Looks",
+        "`effect_source` in `crates/pf-ai/src/knowledge/library.rs`",
+        "--example guide_sheets -- <a scratch folder> --kinds bars --auto",
+        "exactly these sections: What it draws, Settings, When to use it, Looks",
+        "on a string, an arch, a matrix, a tree, and the whole house",
         "`count`, `speed`, `axis`",
+        "what each of these choices looks like or when to pick it: `horizontal`, `vertical`",
+        "at least 2 named, ready-to-place looks",
+        "--check --kinds bars --guides crates/pf-ai/guides",
         "docs/dev/assistant-guides.md",
     ] {
         assert!(missing.contains(words), "{words}: {missing}");
     }
+    assert_eq!(
+        problems("# Bars\n"),
+        format!(
+            "crates/pf-ai/guides/effects/bars.md: a guide needs a sentence under its title saying what it's for.\n{missing}"
+        )
+    );
+    assert_eq!(problems("# Bars\n\nStripes.\n"), missing);
+    // An effect without settings is asked for one look, and to say it has none.
+    let off = check::effect_problems(EffectKind::Off, None, &stage).join("\n");
+    assert!(
+        off.contains("It has no settings of its own; say so.") && off.contains("at least 1 named"),
+        "{off}"
+    );
 
     // A setting or a choice the effect has gained since the guide was written.
     let without = |name: &str| bars.replace(&format!("`{name}`"), name);

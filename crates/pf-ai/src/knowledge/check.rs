@@ -123,27 +123,41 @@ fn listed(names: impl IntoIterator<Item = impl AsRef<str>>) -> String {
         .join(", ")
 }
 
-/// How to write a guide, said when one is missing.
+/// How to write a guide, said when one is missing or has only been started.
 fn how_to_write(kind: EffectKind) -> String {
     let key = reference::key_of(&kind);
-    let (keys, _) = own_vocabulary(kind);
+    let (keys, choices) = own_vocabulary(kind);
+    let settings = if keys.is_empty() {
+        "It has no settings of its own; say so.".to_string()
+    } else {
+        format!(
+            "What each of these is for, with a good starting value, each named in backticks: {}.{}",
+            listed(&keys),
+            if choices.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    " And what each of these choices looks like or when to pick it: {}.",
+                    listed(&choices)
+                )
+            }
+        )
+    };
     format!(
-        "The Assistant has no guide for the {label} effect, so it can't design with it.\n\
-         Write crates/pf-ai/guides/effects/{key}.md and add its line to `effect_source` in crates/pf-ai/src/knowledge/library.rs.\n\
-         First draw it: `cargo run -p pf-ai --example guide_sheets -- <a scratch folder> --kinds {key} --auto` and look at the sheets.\n\
-         The guide is \"# {label}\", a sentence on what it's for, then these sections: {sections}.\n\
-         - What it draws: what you saw on a string, an arch, a matrix, a tree, and the whole house, at speed and slowly.\n\
-         - Settings: what each of {settings} is for and a good starting value, each named in backticks, with every choice of every list.\n\
-         - When to use it: what it's good for, what it pairs with, what to avoid.\n\
-         - Looks: at least {MIN_LOOKS} named looks as ```look blocks ({{\"name\", \"suits\", \"note\", \"effect\"}}).\n\
-         docs/dev/assistant-guides.md has the format and an example.",
+        "The Assistant has no guide for the {label} effect yet, so it can't design with it. To write one:\n\
+         1. Make sure `crates/pf-ai/guides/effects/{key}.md` exists (a first line of `# {label}` will do to begin with) and has its line in `effect_source` in `crates/pf-ai/src/knowledge/library.rs`: with those two the crate builds.\n\
+         2. Draw the effect on every kind of prop and look at the sheets: `cargo run -p pf-ai --example guide_sheets -- <a scratch folder> --kinds {key} --auto`. Each row is the effect with one setting changed, on a string, an arch, a matrix, a tree, and the whole house.\n\
+         3. Write the guide from what you saw, not from what an effect of that name does elsewhere: `# {label}`, one sentence on what it is for, then exactly these sections: {sections}.\n\
+         \x20  - What it draws: on a string, an arch, a matrix, a tree, and the whole house, fast and slow; say so where it does little.\n\
+         \x20  - Settings: {settings}\n\
+         \x20  - When to use it: what it is good for, what it pairs with, what to avoid (and flash safety, if it can flash).\n\
+         \x20  - Looks: at least {looks} named, ready-to-place looks, each a ```look block of JSON: {{\"name\", \"suits\" (some of {suits}), \"note\", \"effect\" (as place_effects takes one)}}.\n\
+         4. Check it without rebuilding: `cargo run -p pf-ai --example guide_sheets -- --check --kinds {key} --guides crates/pf-ai/guides`. Draw its looks: the same without `--check`, with a folder to write to.\n\
+         `docs/dev/assistant-guides.md` has the format, the rules, and an example; `crates/pf-ai/guides/effects/bars.md` is a finished one.",
         label = kind.label(),
         sections = EFFECT_SECTIONS.join(", "),
-        settings = if keys.is_empty() {
-            "its settings (it has none)".to_string()
-        } else {
-            listed(keys)
-        },
+        looks = if keys.is_empty() { 1 } else { MIN_LOOKS },
+        suits = Suit::words().join(", "),
     )
 }
 
@@ -192,7 +206,14 @@ pub fn effect_problems(kind: EffectKind, source: Option<&str>, stage: &Stage) ->
     };
     let file = format!("crates/pf-ai/guides/effects/{key}.md");
     let guide: Guide = match guide::parse(source) {
+        // A guide that has only been started (its title, say) gets the whole of what to write.
+        Ok(guide) if guide.sections.is_empty() && guide.looks.is_empty() => {
+            return vec![how_to_write(kind)];
+        }
         Ok(guide) => guide,
+        Err(e) if !source.contains("\n## ") => {
+            return vec![format!("{file}: {e}.\n{}", how_to_write(kind))];
+        }
         Err(e) => return vec![format!("{file}: {e}.")],
     };
     let mut problems = Vec::new();

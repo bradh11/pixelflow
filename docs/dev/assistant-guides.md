@@ -41,6 +41,11 @@ saying what to write, when a guide breaks one:
 
 Write it from what PixelFlow draws, not from what an effect of that name does elsewhere.
 
+A new effect kind stops the build at `effect_source` in `crates/pf-ai/src/knowledge/library.rs`
+until it has a guide. Create `crates/pf-ai/guides/effects/<kind>.md` with a first line of
+`# <the effect's label>` and add its line to that `match`: the crate builds again, and
+`cargo test -p pf-ai --test knowledge` fails with everything the guide still has to say, by name.
+
 1. Draw it. This renders the effect through the engine on a made-up display (`pf_ai::stage`: a
    roofline, an arch, a 40×20 matrix, a 16-string mega tree, and the whole house as a group), at
    its defaults and with each setting pushed low and high and each choice tried:
@@ -97,7 +102,6 @@ Write it from what PixelFlow draws, not from what an effect of that name does el
    The first draws each look as a row after the defaults. The second says everything the tests
    would. For one-off experiments (two layers and a blend, a render style on a group), give
    `--spec rows.json`: see the top of `crates/pf-ai/examples/guide_sheets.rs`.
-4. Add the guide's line to `effect_source` in `library.rs`.
 
 ## Writing a topic
 

@@ -4,7 +4,7 @@ A flowing, ever-changing pattern worked out pixel by pixel from a shader file: a
 
 ## What it draws
 
-A shader is a small program that paints a picture the size of the prop's grid, every frame. PixelFlow has eight of its own, and a show can have its own files besides; `list_shaders` lists them all with what each looks like, and with a file, its inputs. Each has its own look, and none takes the palette: its colors are its own inputs.
+A shader is a small program that paints a picture the size of the prop's grid, every frame. PixelFlow has eight of its own, and a show can have its own files besides; `list_effect_kinds` with kind "shader" lists them all with what each looks like, and with a `file`, its inputs. Each has its own look, and none takes the palette: its colors are its own inputs.
 
 - On a matrix it is at its best: the whole picture, moving, in the shader's own colors. Aurora drew green and violet curtains leaning across a 40 by 20 matrix; Lava Lamp drew orange and yellow blobs on dark; Pond, light rings crossing on blue water; Stained Glass, panes of strong color with dark leading; Kaleidoscope, a turning star of color.
 - On a tree the strings stand side by side, so the picture is wrapped round the cone: Prism became rainbow stripes running round the tree, Pond and Nebula soft patches of light climbing it, Lava Lamp blobs sliding up and down. Every shader reads on a tree.
@@ -14,8 +14,8 @@ A shader is a small program that paints a picture the size of the prop's grid, e
 
 ## Settings
 
-- `file`: which shader, as `list_shaders` gives its file: "pixelflow:aurora" and the rest for PixelFlow's own, "shaders/" and a name for the show's own files. A file the show doesn't have, or one that can't be drawn, is refused, and the reason is said.
-- `inputs`: the shader's own settings, by the names `list_shaders` gives for that file, for example {"curtains": 5, "low": [0, 1, 0.5, 1]}. A number stays within the range the file gives it; a switch is true or false; a choice is the number of the one chosen; a point is [across, up]; a color is [red, green, blue, alpha], each 0 to 1. Leave one out to keep the shader's own value, which is usually a good start. A number input can change over the effect: a curve keyed "inputs." and the input's name (a point's ".x" or ".y" after it).
+- `file`: which shader, as `list_effect_kinds` gives its file: "pixelflow:aurora" and the rest for PixelFlow's own, "shaders/" and a name for the show's own files. A file the show doesn't have, or one that can't be drawn, is refused, and the reason is said.
+- `inputs`: the shader's own settings, by the names `list_effect_kinds` gives for that file, for example {"curtains": 5, "low": [0, 1, 0.5, 1]}. A number stays within the range the file gives it; a switch is true or false; a choice is the number of the one chosen; a point is [across, up]; a color is [red, green, blue, alpha], each 0 to 1. Leave one out to keep the shader's own value, which is usually a good start. A number input can change over the effect: a curve keyed "inputs." and the input's name (a point's ".x" or ".y" after it).
 - `speed`: how fast the shader's time runs, 1 its own pace. 0.5 for a calm verse, 2 for a chorus; 0 holds a still picture, below 0 runs it backwards. Many shaders also have a speed of their own among their inputs.
 - `leadIn`: seconds the shader is already into when the effect starts, so two effects of one shader in a row don't start from the same picture. 0 is fine.
 - `offsetX`, `offsetY`, `zoom`: kept from an imported xLights sequence and not used. Leave them at 0.
@@ -28,7 +28,7 @@ A shader is a small program that paints a picture the size of the prop's grid, e
 - Layering: Lava Lamp, Aurora, and Nebula are clear where their shapes are thin, so they sit well over a dim `on` or `colorWash` on the layer below, or under `text` on a matrix. The others cover the prop.
 - Choose colors with the shader's color inputs to fit the section's palette: the effect's `colors` do nothing.
 - Avoid most shaders on a single string or arch (only Prism reads there), and putting several on one prop at once: one shader is already a busy picture. Keep `speed` low on a large area: Tunnel and Kaleidoscope at high speed flash and spin.
-- Use the show's own shader files when the user asks for them by name; `list_shaders` says which can't be drawn and why. The Assistant can't write or change shader files.
+- Use the show's own shader files when the user asks for them by name; `list_effect_kinds` says which can't be drawn and why. The Assistant can't write or change shader files.
 
 ## Looks
 

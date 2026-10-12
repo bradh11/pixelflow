@@ -153,10 +153,10 @@ fn setting_line(kind: EffectKind, setting: &SettingInfo) -> String {
                 .to_string()
         }
         SettingValue::ShaderFile { default } => format!(
-            "a shader's file, as list_shaders lists them (`pixelflow:<name>` for PixelFlow's own); default `{default}`"
+            "a shader's file, as list_effect_kinds with kind \"shader\" lists them (`pixelflow:<name>` for PixelFlow's own); default `{default}`"
         ),
         SettingValue::ShaderInputs { .. } => {
-            "the shader's own inputs by name, each as list_shaders with its file describes it; one left out is as the shader has it"
+            "the shader's own inputs by name, each as list_effect_kinds with kind \"shader\" and its file describes it; one left out is as the shader has it"
                 .to_string()
         }
     };

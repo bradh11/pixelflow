@@ -210,19 +210,19 @@ impl Draft {
                 let at = pf_sequence::format_ms(effect.start_ms);
                 let Some(info) = self.base.shaders.iter().find(|s| s.file == p.file) else {
                     return Some(format!(
-                        "The shader effect at {at} names \"{}\", which isn't a shader this show can use. list_shaders lists them.",
+                        "The shader effect at {at} names \"{}\", which isn't a shader this show can use. list_effect_kinds with kind \"shader\" lists them.",
                         p.file
                     ));
                 };
                 if let Some(problem) = &info.problem {
                     return Some(format!(
-                        "The shader effect at {at} uses {}, which can't be drawn ({problem}). Choose another: list_shaders lists them.",
+                        "The shader effect at {at} uses {}, which can't be drawn ({problem}). Choose another: list_effect_kinds with kind \"shader\" lists them.",
                         info.name
                     ));
                 }
                 shader_input_problem(info, &p.inputs, &effect.curves).map(|problem| {
                     format!(
-                        "The shader effect at {at} doesn't fit {}: {problem}. list_shaders gives its inputs.",
+                        "The shader effect at {at} doesn't fit {}: {problem}. list_effect_kinds with kind \"shader\" and its file gives its inputs.",
                         info.name
                     )
                 })

@@ -1594,9 +1594,12 @@ fn shaders_are_listed_and_placed_with_inputs_held_against_the_shader() {
         calls(
             "",
             &[
-                ("list_shaders", json!({})),
-                ("list_shaders", json!({ "file": lava })),
-                ("list_shaders", json!({ "file": "shaders/gone.fs" })),
+                ("list_effect_kinds", json!({ "kind": "shader" })),
+                ("list_effect_kinds", json!({ "kind": "shader", "file": lava })),
+                (
+                    "list_effect_kinds",
+                    json!({ "kind": "shader", "file": "shaders/gone.fs" }),
+                ),
             ],
         ),
         calls(
@@ -1621,13 +1624,13 @@ fn shaders_are_listed_and_placed_with_inputs_held_against_the_shader() {
     assert!(
         events
             .iter()
-            .any(|e| matches!(e, ChatEvent::Activity { label } if label == "Looking at the shaders"))
+            .any(|e| matches!(e, ChatEvent::Activity { label } if label == "Looking at the effects"))
     );
     // The list says how to use a shader, and what each of PixelFlow's own looks like and takes,
     // in a few short lines' worth; one asked for by file comes in full.
     let listed = results_in(&provider, 1);
     assert!(!listed[0].1 && !listed[1].1 && listed[2].1, "{listed:?}");
-    assert!(listed[0].0.len() < 4_500, "{} bytes", listed[0].0.len());
+    assert!(listed[0].0.len() < 6_000, "{} bytes", listed[0].0.len());
     let list: Value = serde_json::from_str(&listed[0].0).unwrap();
     let guide = list["guide"].as_str().unwrap();
     for said in ["settings.inputs", "get_guide with effects [\"shader\"]"] {

@@ -962,7 +962,9 @@ and then drawn side by side with the old one on about 4,600 settings. What that 
    41 cells of it.
 4. **Soft edges and sparkles**: see the choice above. Design A's scores did not move.
 5. **Design C** scores about 3 lower than before, because the new wheel glides where xLights'
-   start angle moves a whole degree at a time. That was kept on purpose.
+   start angle moves a whole degree at a time. That was kept on purpose: the wheel honours
+   fractions. An import makes up the difference instead, by handing the wheel the whole numbers
+   xLights shows for a start angle or a centre on a curve (`pf_xlights::sequence::whole`).
 6. and 7. **Single rows and columns, tiny buffers, clockwise, several colours, raised and sunken**
    have no xLights frames in the corpus. They agree with the old Pinwheel in every convention
    (192 of 192 combinations of style, direction, shading, twist, start angle and time).
@@ -978,3 +980,6 @@ and then drawn side by side with the old one on about 4,600 settings. What that 
 | C, alone | 92.9 / 93.4 | 88.8 to 90.3 |
 
 Verdicts are unchanged: four match, one close.
+
+With the importer handing design C's start angle over in whole degrees (item 5 above), C scores
+92.5 to 93.1 over six runs, and the other four are where they were.

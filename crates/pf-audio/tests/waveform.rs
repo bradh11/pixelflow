@@ -95,6 +95,80 @@ fn mono_samples_average_the_channels_at_the_source_rate() {
     );
 }
 
+/// A 16-bit WAV at 8 kHz with `channels` channels, its frames given a channel after another.
+fn write_channels(path: &std::path::Path, channels: u16, samples: &[f32]) {
+    let rate = 8000u32;
+    let data_len = (samples.len() * 2) as u32;
+    let mut out = Vec::new();
+    out.extend_from_slice(b"RIFF");
+    out.extend_from_slice(&(36 + data_len).to_le_bytes());
+    out.extend_from_slice(b"WAVEfmt ");
+    out.extend_from_slice(&16u32.to_le_bytes());
+    out.extend_from_slice(&1u16.to_le_bytes());
+    out.extend_from_slice(&channels.to_le_bytes());
+    out.extend_from_slice(&rate.to_le_bytes());
+    out.extend_from_slice(&(rate * u32::from(channels) * 2).to_le_bytes());
+    out.extend_from_slice(&(channels * 2).to_le_bytes());
+    out.extend_from_slice(&16u16.to_le_bytes());
+    out.extend_from_slice(b"data");
+    out.extend_from_slice(&data_len.to_le_bytes());
+    for &s in samples {
+        out.extend_from_slice(&((s * i16::MAX as f32) as i16).to_le_bytes());
+    }
+    std::fs::write(path, out).unwrap();
+}
+
+#[test]
+fn samples_with_their_extremes_keep_the_louder_channel_beside_the_mix() {
+    let dir = tempfile::tempdir().unwrap();
+    // Left, right: a sound on the right alone, the two mirrored, the same on both.
+    let frames = [(0.0, 0.5), (0.25, -0.25), (-0.5, -0.5)];
+    let stereo = dir.path().join("stereo.wav");
+    let interleaved: Vec<f32> = frames.iter().flat_map(|&(l, r)| [l, r]).collect();
+    write_channels(&stereo, 2, &interleaved);
+    let near = |a: f32, b: f32| (a - b).abs() < 1e-3;
+    let read: Vec<_> = pf_audio::MonoSamples::open(&stereo)
+        .unwrap()
+        .with_extremes()
+        .collect();
+    assert_eq!(read.len(), 3);
+    for (sample, (mix, high, low)) in
+        read.iter()
+            .zip([(0.25, 0.5, 0.0), (0.0, 0.25, -0.25), (-0.5, -0.5, -0.5)])
+    {
+        assert!(
+            near(sample.mix, mix) && near(sample.high, high) && near(sample.low, low),
+            "{sample:?}"
+        );
+    }
+    // The mix is what the mono samples are, to the bit.
+    let mono: Vec<f32> = pf_audio::MonoSamples::open(&stereo).unwrap().collect();
+    assert_eq!(read.iter().map(|s| s.mix).collect::<Vec<_>>(), mono);
+
+    // One channel: each sample is its own highest and lowest.
+    let one = dir.path().join("mono.wav");
+    write_channels(&one, 1, &[0.5, -0.25, 0.0]);
+    let read: Vec<_> = pf_audio::MonoSamples::open(&one)
+        .unwrap()
+        .with_extremes()
+        .collect();
+    assert_eq!(read.len(), 3);
+    assert!(read.iter().all(|s| s.high == s.mix && s.low == s.mix), "{read:?}");
+
+    // More than two: the extremes are taken over all of them.
+    let four = dir.path().join("four.wav");
+    write_channels(&four, 4, &[0.0, 0.1, -0.6, 0.9]);
+    let read: Vec<_> = pf_audio::MonoSamples::open(&four)
+        .unwrap()
+        .with_extremes()
+        .collect();
+    assert_eq!(read.len(), 1);
+    assert!(
+        near(read[0].mix, 0.1) && near(read[0].high, 0.9) && near(read[0].low, -0.6),
+        "{read:?}"
+    );
+}
+
 /// Set `PIXELFLOW_AUDIO=/path/to/song.mp3` to check a real file decodes.
 #[test]
 fn real_audio_decodes_when_provided() {

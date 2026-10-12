@@ -23,7 +23,8 @@ a legal question, and the author of this inventory is not a lawyer. See
   on PixelFlow's comments and say so.
 - Line counts are as they stood at that reading, apart from Pinwheel's, which were brought up
   to date when it was rebuilt (see "Rebuilt from a description of its behaviour"). The renderer's
-  multi-threaded drawing, added since, is PixelFlow's own and is not in the totals.
+  multi-threaded drawing and the Fireworks effect, added since, are PixelFlow's own and are not
+  in the totals.
 - Line counts are of the file as it stands. "Impl" leaves out the file's own `#[cfg(test)]`
   module. The share of a mixed file that follows the source is an estimate from reading, not a
   measured diff.
@@ -84,8 +85,11 @@ listed under behaviour-matching.
 The rest is PixelFlow's own: the render pipeline, the picture loader, the closed-form
 effects in `effects.rs` (On, Color Wash, Fade, Chase, Bars, Wave, Twinkle, Shimmer, Strobe,
 Spiral, Meteors, Ripple, and Fire's rolling flames), and Wipe, Impact, Pulse, Sing, Color Shift,
-Lightning, Dancer, and
-Picture.
+Lightning, Dancer, Picture, and Fireworks.
+Fireworks (`fireworks.rs`) was written without xLights' `FireworksEffect.cpp` being read: from
+the frames xLights rendered for a sequence (see [../fidelity.md](../fidelity.md)), its public
+manual, and the setting names a sequence file saves. The importer's translation of it reads
+those setting names, which are format, and the numbers it uses were measured from the frames.
 
 **Tests.** No unit test compares against frames rendered by xLights, and there are no golden
 files from xLights in the repository. (A separate tool, `pf-fidelity`, measures an imported

@@ -713,7 +713,21 @@ fn the_prompt_says_to_act_on_defaults_and_stays_short() {
     assert!(prompt.contains("stage_cue dance") && prompt.contains("dancer effects on the matrices"));
     assert!(prompt.contains("mirror on the right-hand one of a pair"));
     // The user's own artwork is a picture effect, with a file from the ones listed.
-    assert!(prompt.contains("picture effects on matrices, file one of get_open_sequence's pictures"));
+    assert!(prompt.contains("picture effects on matrices, file one of the context block's pictures"));
+    // What a real model's runs showed matters, said where every request carries it: the method
+    // read first, every part's level following its music, builds that grow, words up long
+    // enough to read, a review before the proposal, and a whole step in one call.
+    for words in [
+        "Read topic method before your first sequence in a chat",
+        "Every part's level follows its own music, the parts nobody named too",
+        "A build grows bar by bar",
+        "Words stay up long enough to read",
+        "Review before you propose",
+        "the whole base in one place_effects with items",
+        "The context block gives the song",
+    ] {
+        assert!(prompt.contains(words), "{words}");
+    }
     // It's sent with every request: new rules come out of what's there. Guidance for using tools
     // is said here once rather than in each tool's description (see `tool_definitions_stay_small`).
     assert!(

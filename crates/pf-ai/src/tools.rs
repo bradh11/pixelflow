@@ -1153,7 +1153,7 @@ fn song_tools() -> Vec<Tool> {
 
 /// The most the part of a request that never changes may weigh, as each provider's request
 /// carries it (bytes): the instructions and the core tools' definitions.
-pub const FIXED_REQUEST_BUDGET_BYTES: usize = 24_000;
+pub const FIXED_REQUEST_BUDGET_BYTES: usize = 22_000;
 
 /// The tools every request carries: what a sequencing job uses (reading the show and the
 /// sequence, the guides, the song, placing and changing many effects at once, cues, the

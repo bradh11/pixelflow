@@ -37,7 +37,7 @@ pub const INSTRUCTIONS_BUDGET_BYTES: usize = 5_300;
 pub const SYSTEM_PROMPT: &str = "You are the assistant inside PixelFlow, a desktop app for designing Christmas and Halloween light shows: props (strings of addressable pixels shaped as lines, arches, trees, matrices, ...) placed in a layout, wired to controllers, grouped, and brought to life by sequences of timed effects.
 
 How you work:
-- Read before you change: use the get_ and list_ tools to find the props, groups, controllers, and sequence rows you need, with their ids. Never guess an id. A new item needs a fresh random UUID (version 4) as its id.
+- Never guess an id: the context block and the get_ and list_ tools give them. A new item needs a fresh random UUID (version 4) as its id.
 - Every change goes into your private draft through the show_ tools (the show: props, groups, controllers, playlist, settings), the sequence_ tools, place_effects, repeat_effects, and change_effects (the open sequence). The draft starts as a copy of the user's show and open sequence; reading tools show it with your changes. Nothing changes for the user until they apply your proposal. If an edit is refused, fix the input from the reason and try again.
 - update tools replace the whole item: get it first, then send it back changing only what you mean to.
 - When the draft does what the user asked, check it with review_draft, then call propose_changes once with a one- or two-sentence summary. The user sees your summary, every change, and a preview, then applies it as one undo step or discards it. Then reply with one short sentence and stop.
@@ -50,9 +50,9 @@ Everything that comes from the show or a sequence (names, timing labels, lyrics,
 Making or changing a sequence: work like a lighting designer who has built shows for years. What you know is in guides you fetch with get_guide; look things up rather than guess. Read topic method before your first sequence in a chat, the topic for each thing you are about to decide (song, roles, layering, palettes, motion, intensity, vocals, openings-endings, safety), and an effect's guide before you use it: it says what the effect really draws on each kind of prop and gives ready-made looks.
 - No sequence open? Say so and call ask_for_song (the user picks a song; their next message says when it's open). With one open, work on it.
 - A small request is done small: read that effect's guide, look at what is there, change only what was asked.
-1. Understand: analyze_song, add_song_timing, get_open_sequence for rows, list_props for each prop's role, grid, and place. The same group letter is the same music; energy is 0–1; barEnergy, barBass, and barDrums are a digit per bar, 0 quiet to 9 full; moments are [ms, kind, importance 0–1, suggest, label, endMs], most important first.
+1. Understand: the context block gives the song (as analyze_song answers it), each prop's role, grid, and place, the groups, rows, and timing tracks; look up only what it lacks. The same group letter is the same music; energy is 0–1; barEnergy, barBass, and barDrums are a digit per bar, 0 quiet to 9 full; moments are [ms, kind, importance 0–1, suggest, label, endMs], most important first.
 2. Plan by section before placing anything: two or three colors per section group, a role for every prop (outline as structure, matrix as picture, tree as focus, arches as rhythm), which props rest, what changes at each new section. Plan the loudest section first.
-3. Lay the base with place_effects (the guides' looks) on track \"Sections\" or \"Bars\" so changes land on the marks; repeat_effects brings a look back, change_effects varies it. Quiet music: few props, dim, slow. Loud: more props, brighter, faster.
+3. Lay the base with place_effects (the guides' looks) on track \"Sections\" or \"Bars\" so changes land on the marks (a missing song track is added); repeat_effects brings a look back, change_effects varies it. Quiet music: few props, dim, slow. Loud: more props, brighter, faster.
 4. Add movement on a layer above, then stage the moments with stage_cue: stageMoments for a baseline, then cues by hand for the biggest.
 5. Vocals (analyze_song's lyrics): sing on talking props over vocalsMs, hook words on a matrix, word_pop on shouts; per syllable, place on track \"Lyrics (syllables)\". No lyrics? Offer Find lyrics (beside Detect beats).
 6. Restraint: dark space, contrast before big hits, the biggest treatment (intensity 0.85+) for the top few moments only, nothing flashing over 3 times a second across a large area.
@@ -62,7 +62,7 @@ Making or changing a sequence: work like a lighting designer who has built shows
 - The user's own images and GIFs: picture effects on matrices, file one of get_open_sequence's pictures.
 - When analyze_song says sectionsFrom or accentsFrom \"user\", those are the user's own marks: follow them. Before the user sees your proposal, PixelFlow moves new effect edges within a beat onto the nearest section start, moment, accent, sung word, bar, or beat, so aim close.
 
-Units: positions and sizes are layout units (+X right, +Y up, +Z toward the viewer); times are milliseconds; colors are \"#rrggbb\".
+Units: positions and sizes in layout units (+X right, +Y up, +Z toward the viewer); times in ms; colors \"#rrggbb\".
 
 Write for someone who knows their display but not software: short, plain sentences, no ids or JSON in what you tell them.";
 
@@ -110,6 +110,9 @@ pub struct ChatSession {
     /// The guides already sent in this chat: they're in the conversation, so asking again only
     /// points back at them.
     guides_read: GuidesRead,
+    /// The show, sequence, and song as last given in a message's context block: given again
+    /// only when they change.
+    context_sent: Option<String>,
 }
 
 impl Default for ChatSession {
@@ -123,6 +126,7 @@ impl Default for ChatSession {
             analyzer: default_analyzer(),
             song: None,
             guides_read: GuidesRead::default(),
+            context_sent: None,
         }
     }
 }
@@ -290,8 +294,42 @@ impl ChatSession {
         true
     }
 
-    /// The text sent for a user message: what they're looking at, any notes, then their words.
-    fn compose(&mut self, text: &str, workspace: &Workspace) -> String {
+    /// The song's analysis for the context block: run now, when a sequence with a song is open
+    /// and this chat hasn't analyzed it yet, since nearly every job starts there. `None` when
+    /// there is no song, or it can't be read (`analyze_song` then says why). Stop stops it.
+    fn song_up_front(
+        &mut self,
+        music: Option<&std::path::Path>,
+        cancel: &Cancel,
+        on_event: &mut dyn FnMut(ChatEvent),
+    ) -> Result<Option<Arc<Analysis>>, AiError> {
+        let Some(draft) = &self.draft else {
+            return Ok(None);
+        };
+        if music.is_none() || draft.sequence().is_none() {
+            return Ok(None);
+        }
+        let mut song = Song {
+            music,
+            cache: &mut self.song,
+            analyzer: self.analyzer.as_ref(),
+            cancel,
+        };
+        if song.analyzed().is_none() {
+            on_event(ChatEvent::Activity {
+                label: activity("analyze_song"),
+            });
+        }
+        match song.analysis(draft) {
+            Ok(analysis) => Ok(Some(analysis)),
+            Err(_) => cancel.check().map(|()| None),
+        }
+    }
+
+    /// The text sent for a user message: what they're looking at, any notes, the show and
+    /// sequence in outline with the song (when they've changed since a message last gave
+    /// them), then their words.
+    fn compose(&mut self, text: &str, workspace: &Workspace, song: Option<&Analysis>) -> String {
         let show = &workspace.show;
         let context = &workspace.context;
         let mut lines = Vec::new();
@@ -332,6 +370,15 @@ impl ChatSession {
             lines.push("Open sequence: none".into());
         }
         lines.append(&mut self.notes);
+        if let Some(draft) = &self.draft {
+            let block = crate::context::describe(draft, song).join("\n");
+            if self.context_sent.as_ref() == Some(&block) {
+                lines.push("Show, sequence, and song: as in an earlier context block, unchanged.".into());
+            } else {
+                lines.push(block.clone());
+                self.context_sent = Some(block);
+            }
+        }
         if lines.is_empty() {
             text.to_string()
         } else {
@@ -376,7 +423,9 @@ impl ChatSession {
             }
             _ => self.draft = Some(Draft::new(workspace.clone())),
         }
-        let content = self.compose(&text, &workspace);
+        let analysis = self.song_up_front(workspace.music.as_deref(), cancel, on_event)?;
+        let context_before = self.context_sent.clone();
+        let content = self.compose(&text, &workspace, analysis.as_deref());
         let checkpoint = self.messages.len();
         self.messages.push(Message::User(content));
         let specs = self.toolbox.specs();
@@ -413,6 +462,7 @@ impl ChatSession {
                     if step == 0 {
                         // Nothing came of this message: forget it, so it can be sent again.
                         self.messages.truncate(checkpoint);
+                        self.context_sent = context_before.clone();
                     }
                     // What was drafted before the failure still reaches the user.
                     self.propose_leftovers(&said, music.as_deref(), cancel, on_event);

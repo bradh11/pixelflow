@@ -167,14 +167,6 @@ fn whole_song(on: &Rows<'_>) -> Vec<Turn> {
         calls("", &[guides(&["method"], &[])]),
         calls(
             "",
-            &[
-                ("analyze_song", json!({})),
-                ("get_open_sequence", json!({})),
-                ("list_props", json!({})),
-            ],
-        ),
-        calls(
-            "",
             &[guides(
                 &["song", "roles", "layering", "palettes", "motion", "intensity"],
                 &[],
@@ -223,7 +215,7 @@ fn whole_song(on: &Rows<'_>) -> Vec<Turn> {
 
 fn dancers(on: &Rows<'_>) -> Vec<Turn> {
     vec![
-        calls("", &[guides(&[], &["dancer"]), ("get_open_sequence", json!({}))]),
+        calls("", &[guides(&[], &["dancer"])]),
         calls(
             "",
             &[on.place(
@@ -256,13 +248,7 @@ fn sing_along(on: &Rows<'_>) -> Vec<Turn> {
         (name, input)
     }));
     vec![
-        calls(
-            "",
-            &[
-                guides(&["vocals"], &["faces", "text"]),
-                ("analyze_song", json!({})),
-            ],
-        ),
+        calls("", &[guides(&["vocals"], &["faces", "text"])]),
         calls("", &placed),
         calls("", &[("review_draft", json!({}))]),
         propose(
@@ -274,10 +260,7 @@ fn sing_along(on: &Rows<'_>) -> Vec<Turn> {
 
 fn build() -> Vec<Turn> {
     vec![
-        calls(
-            "",
-            &[guides(&["intensity", "cues"], &[]), ("analyze_song", json!({}))],
-        ),
+        calls("", &[guides(&["intensity", "cues"], &[])]),
         calls(
             "",
             &[(
@@ -298,7 +281,6 @@ fn calm_and_big(on: &Rows<'_>) -> Vec<Turn> {
             "",
             &[
                 guides(&["intensity", "layering", "roles"], &[]),
-                ("analyze_song", json!({})),
                 ("list_sequence_effects", json!({})),
             ],
         ),
@@ -380,7 +362,7 @@ fn fixes(on: &Rows<'_>) -> Vec<Call> {
 
 fn review_and_fix(on: &Rows<'_>) -> Vec<Turn> {
     vec![
-        calls("", &[("analyze_song", json!({})), ("review_draft", json!({}))]),
+        calls("", &[("review_draft", json!({}))]),
         calls("", &fixes(on)),
         calls("", &[("review_draft", json!({}))]),
         propose(
@@ -394,7 +376,7 @@ fn scroll_words(on: &Rows<'_>) -> Vec<Turn> {
     vec![
         calls(
             "",
-            &[guides(&[], &["text"]), ("get_open_sequence", json!({}))],
+            &[guides(&[], &["text"])],
         ),
         calls(
             "",

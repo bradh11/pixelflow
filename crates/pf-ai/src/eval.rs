@@ -666,6 +666,8 @@ pub struct Measures {
     pub billed: Billed,
     /// The tokens the provider reported for the first request, when it did.
     pub first_request_billed: Option<u64>,
+    /// The song's analysis came with the request, in its context block.
+    pub song_up_front: bool,
 }
 
 impl Measures {
@@ -836,8 +838,18 @@ fn scored(
     })
 }
 
-fn measure(run: &Run<'_>, proposed: bool, metered: &Metered<'_>, cancel: &Cancel) -> Measures {
+fn measure(
+    run: &Run<'_>,
+    proposed: bool,
+    metered: &Metered<'_>,
+    messages: &[Message],
+    cancel: &Cancel,
+) -> Measures {
     let (traffic, billed) = (metered.traffic(), metered.billed());
+    let song_up_front = messages.iter().any(|m| match m {
+        Message::User(text) => text.contains(crate::context::SONG_LINE),
+        _ => false,
+    });
     let (doc, lights, song) = (run.after, run.lights, run.song);
     let mut tool_calls: BTreeMap<String, usize> = BTreeMap::new();
     let mut guides = Vec::new();
@@ -908,6 +920,7 @@ fn measure(run: &Run<'_>, proposed: bool, metered: &Metered<'_>, cancel: &Cancel
         traffic,
         billed,
         first_request_billed: metered.first_billed(),
+        song_up_front,
     }
 }
 
@@ -1004,7 +1017,7 @@ pub fn run_within(
         tools: &tools,
         lights: &lights,
     };
-    let measures = measure(&seen, proposed, &metered, cancel);
+    let measures = measure(&seen, proposed, &metered, session.messages(), cancel);
     let checks = (scenario.judge)(&seen, &measures);
     Outcome {
         scenario: scenario.key.to_string(),

@@ -386,7 +386,12 @@ const FROM_WORDS: [&str; 2] = ["syllables", "phonemes"];
 
 /// Whether adding `wanted` needs the song analyzed.
 pub fn needs_analysis(wanted: &[String]) -> bool {
-    wanted.iter().any(|w| !FROM_WORDS.contains(&w.as_str()))
+    wanted.iter().any(|w| !needs_words(w))
+}
+
+/// Whether the track `choice` is made from the sung words rather than the analysis.
+pub fn needs_words(choice: &str) -> bool {
+    FROM_WORDS.contains(&choice)
 }
 
 /// Adds the song's timing tracks to the draft (one draft step); a track already there by name

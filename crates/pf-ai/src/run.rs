@@ -111,9 +111,13 @@ pub fn run_tool(toolbox: &Toolbox, call: &ToolCall, draft: &mut Draft, song: &mu
                 Err(e) => err(e),
             }
         }
-        ToolKind::PlaceEffects => crate::arrange::place(draft, input).map_or_else(err, ok),
+        ToolKind::PlaceEffects => {
+            with_song_tracks(input, draft, song, |draft| crate::arrange::place(draft, input))
+        }
         ToolKind::RepeatEffects => crate::arrange::repeat(draft, input).map_or_else(err, ok),
-        ToolKind::ChangeEffects => crate::rearrange::change(draft, input).map_or_else(err, ok),
+        ToolKind::ChangeEffects => {
+            with_song_tracks(input, draft, song, |draft| crate::rearrange::change(draft, input))
+        }
         ToolKind::StageCue => {
             // The song gives the tempo, moments, and beats; without one, cues go by ms at 120 BPM.
             let analysis = match song.music {
@@ -144,6 +148,83 @@ pub fn run_tool(toolbox: &Toolbox, call: &ToolCall, draft: &mut Draft, song: &mu
             Outcome::Propose { summary }
         }
         ToolKind::Query(query) => run_query(*query, input, draft),
+    }
+}
+
+/// The song's own tracks, by the names `add_song_timing` gives them ("Beats", "Sections", ...):
+/// the ones made from the analysis, not from the words.
+fn song_track(name: &str) -> Option<&'static str> {
+    crate::song::TRACK_CHOICES
+        .into_iter()
+        .filter(|choice| !crate::song::needs_words(choice))
+        .find(|choice| choice.eq_ignore_ascii_case(name.trim()))
+}
+
+/// Every timing track `input` names to cut at or follow (`track` and `timingTrack`, anywhere).
+fn tracks_named(input: &Value, out: &mut Vec<String>) {
+    match input {
+        Value::Object(map) => {
+            for (key, value) in map {
+                match value {
+                    Value::String(name) if key == "track" || key == "timingTrack" => out.push(name.clone()),
+                    other => tracks_named(other, out),
+                }
+            }
+        }
+        Value::Array(items) => items.iter().for_each(|item| tracks_named(item, out)),
+        _ => {}
+    }
+}
+
+/// Runs `run` after adding to the draft any of the song's tracks that `input` names but the
+/// sequence lacks (placing on "Sections" with no Sections track yet adds it first, as
+/// `add_song_timing` would), saying so in the answer. Without a song nothing is added, and the
+/// tool says what's missing as it always does.
+fn with_song_tracks(
+    input: &Value,
+    draft: &mut Draft,
+    song: &mut Song<'_>,
+    run: impl FnOnce(&mut Draft) -> Result<String, String>,
+) -> Outcome {
+    let mut named = Vec::new();
+    tracks_named(input, &mut named);
+    let missing: Vec<String> = match draft.sequence() {
+        Some(doc) => {
+            let mut missing: Vec<String> = Vec::new();
+            for name in named {
+                if let Some(choice) = song_track(&name)
+                    && crate::song::find_track(&doc.timing_tracks, &name).is_none()
+                    && !missing.iter().any(|m| m == choice)
+                {
+                    missing.push(choice.to_string());
+                }
+            }
+            missing
+        }
+        None => Vec::new(),
+    };
+    let mut said = String::new();
+    if !missing.is_empty()
+        && song.music.is_some()
+        && let Ok(analysis) = song.analysis(draft)
+        && let Ok(Value::Array(tracks)) = crate::song::add_timing(Some(&analysis), draft, &missing)
+    {
+        let names: Vec<String> = tracks
+            .iter()
+            .filter(|t| t["added"] == true)
+            .filter_map(|t| t["name"].as_str().map(|n| format!("\"{n}\"")))
+            .collect();
+        if !names.is_empty() {
+            said = format!(
+                "Added the song's {} {} to your draft. ",
+                names.join(", "),
+                if names.len() == 1 { "track" } else { "tracks" }
+            );
+        }
+    }
+    match run(draft) {
+        Ok(answer) => ok(format!("{said}{answer}")),
+        Err(problem) => err(format!("{said}{problem}")),
     }
 }
 
@@ -341,7 +422,7 @@ fn prop_name(show: &Show, id: pf_model::PropId) -> String {
         .unwrap_or_else(|| "(missing prop)".into())
 }
 
-fn member_name(show: &Show, member: &GroupMember) -> String {
+pub(crate) fn member_name(show: &Show, member: &GroupMember) -> String {
     match member {
         GroupMember::Prop(id) => prop_name(show, *id),
         GroupMember::Region(r) => target_name(
@@ -354,7 +435,7 @@ fn member_name(show: &Show, member: &GroupMember) -> String {
     }
 }
 
-fn shape_type(prop: &pf_model::Prop) -> String {
+pub(crate) fn shape_type(prop: &pf_model::Prop) -> String {
     let value = serde_json::to_value(&prop.shape).unwrap_or(Value::Null);
     value["type"]
         .as_str()
@@ -385,7 +466,7 @@ fn prop_summary(show: &Show, prop: &pf_model::Prop) -> Value {
         "id": prop.id,
         "name": prop.name,
         "shape": shape_type(prop),
-        "role": format!("{:?}", crate::cues::role_of(prop)).to_lowercase(),
+        "role": role_name(prop),
         "pixels": prop.node_count(),
         "position": [p.x, p.y, p.z],
         "wiredTo": wired,
@@ -407,9 +488,14 @@ fn prop_summary(show: &Show, prop: &pf_model::Prop) -> Value {
     summary
 }
 
+/// The part PixelFlow gives a prop in a show ("outline", "tree", "matrix", ...).
+pub(crate) fn role_name(prop: &pf_model::Prop) -> String {
+    format!("{:?}", crate::cues::role_of(prop)).to_lowercase()
+}
+
 /// The grid effects draw on for the shapes that are one: columns across and rows up (a tree's
 /// strings and the pixels up each). `None` for a shape that is a single run or an outline.
-fn grid(prop: &pf_model::Prop) -> Option<(u32, u32)> {
+pub(crate) fn grid(prop: &pf_model::Prop) -> Option<(u32, u32)> {
     use pf_model::{Generator, ShapeSource};
     let ShapeSource::Generator(shape) = &prop.shape else {
         return None;

@@ -219,6 +219,20 @@ fn used(run: &Run<'_>, tool: &str, why: &str) -> Check {
     check(why, times > 0, format!("{tool} called {times} times"))
 }
 
+/// Whether it had the song's analysis before designing: with the request, or by asking.
+fn listened(run: &Run<'_>, m: &Measures) -> Check {
+    let times = run.tools.iter().filter(|t| t.name == "analyze_song").count();
+    check(
+        "It listened to the song before designing",
+        m.song_up_front || times > 0,
+        if m.song_up_front {
+            "the analysis came with the request".to_string()
+        } else {
+            format!("analyze_song called {times} times")
+        },
+    )
+}
+
 /// Whether it read `guide` before it drafted anything.
 fn read_first(run: &Run<'_>, guide: &str) -> Check {
     let read = run.tools.iter().position(|t| {
@@ -354,7 +368,7 @@ fn whole_song(run: &Run<'_>, m: &Measures) -> Vec<Check> {
     vec![
         proposes(m),
         read_first(run, "method"),
-        used(run, "analyze_song", "It listened to the song before designing"),
+        listened(run, m),
         used(run, "review_draft", "It reviewed its draft before proposing"),
         check(
             "Most props have a part (9 of 12 or more)",

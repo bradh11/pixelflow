@@ -112,7 +112,8 @@ To the provider you name, over HTTPS, with your key as the sign-in, exactly what
 for a chat:
 
 - the Assistant's instructions and tool definitions (about 51 KB, with every request);
-- each scenario's request, as written above;
+- each scenario's request, as written above, with the made-up show, sequence, and song in
+  outline in its context block, as the app sends them with a first message;
 - whatever the model looks up with its tools: PixelFlow's own guides, and the made-up show,
   sequence, song analysis, and words described above.
 

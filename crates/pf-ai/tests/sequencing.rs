@@ -333,6 +333,119 @@ fn the_song_is_analyzed_once_off_the_engine_and_summarized() {
     assert_eq!(runs.load(Ordering::SeqCst), 1, "kept for the chat");
 }
 
+/// The last user message sent with request `n`.
+fn user_message(provider: &ScriptedProvider, n: usize) -> String {
+    provider.requests()[n]
+        .iter()
+        .rev()
+        .find_map(|m| match m {
+            Message::User(text) => Some(text.clone()),
+            _ => None,
+        })
+        .unwrap()
+}
+
+#[test]
+fn the_show_the_sequence_and_the_song_come_with_the_first_message() {
+    let s = setup(Some("/music/song.mp3"));
+    let provider = ScriptedProvider::new(vec![says("I see it."), says("Still the same.")]);
+    let (mut session, runs) = session();
+    let (reply, events) = ask(&mut session, &provider, &s.engine, "What's here?");
+    reply.unwrap();
+    // The song is analyzed before the first request, and the panel says so meanwhile.
+    assert_eq!(runs.load(Ordering::SeqCst), 1);
+    assert!(
+        matches!(events.first(), Some(ChatEvent::Activity { label }) if label == "Listening to the song"),
+        "{events:?}"
+    );
+    // What every job looks up first comes with the message: no round trip for it.
+    let text = first_user_message(&provider);
+    let rows = format!(
+        "Rows (4, 0 effects), each [rowId, lights, effects on each layer, kinds]:\n[\"{}\",\"A\",",
+        s.rows[0]
+    );
+    for words in [
+        "Props (3), each [name, role, shape, grid, pixels, x, y, faces]:\n[\"A\",\"outline\",\"line\",null,10,",
+        "Groups, each [name, members]: [[\"All\",[\"A\",\"B\",\"C\"]]]",
+        &rows,
+        &format!("[\"{}\",\"group All\",", s.rows[3]),
+        "Timing tracks, each [name, kind, marks]: []",
+        "Song (as analyze_song answers it): {",
+        "\"tempoBpm\":120.0",
+        "\"moments\":[[8000,\"drop\",0.95,\"burst\"]",
+    ] {
+        assert!(text.contains(words), "{words}\n{text}");
+    }
+    assert!(text.ends_with("</context>\n\nWhat's here?"), "{text}");
+    // Asked again with nothing changed, it isn't said twice (and the song isn't analyzed again).
+    ask(&mut session, &provider, &s.engine, "And now?").0.unwrap();
+    let again = user_message(&provider, 1);
+    assert!(
+        again.contains("Show, sequence, and song: as in an earlier context block, unchanged.")
+            && !again.contains("Props ("),
+        "{again}"
+    );
+    assert_eq!(runs.load(Ordering::SeqCst), 1);
+    // Once the show changes, the new outline comes with the next message.
+    let mut engine = s.engine;
+    engine.apply(vec![Edit::AddProp { prop: line("D") }]).unwrap();
+    let provider = ScriptedProvider::new(vec![says("A new prop.")]);
+    ask(&mut session, &provider, &engine, "And now?").0.unwrap();
+    let changed = user_message(&provider, 0);
+    assert!(changed.contains("Props (4)"), "{changed}");
+}
+
+#[test]
+fn placing_on_a_song_track_the_sequence_lacks_adds_it_first() {
+    let s = setup(Some("/music/song.mp3"));
+    let place = json!({ "rowIds": [s.rows[0]], "fromMs": 0, "toMs": 32_000, "track": "Sections",
+        "effect": { "kind": "chase", "settings": { "timingTrack": "beats" } } });
+    let provider = ScriptedProvider::new(vec![calls("", &[("place_effects", place)]), says("Placed.")]);
+    let (mut session, _) = session();
+    ask(&mut session, &provider, &s.engine, "Chase the sections")
+        .0
+        .unwrap();
+    let (answer, is_error) = results_in(&provider, 1).remove(0);
+    assert!(!is_error, "{answer}");
+    assert!(
+        answer.starts_with(
+            "Added the song's \"Sections\", \"Beats\" tracks to your draft. Placed 3 Chase effects"
+        ),
+        "{answer}"
+    );
+    let doc = session.draft().unwrap().sequence().unwrap();
+    let names: Vec<&str> = doc.timing_tracks.iter().map(|t| t.name.as_str()).collect();
+    assert_eq!(names, ["Sections", "Beats"]);
+    assert_eq!(
+        placed(&session, &s.rows[0], 0),
+        [(0, 8_000), (8_000, 24_000), (24_000, 32_000)]
+    );
+
+    // Without a song there is nothing to add them from: the tool says what's missing.
+    let mut quiet = setup(None);
+    quiet
+        .engine
+        .new_sequence_doc_with_rows(
+            "Quiet",
+            10_000,
+            None,
+            vec![Row::new(Target::Prop(quiet.engine.show().props[0].id))],
+        )
+        .unwrap();
+    let row = quiet.engine.sequence_document().unwrap().rows[0].id.to_string();
+    let place = json!({ "rowIds": [row], "fromMs": 0, "toMs": 10_000, "track": "Sections", "effect": { "kind": "on" } });
+    let provider = ScriptedProvider::new(vec![calls("", &[("place_effects", place)]), says("No song.")]);
+    let (mut songless, _) = self::session();
+    ask(&mut songless, &provider, &quiet.engine, "On the sections")
+        .0
+        .unwrap();
+    let (answer, is_error) = results_in(&provider, 1).remove(0);
+    assert!(
+        is_error && answer.starts_with("There's no timing track \"Sections\""),
+        "{answer}"
+    );
+}
+
 #[test]
 fn a_sequence_without_a_song_says_so_and_stop_ends_an_analysis() {
     let mut s = setup(None);

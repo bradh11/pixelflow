@@ -4,7 +4,8 @@ The window (`app/src`, TypeScript) and the shell (`app/src-tauri`, Rust) agree o
 reply and event only by convention: the types in `app/src/api` are written by hand to mirror the
 Rust ones. Three sets of committed files in `app/src/api/contracts/` hold the two sides to each
 other. Each is written by one side's tests and read by the other's, and each fails a test when it
-is stale.
+is stale. A fourth set, kept the same way, holds the video export to the picture the previews
+draw.
 
 ## What is checked
 
@@ -32,6 +33,19 @@ scripts against the stand-ins and compares every step. A difference the stand-in
 is listed in `KNOWN` or `ENGINE_FILLS_IN` in that file, with the reason, and fails once it no
 longer holds.
 
+**What the previews draw** (`pixels/*.json`). The flat previews draw the show's pixels in
+TypeScript (`app/src/lib/pixelBatches.ts`, fitted and sized as `app/src/lib/flatPreview.ts` says);
+the video export draws them in Rust (`crates/pf-video/src/dots.rs` and `raster.rs`), and a frame
+of a video must be the preview's picture of that moment. Each file is a scene: a small made-up
+layout and a frame of colors (a sparse string, a dense one, strings crossing, matrices, lit beside
+unlit, a fade, pixels closer than a screen pixel), a preview's canvas, and the picture of dots the
+preview draws there with no glow. `pixels.test.ts` draws every scene with the preview's own code
+and writes the files. The export's test (`shared_scenes` in `crates/pf-video/src/raster.rs`) draws
+the same scenes with the export's code. It fails unless it fits each display in the same view,
+uses the same dot size and the same color for a pixel that's off, and draws every pixel of the
+picture the same: the same color and the same alpha, with no tolerance. The scenes' coordinates
+are whole numbers of 128ths, so both sides start from the very same numbers.
+
 ## When a check fails
 
 A failure names the file, the entry or step, and what differs. Decide which side is wrong and fix
@@ -51,6 +65,13 @@ window's calls. When both sides changed, the first can fail on the window's call
 second then rewrites; the files it writes are written all the same. Commit the changed files with
 the change that caused them.
 
+The second also writes the pictures the previews draw. After a change to how the previews draw
+pixels, make the same change to the export and check it from the repository's root:
+
+```sh
+cargo test --locked -p pf-video
+```
+
 ## Adding to them
 
 - A new command: call it in `commandCalls.test.ts` (that suite fails until every method of the API
@@ -61,6 +82,8 @@ the change that caused them.
   so the shell's tests don't compile until it's added.
 - A behaviour the stand-ins imitate: add a scenario to `tests/parity.rs` and its name to
   `SCENARIOS`.
+- A way the previews draw pixels that no scene shows: add a scene to `SCENES` in
+  `pixels.test.ts`. The export's test reads every file in `pixels/`.
 
 The files hold no temp paths, times, or random ids (`Stable` in `tests/contracts/support.rs`
 replaces them), so they are the same on every run and platform.

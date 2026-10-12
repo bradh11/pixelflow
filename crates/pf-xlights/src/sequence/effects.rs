@@ -2244,8 +2244,9 @@ fn palette_colors(palette: &ParsedPalette, diff: &mut Diff) -> Vec<Rgb> {
         .collect()
 }
 
-/// Translates one xLights effect lasting `duration_ms` in a sequence with `frame_ms` frames.
-/// `None` for effects that are left out ([`Fidelity::Skipped`]).
+/// Translates one xLights effect lasting `duration_ms` (the length the file gives it, even when
+/// the sequence ends before it does) in a sequence with `frame_ms` frames. `None` for effects
+/// that are left out ([`Fidelity::Skipped`]).
 pub fn translate(
     name: &str,
     s: &Settings,
@@ -2256,8 +2257,6 @@ pub fn translate(
     let mut diff = Diff(Vec::new());
     let colors = palette_colors(palette, &mut diff);
     let (mut sparkles, sparkle_color) = (palette.sparkles, palette.sparkle_color);
-    // xLights' music sparkles: the count times the music's peak (nothing to follow without any).
-    let music_sparkles = palette.music_sparkles && palette.sparkles > 0;
     let blend = blend(s, &mut diff);
     let (fade_in_ms, fade_out_ms) = fades(s, duration_ms, &mut diff);
     let Buffer {
@@ -2267,11 +2266,16 @@ pub fn translate(
     } = buffer(s, &mut diff);
     let mut curves = BTreeMap::new();
     let mut curve_tracks = Vec::new();
+    let mut sparkles_change = false;
     if let Some((start, curve, track)) = sparkles_curve(palette, &mut diff) {
         sparkles = start;
+        sparkles_change = curve.is_some();
         curves.extend(curve.map(|c| ("sparkles".to_string(), c)));
         curve_tracks.extend(track.map(|t| ("sparkles".to_string(), t)));
     }
+    // xLights' music sparkles: the count times the music's peak, whether the count is the
+    // slider's or a value curve's (nothing to follow without any).
+    let music_sparkles = palette.music_sparkles && (sparkles > 0 || sparkles_change);
     if let Some((start, curve, track)) = blur_curve(s, &mut diff) {
         blur = start;
         curves.extend(curve.map(|c| ("blur".to_string(), c)));
@@ -2827,6 +2831,37 @@ mod tests {
             t.fidelity,
             Fidelity::Approximate(vec!["blur above 15 shown at 15".into()])
         );
+    }
+
+    #[test]
+    fn music_sparkles_follow_the_music_when_only_a_curve_gives_their_count() {
+        // The Music checkbox scales whatever count the palette gives. With the slider left at
+        // nothing and a value curve on it, the curve's count still follows the music: in xLights'
+        // frames, sparkles a curve holds at 200 while the music is quiet flash on a few pixels
+        // in a hundred there, not on six in ten.
+        let translated = |curve: Option<&str>, slider: u32| {
+            let mut p = palette(&[Rgb::WHITE]);
+            p.sparkles = slider;
+            p.music_sparkles = true;
+            p.sparkles_curve = curve.map(str::to_string);
+            translate("On", &Settings::default(), &p, 1000, 25).unwrap()
+        };
+        let follows =
+            "Active=TRUE|Type=Music Trigger Fade|Min=0.00|Max=200.00|P1=200.00|P3=50.00|P4=95.00|RV=TRUE|";
+        let t = translated(Some(follows), 0);
+        assert!(t.curves.contains_key("sparkles"));
+        assert!(t.music_sparkles);
+        let ramp = "Active=TRUE|Type=Ramp|Min=0.00|Max=200.00|P1=0.00|P2=200.00|RV=TRUE|";
+        assert!(translated(Some(ramp), 0).music_sparkles);
+        // A curve that stays at one count is that count.
+        let flat = |at: u32| format!("Active=TRUE|Type=Flat|Min=0.00|Max=200.00|P1={at}.00|RV=TRUE|");
+        let t = translated(Some(&flat(40)), 0);
+        assert_eq!((t.sparkles, t.music_sparkles), (40, true));
+        // With no sparkles there is nothing to follow.
+        let t = translated(Some(&flat(0)), 10);
+        assert_eq!((t.sparkles, t.music_sparkles), (0, false));
+        assert!(!translated(None, 0).music_sparkles);
+        assert!(translated(None, 10).music_sparkles);
     }
 
     #[test]

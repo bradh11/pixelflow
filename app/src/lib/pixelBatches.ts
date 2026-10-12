@@ -19,6 +19,11 @@
 //
 // The dots are stamped straight into an image, which is drawn in one go: thousands of fills, or
 // one fill per color, are far slower, and an image costs the same however many colors it holds.
+//
+// The video export stamps the same picture with code of its own (crates/pf-video's dots.rs, step
+// for step what `stampPixels` does here). The scenes in api/contracts/pixels/ hold the two to
+// each other: a change to what's drawn here shows there, and the export's tests then fail until
+// it draws the same.
 
 import type { PreviewProp } from "../api/types";
 import type { Size, View } from "./layoutMath";
@@ -289,11 +294,10 @@ export interface DotShape {
 const shapes: DotShape[][] = [];
 
 /**
- * The shapes of a round dot `size` device pixels wide: solid in the middle with a soft edge, as
- * the video export's dots are (crates/pf-video's raster.rs). There's one shape for a dot sitting
- * on whole device pixels (under 3 wide it's the whole square: too small to round), or with
- * `fine` one for each place it can sit across a device pixel, `PLACES` each way (row by row),
- * its soft edge following.
+ * The shapes of a round dot `size` device pixels wide: solid in the middle with a soft edge.
+ * There's one shape for a dot sitting on whole device pixels (under 3 wide it's the whole square:
+ * too small to round), or with `fine` one for each place it can sit across a device pixel,
+ * `PLACES` each way (row by row), its soft edge following.
  */
 export function dotShapes(size: number, fine = false): DotShape[] {
   let found = shapes[size * 2 + (fine ? 1 : 0)];

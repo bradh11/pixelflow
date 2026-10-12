@@ -315,6 +315,45 @@ fn an_effect_on_a_prop_xlights_lays_out_its_own_way_looks_close() {
 }
 
 #[test]
+fn an_effect_cut_off_by_the_end_of_the_sequence_moves_as_fast_as_the_whole_effect() {
+    // xLights counts an effect's cycles over its whole length, the part past the end of the
+    // sequence included: three cycles of bars over twelve seconds move a quarter of a cycle a
+    // second, however much of them the sequence shows. Its fades stay within what is shown.
+    let effect = |end: u32| {
+        let xml = format!(
+            r#"<xsequence FixedPointTiming="1"><head><sequenceTiming>50 ms</sequenceTiming><sequenceDuration>10</sequenceDuration></head>
+            <ElementEffects><Element type="model" name="Roofline"><EffectLayer>
+              <Effect name="Bars" startTime="0" endTime="{end}">E_TEXTCTRL_Bars_Cycles=3.0,T_TEXTCTRL_Fadein=11</Effect>
+            </EffectLayer></Element></ElementEffects></xsequence>"#
+        );
+        let i = build_sequence(&parse_xsq(&xml).unwrap(), &show(), "x");
+        assert_opens(&i);
+        (i.sequence.rows[0].layers[0].effects[0].clone(), i)
+    };
+    let speed = |e: &Effect| match &e.params {
+        EffectParams::Bars(bars) => bars.speed,
+        other => panic!("{other:?}"),
+    };
+
+    let (cut, import) = effect(12_000);
+    assert_eq!((cut.start_ms, cut.end_ms), (0, 10_000), "cut off at the end");
+    assert!((speed(&cut) - 0.25).abs() < 1e-6, "{}", speed(&cut));
+    assert_eq!(cut.fade_in_ms, 10_000);
+    assert_note(
+        &import,
+        "1 effect ran past the end of the sequence and was cut off there.",
+    );
+    assert_eq!(
+        import.summary.look_ms.matches, 10_000,
+        "counted for what is shown"
+    );
+
+    // One that ends with the sequence is as it always was.
+    let (whole, _) = effect(10_000);
+    assert!((speed(&whole) - 0.3).abs() < 1e-6, "{}", speed(&whole));
+}
+
+#[test]
 fn an_effect_on_a_cube_looks_close() {
     // xLights draws on a cube with its layers side by side; PixelFlow as it looks from the
     // front, where they overlap. One layer deep, the two are the same.

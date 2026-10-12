@@ -424,16 +424,28 @@ impl<'a> Builder<'a> {
             self.over_effect_limit += 1;
             return None;
         }
+        let shown_ms = end_ms - start_ms;
+        // An effect the end of the sequence cuts off still moves as the whole effect would: what
+        // xLights counts per effect (cycles, rotations) is spread over the length the file gives
+        // it. Seen in xLights' frames: a spiral 30 s long that starts 0.2 s into a 30 s sequence
+        // turns as often in 30 s as it would uncut, not as often in the 29.8 s shown.
+        let whole_ms = self
+            .clock
+            .ms(&x.end)
+            .map_or(shown_ms, |end| end.saturating_sub(start_ms).max(shown_ms));
         let mut settings = self.settings_for(x);
         effects::adjust_for_version(name, &mut settings, &self.file.head.version);
         let palette = self.palette_for(x);
         let frame_ms = self.clock.frame_ms as u32;
-        let Some(mut translated) = effects::translate(name, &settings, &palette, end_ms - start_ms, frame_ms)
-        else {
-            self.tally.record(name, &Fidelity::Skipped, end_ms - start_ms);
+        let Some(mut translated) = effects::translate(name, &settings, &palette, whole_ms, frame_ms) else {
+            self.tally.record(name, &Fidelity::Skipped, shown_ms);
             self.summary.skipped += 1;
             return None;
         };
+        // Its fades stay within what is shown.
+        let shown = u32::try_from(shown_ms).unwrap_or(u32::MAX);
+        translated.fade_in_ms = translated.fade_in_ms.min(shown);
+        translated.fade_out_ms = translated.fade_out_ms.min(shown);
         if let EffectParams::Faces(params) = &mut translated.params {
             params.face = face_named(&params.face, faces);
             let wanted = unxml_safe(settings.text("E_CHOICE_Faces_TimingTrack", "").trim());
@@ -541,7 +553,7 @@ impl<'a> Builder<'a> {
         }
         let verdict = self
             .tally
-            .record(name, &translated.fidelity, end_ms - start_ms)
+            .record(name, &translated.fidelity, shown_ms)
             .unwrap_or(Verdict::NoEquivalent);
         self.summary.effects += 1;
         match translated.fidelity {

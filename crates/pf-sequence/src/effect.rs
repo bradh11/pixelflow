@@ -1662,7 +1662,7 @@ effect_params! {
         sparks: u32 = 50 => "sparks", "Sparks", int(1, 200);
         /// How far the sparks fly before they have faded away: 100 reaches from the middle of
         /// the prop to the ends of its longer side.
-        size: f32 = 60.0 => "size", "Burst size", number(1.0, 1000.0, 1.0);
+        size: f32 = 60.0 => "size", "Burst size", number(1.0, 500.0, 1.0);
         /// How long a burst's sparks glow before they have faded away.
         life: f32 = 1.5 => "life", "Glow time", number(0.05, 10.0, 0.05, "seconds");
         /// The tail each spark draws behind it, as a share of how far it has flown (0: a dot).
@@ -1687,7 +1687,7 @@ effect_params! {
         center_y: f32 = 50.0 => "centerY", "Center up", number(0.0, 100.0, 1.0, "%"), more;
         /// How wide each spark is, as a percent of the prop's longer side. A spark is never
         /// smaller than one pixel.
-        spark_size: f32 = 2.0 => "sparkSize", "Spark size", number(0.0, 100.0, 0.1), more;
+        spark_size: f32 = 2.0 => "sparkSize", "Spark size", number(0.0, 25.0, 0.1), more;
         /// How much the sparks slow down as they fly: 0 keeps them at one speed, 1 brings them
         /// to a stop as they fade out.
         slowing: f32 = 0.6 => "slowing", "Slowing", number(0.0, 1.0, 0.01), more;

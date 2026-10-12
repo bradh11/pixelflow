@@ -4269,7 +4269,7 @@
         "description": "How far the sparks fly before they have faded away: 100 reaches from the middle of the prop to the ends of its longer side.",
         "key": "size",
         "label": "Burst size",
-        "max": 1000.0,
+        "max": 500.0,
         "min": 1.0,
         "step": 1.0,
         "type": "number"
@@ -4388,7 +4388,7 @@
         "description": "How wide each spark is, as a percent of the prop's longer side. A spark is never smaller than one pixel.",
         "key": "sparkSize",
         "label": "Spark size",
-        "max": 100.0,
+        "max": 25.0,
         "min": 0.0,
         "more": true,
         "step": 0.1,

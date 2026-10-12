@@ -249,11 +249,11 @@ impl Fireworks {
         let longer = columns.max(rows) as f32;
         let (size, spark) = if p.scale {
             (
-                within(p.size, 0.0, 1000.0) / 100.0 * longer / 2.0,
-                within(p.spark_size, 0.0, 100.0) / 100.0 * longer,
+                within(p.size, 0.0, 500.0) / 100.0 * longer / 2.0,
+                within(p.spark_size, 0.0, 25.0) / 100.0 * longer,
             )
         } else {
-            (within(p.size, 0.0, 1000.0), within(p.spark_size, 0.0, 100.0))
+            (within(p.size, 0.0, 500.0), within(p.spark_size, 0.0, 25.0))
         };
         let half = spark.max(1.0) / 2.0;
         let edge = if p.soft { half + SOFT / 2.0 } else { half * SQRT_2 };

@@ -528,7 +528,7 @@ mod tests {
             EffectParams::Fireworks(crate::FireworksParams {
                 rate: 1.0,
                 sparks: 1,
-                size: 1000.0,
+                size: 500.0,
                 life: 0.05,
                 ..Default::default()
             })

@@ -115,22 +115,20 @@ impl Program {
 
     /// The inputs at the values the file gives them, at time 0 on a picture one cell in size.
     pub fn uniforms(&self) -> Uniforms {
-        Uniforms {
-            bits: self.defaults.clone(),
-        }
+        Uniforms::new(&self.defaults)
     }
 
     /// The time in seconds, the seconds since the frame before, and the frame's number.
     pub fn set_time(&self, uniforms: &mut Uniforms, seconds: f32, delta: f32, frame: i32) {
-        uniforms.bits[TIME] = seconds.to_bits();
-        uniforms.bits[TIME_DELTA] = delta.to_bits();
-        uniforms.bits[FRAME_INDEX] = frame as u32;
+        uniforms.set(TIME, seconds.to_bits());
+        uniforms.set(TIME_DELTA, delta.to_bits());
+        uniforms.set(FRAME_INDEX, frame as u32);
     }
 
     /// The size of the picture in cells.
     pub fn set_size(&self, uniforms: &mut Uniforms, columns: f32, rows: f32) {
-        uniforms.bits[SIZE] = columns.max(1.0).to_bits();
-        uniforms.bits[SIZE + 1] = rows.max(1.0).to_bits();
+        uniforms.set(SIZE, columns.max(1.0).to_bits());
+        uniforms.set(SIZE + 1, rows.max(1.0).to_bits());
     }
 
     /// Gives input `name` a value: one number for a float, a choice (the number the shader is
@@ -152,18 +150,15 @@ impl Program {
         };
         match &self.header.inputs[index].kind {
             InputKind::Float { min, max, default } => {
-                uniforms.bits[at] = number(0, *min, *max, *default).to_bits();
+                uniforms.set(at, number(0, *min, *max, *default).to_bits());
             }
             InputKind::Bool { default } => {
                 let on = value.first().map_or(*default, |v| *v != 0.0);
-                uniforms.bits[at] = if on { TRUE } else { 0 };
+                uniforms.set(at, if on { TRUE } else { 0 });
             }
             InputKind::Event => {
-                uniforms.bits[at] = if value.first().is_some_and(|v| *v != 0.0) {
-                    TRUE
-                } else {
-                    0
-                }
+                let on = value.first().is_some_and(|v| *v != 0.0);
+                uniforms.set(at, if on { TRUE } else { 0 });
             }
             InputKind::Long { values, default, .. } => {
                 let wanted = number(0, i32::MIN as f32, i32::MAX as f32, *default as f32) as i32;
@@ -172,16 +167,16 @@ impl Program {
                 } else {
                     *default
                 };
-                uniforms.bits[at] = given as u32;
+                uniforms.set(at, given as u32);
             }
             InputKind::Point { min, max, default } => {
                 for k in 0..2 {
-                    uniforms.bits[at + k] = number(k, min[k], max[k], default[k]).to_bits();
+                    uniforms.set(at + k, number(k, min[k], max[k], default[k]).to_bits());
                 }
             }
             InputKind::Color { default } => {
                 for (k, fallback) in default.iter().enumerate() {
-                    uniforms.bits[at + k] = number(k, 0.0, 1.0, *fallback).to_bits();
+                    uniforms.set(at + k, number(k, 0.0, 1.0, *fallback).to_bits());
                 }
             }
             InputKind::Image | InputKind::Audio | InputKind::AudioFft => return false,

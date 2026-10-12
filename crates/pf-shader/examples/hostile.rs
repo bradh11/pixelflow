@@ -153,13 +153,13 @@ fn main() {
     );
     let mut arrays = String::from("void main() {\n");
     for i in 0..64 {
-        arrays.push_str(&format!("vec4 a{i}[1024];\n"));
+        arrays.push_str(&format!("vec4 a{i}[256];\n"));
     }
     arrays.push_str("gl_FragColor = a0[0]; }");
     note("sixty-four arrays of the largest size", &arrays);
     let mut fits = String::from("void main() {\n");
     for i in 0..3 {
-        fits.push_str(&format!("vec4 a{i}[1024];\n"));
+        fits.push_str(&format!("vec4 a{i}[256];\n"));
     }
     fits.push_str(
         "for (float i = 0.0; i < 2.0e9; i += 1.0) { int k = int(gl_FragCoord.x * i); a0[k] = a1[k + 1] + a2[k * 3]; a1[k] += a0[k].yzwx; }\ngl_FragColor = a0[0]; }",

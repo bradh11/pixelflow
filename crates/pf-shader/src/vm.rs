@@ -22,8 +22,8 @@ use crate::math;
 
 pub(crate) type Slot = u32;
 
-/// Most numbers one machine holds (slots times the width of a batch): 16 MB of them.
-const MEMORY_NUMBERS: usize = 4 * 1024 * 1024;
+/// Most numbers one machine holds (slots times the width of a batch): 4 MB of them.
+const MEMORY_NUMBERS: usize = 1024 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Op {
@@ -291,11 +291,53 @@ impl Bits for u32 {
     }
 }
 
+/// How many of the numbers a shader is given are kept in place. A shader with more inputs than
+/// that keeps them on the heap, so setting a frame up for it allocates.
+const UNIFORMS_IN_PLACE: usize = 64;
+
 /// The inputs a shader is run with: a number for each slot the program takes from outside. Made
 /// by [`Program::uniforms`] and set through the program.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Uniforms {
-    pub(crate) bits: Vec<u32>,
+    len: usize,
+    in_place: [u32; UNIFORMS_IN_PLACE],
+    spilled: Vec<u32>,
+}
+
+impl Uniforms {
+    pub(crate) fn new(bits: &[u32]) -> Self {
+        let mut in_place = [0; UNIFORMS_IN_PLACE];
+        let spilled = match in_place.get_mut(..bits.len()) {
+            Some(room) => {
+                room.copy_from_slice(bits);
+                Vec::new()
+            }
+            None => bits.to_vec(),
+        };
+        Self {
+            len: bits.len(),
+            in_place,
+            spilled,
+        }
+    }
+
+    pub(crate) fn bits(&self) -> &[u32] {
+        match self.in_place.get(..self.len) {
+            Some(bits) => bits,
+            None => &self.spilled,
+        }
+    }
+
+    /// Sets number `at` (nothing, for one the program that made these doesn't take).
+    pub(crate) fn set(&mut self, at: usize, bits: u32) {
+        let all = match self.len <= UNIFORMS_IN_PLACE {
+            true => &mut self.in_place[..self.len],
+            false => &mut self.spilled[..],
+        };
+        if let Some(slot) = all.get_mut(at) {
+            *slot = bits;
+        }
+    }
 }
 
 /// What a run cost.
@@ -378,6 +420,11 @@ impl Machine {
         self.width
     }
 
+    /// The bytes of working memory it holds.
+    pub fn bytes(&self) -> usize {
+        (self.vals.len() + self.masks.len() + 6) * self.width * std::mem::size_of::<u32>()
+    }
+
     /// Runs `program` for the pixels whose centers are at (`xs`, `ys`), in cells from the bottom
     /// left of the picture, and gives each one's red, green, blue, and alpha as the shader left
     /// them (not clamped; a pixel stopped or discarded is all zeros). No pixel does more than
@@ -410,7 +457,7 @@ impl Machine {
             for &(slot, bits) in &program.constants {
                 self.uni[slot as usize] = bits;
             }
-            for (&slot, &bits) in program.uniform_slots.iter().zip(&uniforms.bits) {
+            for (&slot, &bits) in program.uniform_slots.iter().zip(uniforms.bits()) {
                 self.uni[slot as usize] = bits;
             }
             for (slot, from) in [(program.coord[0], xs), (program.coord[1], ys)] {

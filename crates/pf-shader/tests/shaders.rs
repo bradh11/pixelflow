@@ -526,7 +526,7 @@ fn absurd_sizes_are_refused() {
     // Arrays that each fit, and together don't.
     let mut many = String::from("void main() {\n");
     for i in 0..40 {
-        many.push_str(&format!("vec4 a{i}[1024];\n"));
+        many.push_str(&format!("vec4 a{i}[256];\n"));
     }
     many.push('}');
     assert!(refused(&many).contains("too many values"));

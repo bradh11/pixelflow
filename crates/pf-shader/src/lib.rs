@@ -26,6 +26,7 @@
 //! so is a loop nothing can leave; and no input makes it panic.
 
 mod ast;
+mod built_in;
 mod isf;
 mod lex;
 mod lower;
@@ -33,6 +34,7 @@ pub mod math;
 mod parse;
 mod vm;
 
+pub use built_in::{BUILT_IN, BUILT_IN_PREFIX, BuiltIn, built_in, is_built_in_name};
 pub use isf::{Header, Input, InputKind, MAX_CHOICES, MAX_INPUTS};
 pub use lower::Program;
 pub use vm::{Machine, RunStats, Uniforms};
@@ -109,8 +111,8 @@ impl Default for Limits {
             tokens: 200_000,
             depth: 128,
             instructions: 200_000,
-            slots: 16_384,
-            array_len: 1024,
+            slots: 4096,
+            array_len: 256,
             work: 200_000,
             frame_work: 600_000_000,
         }

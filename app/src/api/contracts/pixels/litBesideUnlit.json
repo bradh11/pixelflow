@@ -1,0 +1,60 @@
+{
+  "about": "Three strings whose dots overlap, the lit one between two that are off in the frame's order: a lit dot is whole over the ones that are off, and those don't add up where they overlap.",
+  "size": { "width": 68, "height": 34 },
+  "ratio": 1,
+  "view": { "cx": 0.5625, "cy": 0.015625, "zoom": 32 },
+  "radius": 1.6,
+  "dark": [70, 70, 70, 140],
+  "props": [
+    {
+      "frameOffset": 30,
+      "channelsPerPixel": 3,
+      "points": [[0.125, 0], [0.375, 0], [0.625, 0], [0.875, 0], [1.125, 0]]
+    },
+    { "frameOffset": 15, "channelsPerPixel": 3, "points": [[0, 0], [0.25, 0], [0.5, 0], [0.75, 0], [1, 0]] },
+    {
+      "frameOffset": 0,
+      "channelsPerPixel": 3,
+      "points": [
+        [0.0625, 0.03125],
+        [0.3125, 0.03125],
+        [0.5625, 0.03125],
+        [0.8125, 0.03125],
+        [1.0625, 0.03125]
+      ]
+    }
+  ],
+  "frame": "000000000000000000000000000000ff000000ff000000ffffffffc80000000000000000000000000000000000",
+  "picture": {
+    "width": 68,
+    "height": 34,
+    "left": 15,
+    "top": 15,
+    "colors": [
+      "00000000",
+      "46464652",
+      "4646468c",
+      "ff000095",
+      "ff0000ff",
+      "cb1414cf",
+      "00ff0095",
+      "00ff00ff",
+      "14cb14cf",
+      "0000ff95",
+      "0000ffff",
+      "1414cbcf",
+      "ffffff95",
+      "ffffffff",
+      "cbcbcbcf",
+      "c8000095",
+      "c80000ff",
+      "a31414cf"
+    ],
+    "rows": [
+      "0 0 1 2 1 0 0 0 0 0 1 2 1 0 0 0 0 0 1 2 1 0 0 0 0 0 1 2 1 0 0 0 0 0 1 2 1 0 0",
+      "3 4 5 2 2 2 1 0 6 7 8 2 2 2 1 0 9 10 11 2 2 2 1 0 12 13 14 2 2 2 1 0 15 16 17 2 2 2 1",
+      "4 4 4 2 2 2 2 0 7 7 7 2 2 2 2 0 10 10 10 2 2 2 2 0 13 13 13 2 2 2 2 0 16 16 16 2 2 2 2",
+      "3 4 3 0 1 2 1 0 6 7 6 0 1 2 1 0 9 10 9 0 1 2 1 0 12 13 12 0 1 2 1 0 15 16 15 0 1 2 1"
+    ]
+  }
+}

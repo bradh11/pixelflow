@@ -11,8 +11,10 @@
 //! instead (see [`ffmpeg`]).
 
 pub mod aac;
+mod dots;
 mod export;
 pub mod ffmpeg;
+mod glow;
 pub mod h264;
 pub mod mp4;
 pub mod raster;

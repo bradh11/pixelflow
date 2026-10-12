@@ -107,6 +107,17 @@ Filled in as each lands; the commit that closes a gap adds its line here.
   change, vocals, beginnings and endings, common mistakes, flash safety, following the music,
   changing what is there), fetched like any guide. The standing instructions carry the method in
   brief and say which topic to read before each decision; they stay inside their 5,300 bytes.
+- **Checking a draft as a designer would.** `review_draft` now also judges the design
+  (`crates/pf-ai/src/review/design.rs`): every prop has a part (those that never light are
+  named, with their rows); something rests (the whole house isn't lit nearly all the time); each
+  section holds to a few colors (with a call that keeps its three most used); each new section
+  looks different from the one before; the song's biggest moments light most of the house;
+  effects suit the props they are on (going by the targets each effect's guide gives looks for,
+  and a Faces effect needs a face); words can be read (letter height, width, scroll speed, time
+  on screen, from the way text is drawn); and flicker too fast for a frame-by-frame run-through
+  to see (an On's shimmer, a fast Shimmer or Strobe over a large area) is caught from the
+  effects' settings. The punch list takes one fix of every kind before a second of any, so a
+  dozen missed moments can't crowd out "half the props never light".
 
 ## Still out of reach
 

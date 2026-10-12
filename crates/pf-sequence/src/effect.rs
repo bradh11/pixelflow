@@ -1296,7 +1296,8 @@ effect_params! {
         /// A dimmed color still hides what's below it, as xLights' On does. Otherwise the
         /// dimmer it is, the more of what's below shows through.
         solid: bool = false => "solid", "Dim without showing through", toggle, more;
-        /// How much of what's below shows through whatever the brightness (0–1).
+        /// How much of what's below shows through whatever the brightness (0–1). Its sparkles
+        /// still show.
         transparency: f32 = 0.0 => "transparency", "Transparency", number(0.0, 1.0, 0.01), more;
         /// Every other frame is the second palette color, or dark with only one color.
         shimmer: bool = false => "shimmer", "Shimmer", toggle, more;
@@ -2263,7 +2264,7 @@ effect_params! {
         density: u32 = 50 => "density", "Starting cells", int(0, 100, "%");
         /// Which neighbors bring cells to life and keep them alive.
         rules: LifeRules = LifeRules::Classic => "rules", "Rules", choice;
-        /// How often a new generation comes (10 is two a second; 20 or more, one every frame).
+        /// How many new generations come each second.
         speed: u32 = 10 => "speed", "Speed", int(1, 30);
     }
 }
@@ -2317,7 +2318,7 @@ effect_params! {
         tendrils: u32 = 1 => "tendrils", "Tendrils", int(1, 20);
         /// Joints in each tendril: longer tendrils trail further.
         length: u32 = 60 => "length", "Length", int(5, 100);
-        /// How often the point moves (10 every frame, 9 every other, and so on).
+        /// How often the point moves (9 or 10 every frame, 8 every other, and so on).
         speed: u32 = 10 => "speed", "Speed", int(1, 10);
         /// How quickly the tendrils slow down.
         friction: u32 = 10 => "friction", "Friction", int(0, 20), more;
@@ -2620,7 +2621,7 @@ effect_params! {
         start_note: u32 = 36 => "startNote", "Lowest note", int(0, 126), more;
         /// The highest.
         end_note: u32 = 84 => "endNote", "Highest note", int(0, 126), more;
-        /// Spread the low notes wider than the high ones.
+        /// Spread the high notes wider than the low ones.
         log_x: bool = false => "logX", "Logarithmic across", toggle, more;
         /// Moves the drawing left (-) or right (+), as a share of the prop.
         x_offset: f32 = 0.0 => "xOffset", "Offset across", number(-100.0, 100.0, 1.0, "%"), more;

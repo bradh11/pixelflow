@@ -396,6 +396,85 @@ fn the_show_the_sequence_and_the_song_come_with_the_first_message() {
 }
 
 #[test]
+fn a_whole_step_goes_in_one_call_and_each_item_stands_on_its_own() {
+    let s = setup(Some("/music/song.mp3"));
+    // Fields beside items are every item's default; an item's own win.
+    let place = json!({ "fromMs": 0, "toMs": 8_000, "items": [
+        { "rowIds": [s.rows[0]], "effect": { "kind": "on", "colors": ["#ff0000"] } },
+        { "rowIds": [s.rows[1]], "effect": { "kind": "twinkle" }, "fromMs": 8_000, "toMs": 24_000 },
+        { "rowIds": ["not-a-row"], "effect": { "kind": "on" } },
+    ] });
+    let repeat = json!({ "items": [{ "fromMs": 0, "toMs": 8_000, "startsMs": [24_000] }] });
+    let change = json!({ "items": [
+        { "rowIds": [s.rows[0]], "change": { "colors": ["#00ff00"] } },
+        { "rowIds": [s.rows[1]], "remove": true },
+    ] });
+    let refused = json!({ "fromMs": 0, "toMs": 1_000, "effect": { "kind": "on" },
+        "items": [{ "rowIds": ["nope"] }] });
+    let provider = ScriptedProvider::new(vec![
+        calls("", &[("place_effects", place)]),
+        calls(
+            "",
+            &[
+                ("repeat_effects", repeat),
+                ("change_effects", change),
+                ("place_effects", refused),
+            ],
+        ),
+        says("Done."),
+    ]);
+    let (mut session, _) = session();
+    let (reply, events) = ask(&mut session, &provider, &s.engine, "Light it");
+    reply.unwrap();
+    // The panel says how many go at once.
+    assert!(
+        events.iter().any(
+            |e| matches!(e, ChatEvent::Activity { label } if label == "Drafting: place effects (3 at once)")
+        ),
+        "{events:?}"
+    );
+    let (answer, is_error) = results_in(&provider, 1).remove(0);
+    assert!(!is_error, "{answer}");
+    assert!(
+        answer.starts_with("2 of 3 items done.\n1. Placed 1 On effect on 1 row from 0:00.000 to 0:08.000"),
+        "{answer}"
+    );
+    assert!(
+        answer.contains("\n2. Placed 1 Twinkle effect on 1 row from 0:08.000 to 0:24.000"),
+        "{answer}"
+    );
+    assert!(
+        answer.contains("\n3. Refused, nothing done for this one: "),
+        "{answer}"
+    );
+    let results = results_in(&provider, 2);
+    assert!(
+        !results[0].1 && results[0].0.starts_with("1 of 1 items done.\n1. Copied 1 effect"),
+        "{results:?}"
+    );
+    assert!(
+        !results[1].1 && results[1].0.starts_with("2 of 2 items done."),
+        "{results:?}"
+    );
+    // Every item refused: the call is.
+    assert!(
+        results[2].1 && results[2].0.starts_with("0 of 1 items done.\n1. Refused"),
+        "{results:?}"
+    );
+    assert_eq!(placed(&session, &s.rows[0], 0), [(0, 8_000), (24_000, 32_000)]);
+    assert_eq!(placed(&session, &s.rows[1], 0), []);
+    let doc = session.draft().unwrap().sequence().unwrap();
+    let row = doc.rows.iter().find(|r| r.id.to_string() == s.rows[0]).unwrap();
+    assert!(
+        row.layers[0]
+            .effects
+            .iter()
+            .all(|e| e.palette.colors[0] == pf_model::Rgb::new(0, 255, 0)),
+        "recolored"
+    );
+}
+
+#[test]
 fn placing_on_a_song_track_the_sequence_lacks_adds_it_first() {
     let s = setup(Some("/music/song.mp3"));
     let place = json!({ "rowIds": [s.rows[0]], "fromMs": 0, "toMs": 32_000, "track": "Sections",
@@ -409,13 +488,13 @@ fn placing_on_a_song_track_the_sequence_lacks_adds_it_first() {
     assert!(!is_error, "{answer}");
     assert!(
         answer.starts_with(
-            "Added the song's \"Sections\", \"Beats\" tracks to your draft. Placed 3 Chase effects"
+            "Added the song's \"Beats\", \"Sections\" tracks to your draft. Placed 3 Chase effects"
         ),
         "{answer}"
     );
     let doc = session.draft().unwrap().sequence().unwrap();
     let names: Vec<&str> = doc.timing_tracks.iter().map(|t| t.name.as_str()).collect();
-    assert_eq!(names, ["Sections", "Beats"]);
+    assert_eq!(names, ["Beats", "Sections"]);
     assert_eq!(
         placed(&session, &s.rows[0], 0),
         [(0, 8_000), (8_000, 24_000), (24_000, 32_000)]
@@ -1541,15 +1620,21 @@ fn syllables_need_words_to_come_from() {
         calls("", &[("add_song_timing", json!({ "tracks": ["syllables"] }))]),
         says("No lyrics yet."),
     ]);
-    let (mut session, runs) = session();
+    // A song that can't be analyzed: tried once, up front, for the context.
+    let runs = Arc::new(AtomicUsize::new(0));
+    let counter = Arc::clone(&runs);
+    let mut session = ChatSession::new().with_analyzer(Arc::new(move |_: &Path, _: &Cancel| {
+        counter.fetch_add(1, Ordering::SeqCst);
+        Err("unreadable".to_string())
+    }));
     ask(&mut session, &provider, &s.engine, "Syllables please")
         .0
         .unwrap();
     let (text, is_error) = &results_in(&provider, 1)[0];
     assert!(is_error);
     assert!(text.contains("Find lyrics"), "{text}");
-    // Syllables come from the words: the song isn't analyzed for them.
-    assert_eq!(runs.load(Ordering::SeqCst), 0);
+    // Syllables come from the words: the song isn't analyzed (again) for them.
+    assert_eq!(runs.load(Ordering::SeqCst), 1);
 }
 
 #[test]

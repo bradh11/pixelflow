@@ -76,8 +76,12 @@ impl Rows<'_> {
     }
 
     /// A look for every part of the song: little and dim where it is quiet, the whole house
-    /// where it is loud, dark through the stop before the last chorus.
-    fn base(&self) -> Vec<Call> {
+    /// where it is loud, dark through the stop before the last chorus. All of it in one call.
+    fn base(&self) -> Call {
+        batch(self.looks())
+    }
+
+    fn looks(&self) -> Vec<Call> {
         let mut out = vec![
             self.place(
                 &["Roofline"],
@@ -154,6 +158,13 @@ impl Rows<'_> {
     }
 }
 
+/// Calls to one tool as one call doing them all, with `items`.
+fn batch(calls: Vec<Call>) -> Call {
+    let name = calls.first().map_or("place_effects", |(name, _)| *name);
+    let items: Vec<Value> = calls.into_iter().map(|(_, input)| input).collect();
+    (name, json!({ "items": items }))
+}
+
 fn guides(topics: &[&str], effects: &[&str]) -> Call {
     ("get_guide", json!({ "topics": topics, "effects": effects }))
 }
@@ -187,7 +198,7 @@ fn whole_song(on: &Rows<'_>) -> Vec<Turn> {
                 ],
             )],
         ),
-        calls("", &on.base()),
+        calls("", &[on.base()]),
         calls(
             "",
             &[guides(
@@ -231,22 +242,29 @@ fn dancers(on: &Rows<'_>) -> Vec<Turn> {
 }
 
 fn sing_along(on: &Rows<'_>) -> Vec<Turn> {
-    let mut placed: Vec<Call> = vec![(
-        "stage_cue",
-        json!({ "cues": [{ "cue": "sing", "at": 8_000, "until": 92_000, "targets": ["Singing Face"] }] }),
-    )];
     // Each chorus's words as they are sung: no text of their own, so each says the sung words,
-    // held long enough to read.
-    placed.extend(CHORUSES.iter().map(|&(from, to)| {
-        let (name, mut input) = on.place(
-            &["Matrix"],
-            (from, to),
-            0,
-            json!({ "kind": "text", "settings": { "movement": "none" }, "colors": [WHITE] }),
-        );
-        input["track"] = json!("Lyrics (words)");
-        (name, input)
-    }));
+    // held long enough to read. One call for the three, the track shared.
+    let (name, mut words) = batch(
+        CHORUSES
+            .iter()
+            .map(|&(from, to)| {
+                on.place(
+                    &["Matrix"],
+                    (from, to),
+                    0,
+                    json!({ "kind": "text", "settings": { "movement": "none" }, "colors": [WHITE] }),
+                )
+            })
+            .collect(),
+    );
+    words["track"] = json!("Lyrics (words)");
+    let placed: Vec<Call> = vec![
+        (
+            "stage_cue",
+            json!({ "cues": [{ "cue": "sing", "at": 8_000, "until": 92_000, "targets": ["Singing Face"] }] }),
+        ),
+        (name, words),
+    ];
     vec![
         calls("", &[guides(&["vocals"], &["faces", "text"])]),
         calls("", &placed),
@@ -274,8 +292,10 @@ fn build() -> Vec<Turn> {
 }
 
 fn calm_and_big(on: &Rows<'_>) -> Vec<Turn> {
-    let mut placed: Vec<Call> = vec![("change_effects", json!({ "fromMs": 0, "remove": true }))];
-    placed.extend(on.base());
+    let placed: Vec<Call> = vec![
+        ("change_effects", json!({ "fromMs": 0, "remove": true })),
+        on.base(),
+    ];
     vec![
         calls(
             "",
@@ -330,7 +350,7 @@ fn halloween(on: &Rows<'_>) -> Vec<Turn> {
             "",
             &[guides(&["palettes"], &[]), ("list_sequence_effects", json!({}))],
         ),
-        calls("", &changes),
+        calls("", &[batch(changes)]),
         propose("Everything recolored in orange, purple, and a little slime green; nothing else moved."),
         says("It's in Halloween colors now."),
     ]

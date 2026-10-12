@@ -111,13 +111,15 @@ pub fn run_tool(toolbox: &Toolbox, call: &ToolCall, draft: &mut Draft, song: &mu
                 Err(e) => err(e),
             }
         }
-        ToolKind::PlaceEffects => {
-            with_song_tracks(input, draft, song, |draft| crate::arrange::place(draft, input))
+        ToolKind::PlaceEffects => with_song_tracks(input, draft, song, |draft| {
+            batched(input, |item| crate::arrange::place(draft, item))
+        }),
+        ToolKind::RepeatEffects => {
+            batched(input, |item| crate::arrange::repeat(draft, item)).map_or_else(err, ok)
         }
-        ToolKind::RepeatEffects => crate::arrange::repeat(draft, input).map_or_else(err, ok),
-        ToolKind::ChangeEffects => {
-            with_song_tracks(input, draft, song, |draft| crate::rearrange::change(draft, input))
-        }
+        ToolKind::ChangeEffects => with_song_tracks(input, draft, song, |draft| {
+            batched(input, |item| crate::rearrange::change(draft, item))
+        }),
         ToolKind::StageCue => {
             // The song gives the tempo, moments, and beats; without one, cues go by ms at 120 BPM.
             let analysis = match song.music {
@@ -149,6 +151,58 @@ pub fn run_tool(toolbox: &Toolbox, call: &ToolCall, draft: &mut Draft, song: &mu
         }
         ToolKind::Query(query) => run_query(*query, input, draft),
     }
+}
+
+/// Items one batched call (`place_effects`, `change_effects`, `repeat_effects`) may hold.
+pub const MAX_ITEMS: usize = 60;
+
+/// How many `items` a call has, when it has a list of them.
+pub fn items_in(input: &Value) -> Option<usize> {
+    input.get("items").and_then(Value::as_array).map(Vec::len)
+}
+
+/// Runs `one` on each of `input`'s `items`, each taking the call's other fields as its
+/// defaults; or once on `input` itself, when it has no items. Each item is done, or refused
+/// with its reason, on its own: the answer says which, item by item, so only a refused one
+/// need be sent again. Refused outright only when every item is.
+fn batched(input: &Value, mut one: impl FnMut(&Value) -> Result<String, String>) -> Result<String, String> {
+    let Some(items) = input.get("items") else {
+        return one(input);
+    };
+    let items = match items {
+        Value::Array(items) if !items.is_empty() && items.len() <= MAX_ITEMS => items,
+        _ => {
+            return Err(format!(
+                "items must be a list of 1 to {MAX_ITEMS} objects, each taking this tool's other fields."
+            ));
+        }
+    };
+    let mut defaults = input.as_object().cloned().unwrap_or_default();
+    defaults.remove("items");
+    let mut lines = Vec::new();
+    let mut done = 0;
+    for (i, item) in items.iter().enumerate() {
+        let answer = match item {
+            Value::Object(fields) => {
+                let mut merged = defaults.clone();
+                merged.extend(fields.clone());
+                one(&Value::Object(merged))
+            }
+            _ => Err("each item must be an object of this tool's fields.".to_string()),
+        };
+        match answer {
+            Ok(answer) => {
+                done += 1;
+                lines.push(format!("{}. {answer}", i + 1));
+            }
+            Err(problem) => lines.push(format!(
+                "{}. Refused, nothing done for this one: {problem}",
+                i + 1
+            )),
+        }
+    }
+    let answer = format!("{done} of {} items done.\n{}", items.len(), lines.join("\n"));
+    if done == 0 { Err(answer) } else { Ok(answer) }
 }
 
 /// The song's own tracks, by the names `add_song_timing` gives them ("Beats", "Sections", ...):

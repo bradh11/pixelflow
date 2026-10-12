@@ -976,6 +976,17 @@ fn effect_description() -> Value {
     })
 }
 
+/// What the tools that take `items` say of them.
+const BATCH: &str = "A whole step in one call: items, each these fields (those beside it are defaults).";
+
+/// What the other tools that take `items` say of them.
+const BATCH_TOO: &str = "Many at once: items, as in place_effects.";
+
+/// The `items` of a tool that does many at once (see [`crate::run`]'s batches).
+fn items() -> Value {
+    json!({ "type": "array", "items": { "type": "object" } })
+}
+
 /// Starting a sequence from a song, reading the song, and placing many effects in one call.
 fn song_tools() -> Vec<Tool> {
     let ms = || json!({ "type": "integer", "minimum": 0 });
@@ -1004,7 +1015,9 @@ fn song_tools() -> Vec<Tool> {
         ),
         tool(
             "place_effects",
-            "Puts one effect on many rows from fromMs to toMs: one each, or cut at a timing track's marks, shared out by spread. Refused where it overlaps effects on that layer, unless replace.",
+            &format!(
+                "Puts one effect on many rows from fromMs to toMs: one each, or cut at a timing track's marks, shared out by spread. Refused over effects on its layer unless replace. {BATCH}"
+            ),
             object(
                 json!({
                     "rowIds": ids(),
@@ -1017,14 +1030,17 @@ fn song_tools() -> Vec<Tool> {
                     "spread": { "enum": crate::arrange::SPREADS },
                     "layer": { "type": "integer", "minimum": 0, "description": "Default 0, the bottom; one past the top adds a layer." },
                     "replace": { "type": "boolean" },
+                    "items": items(),
                 }),
-                &["rowIds", "fromMs", "toMs", "effect"],
+                &[],
             ),
             ToolKind::PlaceEffects,
         ),
         tool(
             "repeat_effects",
-            "Copies every effect starting from fromMs to toMs (on all rows, or rowIds) to each time in startsMs, keeping rows, layers, and lengths. Refused where a copy overlaps effects, unless replace.",
+            &format!(
+                "Copies every effect starting from fromMs to toMs (on all rows, or rowIds) to each time in startsMs, keeping rows, layers, and lengths. Refused over other effects unless replace. {BATCH_TOO}"
+            ),
             object(
                 json!({
                     "fromMs": ms(),
@@ -1032,14 +1048,17 @@ fn song_tools() -> Vec<Tool> {
                     "startsMs": { "type": "array", "items": ms() },
                     "rowIds": ids(),
                     "replace": { "type": "boolean" },
+                    "items": items(),
                 }),
-                &["fromMs", "toMs", "startsMs"],
+                &[],
             ),
             ToolKind::RepeatEffects,
         ),
         tool(
             "change_effects",
-            "Changes many effects there already at once: those with ids, on rowIds, starting from fromMs up to toMs, on layer, of kinds (all you give must hold). Then one of: change, lengthMs, and shiftMs (any together); copyToRowIds (same times and layers); moveTo; remove. Refused where a result overlaps another effect on its layer, unless replace.",
+            &format!(
+                "Changes many effects there already at once: those with ids, on rowIds, starting from fromMs up to toMs, on layer, of kinds (all you give must hold). Then one of: change, lengthMs, and shiftMs (any together); copyToRowIds (same times and layers); moveTo; remove. Refused over other effects on a layer unless replace. {BATCH_TOO}"
+            ),
             object(
                 json!({
                     "ids": ids(),
@@ -1055,6 +1074,7 @@ fn song_tools() -> Vec<Tool> {
                     "moveTo": { "type": "object", "properties": { "rowId": { "type": "string" }, "layer": ms() } },
                     "remove": { "type": "boolean" },
                     "replace": { "type": "boolean" },
+                    "items": items(),
                 }),
                 &[],
             ),

@@ -52,7 +52,7 @@ Making or changing a sequence: work like a lighting designer who has built shows
 - A small request is done small: read that effect's guide, look at what is there, change only what was asked.
 1. Understand: the context block gives the song (as analyze_song answers it), each prop's role, grid, and place, the groups, rows, and timing tracks; look up only what it lacks. The same group letter is the same music; energy is 0–1; barEnergy, barBass, and barDrums are a digit per bar, 0 quiet to 9 full; moments are [ms, kind, importance 0–1, suggest, label, endMs], most important first.
 2. Plan by section before placing anything: two or three colors per section group, a role for every prop (outline as structure, matrix as picture, tree as focus, arches as rhythm), which props rest, what changes at each new section. Plan the loudest section first.
-3. Lay the base with place_effects (the guides' looks) on track \"Sections\" or \"Bars\" so changes land on the marks (a missing song track is added); repeat_effects brings a look back, change_effects varies it. Quiet music: few props, dim, slow. Loud: more props, brighter, faster.
+3. Lay the base with place_effects (the guides' looks) on track \"Sections\" or \"Bars\" (added if missing), the whole base in one call with items; repeat_effects brings a look back, change_effects varies it, items too. Quiet music: few props, dim, slow. Loud: more props, brighter, faster.
 4. Add movement on a layer above, then stage the moments with stage_cue: stageMoments for a baseline, then cues by hand for the biggest.
 5. Vocals (analyze_song's lyrics): sing on talking props over vocalsMs, hook words on a matrix, word_pop on shouts; per syllable, place on track \"Lyrics (syllables)\". No lyrics? Offer Find lyrics (beside Detect beats).
 6. Restraint: dark space, contrast before big hits, the biggest treatment (intensity 0.85+) for the top few moments only, nothing flashing over 3 times a second across a large area.
@@ -544,6 +544,17 @@ impl ChatSession {
                         content,
                         is_error,
                     };
+                }
+                // A call doing many at once says how many while it's drafted.
+                if let Some(n) = crate::run::items_in(&call.input).filter(|n| *n > 1)
+                    && matches!(
+                        call.name.as_str(),
+                        "place_effects" | "change_effects" | "repeat_effects"
+                    )
+                {
+                    on_event(ChatEvent::Activity {
+                        label: format!("{} ({n} at once)", activity(&call.name)),
+                    });
                 }
                 match run_tool(&self.toolbox, call, draft, &mut song) {
                     Outcome::Answer { content, is_error } => ToolResult {

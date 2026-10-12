@@ -121,11 +121,11 @@ describe("test screen", () => {
   it("notes it for any show whose controllers are all off this computer's networks, and not otherwise", async () => {
     const own = () => {
       const show = demoShow();
-      show.controllers = show.controllers.map((c, i) => ({ ...c, name: `Mine ${i}`, address: `10.28.128.${175 + i}` }));
+      show.controllers = show.controllers.map((c, i) => ({ ...c, name: `Mine ${i}`, address: `10.20.130.${175 + i}` }));
       return show;
     };
     const note = "This show's controllers aren't on your network. Add your own on the Controllers screen.";
-    await setup(own(), (b) => (b.localPrefixes = ["10.28.128."]));
+    await setup(own(), (b) => (b.localPrefixes = ["10.20.130."]));
     await screen.findByText(/^Web page not answering/);
     expect(screen.queryByText(note)).not.toBeInTheDocument();
     cleanup();

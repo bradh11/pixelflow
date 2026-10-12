@@ -483,7 +483,7 @@ export type FileRole =
 /** A file that isn't where the show (or the open sequence) says it is. */
 export interface MissingFile {
   file: FileRole;
-  /** The file's name ("Christmas Medley 2017.mp3"). */
+  /** The file's name ("Chimes Medley 2020.mp3"). */
   name: string;
   /** Where the show looks for it now. */
   path: string;
@@ -491,7 +491,7 @@ export interface MissingFile {
   wasAt: string;
   /** What it belongs to ("Music for Medley", "Background photo"). */
   owner: string;
-  /** "Christmas Medley 2017.mp3 isn't where it was." */
+  /** "Chimes Medley 2020.mp3 isn't where it was." */
   message: string;
 }
 

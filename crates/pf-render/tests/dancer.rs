@@ -773,7 +773,7 @@ fn a_glow_goes_behind_the_dancer() {
 /// up and down, squeezed narrow in the layout, and leaning a degree.
 fn pillar_show() -> Show {
     let mut pillar = Prop::new(
-        "Pillar Left",
+        "Pylon Left",
         ShapeSource::Generator(Generator::Matrix {
             columns: 12,
             rows: 50,

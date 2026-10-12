@@ -164,18 +164,18 @@ mod tests {
         let original = mapping(&[
             ("Mega Tree", &["Tree"]),
             ("Outline", &["House Outline", "Roof Left"]),
-            ("Arch 1", &["Door Arch"]),
-            ("Arch 2", &["Door Arch"]),
-            ("Matrix/Top", &["Pillar Left/Top"]),
+            ("Arch 1", &["Gate Arch"]),
+            ("Arch 2", &["Gate Arch"]),
+            ("Matrix/Top", &["Pylon Left/Top"]),
             ("Floods", &[]),
         ]);
         let text = write_xmap(&original);
-        assert!(text.starts_with("false\n5\nDoor Arch\nHouse Outline\nPillar Left\nRoof Left\nTree\n"));
+        assert!(text.starts_with("false\n5\nGate Arch\nHouse Outline\nPylon Left\nRoof Left\nTree\n"));
         assert!(
-            text.contains("Pillar Left\t\t\t\twhite\n"),
+            text.contains("Pylon Left\t\t\t\twhite\n"),
             "the model's own (empty) line"
         );
-        assert!(text.contains("Door Arch\t\t\tArch 1\twhite\nDoor Arch\t\t\tArch 2\twhite\n"));
+        assert!(text.contains("Gate Arch\t\t\tArch 1\twhite\nGate Arch\t\t\tArch 2\twhite\n"));
         let mut back = read_xmap(&text).unwrap().mapping;
         // Items mapped to nothing aren't written (xLights has no line for them).
         let mut expected = original.clone();

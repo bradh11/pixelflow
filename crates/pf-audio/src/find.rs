@@ -136,13 +136,13 @@ mod tests {
     #[test]
     fn finds_the_named_file_in_a_nearby_folder() {
         let dir = tempfile::tempdir().unwrap();
-        let sequence = dir.path().join("Haas 2024/Christmas Medley 2017.fseq");
+        let sequence = dir.path().join("Home 2024/Chimes Medley 2020.fseq");
         touch(&sequence);
         let song = dir
             .path()
-            .join("Haas 2024/MP3 Christmas Music/Christmas Medley 2017.mp3");
+            .join("Home 2024/MP3 Music/Chimes Medley 2020.mp3");
         touch(&song);
-        let media = "/Users/someone/Documents/xlights/sequences/Haas 2024/MP3 Christmas Music/Christmas Medley 2017.mp3";
+        let media = "/Users/someone/Documents/xlights/sequences/Home 2024/MP3 Music/Chimes Medley 2020.mp3";
         assert_eq!(find_audio(&sequence, Some(media)), Some(song.clone()));
         assert_eq!(
             find_audio(&sequence, None),

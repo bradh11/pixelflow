@@ -27,9 +27,9 @@ struct Folder {
 
 fn folder() -> Folder {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().join("Haas 2024");
-    touch(&root.join("Christmas Medley 2017.fseq"));
-    touch(&root.join("MP3 Music").join("Christmas Medley 2017.mp3"));
+    let root = dir.path().join("Home 2024");
+    touch(&root.join("Chimes Medley 2020.fseq"));
+    touch(&root.join("MP3 Music").join("Chimes Medley 2020.mp3"));
     touch(&root.join("photos").join("house.jpg"));
     touch(&dir.path().join("Models").join("house.glb"));
     Folder {
@@ -41,8 +41,8 @@ fn folder() -> Folder {
 }
 
 fn medley(root: &Path) -> SequenceEntry {
-    let mut entry = SequenceEntry::new("Medley", text(&root.join("Christmas Medley 2017.fseq")));
-    entry.audio = Some(text(&root.join("MP3 Music").join("Christmas Medley 2017.mp3")));
+    let mut entry = SequenceEntry::new("Medley", text(&root.join("Chimes Medley 2020.fseq")));
+    entry.audio = Some(text(&root.join("MP3 Music").join("Chimes Medley 2020.mp3")));
     entry
 }
 
@@ -84,10 +84,10 @@ fn files_in_the_show_folder_are_saved_relative_and_opened_in_full() {
     let json = saved_json(&f.show);
     assert_eq!(json["schemaVersion"], pf_model::CURRENT_SCHEMA_VERSION);
     assert_eq!(json["savedIn"], text(&f.root));
-    assert_eq!(json["sequences"][0]["path"], "Christmas Medley 2017.fseq");
+    assert_eq!(json["sequences"][0]["path"], "Chimes Medley 2020.fseq");
     assert_eq!(
         json["sequences"][0]["audio"],
-        "MP3 Music/Christmas Medley 2017.mp3"
+        "MP3 Music/Chimes Medley 2020.mp3"
     );
     assert_eq!(json["background"]["path"], "photos/house.jpg");
     let model = f.root.parent().unwrap().join("Models").join("house.glb");
@@ -122,7 +122,7 @@ fn a_moved_show_folder_keeps_its_files() {
     build(&mut engine, &f);
     engine.save_as(&f.show).unwrap();
 
-    let moved = f.root.parent().unwrap().join("Synced").join("Haas 2024");
+    let moved = f.root.parent().unwrap().join("Synced").join("Home 2024");
     fs::create_dir_all(moved.parent().unwrap()).unwrap();
     fs::rename(&f.root, &moved).unwrap();
 
@@ -130,11 +130,11 @@ fn a_moved_show_folder_keeps_its_files() {
     let snap = other.open(&moved.join("show.pixelflow.json")).unwrap();
     assert_eq!(
         snap.show.sequences[0].path,
-        text(&moved.join("Christmas Medley 2017.fseq"))
+        text(&moved.join("Chimes Medley 2020.fseq"))
     );
     assert_eq!(
         snap.show.sequences[0].audio.as_deref(),
-        Some(text(&moved.join("MP3 Music").join("Christmas Medley 2017.mp3")).as_str())
+        Some(text(&moved.join("MP3 Music").join("Chimes Medley 2020.mp3")).as_str())
     );
     assert!(snap.missing_files.is_empty(), "{:?}", snap.missing_files);
 }
@@ -153,7 +153,7 @@ fn save_as_elsewhere_keeps_pointing_at_the_same_files() {
     assert_eq!(json["background"]["path"], "house.jpg");
     assert_eq!(
         json["sequences"][0]["path"],
-        text(&f.root.join("Christmas Medley 2017.fseq")),
+        text(&f.root.join("Chimes Medley 2020.fseq")),
         "now outside the show's folder: in full"
     );
 
@@ -195,16 +195,16 @@ fn missing_files_are_listed_plainly() {
     let f = folder();
     let mut engine = Engine::new(&f.data);
     let entry = build(&mut engine, &f);
-    fs::remove_file(f.root.join("MP3 Music").join("Christmas Medley 2017.mp3")).unwrap();
+    fs::remove_file(f.root.join("MP3 Music").join("Chimes Medley 2020.mp3")).unwrap();
     fs::remove_file(f.root.join("photos").join("house.jpg")).unwrap();
     engine.check_files();
     let missing = engine.snapshot().missing_files;
     assert_eq!(missing.len(), 2, "{missing:?}");
     assert_eq!(missing[0].file, FileRole::Music { id: entry.id });
-    assert_eq!(missing[0].name, "Christmas Medley 2017.mp3");
+    assert_eq!(missing[0].name, "Chimes Medley 2020.mp3");
     assert_eq!(
         missing[0].message,
-        "Christmas Medley 2017.mp3 isn't where it was."
+        "Chimes Medley 2020.mp3 isn't where it was."
     );
     assert_eq!(missing[0].owner, "Music for Medley");
     assert_eq!(missing[0].was_at, missing[0].path, "nothing better known");
@@ -212,11 +212,11 @@ fn missing_files_are_listed_plainly() {
     assert_eq!(missing[1].owner, "Background photo");
 
     // Playing a sequence whose file is gone says so plainly.
-    fs::remove_file(f.root.join("Christmas Medley 2017.fseq")).unwrap();
+    fs::remove_file(f.root.join("Chimes Medley 2020.fseq")).unwrap();
     let error = engine.play_sequence(entry.id, 0).unwrap_err().to_string();
     assert_eq!(
         error,
-        "Christmas Medley 2017.fseq isn't where it was. Use Find again or Locate… to show PixelFlow where it is now."
+        "Chimes Medley 2020.fseq isn't where it was. Use Find again or Locate… to show PixelFlow where it is now."
     );
 }
 
@@ -229,8 +229,8 @@ fn finding_missing_files_repoints_them_in_one_undo_step() {
     // Reorganized: the music moved into another folder, the photo into a deeper one.
     fs::create_dir_all(f.root.join("Audio")).unwrap();
     fs::rename(
-        f.root.join("MP3 Music").join("Christmas Medley 2017.mp3"),
-        f.root.join("Audio").join("Christmas Medley 2017.mp3"),
+        f.root.join("MP3 Music").join("Chimes Medley 2020.mp3"),
+        f.root.join("Audio").join("Chimes Medley 2020.mp3"),
     )
     .unwrap();
     fs::create_dir_all(f.root.join("pics").join("2024")).unwrap();
@@ -240,7 +240,7 @@ fn finding_missing_files_repoints_them_in_one_undo_step() {
     )
     .unwrap();
     // The fseq is gone for good.
-    fs::remove_file(f.root.join("Christmas Medley 2017.fseq")).unwrap();
+    fs::remove_file(f.root.join("Chimes Medley 2020.fseq")).unwrap();
     engine.check_files();
     assert_eq!(engine.snapshot().missing_files.len(), 3);
 
@@ -249,10 +249,10 @@ fn finding_missing_files_repoints_them_in_one_undo_step() {
     let found = search.run();
     let report = engine.use_found_files(found).unwrap();
     assert_eq!(report.found.len(), 2, "{:?}", report.found);
-    assert_eq!(report.found[0].name, "Christmas Medley 2017.mp3");
+    assert_eq!(report.found[0].name, "Chimes Medley 2020.mp3");
     assert_eq!(
         report.found[0].to,
-        text(&f.root.join("Audio").join("Christmas Medley 2017.mp3"))
+        text(&f.root.join("Audio").join("Chimes Medley 2020.mp3"))
     );
     assert_eq!(report.found[1].file, FileRole::Photo);
     assert_eq!(report.still_missing.len(), 1);
@@ -281,8 +281,8 @@ fn found_files_are_only_used_while_the_show_still_points_at_the_old_place() {
     engine.save_as(&f.show).unwrap();
     fs::create_dir_all(f.root.join("Audio")).unwrap();
     fs::rename(
-        f.root.join("MP3 Music").join("Christmas Medley 2017.mp3"),
-        f.root.join("Audio").join("Christmas Medley 2017.mp3"),
+        f.root.join("MP3 Music").join("Chimes Medley 2020.mp3"),
+        f.root.join("Audio").join("Chimes Medley 2020.mp3"),
     )
     .unwrap();
     engine.check_files();
@@ -309,8 +309,8 @@ fn finding_one_file_again_leaves_the_others_alone() {
     engine.save_as(&f.show).unwrap();
     fs::create_dir_all(f.root.join("Audio")).unwrap();
     fs::rename(
-        f.root.join("MP3 Music").join("Christmas Medley 2017.mp3"),
-        f.root.join("Audio").join("Christmas Medley 2017.mp3"),
+        f.root.join("MP3 Music").join("Chimes Medley 2020.mp3"),
+        f.root.join("Audio").join("Chimes Medley 2020.mp3"),
     )
     .unwrap();
     fs::rename(f.root.join("photos").join("house.jpg"), f.root.join("house.jpg")).unwrap();
@@ -459,8 +459,8 @@ fn a_check_or_search_from_before_another_show_opened_is_dropped() {
     touch(&f.root.join("photos").join("house.jpg"));
     fs::create_dir_all(f.root.join("Audio")).unwrap();
     fs::rename(
-        f.root.join("MP3 Music").join("Christmas Medley 2017.mp3"),
-        f.root.join("Audio").join("Christmas Medley 2017.mp3"),
+        f.root.join("MP3 Music").join("Chimes Medley 2020.mp3"),
+        f.root.join("Audio").join("Chimes Medley 2020.mp3"),
     )
     .unwrap();
     engine.check_files();
@@ -506,8 +506,8 @@ fn a_show_file_moved_on_its_own_still_finds_its_files() {
     // A file gone from there too says where it really was, and that folder is searched too.
     fs::create_dir_all(f.root.join("Audio")).unwrap();
     fs::rename(
-        f.root.join("MP3 Music").join("Christmas Medley 2017.mp3"),
-        f.root.join("Audio").join("Christmas Medley 2017.mp3"),
+        f.root.join("MP3 Music").join("Chimes Medley 2020.mp3"),
+        f.root.join("Audio").join("Chimes Medley 2020.mp3"),
     )
     .unwrap();
     let mut engine = Engine::new(&f.data);
@@ -516,14 +516,14 @@ fn a_show_file_moved_on_its_own_still_finds_its_files() {
     let missing = &snap.missing_files[0];
     assert_eq!(
         missing.was_at,
-        text(&f.root.join("MP3 Music").join("Christmas Medley 2017.mp3"))
+        text(&f.root.join("MP3 Music").join("Chimes Medley 2020.mp3"))
     );
     let search = engine.file_search().unwrap();
     assert_eq!(search.folders(), [elsewhere.clone(), f.root.clone()]);
     let report = engine.use_found_files(search.run()).unwrap();
     assert_eq!(
         report.found[0].to,
-        text(&f.root.join("Audio").join("Christmas Medley 2017.mp3"))
+        text(&f.root.join("Audio").join("Chimes Medley 2020.mp3"))
     );
     assert!(report.still_missing.is_empty());
 }

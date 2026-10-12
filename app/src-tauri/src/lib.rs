@@ -1103,15 +1103,15 @@ mod tests {
         let fpp = pf_devices::testing::FPP;
         let status = call(&webview, "fpp_status", json!({ "address": fpp })).unwrap();
         assert_eq!(status["state"], "playing");
-        assert_eq!(status["sequence"], "Christmas Medley 2017.fseq");
+        assert_eq!(status["sequence"], "Chimes Medley 2020.fseq");
         assert_eq!(status["secondsRemaining"], 456);
         let sequences = call(&webview, "fpp_sequences", json!({ "address": fpp })).unwrap();
-        assert_eq!(sequences[0]["name"], "Christmas Medley 2017");
+        assert_eq!(sequences[0]["name"], "Chimes Medley 2020");
         assert_eq!(sequences[0]["stepMs"], 50);
         let started = call(
             &webview,
             "fpp_start",
-            json!({ "address": fpp, "name": "Christmas Medley 2017.fseq" }),
+            json!({ "address": fpp, "name": "Chimes Medley 2020.fseq" }),
         );
         assert_eq!(started.unwrap(), json!(null));
         assert!(
@@ -1140,7 +1140,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(snapshot["summary"]["controllers"], 1);
-        assert_eq!(snapshot["show"]["controllers"][0]["name"], "Falcon_F16V5_B9F5");
+        assert_eq!(snapshot["show"]["controllers"][0]["name"], "Falcon_F16V5_A1B2");
         assert_eq!(snapshot["show"]["controllers"][0]["ports"], json!([]));
         let id = snapshot["show"]["controllers"][0]["id"].clone();
 
@@ -1182,7 +1182,7 @@ mod tests {
         .unwrap_err();
         assert_eq!(
             error,
-            json!("Falcon_F16V5_B9F5 is already in your show as Falcon_F16V5_B9F5.")
+            json!("Falcon_F16V5_A1B2 is already in your show as Falcon_F16V5_A1B2.")
         );
 
         // Inspecting the real device says it will fill the placeholder in.
@@ -1193,7 +1193,7 @@ mod tests {
                 .as_array()
                 .unwrap()
                 .iter()
-                .any(|n| n == "Fills in Falcon_F16V5_B9F5, added from your FPP's output list."),
+                .any(|n| n == "Fills in Falcon_F16V5_A1B2, added from your FPP's output list."),
             "{details}"
         );
     }
@@ -1420,7 +1420,7 @@ mod tests {
     fn mappings_save_as_xmap_files_and_load_back() {
         let (_app, webview, dir) = app();
         let mapping =
-            json!({ "items": { "Mega Tree": ["Tree", "Pillars"], "Arch/Left": ["Door Arch/Left"] } });
+            json!({ "items": { "Mega Tree": ["Tree", "Pylons"], "Arch/Left": ["Gate Arch/Left"] } });
         let path = dir.path().join("vendor.xmap");
         call(
             &webview,
@@ -1430,11 +1430,11 @@ mod tests {
         .unwrap();
         assert!(std::fs::read_to_string(&path).unwrap().starts_with("false\n"));
         let read = call(&webview, "read_xmap", json!({ "path": path })).unwrap();
-        assert_eq!(read["mapping"]["items"]["Arch/Left"], json!(["Door Arch/Left"]));
+        assert_eq!(read["mapping"]["items"]["Arch/Left"], json!(["Gate Arch/Left"]));
         let mut targets: Vec<String> =
             serde_json::from_value(read["mapping"]["items"]["Mega Tree"].clone()).unwrap();
         targets.sort();
-        assert_eq!(targets, ["Pillars", "Tree"]);
+        assert_eq!(targets, ["Pylons", "Tree"]);
         assert_eq!(read["nodesSkipped"], 0);
         let refused = call(
             &webview,
@@ -2108,7 +2108,7 @@ mod tests {
             json!({ "address": pf_devices::testing::FPP }),
         )
         .unwrap();
-        assert_eq!(names, json!(["Christmas Medley 2017.fseq"]));
+        assert_eq!(names, json!(["Chimes Medley 2020.fseq"]));
     }
 
     #[test]
@@ -2160,7 +2160,7 @@ mod tests {
         assert_eq!(plan["own"], json!(null));
         let controllers = plan["controllers"].as_array().unwrap();
         assert_eq!(controllers.len(), 1);
-        assert_eq!(controllers[0]["name"], "Falcon_F16V5_B9F5");
+        assert_eq!(controllers[0]["name"], "Falcon_F16V5_A1B2");
         assert_eq!(controllers[0]["address"], pf_devices::testing::FALCON);
         assert_eq!(
             controllers[0]["sequenceChannels"],
@@ -2190,7 +2190,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(snapshot["summary"]["controllers"], 1);
-        assert_eq!(snapshot["show"]["controllers"][0]["name"], "Falcon_F16V5_B9F5");
+        assert_eq!(snapshot["show"]["controllers"][0]["name"], "Falcon_F16V5_A1B2");
         let again = call(&webview, "fpp_setup_plan", json!({ "address": fpp })).unwrap();
         assert_eq!(again["controllers"], json!([]));
         assert!(

@@ -1,5 +1,5 @@
-//! "In your show" defaults when importing the real F16V5 (five strings: Pillar Right 600, Pillar
-//! Left 600, Door Frame Front 340, Roof Door 238, Door Arch 271 on ports 1, 2, 3, 4 and 6).
+//! "In your show" defaults when importing the real F16V5 (five strings: Pylon Right 600, Pillar
+//! Left 600, Gate Frame Front 340, Roof Gate 238, Gate Arch 271 on ports 1, 2, 3, 4 and 6).
 
 use pf_devices::testing::{FALCON, network};
 use pf_devices::{Device, DeviceConfig, MatchReason, identify, plan_import, read_config};
@@ -44,7 +44,7 @@ fn a_controller_already_in_the_show_suggests_what_each_port_carries() {
     // Renamed on the Layout screen since: still the prop on that port.
     show.props[0].name = "Right Column".into();
     // A loose prop with port 1's name doesn't beat what port 1 already carries.
-    show.props.push(line("Pillar Right", 600));
+    show.props.push(line("Pylon Right", 600));
 
     let plan = plan_import(&device, &config, &show);
     assert!(plan.already_in_show);
@@ -57,10 +57,10 @@ fn a_controller_already_in_the_show_suggests_what_each_port_carries() {
         names(plan.suggested.values().map(|m| m.prop).collect()),
         [
             "Right Column",
-            "Pillar Left",
-            "Door Frame Front",
-            "Roof Door",
-            "Door Arch"
+            "Pylon Left",
+            "Gate Frame Front",
+            "Roof Gate",
+            "Gate Arch"
         ]
     );
     assert!(plan.suggested.values().all(|m| m.reason == MatchReason::SamePort));
@@ -81,16 +81,16 @@ fn names_match_ignoring_case_and_spaces_and_prefer_the_same_pixel_count() {
     let (device, config) = falcon();
     let mut show = Show::new("t");
     show.props = vec![
-        line("pillar  right", 600),
-        line("PillarLeft", 550),
-        line("Pillar Left", 600),
+        line("pylon  right", 600),
+        line("PylonLeft", 550),
+        line("Pylon Left", 600),
         // Another channel width would shift every later pixel: never suggested.
         {
-            let mut rgbw = line("Door Frame Front", 340);
+            let mut rgbw = line("Gate Frame Front", 340);
             rgbw.color_order = ColorOrder::Rgbw;
             rgbw
         },
-        line("Roof Door", 200),
+        line("Roof Gate", 200),
         line("Garage Arch", 271),
     ];
     assert_eq!(
@@ -98,17 +98,17 @@ fn names_match_ignoring_case_and_spaces_and_prefer_the_same_pixel_count() {
         [
             (
                 "port1/string1".into(),
-                "pillar  right".into(),
+                "pylon  right".into(),
                 MatchReason::SameName
             ),
             (
                 "port2/string1".into(),
-                "Pillar Left".into(),
+                "Pylon Left".into(),
                 MatchReason::SameName
             ),
             (
                 "port4/string1".into(),
-                "Roof Door".into(),
+                "Roof Gate".into(),
                 MatchReason::SameNameOtherSize
             ),
         ]
@@ -119,9 +119,9 @@ fn names_match_ignoring_case_and_spaces_and_prefer_the_same_pixel_count() {
 fn no_prop_is_suggested_for_two_strings() {
     let (device, config) = falcon();
     let mut show = Show::new("t");
-    // The show wires a prop named "Pillar Left" to the controller's port 1, where the device has
-    // "Pillar Right"; the device's own "Pillar Left" (port 2) can't have it too.
-    let left = line("Pillar Left", 600);
+    // The show wires a prop named "Pylon Left" to the controller's port 1, where the device has
+    // "Pylon Right"; the device's own "Pylon Left" (port 2) can't have it too.
+    let left = line("Pylon Left", 600);
     let mut controller = Controller::new("Falcon", FALCON, Protocol::Ddp);
     let mut port = Port::new(1);
     port.slots.push(PortSlot::new(left.id));
@@ -132,7 +132,7 @@ fn no_prop_is_suggested_for_two_strings() {
         suggested(&show, &device, &config),
         [(
             "port1/string1".into(),
-            "Pillar Left".into(),
+            "Pylon Left".into(),
             MatchReason::SamePort
         )]
     );

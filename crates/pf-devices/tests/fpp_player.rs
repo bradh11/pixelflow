@@ -8,12 +8,12 @@ fn status_reports_what_is_playing_and_whats_next() {
     let http = network();
     let status = fpp_player::status(&http, FPP).unwrap();
     assert_eq!(status.state, PlayerState::Playing);
-    assert_eq!(status.playlist.as_deref(), Some("Christmas Medley 2017.fseq"));
-    assert_eq!(status.sequence.as_deref(), Some("Christmas Medley 2017.fseq"));
+    assert_eq!(status.playlist.as_deref(), Some("Chimes Medley 2020.fseq"));
+    assert_eq!(status.sequence.as_deref(), Some("Chimes Medley 2020.fseq"));
     assert_eq!((status.seconds_elapsed, status.seconds_remaining), (109, 456));
     assert_eq!(
         status.next_playlist.as_deref(),
-        Some("Christmas Medley 2017.fseq")
+        Some("Chimes Medley 2020.fseq")
     );
     assert_eq!(
         status.next_start.as_deref(),
@@ -21,7 +21,7 @@ fn status_reports_what_is_playing_and_whats_next() {
     );
     assert_eq!(
         status.warnings,
-        vec!["Cannot Ping DDP Channel Data Target 192.0.2.20 Falcon_F16V5_B9F5"]
+        vec!["Cannot Ping DDP Channel Data Target 192.0.2.20 Falcon_F16V5_A1B2"]
     );
     assert_no_secret_endpoints(&http);
 }
@@ -60,7 +60,7 @@ fn sequences_list_their_length_and_channels() {
     let sequences = fpp_player::sequences(&http, FPP).unwrap();
     assert_eq!(sequences.len(), 1);
     let medley = &sequences[0];
-    assert_eq!(medley.name, "Christmas Medley 2017");
+    assert_eq!(medley.name, "Chimes Medley 2020");
     assert_eq!(
         (medley.frames, medley.step_ms, medley.channels),
         (11332, 50, 6148)
@@ -68,7 +68,7 @@ fn sequences_list_their_length_and_channels() {
     assert_eq!(medley.duration_ms(), 566_600);
     assert!(
         http.requests()
-            .contains(&format!("GET {FPP}/api/sequence/Christmas%20Medley%202017/meta")),
+            .contains(&format!("GET {FPP}/api/sequence/Chimes%20Medley%202020/meta")),
         "names are URL-encoded: {:?}",
         http.requests()
     );
@@ -92,7 +92,7 @@ fn a_sequence_without_metadata_is_still_listed() {
 #[test]
 fn playback_control_sends_fpp_commands() {
     let http = network();
-    fpp_player::start(&http, FPP, "Christmas Medley 2017.fseq").unwrap();
+    fpp_player::start(&http, FPP, "Chimes Medley 2020.fseq").unwrap();
     fpp_player::stop(&http, FPP, false).unwrap();
     fpp_player::stop(&http, FPP, true).unwrap();
     let posts: Vec<_> = http

@@ -28,7 +28,7 @@ async function openPage(setup?: (backend: MemoryBackend) => void) {
   await user.click(screen.getByRole("button", { name: "Scan network" }));
   await user.click(await screen.findByRole("button", { name: "Open FPP" }));
   const library = screen.getByRole("region", { name: "On this FPP" });
-  await within(library).findByRole("row", { name: /Christmas Medley 2017/ });
+  await within(library).findByRole("row", { name: /Chimes Medley 2020/ });
   return { backend, user, library };
 }
 
@@ -36,7 +36,7 @@ async function openPage(setup?: (backend: MemoryBackend) => void) {
 const writes = (backend: MemoryBackend) => backend.calls.filter((c) => /^fpp(Start|Stop|Send):/.test(c));
 
 async function openDownload(user: ReturnType<typeof userEvent.setup>, library: HTMLElement) {
-  await user.click(within(library).getByRole("button", { name: "Download Christmas Medley 2017" }));
+  await user.click(within(library).getByRole("button", { name: "Download Chimes Medley 2020" }));
   return screen.findByRole("dialog", { name: "Download from FPP" });
 }
 
@@ -47,23 +47,23 @@ describe("downloading a sequence from an FPP", () => {
     expect(within(library).getAllByRole("button", { name: /^Download/ })).toHaveLength(1);
     const dialog = await openDownload(user, library);
     const saving = await within(dialog).findByRole("list", { name: "What will be saved" });
-    expect(saving).toHaveTextContent("Christmas Medley 2017.fseq · 66.5 MB");
+    expect(saving).toHaveTextContent("Chimes Medley 2020.fseq · 66.5 MB");
     expect(saving).toHaveTextContent("to /Shows/Home/sequences");
-    expect(saving).toHaveTextContent("Christmas Medley 2017.mp3 · 8.5 MB");
+    expect(saving).toHaveTextContent("Chimes Medley 2020.mp3 · 8.5 MB");
     expect(saving).toHaveTextContent("to /Shows/Home/music");
     expect(dialog).toHaveTextContent(NOT_EDITABLE);
     expect(within(dialog).getByRole("button", { name: "Import xLights sequence…" })).toBeInTheDocument();
 
     await user.click(within(dialog).getByRole("button", { name: "Download" }));
-    expect(await within(dialog).findByText("Saved Christmas Medley 2017.fseq and Christmas Medley 2017.mp3.")).toBeInTheDocument();
-    expect(backend.calls).toContain(`fppDownload:${FPP}:Christmas Medley 2017.fseq:Christmas Medley 2017.mp3`);
+    expect(await within(dialog).findByText("Saved Chimes Medley 2020.fseq and Chimes Medley 2020.mp3.")).toBeInTheDocument();
+    expect(backend.calls).toContain(`fppDownload:${FPP}:Chimes Medley 2020.fseq:Chimes Medley 2020.mp3`);
     expect(dialog).toHaveTextContent(NOT_EDITABLE);
 
     await user.click(within(dialog).getByRole("button", { name: "Add to Play" }));
     expect(await within(dialog).findByText(/It's on the Play screen now\./)).toBeInTheDocument();
     expect(within(dialog).queryByRole("button", { name: "Add to Play" })).not.toBeInTheDocument();
     expect(useApp.getState().snapshot!.show.sequences.map((s) => [s.name, s.path, s.audio])).toEqual([
-      ["Christmas Medley 2017", "/Shows/Home/sequences/Christmas Medley 2017.fseq", "/Shows/Home/music/Christmas Medley 2017.mp3"],
+      ["Chimes Medley 2020", "/Shows/Home/sequences/Chimes Medley 2020.fseq", "/Shows/Home/music/Chimes Medley 2020.mp3"],
     ]);
     expect(writes(backend)).toEqual([]);
     await user.click(within(dialog).getByRole("button", { name: "Close" }));
@@ -84,8 +84,8 @@ describe("downloading a sequence from an FPP", () => {
     const saving = await within(dialog).findByRole("list", { name: "What will be saved" });
     expect(saving).toHaveTextContent("to /Users/me/FPP copies/sequences");
     await user.click(within(dialog).getByRole("button", { name: "Download" }));
-    expect(await within(dialog).findByText(/^Saved Christmas Medley 2017\.fseq/)).toBeInTheDocument();
-    expect(backend.localFiles.has("/Users/me/FPP copies/sequences/Christmas Medley 2017.fseq")).toBe(true);
+    expect(await within(dialog).findByText(/^Saved Chimes Medley 2020\.fseq/)).toBeInTheDocument();
+    expect(backend.localFiles.has("/Users/me/FPP copies/sequences/Chimes Medley 2020.fseq")).toBe(true);
   });
 
   it("shows progress, and Cancel stops it with nothing saved", async () => {
@@ -109,13 +109,13 @@ describe("downloading a sequence from an FPP", () => {
   });
 
   it("asks Replace or Keep both when the folder already has that file, and Cancel leaves it alone", async () => {
-    const existing = "/Shows/Home/sequences/Christmas Medley 2017.fseq";
+    const existing = "/Shows/Home/sequences/Chimes Medley 2020.fseq";
     const { backend, user, library } = await openPage((b) => {
       b.path = SHOW;
       b.localFiles.add(existing);
     });
     let dialog = await openDownload(user, library);
-    let clash = await within(dialog).findByRole("radiogroup", { name: "There's already a sequence called Christmas Medley 2017.fseq in sequences." });
+    let clash = await within(dialog).findByRole("radiogroup", { name: "There's already a sequence called Chimes Medley 2020.fseq in sequences." });
     expect(within(dialog).getByRole("button", { name: "Download" })).toBeDisabled();
     expect(within(clash).getByRole("radio", { name: "Replace it" })).toBeInTheDocument();
     await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
@@ -124,10 +124,10 @@ describe("downloading a sequence from an FPP", () => {
 
     dialog = await openDownload(user, library);
     clash = await within(dialog).findByRole("radiogroup", { name: /already a sequence called/ });
-    await user.click(within(clash).getByRole("radio", { name: "Keep both: save this one as Christmas Medley 2017 (2).fseq" }));
+    await user.click(within(clash).getByRole("radio", { name: "Keep both: save this one as Chimes Medley 2020 (2).fseq" }));
     await user.click(within(dialog).getByRole("button", { name: "Download" }));
-    expect(await within(dialog).findByText(/^Saved Christmas Medley 2017 \(2\)\.fseq/)).toBeInTheDocument();
-    expect(backend.localFiles.has("/Shows/Home/sequences/Christmas Medley 2017 (2).fseq")).toBe(true);
+    expect(await within(dialog).findByText(/^Saved Chimes Medley 2020 \(2\)\.fseq/)).toBeInTheDocument();
+    expect(backend.localFiles.has("/Shows/Home/sequences/Chimes Medley 2020 (2).fseq")).toBe(true);
   });
 
   it("warns plainly when the sequence's channels don't match the show's, and still saves it", async () => {
@@ -153,13 +153,13 @@ describe("downloading a sequence from an FPP", () => {
       await within(dialog).findByText("This sequence uses 6,147 channels; your show has 1,462. Its preview won't light the right props until your layout matches."),
     ).toBeInTheDocument();
     await user.click(within(dialog).getByRole("button", { name: "Download" }));
-    expect(await within(dialog).findByText(/^Saved Christmas Medley 2017\.fseq/)).toBeInTheDocument();
+    expect(await within(dialog).findByText(/^Saved Chimes Medley 2020\.fseq/)).toBeInTheDocument();
   });
 
   it("says when the FPP doesn't have the music the sequence names", async () => {
     const { user, library } = await openPage((b) => {
       b.path = SHOW;
-      b.fppSequenceMedia[FPP] = { "Christmas Medley 2017.fseq": "/Volumes/Show/Audio/Medley Remix.ogg" };
+      b.fppSequenceMedia[FPP] = { "Chimes Medley 2020.fseq": "/Volumes/Show/Audio/Medley Remix.ogg" };
     });
     const dialog = await openDownload(user, library);
     expect(await within(dialog).findByText(/No music: the sequence names Medley Remix\.ogg, which isn't on FPP\./)).toBeInTheDocument();

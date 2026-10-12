@@ -371,12 +371,12 @@ describe("LayoutScreen", () => {
   it("says where a prop is wired, or that it isn't", async () => {
     const wired = line("Gutter", 0, 0);
     const show = showWith(wired, line("Fence", 0, 4));
-    const controller = newController("Falcon_F16V5_B9F5", "192.0.2.20", "ddp", 2);
+    const controller = newController("Falcon_F16V5_A1B2", "192.0.2.20", "ddp", 2);
     controller.ports[1].slots = [{ prop: wired.id, segment: null, nullPixels: 0, reverse: false, brightness: null, gamma: null, smartReceiver: null }];
     show.controllers = [controller];
     await setup(show);
     act(() => useLayoutEditor.getState().select([wired.id]));
-    expect(screen.getByText("Port 2 on Falcon_F16V5_B9F5")).toBeInTheDocument();
+    expect(screen.getByText("Port 2 on Falcon_F16V5_A1B2")).toBeInTheDocument();
     act(() => useLayoutEditor.getState().select([show.props[1].id]));
     expect(within(screen.getByRole("complementary", { name: "Properties" })).getByText(/Not wired/)).toBeInTheDocument();
   });

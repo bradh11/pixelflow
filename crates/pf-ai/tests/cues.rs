@@ -841,11 +841,11 @@ fn pillars(own_rows: bool) -> Setup {
         at(Prop::new(name, ShapeSource::Generator(matrix)), x, 0.0)
     };
     let props = [
-        pillar("Pillar Right", 3.0),
+        pillar("Pylon Right", 3.0),
         line("Roof", -2.0, 5.0),
-        pillar("Pillar Left", -3.0),
+        pillar("Pylon Left", -3.0),
     ];
-    let mut both = Group::new("Pillars");
+    let mut both = Group::new("Pylons");
     both.members = vec![GroupMember::Prop(props[0].id), GroupMember::Prop(props[2].id)];
     let mut edits: Vec<Edit> = props.iter().map(|p| Edit::AddProp { prop: p.clone() }).collect();
     edits.push(Edit::AddGroup { group: both.clone() });
@@ -886,7 +886,7 @@ fn a_dance_puts_dancers_on_the_matrices_with_a_pair_facing_each_other() {
         .unwrap()
         .id;
     assert!(on(&added, "Roof").is_empty(), "only the matrices dance");
-    for (pillar, mirror) in [("Pillar Left", false), ("Pillar Right", true)] {
+    for (pillar, mirror) in [("Pylon Left", false), ("Pylon Right", true)] {
         let here = on(&added, pillar);
         // Dark over the look, the dancer over that.
         let kinds: Vec<(EffectKind, usize)> = here.iter().map(|a| (a.effect.kind(), a.layer)).collect();
@@ -908,7 +908,7 @@ fn a_dance_puts_dancers_on_the_matrices_with_a_pair_facing_each_other() {
     // Another character, in the cue's colors, for four bars; one prop alone isn't mirrored.
     stage(
         &mut d,
-        json!({ "cues": [{ "cue": "dance", "at": 20_000, "targets": ["Pillar Right"], "match": "Santa", "colors": ["#ff0000"] }] }),
+        json!({ "cues": [{ "cue": "dance", "at": 20_000, "targets": ["Pylon Right"], "match": "Santa", "colors": ["#ff0000"] }] }),
     )
     .unwrap();
     let santa = of_kind(&staged(&d), EffectKind::Dancer)
@@ -916,7 +916,7 @@ fn a_dance_puts_dancers_on_the_matrices_with_a_pair_facing_each_other() {
         .find(|a| a.effect.start_ms == 20_000)
         .unwrap()
         .clone();
-    assert_eq!(santa.row, "Pillar Right");
+    assert_eq!(santa.row, "Pylon Right");
     assert_eq!(santa.effect.end_ms, 20_000 + 16 * BEAT);
     let settings = params(&santa.effect);
     assert_eq!(
@@ -964,7 +964,7 @@ fn a_dance_on_a_group_row_draws_a_dancer_on_each_of_its_props() {
     )
     .unwrap();
     let added = staged(&d);
-    let here = on(&added, "Pillars");
+    let here = on(&added, "Pylons");
     assert_eq!(here.len(), 2, "{added:?}");
     let dancer = &here[1].effect;
     assert_eq!(dancer.kind(), EffectKind::Dancer);

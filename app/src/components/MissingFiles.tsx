@@ -26,7 +26,7 @@ function wasIn(path: string): string {
 }
 
 /**
- * One missing file, said plainly ("Christmas Medley 2017.mp3 isn't where it was."), with Find
+ * One missing file, said plainly ("Chimes Medley 2020.mp3 isn't where it was."), with Find
  * again (a search of the show's folder) and Locate… (the user shows where it is).
  */
 export function MissingFileNotice({

@@ -208,7 +208,7 @@ mod tests {
 
     const NETWORKS: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 <Networks>
-  <Controller Id="1" Name="Falcon_F16V5_B9F5" Type="Ethernet" IP="192.0.2.20" Protocol="DDP" Vendor="Falcon" Model="F16V5" ActiveState="Active">
+  <Controller Id="1" Name="Falcon_F16V5_A1B2" Type="Ethernet" IP="192.0.2.20" Protocol="DDP" Vendor="Falcon" Model="F16V5" ActiveState="Active">
     <network NetworkType="DDP" ComPort="192.0.2.20" BaudRate="1" MaxChannels="6147" KeepChannelNumbers="0"/>
   </Controller>
   <Controller Id="2" Name="Arches" Type="Ethernet" IP="192.0.2.30" Protocol="E131" ActiveState="Active">
@@ -238,7 +238,7 @@ mod tests {
         assert_eq!(
             summary,
             vec![
-                ("Falcon_F16V5_B9F5", "DDP", 1, 6147, true),
+                ("Falcon_F16V5_A1B2", "DDP", 1, 6147, true),
                 ("Arches", "E131", 6148, 1024, true),
                 ("Spare", "NULL", 7172, 100, false),
             ]

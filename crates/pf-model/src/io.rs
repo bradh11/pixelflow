@@ -282,14 +282,14 @@ mod tests {
         let mut show = sample_show();
         show.sequences
             .push(crate::SequenceEntry::new("Medley", "Medley.fseq"));
-        let text = show_file_to_json(&show, Some("/Shows/Haas")).unwrap();
+        let text = show_file_to_json(&show, Some("/Shows/Home")).unwrap();
         assert!(text.contains("\"schemaVersion\": 13"), "written as version 13");
         for version in [7, 8, 9, 10, 11, 12, 13] {
             let old = text.replace("\"schemaVersion\": 13", &format!("\"schemaVersion\": {version}"));
             let (read, saved_in) = show_file_from_json(&old).unwrap();
             assert_eq!(read, show, "version {version} reads as it was");
             assert_eq!(read.schema_version, 13);
-            assert_eq!(saved_in.as_deref(), Some("/Shows/Haas"), "version {version}");
+            assert_eq!(saved_in.as_deref(), Some("/Shows/Home"), "version {version}");
             let saved: Value = serde_json::from_str(&show_to_json(&read).unwrap()).unwrap();
             assert_eq!(saved["schemaVersion"], 13);
         }
@@ -509,23 +509,23 @@ mod tests {
     #[test]
     fn show_files_remember_the_folder_they_were_saved_in() {
         let show = sample_show();
-        let text = show_file_to_json(&show, Some("/Shows/Haas 2024")).unwrap();
+        let text = show_file_to_json(&show, Some("/Shows/Home 2024")).unwrap();
         let saved: Value = serde_json::from_str(&text).unwrap();
-        assert_eq!(saved["savedIn"], "/Shows/Haas 2024");
+        assert_eq!(saved["savedIn"], "/Shows/Home 2024");
         assert!(
             text.find("\"schemaVersion\"").unwrap() < text.find("\"savedIn\"").unwrap(),
             "the show reads first"
         );
         let (read, saved_in) = show_file_from_json(&text).unwrap();
         assert_eq!(read, show);
-        assert_eq!(saved_in.as_deref(), Some("/Shows/Haas 2024"));
+        assert_eq!(saved_in.as_deref(), Some("/Shows/Home 2024"));
 
         // Files without it (version 7, or written without a folder) read as before.
         let plain = show_file_to_json(&show, None).unwrap();
         assert!(!plain.contains("savedIn"));
         assert_eq!(show_file_from_json(&plain).unwrap(), (show.clone(), None));
         // A savedIn that isn't text is ignored rather than refusing the show.
-        let odd = text.replace("\"/Shows/Haas 2024\"", "5");
+        let odd = text.replace("\"/Shows/Home 2024\"", "5");
         assert_eq!(show_file_from_json(&odd).unwrap(), (show, None));
     }
 

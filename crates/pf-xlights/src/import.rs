@@ -1073,7 +1073,7 @@ mod tests {
             }],
             ..XLayout::default()
         };
-        let result = build_show("Haas", &[falcon()], &layout, fake_geometry);
+        let result = build_show("Home", &[falcon()], &layout, fake_geometry);
         assert!(result.notes.is_empty(), "{:?}", result.notes);
         assert_eq!(
             result.summary,

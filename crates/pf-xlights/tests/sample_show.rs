@@ -36,7 +36,7 @@ fn imports_props_controllers_and_groups() {
     let falcon = &show.controllers[0];
     assert_eq!(
         (falcon.name.as_str(), falcon.address.as_str()),
-        ("Falcon_F16V5_B9F5", "192.0.2.20")
+        ("Falcon_F16V5_A1B2", "192.0.2.20")
     );
     assert_eq!(falcon.protocol, Protocol::Ddp);
     assert_eq!(

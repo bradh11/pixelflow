@@ -111,11 +111,11 @@ export interface Spread {
 const ALONE: Spread = { spacing: Infinity, across: Infinity, allRound: false };
 const spreads = new WeakMap<object, Spread>();
 
-/** How a prop's pixels are spread out, measured once for each set of points (`stride` numbers to a pixel: x and y, or x, y and z). */
-function spreadOf(points: ArrayLike<number>, stride: 2 | 3 = 2): Spread {
+/** How a prop's pixels are spread out, measured once for each set of points (x, y pairs). */
+function spreadOf(points: ArrayLike<number>): Spread {
   let found = spreads.get(points);
   if (!found) {
-    found = measureSpread(points, stride);
+    found = measureSpread(points, 2);
     spreads.set(points, found);
   }
   return found;
@@ -147,8 +147,39 @@ export const pixelsAllRound = (points: ArrayLike<number>): boolean => spreadOf(p
  * How a prop's pixels are spread out where they stand in the layout (x, y, z triples), for the 3D
  * view: the same measure as the flat drawings take, with every distance taken in depth too. For
  * a prop that's flat and faces the front, it's what they measure.
+ *
+ * A prop with depth (a tree, whose strings at the back show between the ones in front) has no
+ * more room to its pixels' side than the flat drawings find looking at it from the front: its
+ * dots are then no bolder in 3D than they are flat.
+ *
+ * Measured once for each set of points. `same`: a set measured before (the prop's points before
+ * the layout last changed, say): when `xyz` holds the very same numbers, it isn't measured again.
  */
-export const pixelSpread3d = (xyz: ArrayLike<number>): Spread => spreadOf(xyz, 3);
+export function pixelSpread3d(xyz: ArrayLike<number>, same?: ArrayLike<number>): Spread {
+  let found = spreads.get(xyz);
+  if (!found && same && same.length === xyz.length) {
+    let alike = true;
+    for (let i = 0; i < xyz.length && alike; i++) alike = xyz[i] === same[i];
+    if (alike) found = spreads.get(same);
+  }
+  if (!found) {
+    found = measureSpread(xyz, 3);
+    const count = Math.floor(xyz.length / 3);
+    let flat = true;
+    for (let i = 1; i < count && flat; i++) flat = xyz[3 * i + 2] === xyz[2];
+    if (!flat) {
+      const front = new Float64Array(count * 2);
+      for (let i = 0; i < count; i++) {
+        front[2 * i] = xyz[3 * i];
+        front[2 * i + 1] = xyz[3 * i + 1];
+      }
+      const { across } = measureSpread(front, 2);
+      if (across < found.across) found = { ...found, across };
+    }
+  }
+  spreads.set(xyz, found);
+  return found;
+}
 
 function measureSpread(points: ArrayLike<number>, stride: 2 | 3): Spread {
   const n = Math.floor(points.length / stride);

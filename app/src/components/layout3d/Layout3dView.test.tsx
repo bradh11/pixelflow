@@ -3,6 +3,7 @@ import { StrictMode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { emptyShow } from "../../api/memory";
 import { type LightLook, SPREAD_SIZE, packSpread } from "../../lib/layout3d";
+import { pixelSpread3d } from "../../lib/pixelBatches";
 import { LAYOUT_LOOK, PREVIEW_LOOK, lightLook } from "../../lib/pixelLooks";
 import { useLayoutEditor } from "../../state/layoutEditor";
 import { useView3d } from "../../state/view3d";
@@ -107,6 +108,31 @@ describe("the 3D view's renderer", () => {
     await waitFor(() => expect(seen.looks).toEqual([lightLook(LAYOUT_LOOK).look]));
     await waitFor(() => expect(seen.colors.at(-1)).toEqual([...new Array(9).fill(0), ...lightLook(LAYOUT_LOOK).selected]));
     useLayoutEditor.getState().select([]);
+  });
+
+  it("measures again only the props that changed when the layout does", async () => {
+    // A layout as the backend sends it: every prop's pixels in a new array each time.
+    const layout = (revision: number, step: number) => ({
+      revision,
+      props: [
+        { prop: "string", frameOffset: 0, channelsPerPixel: 3, xyz: new Float32Array([0, 0, 0, step, 0, 0, 2 * step, 0, 0]) },
+        { prop: "rows", frameOffset: 9, channelsPerPixel: 3, xyz: new Float32Array(Array.from({ length: 36 }, (_, i) => [(i % 6) * 0.25, Math.floor(i / 6) * 0.25, -1]).flat()) },
+      ],
+    });
+    const [first, second] = [layout(1, 0.5), layout(2, 0.75)];
+    const spreads: number[][] = [];
+    const factory: SceneFactory = async () => ({ ...stub, setPixels: (_, spread) => void spreads.push(Array.from(spread)) });
+    const view = (preview: typeof first) => (
+      <Layout3dView preview={preview} show={emptyShow("Home")} photo={{ image: null, aspect: 0.75, problem: null, reload: () => {} }} storageKey="k" frame={null} sceneFactory={factory} />
+    );
+    const { rerender } = render(view(first));
+    await waitFor(() => expect(spreads).toHaveLength(1));
+    rerender(view(second));
+    await waitFor(() => expect(spreads).toHaveLength(2));
+    // The stretched string's new spacing; the rows, which are where they were, as they were measured.
+    expect([spreads[0][0], spreads[1][0]]).toEqual([0.5, 0.75]);
+    expect(spreads[1][3 * SPREAD_SIZE]).toBe(0.25);
+    expect(pixelSpread3d(second.props[1].xyz)).toBe(pixelSpread3d(first.props[1].xyz));
   });
 
   it("tells the renderer while the camera is on its way somewhere, and when it has arrived", async () => {

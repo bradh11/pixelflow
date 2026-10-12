@@ -691,16 +691,20 @@ const FAR_APART = 1e6;
  * How every pixel's prop is spread out, for sizing its dot: for each pixel (props in order, as
  * `packPositions` has them), how far apart its prop's pixels are, how much room they have to
  * their side (no farther than is looked: `REACH`), and 1 when they have neighbors on every side
- * (see `pixelSpread3d`). Each prop is measured once for its set of points. Last comes where the
- * pixel is on its prop's wire: 1 for the first, 2 for the last, 3 for the only one, otherwise 0
- * (the pixel packed before the first, or after the last, is another prop's).
+ * (see `pixelSpread3d`). Last comes where the pixel is on its prop's wire: 1 for the first, 2 for
+ * the last, 3 for the only one, otherwise 0 (the pixel packed before the first, or after the
+ * last, is another prop's).
+ *
+ * Each prop is measured once for its set of points. `before`: each prop's points when the spread
+ * was last packed; a prop whose pixels are where they were isn't measured again, so a change to
+ * one prop of a big layout costs one prop's measuring.
  */
-export function packSpread(props: PreviewProp3d[]): Float32Array {
+export function packSpread(props: PreviewProp3d[], before?: ReadonlyMap<string, Float32Array>): Float32Array {
   const total = props.reduce((n, p) => n + Math.floor(p.xyz.length / 3), 0);
   const out = new Float32Array(total * SPREAD_SIZE);
   let at = 0;
   for (const p of props) {
-    const { spacing, across, allRound } = pixelSpread3d(p.xyz);
+    const { spacing, across, allRound } = pixelSpread3d(p.xyz, before?.get(p.prop));
     const [near, room, round] = [Math.min(spacing, FAR_APART), Math.min(across, REACH), allRound ? 1 : 0];
     const count = Math.floor(p.xyz.length / 3);
     for (let i = 0; i < count; i++, at += SPREAD_SIZE) {

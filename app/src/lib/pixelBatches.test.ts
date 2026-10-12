@@ -121,12 +121,46 @@ describe("how far apart a prop's pixels are", () => {
     expect(pixelSpread3d(pair(0.8)).across).toBe(Infinity);
   });
 
+  it("gives a prop with depth no more room to its pixels' side in 3D than the flat drawings find from the front", () => {
+    // A cone of 16 strings, like a tree. Round it the strings are never closer than 0.043; seen
+    // from the front, the ones at the back show between the ones in front.
+    const cone: number[] = [];
+    for (let string = 0; string < 16; string++) {
+      for (let i = 0; i < 50; i++) {
+        const [angle, radius] = [(string / 16) * 2 * Math.PI, 0.6 * (1 - i / 60)];
+        cone.push(radius * Math.sin(angle), i * 0.04, radius * Math.cos(angle));
+      }
+    }
+    const front = cone.filter((_, i) => i % 3 !== 2);
+    const spread = pixelSpread3d(cone);
+    expect(spread.across).toBe(pixelRoom(front));
+    expect(spread.across).toBeLessThan(0.043);
+    // How far apart its pixels are is still measured along its strings, where they stand.
+    expect(spread.spacing).toBeCloseTo(Math.hypot(0.04, 0.01));
+    expect(spread.spacing).toBeGreaterThan(pixelSpacing(front));
+  });
+
   it("is measured once for a set of points", () => {
     const points = row(10, 0.5);
     expect(pixelSpacing(points)).toBeCloseTo(0.5);
     for (let i = 0; i < points.length; i++) points[i] *= 4;
     expect(pixelSpacing(points)).toBeCloseTo(0.5);
     expect(pixelSpacing([...points])).toBeCloseTo(2);
+  });
+
+  it("isn't measured again in 3D for a set holding the very numbers of one measured before", () => {
+    const points = Array.from({ length: 30 }, (_, i) => [i * 0.2, 1, -i * 0.1]).flat();
+    const measured = pixelSpread3d(points);
+    // The same pixels in a new array, as a layout fetched again has them: the measure made before.
+    expect(pixelSpread3d([...points], points)).toBe(measured);
+    // Pixels that have moved are measured for themselves.
+    const stretched = points.map((v) => v * 2);
+    expect(pixelSpread3d(stretched, points)).not.toBe(measured);
+    expect(pixelSpread3d(stretched).spacing).toBeCloseTo(2 * measured.spacing);
+    // With no set to go by, a new array is measured.
+    const again = pixelSpread3d([...points]);
+    expect(again).not.toBe(measured);
+    expect(again).toEqual(measured);
   });
 });
 

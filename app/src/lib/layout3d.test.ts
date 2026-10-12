@@ -55,7 +55,7 @@ import {
   viewProjection,
 } from "./layout3d";
 import { gestureTransform, isNoop } from "./layoutMath";
-import { FILL, FINE_FROM, REACH, dotSize, pixelRoom, pixelSpacing, pixelsAllRound } from "./pixelBatches";
+import { FILL, FINE_FROM, REACH, dotSize, pixelRoom, pixelSpacing, pixelSpread3d, pixelsAllRound } from "./pixelBatches";
 import { coreDim, glowStep } from "./pixelGlow";
 
 const size = { width: 800, height: 500 };
@@ -478,6 +478,19 @@ describe("how every pixel's prop is spread out, for the renderer", () => {
     // A matrix lying flat on the ground is as much a matrix as one on a wall.
     const lying = prop("lying", matrix(6, 6, 0.25).flatMap((v, i, all) => (i % 3 === 0 ? [v, 0, all[i + 1]] : [])));
     expect(perPixel(packSpread([lying]))[7]).toEqual([0.25, 0.25, 1, 0]);
+  });
+
+  it("measures again only the props whose pixels have moved since it was last packed", () => {
+    const [string, grid] = [prop("string", [0, 0, 3, 0.5, 0, 3, 1, 0, 3]), prop("grid", matrix(4, 4, 0.2))];
+    packSpread([string, grid]);
+    const before = new Map([string, grid].map((p) => [p.prop, p.xyz]));
+    // The layout as it comes after the string was stretched: every prop's pixels in a new array.
+    const [stretched, same] = [prop("string", [0, 0, 3, 1, 0, 3, 2, 0, 3]), prop("grid", Array.from(grid.xyz))];
+    const packed = perPixel(packSpread([stretched, same], before));
+    expect(packed[0]).toEqual([1, REACH, 0, 1]);
+    expect(packed[3]).toEqual([0.2, 0.2, 1, 1]);
+    expect(pixelSpread3d(same.xyz)).toBe(pixelSpread3d(grid.xyz));
+    expect(pixelSpread3d(stretched.xyz)).not.toBe(pixelSpread3d(string.xyz));
   });
 
   it("is the flat previews' measure for a prop that faces the front", () => {

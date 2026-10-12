@@ -279,7 +279,9 @@ export function Layout3dView({ preview, show, photo, storageKey, editable = fals
     if (up.preview !== latest.current.preview) {
       const packed = packPositions(props);
       // Measured where the props were last saved: a move on its way doesn't change how a prop's pixels are spread.
-      scene.setPixels(packed.xyz, packSpread(latest.current.preview.props));
+      // Only the props whose pixels aren't where the renderer's last layout had them are measured.
+      const before = new Map(up.preview?.props.map((p) => [p.prop, p.xyz]));
+      scene.setPixels(packed.xyz, packSpread(latest.current.preview.props, before));
       up.preview = latest.current.preview;
       up.starts = packed.starts;
       up.xyz = new Map(props.map((p) => [p.prop, p.xyz]));

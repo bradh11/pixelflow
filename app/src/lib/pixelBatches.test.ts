@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PreviewProp } from "../api/types";
-import { type DotImage, FAINT, FINE_FROM, drawPixels, dotShapes, dotSize, packColor, pixelRoom, pixelSpacing, pixelsAllRound, stampPixels } from "./pixelBatches";
+import { type DotImage, FAINT, FINE_FROM, drawPixels, dotShapes, dotSize, packColor, pixelRoom, pixelSpacing, pixelSpread3d, pixelsAllRound, stampPixels } from "./pixelBatches";
 
 const COLORS = { unlit: "rgba(200, 200, 200, 0.5)", selected: "#a78bfa", dark: "rgba(80, 80, 80, 0.5)" };
 const SIZE = { width: 100, height: 100 };
@@ -86,6 +86,39 @@ describe("how far apart a prop's pixels are", () => {
     const frame = [...side(0, 0, 0, 1), ...side(0, 1.4, 1, 0), ...side(1.4, 1.4, 0, -1), ...side(1.4, 0, -1, 0)];
     expect(pixelRoom(frame)).toBeGreaterThan(0.15);
     expect(pixelRoom([4, 2])).toBe(Infinity);
+  });
+
+  it("is the same measure where the prop stands in 3D: exactly the flat one facing the front, and no different turned any way", () => {
+    const flat = grid(20, 8, 0.05, 0.2);
+    const stood = (place: (x: number, y: number) => number[]) => {
+      const xyz: number[] = [];
+      for (let i = 0; i + 1 < flat.length; i += 2) xyz.push(...place(flat[i], flat[i + 1]));
+      return xyz;
+    };
+    expect(pixelSpread3d(stood((x, y) => [x, y, -3]))).toEqual({ spacing: pixelSpacing(flat), across: pixelRoom(flat), allRound: pixelsAllRound(flat) });
+    // On a side wall, lying on the ground, and turned a third of the way round.
+    const [c, s] = [Math.cos(1), Math.sin(1)];
+    for (const place of [(x: number, y: number) => [2, y, x], (x: number, y: number) => [x, 0, y], (x: number, y: number) => [x * c, y, x * s]]) {
+      const spread = pixelSpread3d(stood(place));
+      expect(spread.spacing).toBeCloseTo(0.05);
+      expect(spread.across).toBeCloseTo(0.2);
+      expect(spread.allRound).toBe(false);
+    }
+    const lying = grid(10, 10, 0.3, 0.3);
+    expect(pixelSpread3d(lying.flatMap((v, i) => (i % 2 === 0 ? [v, 0.5, lying[i + 1]] : []))).allRound).toBe(true);
+    expect(pixelSpread3d([1, 2, 3])).toEqual({ spacing: Infinity, across: Infinity, allRound: false });
+  });
+
+  it("takes depth as it takes the other ways, in 3D: pixels behind each other are apart", () => {
+    // A string running straight back: one spot, seen from the front.
+    const back = Array.from({ length: 30 }, (_, i) => [1, 2, -i * 0.25]).flat();
+    expect(pixelSpread3d(back).spacing).toBeCloseTo(0.25);
+    expect(pixelSpread3d(back).across).toBe(Infinity);
+    expect(pixelSpacing(back.filter((_, i) => i % 3 !== 2))).toBe(Infinity);
+    // Two strings, one behind the other, are in each other's way; far enough apart, they aren't.
+    const pair = (gap: number) => [0, -gap].flatMap((z) => Array.from({ length: 40 }, (_, i) => [i * 0.05, 1, z]).flat());
+    expect(pixelSpread3d(pair(0.3)).across).toBeCloseTo(0.3);
+    expect(pixelSpread3d(pair(0.8)).across).toBe(Infinity);
   });
 
   it("is measured once for a set of points", () => {

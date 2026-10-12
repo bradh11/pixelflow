@@ -22,8 +22,8 @@ import type { PreviewProp } from "../api/types";
 import type { Size, View } from "./layoutMath";
 
 /** A glow's width (its bell's width, in dot radii) and strength beside the dot, at none and at full glow: the export's. */
-const GLOW_WIDTH = [1.2, 2.4] as const;
-const GLOW_STRENGTH = [0, 0.7] as const;
+export const GLOW_WIDTH = [1.2, 2.4] as const;
+export const GLOW_STRENGTH = [0, 0.7] as const;
 /** Glow is drawn at the nearest of this many steps from none to full (the slider's steps of 5%). */
 export const GLOW_STEPS = 20;
 /** A pixel's dot in the layout: its radius, in layout units (dots are drawn no smaller than they can be seen, though, and never so big they touch). */

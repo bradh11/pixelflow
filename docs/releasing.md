@@ -3,12 +3,14 @@
 How a version of PixelFlow becomes installers for macOS and Windows: what to check first, how to
 cut the release, how signing is set up, and what the people who install it need to know.
 
-> **A licence must be chosen before any public release.** PixelFlow has no `LICENSE` file, and
-> about 10,000 lines of it follow xLights source, which is under the GNU GPL. Until the owner
-> decides what that means for PixelFlow's own licence
-> ([distribution checklist](licensing/distribution-checklist.md), item 1), installers go to
-> testers the owner picks, by hand, and nowhere else. The release workflow only ever makes a
-> **draft**; do not publish one before that decision is made and the checklist is done.
+> **PixelFlow is released under the GNU General Public License, version 3**, free of charge.
+> About 10,000 lines of it are derived from xLights' source, which is under that licence, and
+> are credited in [`NOTICE`](../NOTICE). A release must come with its source (a GitHub release
+> does: the tagged source is attached beside the installers) and with `LICENSE`, `NOTICE`, and
+> the third-party notices inside the app. What else the licences ask, and the decisions still
+> open (the H.264 and AAC encoders above all), are in the
+> [distribution checklist](licensing/distribution-checklist.md). The release workflow only ever
+> makes a **draft**; read the checklist before publishing one.
 
 - [What a release holds](#what-a-release-holds)
 - [Before you release](#before-you-release)
@@ -42,10 +44,11 @@ to hand to testers before a release, use a [dry run](#dry-runs).
 
 Tick every row, or write down why not.
 
-- [ ] **The licence is chosen** and the rest of the
-      [distribution checklist](licensing/distribution-checklist.md) is done: the `LICENSE` file,
-      the `license` fields, the notices, and what the GPL asks for if that is the choice. This
-      one blocks a public release.
+- [ ] **The licence travels with the release.** `LICENSE` and `NOTICE` are at the repo root, the
+      built app holds `LICENSE.txt`, `NOTICE.txt`, and `THIRD-PARTY-NOTICES.txt`, and its About
+      opens them. The open items in the
+      [distribution checklist](licensing/distribution-checklist.md) have been read, and the one
+      about the H.264 and AAC encoders has been decided.
 - [ ] **Real hardware:** someone ran the
       [hardware acceptance checklist](hardware-acceptance.md) against the build being released
       (a dry run's installers, not a development build) and kept the filled-in copy.

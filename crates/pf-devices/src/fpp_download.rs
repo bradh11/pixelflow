@@ -367,7 +367,7 @@ mod tests {
 
     #[test]
     fn only_plain_names_are_downloaded() {
-        assert!(is_plain_name("Christmas Medley 2017.fseq"));
+        assert!(is_plain_name("Chimes Medley 2020.fseq"));
         assert!(is_plain_name("Song (2).mp3"));
         for bad in [
             "",

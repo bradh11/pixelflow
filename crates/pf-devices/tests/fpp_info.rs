@@ -24,15 +24,15 @@ fn read_only(fpp: &FakeFpp) {
 
 fn stocked() -> FakeFpp {
     let fpp = FakeFpp::start()
-        .with_sequence("Christmas Medley 2017.fseq", 24_000_000)
-        .with_duration("Christmas Medley 2017.fseq", 371_000)
+        .with_sequence("Chimes Medley 2020.fseq", 24_000_000)
+        .with_duration("Chimes Medley 2020.fseq", 371_000)
         .with_sequence("Wizards.fseq", 9_000_000)
-        .with_music("Christmas Medley 2017.mp3", 8_900_000)
-        .with_duration("Christmas Medley 2017.mp3", 371_000)
+        .with_music("Chimes Medley 2020.mp3", 8_900_000)
+        .with_duration("Chimes Medley 2020.mp3", 371_000)
         .with_music("Wizards.mp3", 4_000_000)
         .with_playlist("Christmas Show");
     fpp.state().playlists.get_mut("Christmas Show").unwrap()["mainPlaylist"] = json!([
-        {"type": "both", "sequenceName": "Christmas Medley 2017.fseq", "mediaName": "Christmas Medley 2017.mp3"},
+        {"type": "both", "sequenceName": "Chimes Medley 2020.fseq", "mediaName": "Chimes Medley 2020.mp3"},
         {"type": "sequence", "sequenceName": "Wizards.fseq"}
     ]);
     fpp.state().playlists.get_mut("Christmas Show").unwrap()["playlistInfo"] =
@@ -60,7 +60,7 @@ fn lists_sequences_with_length_size_and_date() {
         rows,
         vec![
             (
-                "Christmas Medley 2017.fseq",
+                "Chimes Medley 2020.fseq",
                 Some(371_000),
                 Some(24_000_000),
                 Some("2026-10-06 18:05"),
@@ -88,10 +88,7 @@ fn lists_music_with_its_play_time_and_playlists_with_their_items() {
             .iter()
             .map(|f| (f.name.as_str(), f.duration_ms))
             .collect::<Vec<_>>(),
-        vec![
-            ("Christmas Medley 2017.mp3", Some(371_000)),
-            ("Wizards.mp3", None)
-        ]
+        vec![("Chimes Medley 2020.mp3", Some(371_000)), ("Wizards.mp3", None)]
     );
     let playlists = fpp_info::list(&client(), fpp.address(), FppFolder::Playlists).unwrap();
     assert_eq!(playlists.len(), 1);
@@ -166,11 +163,11 @@ fn no_schedule_is_an_empty_list() {
 
 #[test]
 fn an_unreachable_output_target_shows_in_the_status_warnings() {
-    let fpp = FakeFpp::start().with_unreachable_target("DDP", "192.0.2.20", "Falcon_F16V5_B9F5");
+    let fpp = FakeFpp::start().with_unreachable_target("DDP", "192.0.2.20", "Falcon_F16V5_A1B2");
     let status = fpp_player::status(&client(), fpp.address()).unwrap();
     assert_eq!(
         status.warnings,
-        vec!["Cannot Ping DDP Channel Data Target 192.0.2.20 Falcon_F16V5_B9F5"]
+        vec!["Cannot Ping DDP Channel Data Target 192.0.2.20 Falcon_F16V5_A1B2"]
     );
     read_only(&fpp);
 }

@@ -934,11 +934,13 @@ fn event_payloads() {
             "save-as",
             "undo",
             "redo",
+            "about",
+            "support",
         ] {
             menu::on_event(app.handle(), tauri::menu::MenuEvent { id: id.into() });
         }
     });
-    assert_eq!(chosen.len(), 8, "{chosen:?}");
+    assert_eq!(chosen.len(), 10, "{chosen:?}");
     // Close Show is only sent while the main window is in front, which a test's never is (built).
     let mut actions = chosen.clone();
     actions.push(wire(&menu::MenuAction::CloseShow));

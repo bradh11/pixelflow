@@ -16,7 +16,7 @@ function channelRange(start: number, count: number): string {
   return count > 0 ? `channels ${thousands(start)}–${thousands(start + count - 1)}` : "no channels yet";
 }
 
-/** The plan's controllers as lines: "Falcon_F16V5_B9F5 · DDP to 192.0.2.20 · channels 1–6,147". */
+/** The plan's controllers as lines: "Falcon_F16V5_A1B2 · DDP to 192.0.2.20 · channels 1–6,147". */
 function PlanList({ plan }: { plan: FppSetupPlan }) {
   return (
     <ul className="flex flex-col gap-1">

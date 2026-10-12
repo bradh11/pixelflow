@@ -150,17 +150,17 @@ pub fn check_reach(
 mod tests {
     use super::*;
 
-    const HOME: (Ipv4Addr, Ipv4Addr) = (Ipv4Addr::new(10, 28, 128, 20), Ipv4Addr::new(255, 255, 255, 0));
+    const HOME: (Ipv4Addr, Ipv4Addr) = (Ipv4Addr::new(10, 20, 130, 20), Ipv4Addr::new(255, 255, 255, 0));
 
     #[test]
     fn says_which_controllers_answer_and_which_are_on_this_network() {
-        let reach = FakeReach::new(["10.28.128.177"]);
+        let reach = FakeReach::new(["10.20.130.177"]);
         let addresses = [
-            "10.28.128.177",
-            "10.28.128.175",
+            "10.20.130.177",
+            "10.20.130.175",
             "192.168.1.50",
             "porch.local",
-            " 10.28.128.177 ",
+            " 10.20.130.177 ",
             "",
         ]
         .map(String::from);
@@ -172,8 +172,8 @@ mod tests {
         assert_eq!(
             got,
             [
-                ("10.28.128.177", true, Some(true)),
-                ("10.28.128.175", false, Some(true)),
+                ("10.20.130.177", true, Some(true)),
+                ("10.20.130.175", false, Some(true)),
                 ("192.168.1.50", false, Some(false)),
                 ("porch.local", false, None),
             ]
@@ -190,7 +190,7 @@ mod tests {
             assert!(!reach.answers(address), "{address}");
         }
         let to = |s: &str| s.parse::<SocketAddr>().unwrap();
-        assert_eq!(socket_addrs("10.28.128.177"), [to("10.28.128.177:80")]);
-        assert_eq!(socket_addrs(" 10.28.128.177:8080 "), [to("10.28.128.177:8080")]);
+        assert_eq!(socket_addrs("10.20.130.177"), [to("10.20.130.177:80")]);
+        assert_eq!(socket_addrs(" 10.20.130.177:8080 "), [to("10.20.130.177:8080")]);
     }
 }

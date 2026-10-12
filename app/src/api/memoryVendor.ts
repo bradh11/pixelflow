@@ -292,8 +292,10 @@ export function importVendor(
   let audio: string | null = null;
   if (pkg.music && musicFolder) audio = `${musicFolder}/${pkg.music}`;
   else if (pkg.music) notes.unshift(`The package's music (${pkg.music}) wasn't saved, because there's no folder for it yet. Save the show, then import again, or choose the music in the sequence's settings.`);
+  // An xLights sequence follows the left channel of its music, and says so when it has some.
+  if (pkg.music) notes.push("Effects that follow the music follow its left channel, as they do in xLights, so they play as they did there. You can change this in Sequence settings.");
   return {
-    sequence: { schemaVersion: 1, name: seq.song, audio, durationMs: seq.durationMs, frameMs: 25, timingTracks: [], rows },
+    sequence: { schemaVersion: 1, name: seq.song, audio, durationMs: seq.durationMs, frameMs: 25, timingTracks: [], musicLevelSource: "leftChannel", rows },
     summary: {
       rows: rows.length,
       effects,

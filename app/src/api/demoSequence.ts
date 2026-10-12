@@ -2,8 +2,8 @@ import { wordPhonemes } from "../lib/submodels";
 import type { Effect, EffectKind, Mark, Row, Sequence, TimingTrack } from "./sequence";
 import type { Show } from "./types";
 
-export const DEMO_SEQUENCE_PATH = "/Shows/Christmas Medley 2017.pfseq.json";
-export const DEMO_MUSIC = "/Shows/Christmas Medley 2017.mp3";
+export const DEMO_SEQUENCE_PATH = "/Shows/Chimes Medley 2020.pfseq.json";
+export const DEMO_MUSIC = "/Shows/Chimes Medley 2020.mp3";
 
 const BEAT_MS = 500;
 
@@ -83,7 +83,7 @@ export function demoSequence(show: Show, durationMs = 60_000, { singing = false 
   ]);
   return {
     schemaVersion: 10,
-    name: "Christmas Medley 2017",
+    name: "Chimes Medley 2020",
     audio: DEMO_MUSIC,
     durationMs,
     frameMs: 25,

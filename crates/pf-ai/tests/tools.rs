@@ -14,7 +14,8 @@ use pf_model::{
     StrandStyle, TreeStyle, Vec3,
 };
 use pf_sequence::{
-    Effect, EffectKind, EffectParams, Mark, Palette, Row, RowBlending, Target, TimingKind, TimingTrack,
+    Effect, EffectKind, EffectParams, Mark, MusicLevelSource, Palette, Row, RowBlending, Target, TimingKind,
+    TimingTrack,
 };
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
@@ -307,6 +308,9 @@ fn sequence_samples() -> Vec<SequenceEdit> {
         SequenceEdit::SetRowBlending {
             row_blending: RowBlending::Blend,
         },
+        SequenceEdit::SetMusicLevelSource {
+            music_level_source: MusicLevelSource::LeftChannel,
+        },
         SequenceEdit::AddRow {
             row: row.clone(),
             index: Some(0),
@@ -445,6 +449,7 @@ fn sequence_variant(edit: &SequenceEdit) -> &'static str {
     match edit {
         SequenceEdit::UpdateInfo { .. } => "UpdateInfo",
         SequenceEdit::SetRowBlending { .. } => "SetRowBlending",
+        SequenceEdit::SetMusicLevelSource { .. } => "SetMusicLevelSource",
         SequenceEdit::AddRow { .. } => "AddRow",
         SequenceEdit::RemoveRow { .. } => "RemoveRow",
         SequenceEdit::MoveRow { .. } => "MoveRow",
@@ -594,9 +599,9 @@ fn every_sequence_edit_yields_a_valid_tool_that_round_trips() {
         tool_tags, sample_tags,
         "every sequence edit has a tool and a sample"
     );
-    assert_eq!(tool_tags.len(), 28);
+    assert_eq!(tool_tags.len(), 29);
     let variants: BTreeSet<&str> = samples.iter().map(sequence_variant).collect();
-    assert_eq!(variants.len(), 28, "the samples cover every SequenceEdit variant");
+    assert_eq!(variants.len(), 29, "the samples cover every SequenceEdit variant");
     for edit in samples {
         let tag = tag(&edit);
         let tool = toolbox.find(&sequence_tool_name(&tag)).expect("tool exists");

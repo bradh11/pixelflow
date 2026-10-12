@@ -176,6 +176,21 @@ As with any internet request, the service sees your computer's public internet a
 
 PixelFlow doesn't update itself and doesn't check for new versions of itself.
 
+## Pages PixelFlow opens in your browser
+
+A few buttons open a web page. PixelFlow doesn't load the page itself: it hands the address to
+your computer, which opens it in your own web browser, and only when you click.
+
+| Button | Opens |
+|---|---|
+| **Open FPP's web page**, **Open FPP's update page** | That controller's own web page, on your network. |
+| **About** → **Source code**, **xLights** | The project's page and xLights' page on GitHub. |
+| **Support PixelFlow** (only there once a way to give is set up) | The page of the service you pick: GitHub Sponsors, Ko-fi, Buy Me a Coffee, or PayPal. |
+
+**About** → **Licence**, **Credits**, and **Third-party notices** open text files that are
+already inside the app; nothing is requested. PixelFlow never asks you to give anything, and
+tells nobody whether you have: there is no reminder, no count, and nothing sent.
+
 ## If you want to keep everything on your own network
 
 Don't add an AI key. Without one, the assistant and Find lyrics are off, and the only requests

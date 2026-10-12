@@ -67,13 +67,13 @@ describe("an FPP's page", () => {
   it("shows what's playing, how far along, and what's next, and stops only when clicked", async () => {
     const { backend, user } = await openPage();
     const playing = region("Now playing");
-    expect(await within(playing).findByText("Christmas Medley 2017.fseq", { selector: "p" })).toBeInTheDocument();
+    expect(await within(playing).findByText("Chimes Medley 2020.fseq", { selector: "p" })).toBeInTheDocument();
     const bar = within(playing).getByRole("progressbar", { name: "How far along" });
     expect(bar).toHaveAttribute("aria-valuenow", "109");
     expect(bar).toHaveAttribute("aria-valuemax", "565");
     expect(within(playing).getByText("1:49")).toBeInTheDocument();
     expect(within(playing).getByText("7:36 left")).toBeInTheDocument();
-    expect(within(playing).getByText(/^Next:/).parentElement).toHaveTextContent("Next: Christmas Medley 2017.fseq · Mon Oct 5 @ 06:48 PM - (Everyday)");
+    expect(within(playing).getByText(/^Next:/).parentElement).toHaveTextContent("Next: Chimes Medley 2020.fseq · Mon Oct 5 @ 06:48 PM - (Everyday)");
     expect(writes(backend)).toEqual([]);
 
     await user.click(within(playing).getByRole("button", { name: /Stop after this/ }));
@@ -92,7 +92,7 @@ describe("an FPP's page", () => {
     expect(within(health).getByText("Check it's powered on and plugged into the network.")).toBeInTheDocument();
     expect(within(health).queryByText(/Cannot Ping/)).not.toBeInTheDocument();
     const target = within(await within(health).findByRole("list", { name: "Output targets" })).getByRole("listitem");
-    expect(target).toHaveTextContent("Falcon_F16V5_B9F5");
+    expect(target).toHaveTextContent("Falcon_F16V5_A1B2");
     expect(await within(target).findByText("Web page not answering")).toBeInTheDocument();
   });
 
@@ -118,13 +118,13 @@ describe("an FPP's page", () => {
   it("lists its sequences, music, and playlists with length, size, and date", async () => {
     const { user } = await openPage();
     const library = region("On this FPP");
-    const row = await within(library).findByRole("row", { name: /Christmas Medley 2017/ });
+    const row = await within(library).findByRole("row", { name: /Chimes Medley 2020/ });
     expect(row).toHaveTextContent("9:27");
     expect(row).toHaveTextContent("66.5 MB");
     expect(row).toHaveTextContent("Nov 28, 2025");
 
     await user.click(within(library).getByRole("tab", { name: /Music/ }));
-    const song = await within(library).findByRole("row", { name: /Christmas Medley 2017\.mp3/ });
+    const song = await within(library).findByRole("row", { name: /Chimes Medley 2020\.mp3/ });
     expect(song).toHaveTextContent("9:27");
     expect(song).toHaveTextContent("8.5 MB");
     expect(within(song).queryByRole("button", { name: /Play/ })).not.toBeInTheDocument();
@@ -139,15 +139,15 @@ describe("an FPP's page", () => {
   it("asks before Play stops a running show, and plays straight away when idle", async () => {
     const { backend, user } = await openPage();
     const library = region("On this FPP");
-    await user.click(await within(library).findByRole("button", { name: "Play Christmas Medley 2017" }));
+    await user.click(await within(library).findByRole("button", { name: "Play Chimes Medley 2020" }));
     const ask = await screen.findByRole("alertdialog", { name: "Stop the running show?" });
-    expect(ask).toHaveTextContent("FPP is playing Christmas Medley 2017.fseq. Stop it and play Christmas Medley 2017 now?");
+    expect(ask).toHaveTextContent("FPP is playing Chimes Medley 2020.fseq. Stop it and play Chimes Medley 2020 now?");
     await user.click(within(ask).getByRole("button", { name: "Cancel" }));
     expect(writes(backend)).toEqual([]);
 
-    await user.click(within(library).getByRole("button", { name: "Play Christmas Medley 2017" }));
+    await user.click(within(library).getByRole("button", { name: "Play Chimes Medley 2020" }));
     await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Stop and play" }));
-    expect(writes(backend)).toEqual([`fppStart:${FPP}:Christmas Medley 2017.fseq`]);
+    expect(writes(backend)).toEqual([`fppStart:${FPP}:Chimes Medley 2020.fseq`]);
 
     backend.fppPlayers[FPP].status.state = "idle";
     await user.click(within(library).getByRole("tab", { name: /Playlists/ }));
@@ -159,7 +159,7 @@ describe("an FPP's page", () => {
   it("sends one of the show's sequences with the Send to FPP dialog, then lists it", async () => {
     const { backend, user } = await openPage();
     const library = region("On this FPP");
-    await within(library).findByRole("row", { name: /Christmas Medley 2017/ });
+    await within(library).findByRole("row", { name: /Chimes Medley 2020/ });
     await user.click(within(library).getByRole("button", { name: /^Send a sequence/ }));
     await user.click(screen.getByRole("menuitem", { name: "Wizards" }));
     const dialog = await screen.findByRole("dialog", { name: "Send to FPP" });
@@ -176,13 +176,13 @@ describe("an FPP's page", () => {
   it("shows where it sends, and sets up the show from it as one undoable edit after showing what it adds", async () => {
     const { backend, user } = await openPage();
     const outputs = region("Outputs → your show");
-    expect(await within(outputs).findByText("Falcon_F16V5_B9F5")).toBeInTheDocument();
+    expect(await within(outputs).findByText("Falcon_F16V5_A1B2")).toBeInTheDocument();
     expect(within(outputs).getByText(/6,147 channels/)).toHaveTextContent("192.0.2.20 · 6,147 channels, 1–6,147");
     expect(within(outputs).getByText("This FPP has no light outputs of its own: it passes its sequence on to the controllers it sends to.")).toHaveClass("text-neutral-500");
 
     await user.click(within(outputs).getByRole("button", { name: "Set up my show from this FPP" }));
     const preview = await within(outputs).findByRole("group", { name: "What will be added" });
-    expect(preview).toHaveTextContent("Falcon_F16V5_B9F5 · DDP to 192.0.2.20 · channels 1–6,147");
+    expect(preview).toHaveTextContent("Falcon_F16V5_A1B2 · DDP to 192.0.2.20 · channels 1–6,147");
     expect(useApp.getState().snapshot!.show.controllers).toEqual([]);
 
     const edits = backend.calls.filter((c) => c === "applyEdits").length;
@@ -192,7 +192,7 @@ describe("an FPP's page", () => {
     expect(backend.calls).toContain(`fppSetUpShow:${FPP}:${FALCON}`);
     const controllers = useApp.getState().snapshot!.show.controllers;
     expect(controllers.map((c) => [c.name, c.address, c.protocol.type, c.sequenceChannels])).toEqual([
-      ["Falcon_F16V5_B9F5", FALCON, "ddp", { start: 1, count: 6147 }],
+      ["Falcon_F16V5_A1B2", FALCON, "ddp", { start: 1, count: 6147 }],
     ]);
     expect(writes(backend)).toEqual([]);
 
@@ -222,7 +222,7 @@ describe("an FPP's page", () => {
     const schedule = region("Schedule");
     const entries = within(await within(schedule).findByRole("list", { name: "Schedule entries" })).getAllByRole("listitem");
     expect(entries.map((e) => e.textContent)).toEqual([
-      "Christmas Medley 2017.fseqSequenceEvery day · Sunset + 15 min – 10:00 PM · Nov 27, 2026 – Jan 6, 2027 · Repeats, Stops gracefully",
+      "Chimes Medley 2020.fseqSequenceEvery day · Sunset + 15 min – 10:00 PM · Nov 27, 2026 – Jan 6, 2027 · Repeats, Stops gracefully",
       "Christmas ShowFri, Sat · 5:30 PM – 11:00 PM · Nov 27, 2026 – Jan 6, 2027 · Repeats, Stops gracefully",
       "HalloweenOffEvery day · 5:30 PM – 10:00 PM · Oct 1, 2026 – Oct 31, 2026 · Stops gracefully",
     ]);

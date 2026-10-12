@@ -141,6 +141,10 @@ fn samples_with_their_extremes_keep_the_louder_channel_beside_the_mix() {
             "{sample:?}"
         );
     }
+    // The left channel's sample is kept as it is, whatever the right one does.
+    for (sample, (left, _)) in read.iter().zip(frames) {
+        assert!(near(sample.left, left), "{sample:?}");
+    }
     // The mix is what the mono samples are, to the bit.
     let mono: Vec<f32> = pf_audio::MonoSamples::open(&stereo).unwrap().collect();
     assert_eq!(read.iter().map(|s| s.mix).collect::<Vec<_>>(), mono);
@@ -153,9 +157,13 @@ fn samples_with_their_extremes_keep_the_louder_channel_beside_the_mix() {
         .with_extremes()
         .collect();
     assert_eq!(read.len(), 3);
-    assert!(read.iter().all(|s| s.high == s.mix && s.low == s.mix), "{read:?}");
+    assert!(
+        read.iter()
+            .all(|s| s.high == s.mix && s.low == s.mix && s.left == s.mix),
+        "{read:?}"
+    );
 
-    // More than two: the extremes are taken over all of them.
+    // More than two: the extremes are taken over all of them, and the left is the first.
     let four = dir.path().join("four.wav");
     write_channels(&four, 4, &[0.0, 0.1, -0.6, 0.9]);
     let read: Vec<_> = pf_audio::MonoSamples::open(&four)
@@ -167,6 +175,7 @@ fn samples_with_their_extremes_keep_the_louder_channel_beside_the_mix() {
         near(read[0].mix, 0.1) && near(read[0].high, 0.9) && near(read[0].low, -0.6),
         "{read:?}"
     );
+    assert!(near(read[0].left, 0.0), "{read:?}");
 }
 
 /// Set `PIXELFLOW_AUDIO=/path/to/song.mp3` to check a real file decodes.

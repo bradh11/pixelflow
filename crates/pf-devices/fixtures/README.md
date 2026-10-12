@@ -1,5 +1,10 @@
 # Device fixtures
 
+Recordings hold nothing that identifies the show they came from: addresses, hardware addresses
+and serials are placeholders, and the names in them (the props on each port, the sequence that
+was playing, the controller's own name) are made up. Keep it that way when adding a recording:
+replace every name, address, and serial before committing it.
+
 - `fpp/`: real responses from an FPP 9.3 player (Raspberry Pi 3 B+) that sends DDP to a Falcon.
   IP addresses were replaced with RFC 5737 documentation addresses (192.0.2.x) and the
   hardware serial in `uuid` with a placeholder. Only safe read-only endpoints are recorded;
@@ -12,8 +17,8 @@
   above feeds), recorded read-only: `/status.xml` and the JSON API queries `ST` (pages 0 and 1,
   which this firmware answers alike) and `SP` page 0. Its home page `/` answers HTTP 404. The IP
   address and gateway were replaced with 192.0.2.x, the MAC address (`C`) with a placeholder, and
-  the MAC-derived suffix of the controller name with the one the FPP fixture uses; the Wi-Fi
-  fields (`WS`, `WP`, `CP`) were blank on the controller.
+  the controller's name and its ports' names with made-up ones (the FPP fixture names the same
+  controller); the Wi-Fi fields (`WS`, `WP`, `CP`) were blank on the controller.
 - `falcon/synthetic/`: Falcon edge cases built from the formats in xLights' `Falcon.cpp`:
   settings split over two `ST` pages (older V4 firmware), E1.31 input universes, and two `SP`
   pages with a reversed string with null pixels, a smart receiver, grouping, and a white-first

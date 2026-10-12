@@ -27,6 +27,13 @@
   { "event": "menu", "name": "the menu's saveAs", "ts": "types.MenuAction", "value": { "action": "saveAs" } },
   { "event": "menu", "name": "the menu's undo", "ts": "types.MenuAction", "value": { "action": "undo" } },
   { "event": "menu", "name": "the menu's redo", "ts": "types.MenuAction", "value": { "action": "redo" } },
+  { "event": "menu", "name": "the menu's about", "ts": "types.MenuAction", "value": { "action": "about" } },
+  {
+    "event": "menu",
+    "name": "the menu's support",
+    "ts": "types.MenuAction",
+    "value": { "action": "support" }
+  },
   {
     "event": "menu",
     "name": "the menu's closeShow",

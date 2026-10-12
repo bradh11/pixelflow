@@ -8,12 +8,15 @@
 //! reads the same features, so playing, scrubbing, and export agree.
 //!
 //! Effects read the music for the frame they draw through [`Audio`], in the sequence's frames,
-//! from the [`RenderContext`] the renderer passes along (see `Shader::in_context`).
+//! from the [`RenderContext`] the renderer passes along (see `Shader::in_context`). How loud
+//! the music is comes from the channel the sequence says ([`MusicLevelSource`]): the track holds
+//! the level of each, so a sequence that changes its mind reads the other at once.
 
 use crate::geometry::Members;
 use crate::picture::Pictures;
 use pf_sequence::{
-    CurveInputs, Effect, EffectParams, FireStyle, Mark, PulseSource, Sequence, TendrilMovement, TimingTrack,
+    CurveInputs, Effect, EffectParams, FireStyle, Mark, MusicLevelSource, PulseSource, Sequence,
+    TendrilMovement, TimingTrack,
 };
 use std::borrow::Cow;
 use std::sync::{Arc, OnceLock};
@@ -116,20 +119,35 @@ impl PartialEq for AudioSource {
 pub struct Audio<'a> {
     track: &'a AudioTrack,
     frame_ms: u32,
+    level_source: MusicLevelSource,
 }
 
 impl<'a> Audio<'a> {
     /// `track` in a sequence with `frame_ms` frames (a track worked out for another frame time
-    /// is read at each frame's start).
+    /// is read at each frame's start), its level the louder channel's.
     pub fn new(track: &'a AudioTrack, frame_ms: u32) -> Self {
         Self {
             track,
             frame_ms: frame_ms.max(1),
+            level_source: MusicLevelSource::default(),
+        }
+    }
+
+    /// The same music, its level ([`Audio::peak`] and [`Audio::trough`]) read from `source`.
+    pub fn following(self, source: MusicLevelSource) -> Self {
+        Self {
+            level_source: source,
+            ..self
         }
     }
 
     pub fn track(&self) -> &'a AudioTrack {
         self.track
+    }
+
+    /// The channel the level is read from.
+    pub fn level_source(&self) -> MusicLevelSource {
+        self.level_source
     }
 
     /// The track's frame for the sequence's frame `frame`.
@@ -152,16 +170,17 @@ impl<'a> Audio<'a> {
         self.track.level(self.at(frame))
     }
 
-    /// The frame's highest sample, on whichever channel is louder, as a share of the song's
-    /// (xLights' `max`): how loud the music is to the curves, sparkles, and effects that follow it.
+    /// The frame's highest sample on the channel the sequence follows, as a share of the song's
+    /// there (xLights' `max`): how loud the music is to the curves, sparkles, and effects that
+    /// follow it.
     pub fn peak(&self, frame: u64) -> f32 {
-        self.track.peak(self.at(frame))
+        self.track.peak_from(self.level_source, self.at(frame))
     }
 
-    /// The frame's lowest sample, on whichever channel is louder, as a share of the song's
-    /// (xLights' `min`).
+    /// The frame's lowest sample on the channel the sequence follows, as a share of the song's
+    /// there (xLights' `min`).
     pub fn trough(&self, frame: u64) -> f32 {
-        self.track.trough(self.at(frame))
+        self.track.trough_from(self.level_source, self.at(frame))
     }
 
     pub fn bass(&self, frame: u64) -> f32 {

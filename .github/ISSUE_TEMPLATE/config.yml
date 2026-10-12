@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security problem
+    url: https://github.com/bradh11/pixelflow/security/policy
+    about: Please report vulnerabilities privately, as SECURITY.md describes, not in an issue.
+  - name: Getting started and troubleshooting
+    url: https://github.com/bradh11/pixelflow/blob/develop/docs/troubleshooting.md
+    about: Nothing lights, wrong colors, a controller that isn't found, and more.

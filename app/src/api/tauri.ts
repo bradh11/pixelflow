@@ -72,6 +72,7 @@ export const tauriBackend: Backend = {
   fppSetUpShow: (address, expected) => invoke("fpp_set_up_show", { address, expected }),
   fppSoftware: (address) => invoke("fpp_software", { address }),
   openDevicePage: (address, page) => invoke("open_device_page", { address, page: page ?? null }),
+  openProjectLink: (link) => invoke("open_project_link", { link }),
   fppSequenceNames: (address) => invoke("fpp_sequence_names", { address }),
   fppSendPlan: (address, source, music) => invoke("fpp_send_plan", { address, source, music }),
   fppSend: async (address, request, onProgress) => {

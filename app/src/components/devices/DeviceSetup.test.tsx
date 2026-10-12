@@ -253,12 +253,12 @@ describe("send setup to this controller", () => {
 
   it("can't send to a Falcon yet: the button is off and says why, while Compare still works", async () => {
     const { user } = await openDevices();
-    await user.click(await screen.findByRole("button", { name: "Open Falcon_F16V5_B9F5" }));
+    await user.click(await screen.findByRole("button", { name: "Open Falcon_F16V5_A1B2" }));
     await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Add to show" }));
-    const send = screen.getByRole("button", { name: "Send setup to this controller: Falcon_F16V5_B9F5…" });
+    const send = screen.getByRole("button", { name: "Send setup to this controller: Falcon_F16V5_A1B2…" });
     expect(send).toBeDisabled();
     expect(send.getAttribute("title")).toMatch(/can read a Falcon's setup \(use Compare\) but can't send one yet/);
-    expect(screen.getByRole("button", { name: "Compare with this controller: Falcon_F16V5_B9F5" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Compare with this controller: Falcon_F16V5_A1B2" })).toBeEnabled();
   });
 });
 
@@ -266,14 +266,14 @@ describe("import review", () => {
   it("wires a device's strings to props already in the show", async () => {
     const { user } = await openDevices();
     const arch = await addProp("Garage Arch", 50);
-    await user.click(await screen.findByRole("button", { name: "Open Falcon_F16V5_B9F5" }));
+    await user.click(await screen.findByRole("button", { name: "Open Falcon_F16V5_A1B2" }));
     const dialog = await screen.findByRole("dialog");
     expect(await within(dialog).findByText(/one new prop per string/)).toBeInTheDocument();
     await user.selectOptions(within(dialog).getByRole("combobox", { name: "Prop for port 2 Falcon Arch" }), arch.id);
     expect(within(dialog).getByText(/wire 1 prop you already have, and add 1 new prop/)).toBeInTheDocument();
     await user.click(within(dialog).getByRole("button", { name: "Add to show" }));
 
-    expect(screen.getByRole("status")).toHaveTextContent("Added Falcon_F16V5_B9F5: 1 prop and 1 of yours on 2 ports.");
+    expect(screen.getByRole("status")).toHaveTextContent("Added Falcon_F16V5_A1B2: 1 prop and 1 of yours on 2 ports.");
     const falcon = show().controllers[0];
     expect(falcon.ports[1].slots[0].prop).toBe(arch.id);
     expect(show().props.map((p) => p.name).sort()).toEqual(["Falcon Mega Tree", "Garage Arch"]);

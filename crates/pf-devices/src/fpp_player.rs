@@ -159,7 +159,7 @@ fn command(http: &dyn Http, host: &str, command: &str, args: &[&str]) -> Result<
     http.post_json(host, "/api/command", &body).map(|_| ())
 }
 
-/// Starts a playlist or sequence (by FPP name, e.g. `"Christmas Medley 2017.fseq"`) once.
+/// Starts a playlist or sequence (by FPP name, e.g. `"Chimes Medley 2020.fseq"`) once.
 /// Changes what the FPP is doing.
 pub fn start(http: &dyn Http, host: &str, name: &str) -> Result<(), DeviceError> {
     command(http, host, "Start Playlist", &[name, "false", "false"])
@@ -181,10 +181,7 @@ mod tests {
 
     #[test]
     fn segments_are_percent_encoded() {
-        assert_eq!(
-            encode_segment("Christmas Medley 2017"),
-            "Christmas%20Medley%202017"
-        );
+        assert_eq!(encode_segment("Chimes Medley 2020"), "Chimes%20Medley%202020");
         assert_eq!(encode_segment("a/b?c#d&é"), "a%2Fb%3Fc%23d%26%C3%A9");
         assert_eq!(encode_segment("Show_1.fseq"), "Show_1.fseq");
     }

@@ -1440,6 +1440,45 @@ fn syllables_need_words_to_come_from() {
 }
 
 #[test]
+fn the_channel_the_music_level_comes_from_is_read_and_set() {
+    let s = setup(Some("/music/song.mp3"));
+    let provider = ScriptedProvider::new(vec![
+        calls("", &[("get_open_sequence", json!({}))]),
+        calls(
+            "",
+            &[(
+                "sequence_set_music_level_source",
+                json!({ "musicLevelSource": "leftChannel" }),
+            )],
+        ),
+        calls("", &[("get_open_sequence", json!({}))]),
+        says("Effects that follow the music now follow its left channel."),
+    ]);
+    let (mut session, _) = session();
+    ask(
+        &mut session,
+        &provider,
+        &s.engine,
+        "Follow the left channel, like xLights",
+    )
+    .0
+    .unwrap();
+    let source = |request: usize| {
+        let (summary, is_error) = &results_in(&provider, request)[0];
+        assert!(!is_error, "{summary}");
+        serde_json::from_str::<Value>(summary).unwrap()["musicLevelSource"].clone()
+    };
+    // A sequence made in PixelFlow follows the louder channel; the draft follows the left.
+    assert_eq!(source(1), "louderChannel");
+    assert_eq!(source(3), "leftChannel");
+    let draft = session.draft().unwrap().sequence().unwrap();
+    assert_eq!(
+        draft.music_level_source,
+        pf_sequence::MusicLevelSource::LeftChannel
+    );
+}
+
+#[test]
 fn pictures_are_listed_looked_up_and_placed_like_any_effect() {
     let s = setup(Some("/music/song.mp3"));
     let a = s.rows[0].clone();

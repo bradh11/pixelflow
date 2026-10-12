@@ -137,9 +137,9 @@ describe("MemoryBackend", () => {
     // Importing the controller itself fills in the placeholder and says so first.
     const details = await backend.inspectDevice("192.0.2.20");
     expect(details.plan.alreadyInShow).toBe(false);
-    expect(details.plan.notes).toContain("Fills in Falcon_F16V5_B9F5, added from your FPP's output list.");
+    expect(details.plan.notes).toContain("Fills in Falcon_F16V5_A1B2, added from your FPP's output list.");
     expect(details.plan.notes).toContain(
-      "An FPP sends its sequence to Falcon_F16V5_B9F5: while a playlist or sequence is running on that FPP, it overrides PixelFlow's live output, so stop it while using PixelFlow.",
+      "An FPP sends its sequence to Falcon_F16V5_A1B2: while a playlist or sequence is running on that FPP, it overrides PixelFlow's live output, so stop it while using PixelFlow.",
     );
   });
 

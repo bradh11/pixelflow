@@ -412,21 +412,7 @@ pub(crate) fn open_device_page(address: String, page: Option<String>) -> Reply<(
         Some(p) => return Err(format!("{p} isn't a page PixelFlow opens.")),
     };
     let url = pf_devices::device_url(address, &format!("/{page}"));
-    #[cfg(target_os = "macos")]
-    let mut command = std::process::Command::new("open");
-    #[cfg(target_os = "windows")]
-    let mut command = {
-        let mut c = std::process::Command::new("rundll32");
-        c.arg("url.dll,FileProtocolHandler");
-        c
-    };
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    let mut command = std::process::Command::new("xdg-open");
-    command
-        .arg(&url)
-        .spawn()
-        .map(|_| ())
-        .map_err(|e| format!("Couldn't open {url} in your browser: {e}"))
+    crate::links::open_outside(&url).map_err(|e| format!("Couldn't open {url} in your browser: {e}"))
 }
 
 #[cfg(test)]

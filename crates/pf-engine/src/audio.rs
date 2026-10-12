@@ -6,6 +6,11 @@
 //! effects draw as in silence until the track is there, then follow the music. Exports wait for
 //! it ([`AudioTracks::track`]). How far a track has got is passed to whoever asked to be told
 //! ([`AudioTracks::set_progress`]).
+//!
+//! One track serves a song whichever channel a sequence takes its level from (the track holds
+//! the level of each, and the renderer reads the one the sequence names), so changing that
+//! setting works nothing out again and leaves nothing kept that could be out of date. A track
+//! kept by a version that held one level only has another format, and is worked out again.
 
 use pf_analysis::{AudioTrack, TRACK_FORMAT, audio_track_file};
 use pf_render::{AudioFill, AudioSource};

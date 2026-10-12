@@ -715,6 +715,121 @@ fn sparkles_are_the_same_every_render_and_cover_about_5_in_208_minus_the_setting
     // None where the effect is unlit, and none at 0.
     seq.rows[0].layers[0].effects[0].sparkles = 0;
     assert_eq!(sparkling(&render(&show, &seq, 1000)), 0);
+    let mut chase = Effect::new(EffectKind::Chase, 0, 10_000).with_palette([Rgb::RED]);
+    chase.sparkle_color = Rgb::new(0, 0, 255);
+    seq.rows[0].layers[0].effects[0] = chase;
+    let plain = render(&show, &seq, 1000);
+    seq.rows[0].layers[0].effects[0].sparkles = 200;
+    let sparkled = render(&show, &seq, 1000);
+    let dark = |frame: &[u8]| frame.chunks(3).filter(|p| p == &[0, 0, 0]).count();
+    assert!(sparkling(&sparkled) > 20 && dark(&plain) > 1000);
+    assert_eq!(
+        dark(&sparkled),
+        dark(&plain),
+        "the pixels the chase leaves dark stay dark"
+    );
+}
+
+/// A red On with white sparkles over a blue one on a line of 2000 pixels, at one second, as
+/// `change` leaves it: the frame, and which pixels are sparkling (the only ones with any green).
+/// `top` is the On, so that every frame of a test is of the one effect and sparkles alike.
+fn sparkling_over_blue(top: &Effect, change: &dyn Fn(&mut Effect, &mut OnParams)) -> (Vec<u8>, Vec<usize>) {
+    let mut show = Show::new("t");
+    show.props.push(line("Line", 2000, 0.0));
+    let target = Target::Prop(show.props[0].id);
+    let mut top = top.clone();
+    top.sparkles = 150;
+    let mut params = OnParams::default();
+    change(&mut top, &mut params);
+    top.params = EffectParams::On(params);
+    let mut seq = Sequence::new("s", 10_000);
+    seq.rows
+        .push(row(target, vec![vec![on(Rgb::BLUE, 0, 10_000)], vec![top]]));
+    let frame = render(&show, &seq, 1000);
+    let sparkling = frame
+        .chunks(3)
+        .enumerate()
+        .filter(|(_, p)| p[1] > 0)
+        .map(|(i, _)| i)
+        .collect();
+    (frame, sparkling)
+}
+
+#[test]
+fn an_effects_transparency_hides_the_effect_and_not_its_sparkles() {
+    // In xLights' frames an On at full Transparency is dark and still flashes its sparkles, on
+    // as many pixels as at none and as brightly: a layer of sparkles alone.
+    let top = on(Rgb::RED, 0, 10_000);
+    let over_blue = |change: &dyn Fn(&mut Effect, &mut OnParams)| sparkling_over_blue(&top, change);
+    let (solid, want) = over_blue(&|_, _| {});
+    let expected = 2000.0 * 5.0 / 58.0;
+    assert!(
+        (want.len() as f64 - expected).abs() < expected * 0.2,
+        "{}",
+        want.len()
+    );
+    for (transparency, between) in [(0.5, [128, 0, 128]), (0.99, [3, 0, 252]), (1.0, [0, 0, 255])] {
+        let (frame, sparkling) = over_blue(&|_, on| on.transparency = transparency);
+        assert_eq!(sparkling, want, "{transparency}: the same pixels flash");
+        for (i, (p, full)) in frame.chunks(3).zip(solid.chunks(3)).enumerate() {
+            if want.binary_search(&i).is_ok() {
+                assert_eq!(p, full, "{transparency}: pixel {i} flashes as brightly");
+            } else {
+                assert_eq!(
+                    p, between,
+                    "{transparency}: pixel {i} is the On, as see-through as it's set"
+                );
+            }
+        }
+    }
+    // The same when a curve sets the Transparency, and when the effect is blurred.
+    let (_, curved) = over_blue(&|e, _| {
+        e.curves.insert("transparency".into(), Curve::ramp(1.0, 0.999));
+    });
+    assert_eq!(curved, want);
+    let (_, blurred) = over_blue(&|e, _| e.blur = 3);
+    let (frame, sheer) = over_blue(&|e, on| (e.blur, on.transparency) = (3, 1.0));
+    assert_eq!(sheer, blurred);
+    assert!(frame.chunks(3).all(|p| p[0] == p[1]), "nothing of the red shows");
+
+    // Without sparkles it is as see-through as it ever was.
+    let (frame, none) = over_blue(&|e, on| (e.sparkles, on.transparency) = (0, 1.0));
+    assert!(none.is_empty() && frame.chunks(3).all(|p| p == [0, 0, 255]));
+}
+
+#[test]
+fn a_see_through_effects_sparkles_fade_with_it_and_stay_off_what_it_leaves_dark() {
+    // What xLights' frames show sparkles looking past is the effect's own Transparency and
+    // nothing else. They dim with its fade...
+    let top = on(Rgb::RED, 0, 10_000);
+    let over_blue = |change: &dyn Fn(&mut Effect, &mut OnParams)| sparkling_over_blue(&top, change);
+    let (_, want) = over_blue(&|_, _| {});
+    let (frame, fading) = over_blue(&|e, on| (e.fade_in_ms, on.transparency) = (4000, 1.0));
+    assert_eq!(fading, want);
+    // (41 of the fade's 160 frames in: a full sparkle is a quarter white over the blue.)
+    let brightest = frame.chunks(3).map(|p| p[1]).max();
+    assert_eq!(brightest, Some(65), "a quarter of the way up the fade");
+    // ...and an On dimmed to nothing has no light to sparkle on, see-through or not, whether
+    // it dims by showing what's below or by going dark.
+    for solid in [false, true] {
+        for transparency in [0.0, 0.5, 1.0] {
+            let (frame, sparkling) = over_blue(&|_, on| {
+                (on.start_level, on.end_level) = (0.0, 0.0);
+                (on.solid, on.transparency) = (solid, transparency);
+            });
+            assert!(sparkling.is_empty(), "solid {solid}, transparency {transparency}");
+            let below = if solid {
+                (255.0 * transparency + 0.5) as u8
+            } else {
+                255
+            };
+            assert!(
+                frame.chunks(3).all(|p| p == [0, 0, below]),
+                "solid {solid}, transparency {transparency}: {:?}",
+                &frame[..3]
+            );
+        }
+    }
 }
 
 #[test]

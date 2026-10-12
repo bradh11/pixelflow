@@ -23,24 +23,38 @@ use crate::metrics::Limits;
 use pf_model::{Generator, Group, Prop, Rgb, ShapeSource, Show, Transform, Vec3};
 use pf_render::{AudioSource, Renderer, SceneGeometry};
 use pf_sequence::{
-    ChaseParams, CirclesParams, Effect, EffectId, EffectKind, EffectParams, FireParams, FireStyle,
+    ChaseParams, CirclesParams, Direction, Effect, EffectId, EffectKind, EffectParams, FireParams, FireStyle,
     FireworksParams, Layer, LifeParams, LightningParams, LinesParams, MeteorsParams, Row, Sequence,
-    ShapeParams, SnowflakesMotion, SnowflakesParams, SpiralParams, StrobeParams, Target, TendrilMovement,
-    TendrilParams, TwinkleParams,
+    ShapeParams, ShimmerParams, SnowflakesMotion, SnowflakesParams, SpiralParams, StrobeParams, Target,
+    TendrilMovement, TendrilParams, TwinkleParams,
 };
 use pf_xlights::sequence::ByVerdict;
 use std::fmt::Write as _;
 use std::rc::Rc;
 
+/// One of the calibration's tables.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Table {
+    /// Each effect against itself from other seeds.
+    Same,
+    /// Each effect against itself with one thing wrong.
+    Wrong,
+    /// Fireworks of several lengths.
+    Short,
+    /// Effects that keep time, with their timing wrong.
+    Timed,
+}
+
 /// How long the effects run, how many times each line is scored (each from fresh seeds), the
-/// frame time, and how many more renders from other seeds an effect that draws on chance is
-/// held against.
+/// frame time, how many more renders from other seeds an effect that draws on chance is held
+/// against, and the one table to make (all of them otherwise).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Settings {
     pub seconds: u32,
     pub pairs: u32,
     pub frame_ms: u32,
     pub seeds: u32,
+    pub only: Option<Table>,
 }
 
 impl Default for Settings {
@@ -50,6 +64,7 @@ impl Default for Settings {
             pairs: 8,
             frame_ms: 25,
             seeds: crate::compare::OTHER_SEEDS,
+            only: None,
         }
     }
 }
@@ -60,7 +75,8 @@ pub enum On {
     /// A matrix 32 by 16: every cell of the effect's grid has a pixel.
     Matrix,
     /// A group of eight outline props spread over a yard: about one cell in sixty of the
-    /// group's grid has a pixel, so most of what an effect draws falls between the props.
+    /// group's grid has a pixel, as on a real yard's group of outlines, so most of what an
+    /// effect draws falls between the props.
     Outlines,
 }
 
@@ -216,13 +232,13 @@ impl Stage {
                 Target::Prop(id)
             }
             On::Outlines => {
-                // Rings, stars, and arches of 50 pixels each, in two rows across 8 by 4 metres.
+                // Rings, stars, and arches of 150 pixels each, in two rows across 8 by 4 metres.
                 let mut group = Group::new("Outlines");
                 for k in 0..8u32 {
                     let shape = match k % 3 {
-                        0 => Generator::circle(50, 0.45),
-                        1 => Generator::star(5, 50, 0.5, 0.22),
-                        _ => Generator::arch(50, 0.9, 0.6),
+                        0 => Generator::circle(150, 0.45),
+                        1 => Generator::star(5, 150, 0.5, 0.22),
+                        _ => Generator::arch(150, 0.9, 0.6),
                     };
                     let mut prop = Prop::new(format!("Outline {}", k + 1), ShapeSource::Generator(shape));
                     prop.transform = Transform {
@@ -375,11 +391,11 @@ fn fireworks(seconds: u32, change: impl Fn(&mut FireworksParams)) -> Effect {
     effect(EffectParams::Fireworks(p), &[WHITE, RED, MAGENTA], seconds)
 }
 
-/// Fireworks that fill the prop with light: two big bursts a second of fat sparks with long
-/// tails. A fifth of the prop is lit on the whole, so that half as much is plainly less.
-fn full_fireworks(seconds: u32, change: impl Fn(&mut FireworksParams)) -> Effect {
+/// Fireworks that light a good part of the prop: a big burst a second of fat sparks with long
+/// tails, so that half as much light is plainly less and twice as much isn't the whole prop.
+fn big_fireworks(seconds: u32, change: impl Fn(&mut FireworksParams)) -> Effect {
     fireworks(seconds, |p| {
-        p.rate = 2.0;
+        p.rate = 1.0;
         p.sparks = 150;
         p.size = 90.0;
         p.spark_size = 6.0;
@@ -431,7 +447,7 @@ fn kinds(seconds: u32, frame_ms: u32) -> Vec<(&'static str, Effect)> {
     let three = [RED, GREEN, BLUE];
     vec![
         ("Fireworks", fireworks(seconds, |_| {})),
-        ("Fireworks, filling the prop", full_fireworks(seconds, |_| {})),
+        ("Fireworks, big bursts", big_fireworks(seconds, |_| {})),
         (
             "Fireworks, as imported",
             imported_fireworks(seconds, frame_ms, |_| {}),
@@ -546,15 +562,15 @@ fn kinds(seconds: u32, frame_ms: u32) -> Vec<(&'static str, Effect)> {
 
 /// Fireworks with one thing wrong, and a few other kinds with twice as much of something.
 fn mistakes(seconds: u32, frame_ms: u32) -> Vec<Pair> {
-    let right = || full_fireworks(seconds, |_| {});
+    let right = || big_fireworks(seconds, |_| {});
     let wrong = |shown: &str, ours: Effect| Pair {
-        effect: "Fireworks, filling the prop",
+        effect: "Fireworks, big bursts",
         shown: shown.to_string(),
         theirs: vec![right()],
         ours: vec![ours],
     };
     let changed =
-        |shown: &str, change: &dyn Fn(&mut FireworksParams)| wrong(shown, full_fireworks(seconds, change));
+        |shown: &str, change: &dyn Fn(&mut FireworksParams)| wrong(shown, big_fireworks(seconds, change));
     let recolored = |palette: &[Rgb]| {
         let mut effect = right();
         effect.palette = pf_sequence::Palette::new(palette.to_vec());
@@ -735,29 +751,10 @@ fn mistakes(seconds: u32, frame_ms: u32) -> Vec<Pair> {
     pairs
 }
 
-/// Effects that keep time, shown a quarter of a second early or a hundredth fast: alone, with
-/// sparkles on them, and under falling snow. Chance has a hand in the last two pictures, and
-/// none in when the spirals turn or where the chase has got to.
+/// Effects that keep time, with their timing wrong: alone, with sparkles on them, and under
+/// falling snow. Chance has a hand in the last two pictures, and none in when the stripes turn,
+/// where the chase has got to, or when the prop flickers.
 fn timed(seconds: u32) -> Vec<Pair> {
-    let spirals = |from: u64, sparkles: u32| {
-        let mut effect = effect(
-            EffectParams::Spiral(SpiralParams::default()),
-            &[RED, GREEN],
-            seconds,
-        );
-        effect.start_ms = from;
-        effect.sparkles = sparkles;
-        effect
-    };
-    let chase = |speed: f32, sparkles: u32| {
-        let params = ChaseParams {
-            speed,
-            ..ChaseParams::default()
-        };
-        let mut effect = effect(EffectParams::Chase(params), &[WHITE], seconds);
-        effect.sparkles = sparkles;
-        effect
-    };
     let snow = || {
         effect(
             EffectParams::Snowflakes(SnowflakesParams {
@@ -769,17 +766,71 @@ fn timed(seconds: u32) -> Vec<Pair> {
             seconds,
         )
     };
+    // Each fault: the effect's name, what is shown, and the effect as it should be (`false`)
+    // or with the fault (`true`).
+    type Faulty = Box<dyn Fn(bool) -> Effect>;
+    let spirals = |late_ms: u64| -> Faulty {
+        Box::new(move |faulty| {
+            let mut effect = effect(
+                EffectParams::Spiral(SpiralParams::default()),
+                &[RED, GREEN],
+                seconds,
+            );
+            // The reference starts later, so PixelFlow's stripes are that far ahead from then
+            // on.
+            effect.start_ms = if faulty { 0 } else { late_ms };
+            effect
+        })
+    };
+    let chase = |speed: f32| -> Faulty {
+        Box::new(move |faulty| {
+            let params = ChaseParams {
+                speed: if faulty { speed } else { 1.0 },
+                ..ChaseParams::default()
+            };
+            effect(EffectParams::Chase(params), &[WHITE], seconds)
+        })
+    };
+    // On for a quarter of a second in every half: a quarter of a second late it is on exactly
+    // when it should be off.
+    let shimmer = |late_ms: u64| -> Faulty {
+        Box::new(move |faulty| {
+            let params = ShimmerParams { rate: 2.0, duty: 0.5 };
+            let mut effect = effect(EffectParams::Shimmer(params), &[WHITE], seconds);
+            effect.start_ms = if faulty { late_ms } else { 0 };
+            effect
+        })
+    };
+    let faults: [(&'static str, &str, Faulty); 5] = [
+        ("Spirals", "a quarter of a second early", spirals(250)),
+        ("Chase", "a hundredth faster", chase(1.01)),
+        ("Chase", "half as fast", chase(0.5)),
+        ("Chase", "the other way", {
+            Box::new(move |faulty| {
+                let params = ChaseParams {
+                    direction: if faulty {
+                        Direction::Reverse
+                    } else {
+                        Direction::Forward
+                    },
+                    ..ChaseParams::default()
+                };
+                effect(EffectParams::Chase(params), &[WHITE], seconds)
+            })
+        }),
+        ("Shimmer", "a quarter of a second late", shimmer(250)),
+    ];
     let mut pairs = Vec::new();
-    for (name, sparkles, under_snow) in [
-        ("Spirals", 0, false),
-        ("Spirals with sparkles", 60, false),
-        ("Spirals under falling snow", 0, true),
-    ] {
-        // The reference starts a quarter of a second later, so PixelFlow's stripes are that
-        // far ahead from then on.
-        for (shown, late) in [("the same", 0), ("a quarter of a second early", 250)] {
-            let picture = |from: u64| {
-                let mut picture = vec![spirals(from, sparkles)];
+    for (name, shown, make) in &faults {
+        for (how, sparkles, under_snow) in [
+            ("alone", 0, false),
+            ("with sparkles", 60, false),
+            ("under falling snow", 0, true),
+        ] {
+            let picture = |faulty: bool| {
+                let mut effect = make(faulty);
+                effect.sparkles = sparkles;
+                let mut picture = vec![effect];
                 if under_snow {
                     picture.push(snow());
                 }
@@ -787,30 +838,9 @@ fn timed(seconds: u32) -> Vec<Pair> {
             };
             pairs.push(Pair {
                 effect: name,
-                shown: shown.to_string(),
-                theirs: picture(late),
-                ours: picture(0),
-            });
-        }
-    }
-    for (name, sparkles, under_snow) in [
-        ("Chase", 0, false),
-        ("Chase with sparkles", 60, false),
-        ("Chase under falling snow", 0, true),
-    ] {
-        for (shown, speed) in [("the same", 1.0), ("a hundredth faster", 1.01)] {
-            let picture = |speed: f32| {
-                let mut picture = vec![chase(speed, sparkles)];
-                if under_snow {
-                    picture.push(snow());
-                }
-                picture
-            };
-            pairs.push(Pair {
-                effect: name,
-                shown: shown.to_string(),
-                theirs: picture(1.0),
-                ours: picture(speed),
+                shown: format!("{shown}, {how}"),
+                theirs: picture(false),
+                ours: picture(true),
             });
         }
     }
@@ -864,7 +894,11 @@ pub fn run(settings: Settings, mut progress: impl FnMut(&str)) -> Calibration {
         line(stage, number, pair, settings)
     };
     let (mut same, mut wrong, mut short, mut kept) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+    let wanted = |table: Table| settings.only.is_none_or(|only| only == table);
     for stage in &mut stages {
+        if !wanted(Table::Same) {
+            break;
+        }
         for (name, effect) in kinds(settings.seconds, settings.frame_ms) {
             let pair = Pair {
                 effect: name,
@@ -875,22 +909,33 @@ pub fn run(settings: Settings, mut progress: impl FnMut(&str)) -> Calibration {
             same.push(score(stage, &pair, settings));
         }
     }
-    for pair in timed(settings.seconds) {
-        kept.push(score(&mut stages[0], &pair, settings));
+    for stage in &mut stages {
+        if !wanted(Table::Timed) {
+            break;
+        }
+        for pair in timed(settings.seconds) {
+            kept.push(score(stage, &pair, settings));
+        }
     }
     for stage in &mut stages {
+        if !wanted(Table::Wrong) {
+            break;
+        }
         for pair in mistakes(settings.seconds, settings.frame_ms) {
             wrong.push(score(stage, &pair, settings));
         }
     }
     // Big bursts, one a second, for one second and up: one burst, two, four, and so on.
     for seconds in [1, 2, 4, 8, 15, 30, 60, 120] {
+        if !wanted(Table::Short) {
+            break;
+        }
         for (shown, rate) in [("the same", 1.0), ("twice as many bursts", 2.0)] {
             let pair = Pair {
-                effect: "Fireworks, a big burst a second",
+                effect: "Fireworks, big bursts",
                 shown: shown.to_string(),
-                theirs: vec![full_fireworks(seconds, |p| p.rate = 1.0)],
-                ours: vec![full_fireworks(seconds, |p| p.rate = rate)],
+                theirs: vec![big_fireworks(seconds, |_| {})],
+                ours: vec![big_fireworks(seconds, |p| p.rate = rate)],
             };
             short.push(score(&mut stages[0], &pair, settings));
         }
@@ -1008,26 +1053,35 @@ pub fn markdown(calibration: &Calibration) -> String {
             drawn.rows
         );
     }
-    let _ = writeln!(o, "\n## The same effect from other seeds\n");
-    let _ = writeln!(o, "Every line should match.\n");
-    table(o, &calibration.same, false);
-    let _ = writeln!(o, "\n## One thing wrong\n");
-    let _ = writeln!(o, "No line should match.\n");
-    table(o, &calibration.wrong, false);
-    let _ = writeln!(o, "\n## Short effects and few events\n");
-    let _ = writeln!(
-        o,
-        "Fireworks with a big burst a second, from one burst to a hundred and twenty.\n"
-    );
-    table(o, &calibration.short, true);
-    let _ = writeln!(o, "\n## Effects that keep time\n");
-    let _ = writeln!(
-        o,
-        "Stripes that turn by the clock a quarter of a second early, and a chase a hundredth fast: \
-         alone (judged as ever), with sparkles on them, and under falling snow (both held against \
-         other seeds). What the lateness costs alone, it should cost the other two.\n"
-    );
-    table(o, &calibration.timed, false);
+    if !calibration.same.is_empty() {
+        let _ = writeln!(o, "\n## The same effect from other seeds\n");
+        let _ = writeln!(o, "Every line should match.\n");
+        table(o, &calibration.same, false);
+    }
+    if !calibration.wrong.is_empty() {
+        let _ = writeln!(o, "\n## One thing wrong\n");
+        let _ = writeln!(o, "No line should match.\n");
+        table(o, &calibration.wrong, false);
+    }
+    if !calibration.short.is_empty() {
+        let _ = writeln!(o, "\n## Short effects and few events\n");
+        let _ = writeln!(
+            o,
+            "Fireworks with a big burst a second, from one second and one burst to two minutes.\n"
+        );
+        table(o, &calibration.short, true);
+    }
+    if !calibration.timed.is_empty() {
+        let _ = writeln!(o, "\n## Effects that keep time\n");
+        let _ = writeln!(
+            o,
+            "Effects that keep time, with their timing wrong: alone (judged as ever, moment by \
+             moment), with sparkles on them, and under falling snow (both held against other \
+             seeds). What a fault costs alone, it should cost the other two. Where it costs \
+             nothing alone, the look score never saw it.\n"
+        );
+        table(o, &calibration.timed, false);
+    }
     out
 }
 

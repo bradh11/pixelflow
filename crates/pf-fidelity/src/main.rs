@@ -133,6 +133,9 @@ enum Command {
         /// against.
         #[arg(long, default_value_t = calibrate::Settings::default().seeds)]
         seeds: u32,
+        /// Make one table alone: same, wrong, short, or timed.
+        #[arg(long, value_parser = table)]
+        only: Option<calibrate::Table>,
         /// Write the tables here as calibration.md.
         #[arg(long)]
         out: Option<PathBuf>,
@@ -168,6 +171,17 @@ enum Command {
         #[arg(long)]
         out: PathBuf,
     },
+}
+
+/// One of the calibration's tables, by name.
+fn table(name: &str) -> Result<calibrate::Table, String> {
+    match name {
+        "same" => Ok(calibrate::Table::Same),
+        "wrong" => Ok(calibrate::Table::Wrong),
+        "short" => Ok(calibrate::Table::Short),
+        "timed" => Ok(calibrate::Table::Timed),
+        other => Err(format!("{other} isn't a table: same, wrong, short, or timed")),
+    }
 }
 
 fn main() -> ExitCode {
@@ -270,6 +284,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
             pairs,
             frame_ms,
             seeds,
+            only,
             out,
         } => {
             let settings = calibrate::Settings {
@@ -277,6 +292,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 pairs: pairs.max(1),
                 frame_ms: frame_ms.max(1),
                 seeds,
+                only,
             };
             let tables = calibrate::markdown(&calibrate::run(settings, |line| eprintln!("{line}")));
             match out {

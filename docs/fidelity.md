@@ -677,24 +677,25 @@ the look score on made-up pairs of renders (`crates/pf-fidelity/src/look.rs`).
 
 Seven sequences of one real show (about 6,200 pixels, 341 imported effects), October 2026. One
 has no effects. Of the rest, 242 effects were measured on enough to judge (75% of the
-effect-time). Two to five of those, as the seeds have it, have a look that says too little and
-are not judged: 71 to 87 seconds, 1.3% to 1.6% of all the effect-time. One run of eight:
+effect-time). Three to six of those, as the seeds have it, have a look that says too little
+and are not judged: 72 to 98 seconds, 1.3% to 1.8% of all the effect-time. One run of eight:
 
 | Sequence | Matches | Close | Different | No equivalent | Look | Look by moment | As seen | Not judged: says little |
 |---|---|---|---|---|---|---|---|---|
-| A | 94% | 5% | 2% | – | 97 | 96 | 96 | – |
-| B | 100% | – | – | – | 100 | 86 | 94 | 1 effect, 18 s |
-| C | 100% | – | – | – | 99 | 95 | 98 | – |
+| A | 95% | 3% | 2% | – | 97 | 93 | 96 | 3 effects, 17 s |
+| B | 100% | – | – | – | 100 | 91 | 95 | 1 effect, 18 s |
+| C | 100% | – | – | – | 99 | 98 | 98 | – |
 | D | 100% | – | – | – | 100 | 100 | 100 | – |
-| E | 100% | – | – | – | 95 | 94 | 94 | – |
-| G | 64% | – | – | 36% | 74 | 68 | 72 | 1 effect, 53 s |
-| All | 93% | 4% | 1% | 2% | 96 | 94 | 94 | 2 effects, 71 s |
+| E | 100% | – | – | – | 95 | 94 | 93 | – |
+| G | 64% | – | – | 36% | 74 | 69 | 72 | 1 effect, 53 s |
+| All | 94% | 3% | 1% | 2% | 96 | 92 | 94 | 5 effects, 88 s |
 
-The shares are of the effect-time judged (3,937 seconds in this run), with effects that draw on
+The shares are of the effect-time judged (3,920 seconds in this run), with effects that draw on
 chance held against PixelFlow's other seeds. "Look by moment" is the same run with every effect
-held moment by moment against xLights' render alone, as all were before, the two that say too
+held moment by moment against xLights' render alone, as all were before, the five that say too
 little included: 91% matching, 2% close, 5% different. B's effect is a tendril with sparkles
-and G's is the Fireworks (both below). Before looks that say too little were set apart, both
+and G's is the Fireworks (both below); A's are a wash under circles and two effects of under a
+second. Before looks that say too little were set apart, both
 counted as matching: G read 70% matching with a look of 79, and B's tendril matched in seven
 runs of eight.
 
@@ -712,15 +713,19 @@ runs before and eight after:
 
 | | Before: every effect by moment | After |
 |---|---|---|
-| Look, all sequences | 91.6 to 93.3 | 95.6 to 95.7 |
-| Matches, all sequences | 90.8% to 91.5%, and 76.7% in one of eight more | 92.7% in seven runs, 94.2% in one |
+| Look, all sequences | 91.6 to 93.3 | 95.5 to 95.8 |
+| Matches, all sequences | 90.8% to 91.5%, and 76.7% in one of eight more | 92.7% to 94.2% |
 | Look, B | 85.6 to 97.0 | 99.8 to 99.9 |
 | Matches, B | 59% to 100% | 100% in all eight (its tendril is not judged) |
-| Look, A | 92.9 to 95.0 | 96.7 to 96.9 |
+| Look, A | 92.9 to 95.0 | 96.7 to 97.0 |
 | Look, G | 67.8 to 70.1 | 74.4 in all eight (its Fireworks is not judged) |
-| As seen, all sequences (not held against other seeds) | 92.9 to 93.9 | 92.3 to 93.8 |
-| Effects judged, of 341 | 242 | 237 to 240 |
-| Not judged for a look that says too little | – | 2 to 5 effects, 71 to 87 seconds |
+| As seen, all sequences (not held against other seeds) | 92.9 to 93.9 | 93.1 to 93.9 |
+| Effects judged, of 341 | 242 | 236 to 239 |
+| Not judged for a look that says too little | – | 3 to 6 effects, 72 to 98 seconds |
+
+"After" is eight runs with develop's rebuilt Shockwave merged in. Eight runs before it, on the
+same measure, gave the same picture: matches 92.7% to 94.2%, look 95.6 to 95.7, and 2 to 5
+effects (71 to 87 seconds) not judged.
 
 The eight more are eight later runs judged by moment as well: in one of them A's cellular
 automaton, nine minutes long, was close, which alone takes A from 94% to 76%. It matched by
@@ -732,42 +737,44 @@ The effects that moved most from run to run, before and after:
 
 | Effect | Before | After |
 |---|---|---|
-| A tendril with sparkles, 18 seconds | 64 to 100: close in five runs of eight | Not judged, in all eight: PixelFlow's own renders have 8 to 48 in 100 of their rhythm in common. The look it got: 94 to 100. |
-| The Fireworks, 52 seconds | 36 to 50: different | Not judged, in all eight: too little light to tell. The look it got: 97 to 100. |
-| Shockwaves and Morphs of under a second, under snow or other effects | 76 to 100: one Shockwave close in four runs of eight, another in one | 98 to 100. Six of them are not judged in one run of eight each (one in two): PixelFlow's own renders had under half of their motion in common. |
-| Circles over an On, 10 seconds, and the On | 74 to 94: close in two; 80 to 94: close in one | 100; 100 |
+| A tendril with sparkles, 18 seconds | 64 to 100: close in five runs of eight | Not judged, in all eight: PixelFlow's own renders have 8 to 36 in 100 of their rhythm in common. The look it got: 81 to 100. |
+| The Fireworks, 52 seconds | 36 to 50: different | Not judged, in all eight: too little light to tell. The look it got: 86 to 100. |
+| Shockwaves and Morphs of under a second, under snow or other effects | 76 to 100: one Shockwave close in four runs of eight, another in one | 100 where judged. Each of nine is not judged in one to three runs of eight: PixelFlow's own renders had under half of their motion in common. |
+| Circles over an On, 10 seconds, and the On | 74 to 94: close in two; 80 to 94: close in one | 100; 100, and the On not judged in two runs of eight |
 | The cellular automaton | 85 to 96, and close in one run of eight more | 100 |
 | Snow, a wash, and circles, 15 seconds each | 88 to 100 | 99 to 100 |
-| Circles over a wash, in two pictures of 15 seconds (four effects) | 33 to 46: different | 76 to 87: close in seven runs, matching in one (86 to 87) |
+| Circles over a wash, in two pictures of 15 seconds (four effects) | 33 to 46: different | 75 to 92: close or matching, as the seeds have it (the wash not judged in five runs of eight) |
 
 What still moves is that last pair of pictures, and a Shape under a wash that sits on the line
-between close and different (54 to 58: close in seven runs, different in one). Those five are
+between close and different (54 to 59: close in six runs, different in two). Those five are
 the only effects judged whose verdict isn't the same in all eight runs.
 
 **What changed verdict, and why.** Eight effects, 163 seconds of the 4,007 measured.
 
 - *The Fireworks*: different (36 to 50) to not judged. By moment its color and its rhythm
   scored 0, for bursts at other moments. Held against other seeds, neither is told apart from
-  chance, and the look comes to 97 to 100. That is no evidence of a match: on this group
+  chance, and the look comes to 86 to 100. That is no evidence of a match: on this group
   xLights lights one pixel in ten thousand and PixelFlow about as few, and both renders are
   dark but for a few specks. Too little light to tell, in every run.
 - *The tendril*: close in five runs of eight (64 at the least, for "pulses out of step") to
   not judged. Its sparkles give the props a pulse that comes at other moments in each of
-  PixelFlow's own renders (8 to 48 in 100 in common), so whether xLights' pulse is the same
+  PixelFlow's own renders (8 to 36 in 100 in common), so whether xLights' pulse is the same
   can't be told. By moment its rhythm scored 0.02 to 0.09 and every other part 0.9 or more,
-  and next to other seeds the look comes to 94 to 100.
+  and next to other seeds the look comes to 81 to 100.
 - *Circles over a wash, twice* (four effects, two pictures of 15 seconds on one group):
-  different (33 to 46) to close (76 to 87). By moment nearly every part scored low, because the
-  balls are somewhere else at every moment. Held against other seeds, color, pattern, motion,
+  different (33 to 46) to close, and now and then matching (75 to 92). By moment nearly every
+  part scored low, because the balls are somewhere else at every moment. Held against other seeds, color, pattern, motion,
   and rhythm are within chance, and what is left is that PixelFlow lights about a sixth of the
   group where xLights lights nearly a third, three fifths as brightly: "less of the target
   lit". That is found on coverage and brightness, which PixelFlow's own renders agree on, so it
-  stands for the wash too, whose own look has under 10 in 100 of its rhythm in common from seed
-  to seed. In the one run where the picture came to 87, a match, the wash was not judged. This
+  stands for the wash too, whose own look has under 20 in 100 of its rhythm in common from seed
+  to seed, whenever that difference is large enough to make the verdict; where the picture
+  comes to about 84 or more, the wash is not judged. Over eight runs the circles matched in two to
+  four of them, by how much of the group their seeds happened to light. This
   stretch is in the part of the file that wasn't finished (see "A reference that wasn't
   finished"), and close may be as much as its frames can show.
 - *A Shape under a wash* (two effects, one picture of 15 seconds): different (48 to 51) to
-  close in seven runs of eight (55 to 58; 54 in the other). Where its shapes are no longer
+  close in six runs of eight (55 to 59; 54 in the other two). Where its shapes are no longer
   counts. That a ninth as much of its light changes from frame to frame as in xLights' (2%
   against 18%), and that it is half again as bright, still do. This is the stretch where three
   props hold a turning wheel the sequence doesn't have.
@@ -985,7 +992,7 @@ of a Fireworks that isn't on a timing track, and expected it to look close; the 
 moment by moment, still said different.
 
 Held against PixelFlow's other seeds and read over the whole effect (see "Effects that draw on
-chance"), its look comes to 97 to 100 in eight runs of eight. On this group that is no finding:
+chance"), its look comes to 86 to 100 in eight runs of eight. On this group that is no finding:
 both renders light one pixel in ten thousand, which is too little light to tell anything by,
 and the effect is not judged. Sequence G's look, over what is judged, is 74. The same Fireworks
 on a matrix, and on a group of outlines with a burst big enough to cross them, matches itself

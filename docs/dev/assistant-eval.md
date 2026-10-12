@@ -29,7 +29,8 @@ four arches, candy canes, and a singing face, with three groups. The song is "Pa
 96 seconds at 120 beats a minute, whose sections, loudness, and moments (a build, a drop, a stop
 before the last chorus) are written by hand in the same file, as are its ten lines of words
 (two in each verse and each chorus, the last chorus too).
-No audio is analyzed: `analyze_song` is answered with that hand-written analysis.
+No audio is analyzed: the first message's context block and `analyze_song` give that
+hand-written analysis.
 
 ## How an answer is scored
 
@@ -45,7 +46,8 @@ No audio is analyzed: `analyze_song` is answered with that hand-written analysis
   the words of every chorus are up as they are sung, and can be read (by the review's rule: 300
   ms and 60 ms a letter); a build's second bar is brighter, or lights more props, than its
   first; a question was answered without changing anything; a small job took few steps; the
-  method guide was read before the first effect was placed.
+  method guide was read before the first effect was placed; the song was listened to (its
+  analysis came with the request, or was asked for).
 - **What it took**: model requests, tool calls by name, tool calls refused (with the reason),
   guides read, the size of everything sent and received, and (on a real run) the tokens the
   provider billed and what they cost.
@@ -168,18 +170,21 @@ tokens at about 3.5 bytes each: that is the estimate the dry run gives before an
 `--price-in`, `--price-out`, and `--price-cached` set the prices it uses; without them (and only
 without `--send`) the defaults (3, 15, and 0.1) are placeholders.
 
-When this was written, the scripted answers to all nine scenarios took 45 requests and sent
-about 990,000 tokens in all, receiving about 4,000 (the dry run prints today's figures as the
-guides grow): nearly all of the cost is the conversation being sent again with
-each request, which is what a provider's cache makes cheap. A model takes more steps than a
-script that already knows what it will do, reads more guides, and writes more: allow two to four
-times that. At the placeholder prices, that is roughly:
+The scripted answers work the way the Assistant is asked to: they look up nothing the first
+message's context block already gives, read what a step needs in one `get_guide` call (an
+effect's guide in parts where that is enough), and lay a whole step in one call with `items`.
+When this was written they took 40 requests for all nine scenarios (`whole-song` 6) and sent
+about 484,000 tokens in all, receiving about 3,600 (the dry run prints today's figures as the
+guides grow): nearly all of the cost is the conversation being sent again with each request,
+which is what a provider's cache makes cheap. A model takes more steps than a script that
+already knows what it will do, reads more guides, and writes more: allow two to four times that.
+At the placeholder prices, that is roughly:
 
 | | The scripted answers | A model, without caching | A model, with the repeated part cached |
 |---|---|---|---|
-| All nine scenarios, once | $3.03 ($0.92 cached) | $6 to $12 | $2 to $4 |
-| `whole-song` alone | $0.97 ($0.23) | $2 to $4 | $0.50 to $1 |
-| A small one (`dancers`, `halloween`) | $0.21 ($0.07) | $0.40 to $0.85 | $0.15 to $0.30 |
+| All nine scenarios, once | $1.51 ($0.52 cached) | $3 to $6 | $1 to $2 |
+| `whole-song` alone | $0.45 ($0.15) | $0.90 to $1.80 | $0.30 to $0.60 |
+| A small one (`dancers`, `halloween`) | $0.10 ($0.04) | $0.20 to $0.40 | $0.07 to $0.14 |
 
 Those are estimates from sizes, not bills; a run that sends reports the tokens actually billed
 (see [Spending](#spending)). The dry run (`--provider` and `--model` without `--send`) prints the

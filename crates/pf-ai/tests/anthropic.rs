@@ -3,7 +3,9 @@
 
 use pf_ai::anthropic::Anthropic;
 use pf_ai::http::RetryPolicy;
-use pf_ai::provider::{AssistantTurn, Message, StopReason, StreamEvent, ToolResult, ToolSpec, TurnRequest};
+use pf_ai::provider::{
+    AssistantTurn, Message, StopReason, StreamEvent, ToolResult, ToolSpec, TurnRequest, Usage,
+};
 use pf_ai::testing::{FAKE_KEY, FakeTransport, Reply, fake_key};
 use pf_ai::{AiError, Cancel, LlmProvider, ProviderId};
 use serde_json::{Value, json};
@@ -408,6 +410,69 @@ fn refusals_and_cut_off_replies_are_reported_not_run() {
         turn.tool_calls[0].input_error.is_some(),
         "a cut-off input is flagged, not parsed leniently"
     );
+}
+
+fn usage_turn(provider: &Anthropic, model: &str) -> Result<(AssistantTurn, Option<Usage>), AiError> {
+    let tools = tools();
+    let messages = [Message::User("Hi".into())];
+    let request = TurnRequest {
+        model,
+        system: "You are a test.",
+        tools: &tools,
+        messages: &messages,
+        max_tokens: 1000,
+    };
+    provider.stream_turn_with_usage(&fake_key(), &request, &Cancel::new(), &mut |_| {})
+}
+
+#[test]
+fn the_tokens_billed_come_from_the_message_start_and_its_running_totals() {
+    // The recorded reply: 2,048 in, and output counted up to 89 by message_delta.
+    let (provider, fake) = setup(vec![Reply::ok(TOOL_USE), Reply::ok(TOOL_USE)]);
+    let (turn, usage) = usage_turn(&provider, "claude-opus-5-5").unwrap();
+    assert_eq!(
+        usage,
+        Some(Usage {
+            input: 2_048,
+            cache_read: 0,
+            cache_write: 0,
+            output: 89,
+        })
+    );
+    // The turn, and the request, are what they are without it.
+    assert_eq!(
+        Ok(turn),
+        self::turn(&provider, "claude-opus-5-5", &[Message::User("Hi".into())]).0
+    );
+    assert_eq!(fake.body(0), fake.body(1));
+
+    // Cache reads and writes are reported apart from input; the last totals stand.
+    let cached = "event: message_start\n\
+        data: {\"type\":\"message_start\",\"message\":{\"id\":\"m\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"usage\":{\"input_tokens\":12,\"cache_creation_input_tokens\":3000,\"cache_read_input_tokens\":45000,\"output_tokens\":1}}}\n\n\
+        event: content_block_start\n\
+        data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n\
+        event: content_block_delta\n\
+        data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Done.\"}}\n\n\
+        event: message_delta\n\
+        data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"input_tokens\":12,\"cache_creation_input_tokens\":3000,\"cache_read_input_tokens\":45000,\"output_tokens\":700}}\n\n\
+        event: message_stop\n\
+        data: {\"type\":\"message_stop\"}\n\n";
+    let (provider, _) = setup(vec![Reply::ok(cached)]);
+    assert_eq!(
+        usage_turn(&provider, "claude-haiku-4-5").unwrap().1,
+        Some(Usage {
+            input: 12,
+            cache_read: 45_000,
+            cache_write: 3_000,
+            output: 700,
+        })
+    );
+
+    // A reply without it reports none.
+    let bare = "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{}}\n\n\
+        event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n";
+    let (provider, _) = setup(vec![Reply::ok(bare)]);
+    assert_eq!(usage_turn(&provider, "claude-haiku-4-5").unwrap().1, None);
 }
 
 #[test]

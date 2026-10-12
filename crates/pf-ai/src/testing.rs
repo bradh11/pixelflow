@@ -4,7 +4,7 @@ use crate::error::AiError;
 use crate::http::{HttpRequest, HttpResponse, Transport, TransportError};
 use crate::provider::{
     AssistantTurn, Cancel, LlmProvider, Message, ModelInfo, ProviderId, StopReason, StreamEvent, ToolCall,
-    TurnRequest,
+    TurnRequest, Usage,
 };
 use crate::secret::ApiKey;
 use serde_json::Value;
@@ -139,8 +139,11 @@ impl Transport for FakeTransport {
 #[derive(Debug, Default)]
 pub struct ScriptedProvider {
     turns: Mutex<VecDeque<Result<AssistantTurn, AiError>>>,
+    /// What each reply reports it used, in order (none once these run out).
+    usage: Mutex<VecDeque<Option<Usage>>>,
     seen: Mutex<Vec<Vec<Message>>>,
     tools_seen: Mutex<Vec<String>>,
+    max_tokens_seen: Mutex<Vec<u32>>,
 }
 
 impl ScriptedProvider {
@@ -149,6 +152,21 @@ impl ScriptedProvider {
             turns: Mutex::new(turns.into()),
             ..Self::default()
         }
+    }
+
+    /// Reports `usage` with each reply, in order, as a real provider would (`None`: that reply
+    /// reports nothing, as when a provider leaves it out).
+    pub fn reporting(self, usage: Vec<Option<Usage>>) -> Self {
+        *self.usage.lock().unwrap_or_else(PoisonError::into_inner) = usage.into();
+        self
+    }
+
+    /// The output limit each request asked for.
+    pub fn max_tokens_seen(&self) -> Vec<u32> {
+        self.max_tokens_seen
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
     }
 
     /// The conversation as sent with each request.
@@ -209,16 +227,37 @@ impl LlmProvider for ScriptedProvider {
 
     fn stream_turn(
         &self,
-        _key: &ApiKey,
+        key: &ApiKey,
         request: &TurnRequest<'_>,
         cancel: &Cancel,
         on_event: &mut dyn FnMut(StreamEvent),
     ) -> Result<AssistantTurn, AiError> {
+        self.stream_turn_with_usage(key, request, cancel, on_event)
+            .map(|(turn, _)| turn)
+    }
+
+    fn stream_turn_with_usage(
+        &self,
+        _key: &ApiKey,
+        request: &TurnRequest<'_>,
+        cancel: &Cancel,
+        on_event: &mut dyn FnMut(StreamEvent),
+    ) -> Result<(AssistantTurn, Option<Usage>), AiError> {
         cancel.check()?;
         self.seen
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .push(request.messages.to_vec());
+        self.max_tokens_seen
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(request.max_tokens);
+        let usage = self
+            .usage
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .pop_front()
+            .flatten();
         *self.tools_seen.lock().unwrap_or_else(PoisonError::into_inner) =
             request.tools.iter().map(|t| t.name.clone()).collect();
         let turn = self
@@ -235,6 +274,6 @@ impl LlmProvider for ScriptedProvider {
                 name: call.name.clone(),
             });
         }
-        Ok(turn)
+        Ok((turn, usage))
     }
 }

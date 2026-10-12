@@ -14,8 +14,9 @@
 // dimmer by what their own halo adds back (`coreDim`).
 //
 // A halo is sized from the dot a pixel has in the layout (`DOT_RADIUS` of a layout unit), as the
-// export's is, not from a dot drawn bigger so it can be seen in a small preview: the glow then
-// covers as much of the display as it does in a video, however small the preview.
+// export's is, not from the dot drawn for it (bigger in a small preview, so it can be seen, and
+// smaller where a prop's pixels are close together): the glow then covers as much of the display
+// as it does in a video, however small the preview.
 
 import type { PreviewProp } from "../api/types";
 import type { Size, View } from "./layoutMath";
@@ -25,7 +26,7 @@ const GLOW_WIDTH = [1.2, 2.4] as const;
 const GLOW_STRENGTH = [0, 0.7] as const;
 /** Glow is drawn at the nearest of this many steps from none to full (the slider's steps of 5%). */
 export const GLOW_STEPS = 20;
-/** A pixel's dot in the layout: its radius, in layout units (dots are drawn no smaller than they can be seen, though). */
+/** A pixel's dot in the layout: its radius, in layout units (dots are drawn no smaller than they can be seen, though, and never so big they touch). */
 export const DOT_RADIUS = 0.05;
 /** Halos whose bell is narrower than this (device pixels) are lost under their dots: they aren't drawn. */
 const NARROWEST_BELL = 1;
@@ -49,7 +50,8 @@ const strength = (step: number) => GLOW_STRENGTH[0] + (GLOW_STRENGTH[1] - GLOW_S
 /**
  * How bright to draw lit dots (0–1 of their color) so that with their own halo added they come
  * out their own color: 1 less the halo's strength averaged over the dot. `spread` is the size
- * the halo is made for, as a share of the dot's drawn size (less than 1 for a dot drawn bigger).
+ * the halo is made for, as a share of the dot's drawn size (less than 1 for a dot drawn bigger,
+ * more for one drawn smaller).
  */
 export function coreDim(step: number, spread = 1): number {
   if (step <= 0) return 1;
@@ -218,9 +220,9 @@ export interface HaloPlan {
 
 /**
  * Gets ready to draw halos on `ctx`'s canvas (`ratio` device pixels per screen pixel) for a glow
- * level (0–1), in a view where dots are drawn with `radius` (screen pixels). Null when there's
- * no glow, the halos would be too small to see, or they can't be drawn here: then dots are drawn
- * as they are.
+ * level (0–1), in a view whose largest dots are drawn with `radius` (screen pixels). Null when
+ * there's no glow, the halos would be too small to see, or they can't be drawn here: then dots
+ * are drawn as they are.
  */
 export function planHalos(ctx: CanvasRenderingContext2D, glow: number, view: View, radius: number, ratio: number): HaloPlan | null {
   const step = glowStep(glow);

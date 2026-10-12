@@ -11,6 +11,7 @@ mod curves;
 mod effects;
 pub mod look;
 mod settings;
+mod whole;
 mod xsq;
 
 pub use settings::{ParsedPalette, Settings, leading_number, parse_palette, unxml_safe};
@@ -79,9 +80,6 @@ pub struct ImportedEffect {
     pub fidelity: Fidelity,
     /// How it's expected to look next to xLights.
     pub verdict: Verdict,
-    /// Spike: for an xLights Shader effect, its settings as the file has them (key and value),
-    /// in key order. Empty for every other effect.
-    pub shader_settings: Vec<(String, String)>,
 }
 
 /// The imported sequence and a plain-language report of anything that doesn't come across the
@@ -566,22 +564,11 @@ impl<'a> Builder<'a> {
             Fidelity::Skipped => {}
         }
         let id = EffectId::new();
-        // Spike: a Shader's settings as the file has them, for whoever can draw it.
-        let mut shader_settings: Vec<(String, String)> = Vec::new();
-        if name == "Shader" {
-            shader_settings.extend(
-                settings
-                    .keys()
-                    .map(|key| (key.to_string(), settings.text(key, "").to_string())),
-            );
-            shader_settings.sort();
-        }
         self.imported.push(ImportedEffect {
             id,
             xlights_name: name.to_string(),
             fidelity: translated.fidelity,
             verdict,
-            shader_settings,
         });
         Some(Effect {
             id,
@@ -1168,6 +1155,16 @@ fn build(file: &XsqFile, show: &Show, fallback_name: &str, mapping: Option<&Mapp
         }
     }
     b.summary.rows = sequence.rows.len();
+
+    // Settings xLights shows in whole numbers, now that the timing tracks their curves follow
+    // are all there.
+    let tracks = &sequence.timing_tracks;
+    let mut reads = whole::MOST_READS;
+    for layer in sequence.rows.iter_mut().flat_map(|row| &mut row.layers) {
+        for effect in &mut layer.effects {
+            whole::whole_settings(effect, frame_ms, tracks, &mut reads);
+        }
+    }
 
     // Notes, most important first.
     (b.summary.look, b.summary.look_ms) = b.tally.counts();

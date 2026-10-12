@@ -32,7 +32,6 @@ mod fire;
 mod fireworks;
 mod garlands;
 mod geometry;
-pub mod glsl;
 mod impact;
 mod life;
 mod lightning;

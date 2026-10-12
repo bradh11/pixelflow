@@ -1,6 +1,6 @@
 [package]
 name = "pf-shader"
-description = "Spike: runs fragment shader files (GLSL with a JSON header of inputs) on the CPU, a tile of pixels at a time"
+description = "Runs fragment shader files (GLSL with a JSON header of inputs) on the CPU, a batch of pixels at a time, the same on every system"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,12 +8,6 @@ publish.workspace = true
 
 [dependencies]
 serde_json.workspace = true
-
-[dev-dependencies]
-# Spike: an existing GLSL front end, here only to be measured against (`tests/naga_fit.rs`). Not
-# a dependency of anything that ships; to be taken out again with the spike.
-# (`wgsl-in` is not wanted: 30.0.1's GLSL front end doesn't compile without it or `spv-in`.)
-naga = { version = "30.0.1", default-features = false, features = ["glsl-in", "wgsl-in"] }
 
 [lints]
 workspace = true

@@ -78,7 +78,8 @@ fn shader(source: &str) -> u64 {
         }
     }
     let mut out = vec![[0.0f32; 4]; xs.len()];
-    Machine::new(&program, 37).run(&program, &uniforms, &xs, &ys, &mut out);
+    let work = program.work_for(xs.len());
+    Machine::new(&program, 37).run(&program, &uniforms, work, &xs, &ys, &mut out);
     fingerprint(out.into_iter().flatten())
 }
 

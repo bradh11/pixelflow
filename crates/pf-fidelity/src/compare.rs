@@ -242,8 +242,6 @@ impl Prepared {
             }
         };
         let pictures = Pictures::new(|file| std::fs::read(file).map_err(|e| e.to_string()));
-        // Spike: the sequence's Shader effects drawn by their shader files, when asked.
-        crate::shaders::install(&import, &mut notes);
         let exported = export_fseq(
             show,
             &comparison.map,

@@ -14,7 +14,8 @@
 //!
 //! A pixel's answer never depends on the pixels it shares a batch with: the same instructions
 //! run for it, on the same numbers, whichever they are. The work a pixel has done is counted for
-//! that pixel alone, and it is stopped by its own count.
+//! that pixel alone (each instruction it runs at that instruction's [`Op::weight`], whether or
+//! not the batch let it be worked out once for all), and it is stopped by its own count.
 
 use crate::lower::Program;
 use crate::math;
@@ -106,6 +107,21 @@ pub(crate) enum Op {
 }
 
 impl Op {
+    /// What running it counts for against a pixel's work ([`crate::Limits::work`]): about how
+    /// long it takes beside an addition, so that the work a shader may do bounds the time it may
+    /// take. The functions worked out by series ([`math`]) are the dear ones.
+    pub(crate) fn weight(self) -> u32 {
+        use Op::*;
+        match self {
+            FPow | FAsin | FAcos | FSinh | FCosh | FTanh => 24,
+            FTan | FAtan | FAtan2 | FExp | FLog | FExp2 | FLog2 => 16,
+            FSin | FCos => 12,
+            FMod | FFloor | FCeil | FFract | FTrunc | FRound | FSqrt | FInvSqrt | FDiv | IDiv | IMod
+            | FSmooth => 2,
+            _ => 1,
+        }
+    }
+
     /// How many of `a`, `b`, `c` it reads.
     pub(crate) fn reads(self) -> usize {
         use Op::*;
@@ -140,6 +156,12 @@ pub(crate) struct Loop {
     /// Run after each turn's body.
     pub step: Block,
     pub body_first: bool,
+    /// How many turns it takes, when that is plain from how it's written (a counter from one
+    /// constant to another that nothing else changes). The machine doesn't read it: it is what
+    /// lets a shader that can't finish be refused before it's run.
+    pub turns: Option<u32>,
+    /// The line it's written on, for saying which loop can't end.
+    pub line: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -198,8 +220,24 @@ pub(crate) enum Node {
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Block {
     pub nodes: Vec<Node>,
-    /// Instructions directly in it: what running it once costs a pixel.
+    /// The work of the instructions directly in it: what running it once costs a pixel.
     pub cost: u32,
+}
+
+impl Node {
+    /// What running it once counts for against a pixel's work, not counting the blocks inside it.
+    pub(crate) fn weight(&self) -> u32 {
+        match self {
+            Node::Ins(ins) => ins.op.weight(),
+            Node::Store { .. } => 1,
+            // Each number is fetched from wherever that pixel's index points.
+            Node::Load { count, .. } => count.saturating_mul(4),
+            // A store by an index that varies looks at every element (one that was the same for
+            // all is written out first), then writes each pixel's.
+            Node::StoreAt { len, .. } => 4 + len / 64,
+            _ => 0,
+        }
+    }
 }
 
 /// A value as the 32 bits a slot holds.
@@ -263,11 +301,17 @@ pub struct Uniforms {
 /// What a run cost.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct RunStats {
-    /// Pixels stopped for doing more work than [`crate::Limits::work`] allows (they come out
-    /// clear).
+    /// Pixels stopped for doing more work than the run allowed (they come out clear).
     pub stopped: u64,
-    /// Instructions run, added up over the pixels.
+    /// Work done, added up over the pixels (see [`crate::Limits::work`]).
     pub work: u64,
+}
+
+impl std::ops::AddAssign for RunStats {
+    fn add_assign(&mut self, other: Self) {
+        self.stopped += other.stopped;
+        self.work += other.work;
+    }
 }
 
 /// The working memory one thread runs a program in.
@@ -297,8 +341,6 @@ pub struct Machine {
     discarded: Vec<u32>,
     any_stopped: bool,
     any_discarded: bool,
-    /// Ask the platform's math library instead of [`math`] (to measure what that changes).
-    platform_math: bool,
 }
 
 fn count(mask: &[u32]) -> u32 {
@@ -324,18 +366,12 @@ impl Machine {
             work_all: 0,
             work_own: vec![0; width],
             work_own_most: 0,
-            limit: u64::from(program.limits.work),
+            limit: 0,
             stopped: vec![0; width],
             discarded: vec![0; width],
             any_stopped: false,
             any_discarded: false,
-            platform_math: false,
         }
-    }
-
-    /// Whether `sin`, `exp`, and the like come from the platform's math library, not [`math`].
-    pub fn set_platform_math(&mut self, platform: bool) {
-        self.platform_math = platform;
     }
 
     pub fn width(&self) -> usize {
@@ -344,11 +380,15 @@ impl Machine {
 
     /// Runs `program` for the pixels whose centers are at (`xs`, `ys`), in cells from the bottom
     /// left of the picture, and gives each one's red, green, blue, and alpha as the shader left
-    /// them (not clamped; a pixel stopped or discarded is all zeros).
+    /// them (not clamped; a pixel stopped or discarded is all zeros). No pixel does more than
+    /// `work` (see [`Program::work_for`]); one that would is stopped.
+    ///
+    /// Nothing is allocated unless the machine was made for another program.
     pub fn run(
         &mut self,
         program: &Program,
         uniforms: &Uniforms,
+        work: u32,
         xs: &[f32],
         ys: &[f32],
         out: &mut [[f32; 4]],
@@ -357,12 +397,9 @@ impl Machine {
         let total = xs.len().min(ys.len()).min(out.len());
         // Memory made for another program doesn't fit this one.
         if self.uni.len() != program.slots as usize || self.masks.len() != program.levels as usize + 1 {
-            *self = Self {
-                platform_math: self.platform_math,
-                ..Self::new(program, self.width)
-            };
+            *self = Self::new(program, self.width);
         }
-        self.limit = u64::from(program.limits.work);
+        self.limit = u64::from(work.min(program.limits.work));
         let mut at = 0;
         while at < total {
             let n = (total - at).min(self.width);
@@ -500,7 +537,10 @@ impl Machine {
         if self.counts[lvl] == 0 {
             return;
         }
+        // A pixel this block would take past what it may do is stopped before the block is run,
+        // so no pixel ever does more.
         self.charge(block.cost, lvl);
+        self.stop_overworked(lvl);
         for node in &block.nodes {
             if self.counts[lvl] == 0 {
                 return;
@@ -708,27 +748,27 @@ impl Machine {
             self.store(to as Slot, src as Slot, declared, lvl);
             return;
         }
+        // Every element becomes a number a pixel (written out once, if it was the same for all),
+        // and then each running pixel writes the one its index picks.
         let n = self.n;
         for e in 0..len as usize {
             let to = first + e * stride;
-            let mut out = std::mem::take(&mut self.vals[to]);
-            let mut any = false;
-            for k in 0..n {
-                if self.masks[lvl][k] == 0 || Self::element(self.vals[idx][k], len) != e {
-                    continue;
-                }
-                if !any && !self.varying[to] {
-                    out[..n].fill(self.uni[to]);
-                }
-                any = true;
-                out[k] = if self.varying[src] {
-                    self.vals[src][k]
-                } else {
-                    self.uni[src]
-                };
+            if !self.varying[to] {
+                let same = self.uni[to];
+                self.vals[to][..n].fill(same);
+                self.varying[to] = true;
             }
-            self.vals[to] = out;
-            self.varying[to] |= any;
+        }
+        for k in 0..n {
+            if self.masks[lvl][k] == 0 {
+                continue;
+            }
+            let to = first + Self::element(self.vals[idx][k], len) * stride;
+            self.vals[to][k] = if self.varying[src] {
+                self.vals[src][k]
+            } else {
+                self.uni[src]
+            };
         }
     }
 
@@ -824,7 +864,6 @@ impl Machine {
 
     fn ins(&mut self, i: &Ins) {
         use Op::*;
-        let platform = self.platform_math;
         match i.op {
             FAdd => self.bin(i, |x: f32, y: f32| x + y),
             FSub => self.bin(i, |x: f32, y: f32| x - y),
@@ -833,9 +872,7 @@ impl Machine {
             FMin => self.bin(i, |x: f32, y: f32| if y < x { y } else { x }),
             FMax => self.bin(i, |x: f32, y: f32| if x < y { y } else { x }),
             FMod => self.bin(i, |x: f32, y: f32| x - y * (x / y).floor()),
-            FPow if platform => self.bin(i, |x: f32, y: f32| x.powf(y)),
             FPow => self.bin(i, math::pow),
-            FAtan2 if platform => self.bin(i, |y: f32, x: f32| y.atan2(x)),
             FAtan2 => self.bin(i, math::atan2),
             FStep => self.bin(i, |edge: f32, x: f32| if x < edge { 0.0f32 } else { 1.0 }),
             FLt => self.bin(i, |x: f32, y: f32| x < y),
@@ -862,31 +899,18 @@ impl Machine {
             FRound => self.un(i, |x: f32| x.round()),
             FSqrt => self.un(i, |x: f32| x.sqrt()),
             FInvSqrt => self.un(i, |x: f32| 1.0 / x.sqrt()),
-            FSin if platform => self.un(i, |x: f32| x.sin()),
             FSin => self.un(i, math::sin),
-            FCos if platform => self.un(i, |x: f32| x.cos()),
             FCos => self.un(i, math::cos),
-            FTan if platform => self.un(i, |x: f32| x.tan()),
             FTan => self.un(i, math::tan),
-            FAsin if platform => self.un(i, |x: f32| x.asin()),
             FAsin => self.un(i, math::asin),
-            FAcos if platform => self.un(i, |x: f32| x.acos()),
             FAcos => self.un(i, math::acos),
-            FAtan if platform => self.un(i, |x: f32| x.atan()),
             FAtan => self.un(i, math::atan),
-            FSinh if platform => self.un(i, |x: f32| x.sinh()),
             FSinh => self.un(i, math::sinh),
-            FCosh if platform => self.un(i, |x: f32| x.cosh()),
             FCosh => self.un(i, math::cosh),
-            FTanh if platform => self.un(i, |x: f32| x.tanh()),
             FTanh => self.un(i, math::tanh),
-            FExp if platform => self.un(i, |x: f32| x.exp()),
             FExp => self.un(i, math::exp),
-            FLog if platform => self.un(i, |x: f32| x.ln()),
             FLog => self.un(i, math::ln),
-            FExp2 if platform => self.un(i, |x: f32| x.exp2()),
             FExp2 => self.un(i, math::exp2),
-            FLog2 if platform => self.un(i, |x: f32| x.log2()),
             FLog2 => self.un(i, math::log2),
             FMix => self.tern(i, |x: f32, y: f32, t: f32| x * (1.0 - t) + y * t),
             FClamp => self.tern(i, |x: f32, lo: f32, hi: f32| {

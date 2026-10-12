@@ -25,7 +25,8 @@ fn picture(
     }
     let mut out = vec![[0.0; 4]; xs.len()];
     let mut machine = Machine::new(program, width);
-    let stats = machine.run(program, &uniforms, &xs, &ys, &mut out);
+    let work = program.work_for(xs.len());
+    let stats = machine.run(program, &uniforms, work, &xs, &ys, &mut out);
     (out, stats)
 }
 
@@ -274,8 +275,25 @@ fn what_cant_be_run_is_refused_in_plain_words() {
     assert!(refused("void main() { gl_FragColor = texture2D(a, vec2(0.0)); }").contains("pictures"));
     assert!(
         refused(r#"/*{"INPUTS":[{"NAME":"inputImage","TYPE":"image"}]}*/ void main() {}"#)
-            .contains("picture")
+            .contains("\"inputImage\" is a picture")
     );
+    // What a shader needs that isn't given yet is named, whatever the shader then does.
+    let needs = [
+        (
+            r#"/*{"PASSES":[{"TARGET":"last","PERSISTENT":true},{}]}*/"#,
+            "from one frame to the next",
+        ),
+        (r#"/*{"PASSES":[{"TARGET":"blur"},{}]}*/"#, "several passes"),
+        (
+            r#"/*{"IMPORTED":{"mask":{"PATH":"mask.png"}}}*/"#,
+            "picture files of its own",
+        ),
+        (r#"/*{"INPUTS":[{"NAME":"sound","TYPE":"audio"}]}*/"#, "the music"),
+    ];
+    for (header, need) in needs {
+        let why = refused(&format!("{header} void main() {{ gl_FragColor = vec4(1.0); }}"));
+        assert!(why.contains(need) && why.contains("isn't supported yet"), "{why}");
+    }
 }
 
 // ---- shaders that mean harm ------------------------------------------------------------------
@@ -284,9 +302,9 @@ fn what_cant_be_run_is_refused_in_plain_words() {
 fn a_loop_without_end_stops_its_own_pixels_and_no_others() {
     // Forever on the left two columns, and a real answer on the rest.
     let program = compile(
-        "void main() { float x = 0.0; if (gl_FragCoord.x < 2.0) { for (;;) { x += 1.0; } }
+        "void main() { float x = 0.0; while (gl_FragCoord.x < 2.0) { x += 1.0; }
          while (gl_FragCoord.x < 1.0) {}
-         gl_FragColor = vec4(gl_FragCoord.x, x, 0.0, 1.0); }",
+         gl_FragColor = vec4(gl_FragCoord.x, 0.0, 0.0, 1.0); }",
     );
     let started = std::time::Instant::now();
     let (out, stats) = picture(&program, &program.uniforms(), 8, 4, 64);
@@ -303,16 +321,19 @@ fn a_loop_without_end_stops_its_own_pixels_and_no_others() {
     }
 }
 
+/// A loop of two billion turns that can't be counted from how it's written (its counter is a
+/// float), so it is read, and cut when it's run.
+const TWO_BILLION: &str = "void main() { float s = 0.0; for (float i = 0.0; i < 2.0e9; i += 1.0) { s += 0.5; } gl_FragColor = vec4(s); }";
+
 #[test]
 fn a_loop_of_two_billion_turns_is_cut_at_the_work_limit() {
-    let program = compile(
-        "void main() { float s = 0.0; for (int i = 0; i < 2000000000; i++) { s += 0.5; } gl_FragColor = vec4(s); }",
-    );
+    let program = compile(TWO_BILLION);
     let limits = Limits::default();
     let (out, stats) = picture(&program, &program.uniforms(), 16, 16, 64);
     assert_eq!(stats.stopped, 256);
     assert!(out.iter().all(|px| *px == [0.0; 4]));
-    // Each pixel did the work it is allowed and a turn's more, no further.
+    // Each pixel was charged the work it is allowed and less than a turn's more: the turn that
+    // would have taken it past was never run.
     let each = stats.work / 256;
     assert!(
         each > u64::from(limits.work) && each < u64::from(limits.work) + 64,
@@ -320,13 +341,135 @@ fn a_loop_of_two_billion_turns_is_cut_at_the_work_limit() {
     );
     // A lower limit stops it sooner.
     let tight = Limits { work: 1000, ..limits };
-    let program = Program::compile(
-        "void main() { float s = 0.0; for (int i = 0; i < 2000000000; i++) { s += 0.5; } gl_FragColor = vec4(s); }",
-        &tight,
-    )
-    .unwrap();
+    let program = Program::compile(TWO_BILLION, &tight).unwrap();
     let (_, stats) = picture(&program, &program.uniforms(), 4, 4, 16);
     assert!(stats.work / 16 < 1100);
+}
+
+#[test]
+fn a_frame_of_many_pixels_gives_each_less_to_do() {
+    let limits = Limits {
+        work: 10_000,
+        frame_work: 1_000_000,
+        ..Limits::default()
+    };
+    let program = Program::compile(TWO_BILLION, &limits).unwrap();
+    // Up to a hundred pixels each may do all a pixel may; past that, a share of the frame's.
+    assert_eq!(program.work_for(0), 10_000);
+    assert_eq!(program.work_for(100), 10_000);
+    assert_eq!(program.work_for(400), 2_500);
+    assert_eq!(program.work_for(usize::MAX), 0);
+    for (columns, rows) in [(10, 10), (40, 25), (100, 100)] {
+        let pixels = (columns * rows) as u64;
+        let (_, stats) = picture(&program, &program.uniforms(), columns, rows, 256);
+        assert_eq!(stats.stopped, pixels);
+        // The frame's whole work stays near what a frame may do: over by a turn a pixel at most.
+        assert!(
+            stats.work <= limits.frame_work + pixels * 64,
+            "{columns} by {rows}: {}",
+            stats.work
+        );
+    }
+    // The work a pixel is charged is the same however the pixels are batched.
+    let (_, wide) = picture(&program, &program.uniforms(), 40, 25, 256);
+    let (_, narrow) = picture(&program, &program.uniforms(), 40, 25, 7);
+    assert_eq!(wide, narrow);
+    // A shader with no loop at all is held to it too: a pixel is stopped before the lines that
+    // would take it past, on whichever side of an `if` they are.
+    let mut lines = String::from("void main() { float x = gl_FragCoord.x; if (x > 2.0) {\n");
+    for _ in 0..200 {
+        lines.push_str("x = sin(x) * 1.0001 + 0.5;\n");
+    }
+    lines.push_str("} gl_FragColor = vec4(x, 0.0, 0.0, 1.0); }");
+    let program = Program::compile(&lines, &limits).unwrap();
+    assert!(program.least_work() < 100, "{}", program.least_work());
+    let (out, stats) = picture(&program, &program.uniforms(), 4, 1000, 256);
+    assert_eq!(program.work_for(4000), 250);
+    assert_eq!(stats.stopped, 2000);
+    for (k, px) in out.iter().enumerate() {
+        let x = (k % 4) as f32 + 0.5;
+        assert_eq!(*px, if x > 2.0 { [0.0; 4] } else { [x, 0.0, 0.0, 1.0] });
+    }
+}
+
+#[test]
+fn what_can_never_finish_is_refused_when_it_is_read() {
+    let refused = |source: &str| Program::compile(source, &Limits::default()).unwrap_err();
+    // A loop nothing asks to stop and nothing leaves, wherever it stands.
+    let endless = [
+        "void main() {\n float x = 0.0;\n for (;;) { x += 1.0; }\n gl_FragColor = vec4(x); }",
+        "void main() {\n float x = 0.0;\n\n while (true) { x += 1.0; if (x > 3.0) continue; }\n }",
+        "float f() { float x = 0.0;\n\n for (;;) x += 1.0;\n return x; }\n void main() { if (gl_FragCoord.x < 2.0) gl_FragColor = vec4(f()); }",
+    ];
+    for (source, line) in endless.into_iter().zip([3, 4, 3]) {
+        let error = refused(source);
+        assert_eq!(
+            (error.message.as_str(), error.line),
+            ("a loop that never ends", line),
+            "{source}"
+        );
+    }
+    // One with a way out is read: a `break`, a `return`, or a `discard`.
+    for source in [
+        "void main() { float x = 0.0; for (;;) { x += 1.0; if (x > 3.0) break; } gl_FragColor = vec4(x); }",
+        "float f() { float x = 0.0; while (true) { x += 1.0; if (x > 3.0) return x; } } void main() { gl_FragColor = vec4(f()); }",
+        "void main() { float x = 0.0; for (;;) { x += 1.0; if (x > 3.0) discard; } }",
+    ] {
+        compile(source);
+    }
+    // Loops whose turns can be counted, and come to more than a pixel may do.
+    let counted = [
+        "void main() { float s = 0.0; for (int i = 0; i < 2000000000; i++) { s += 0.5; } gl_FragColor = vec4(s); }",
+        "void main() { float s = 0.0; for (int i = 0; i < 1000; i++) for (int j = 0; j < 1000; j++) for (int k = 0; k < 1000; k++) s += gl_FragCoord.x; gl_FragColor = vec4(s); }",
+        // Counting the wrong way: it would go round until the counter wrapped.
+        "void main() { float s = 0.0; for (int i = 0; i < 10; i--) { s += 0.5; } gl_FragColor = vec4(s); }",
+        "const int N = 700; void main() { float s = 0.0; for (int i = N; i >= -N; i -= 1) { for (int j = 0; j != N; j += 2) { s += sin(float(j)); } } gl_FragColor = vec4(s); }",
+    ];
+    for source in counted {
+        let error = refused(source);
+        assert!(
+            error.message.contains("more work for every pixel"),
+            "{source}: {error}"
+        );
+    }
+    // Line after line, with no loop at all.
+    let mut long = String::from("void main() { float x = gl_FragCoord.x;\n");
+    for _ in 0..5_000 {
+        long.push_str("x = sin(x) * 1.0001 + 0.5;\n");
+    }
+    long.push_str("gl_FragColor = vec4(x); }");
+    let tight = Limits {
+        work: 50_000,
+        ..Limits::default()
+    };
+    let error = Program::compile(&long, &tight).unwrap_err();
+    assert!(error.message.contains("more work for every pixel"), "{error}");
+    assert!(Program::compile(&long, &Limits::default()).is_ok());
+    // The same loops are read where a pixel can leave them early, the counter is changed inside,
+    // or the turns are few: what they cost is then found out as they run.
+    for source in [
+        "void main() { float s = 0.0; for (int i = 0; i < 2000000000; i++) { s += 0.5; if (s > 4.0) break; } gl_FragColor = vec4(s); }",
+        "void main() { float s = 0.0; for (int i = 0; i < 2000000000; i++) { s += 0.5; i += 1000000000; } gl_FragColor = vec4(s); }",
+        "void bump(inout int n) { n += 1000000000; } void main() { float s = 0.0; for (int i = 0; i < 2000000000; i++) { s += 0.5; bump(i); } gl_FragColor = vec4(s); }",
+        "void main() { float s = 0.0; for (int i = 0; i < 2000000000; i++) { if (gl_FragCoord.x > 0.0) return; s += 0.5; } gl_FragColor = vec4(s); }",
+        "void main() { float s = 0.0; for (int i = 0; i < 100; i++) for (int j = 0; j < 10; j++) s += 0.5; gl_FragColor = vec4(s); }",
+    ] {
+        let program = compile(source);
+        let (_, stats) = picture(&program, &program.uniforms(), 2, 2, 4);
+        assert_eq!(stats.stopped, 0, "{source}");
+    }
+    // The least a pixel does is a lower bound on what it is then charged.
+    let program = compile(
+        "void main() { float s = 0.0; for (int i = 0; i < 100; i++) { s += sin(gl_FragCoord.x); if (s > 1e9) continue; s *= 0.5; } gl_FragColor = vec4(s); }",
+    );
+    let (_, stats) = picture(&program, &program.uniforms(), 3, 3, 4);
+    assert!(program.least_work() > 1_000, "{}", program.least_work());
+    assert!(
+        stats.work / 9 >= program.least_work(),
+        "{} against {}",
+        stats.work / 9,
+        program.least_work()
+    );
 }
 
 #[test]

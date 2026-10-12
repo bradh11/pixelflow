@@ -56,6 +56,8 @@ pub struct Program {
     input_at: Vec<usize>,
     defaults: Vec<u32>,
     instructions: usize,
+    /// The least work any pixel does (see [`least`]).
+    least_work: u64,
 }
 
 const TRUE: u32 = u32::MAX;
@@ -96,6 +98,19 @@ impl Program {
     /// Numbers a pixel keeps while it runs.
     pub fn slots(&self) -> usize {
         self.slots as usize
+    }
+
+    /// The least work any pixel does, whatever the inputs and wherever it is: what is plain
+    /// from how the shader is written (a lower bound; most pixels do more).
+    pub fn least_work(&self) -> u64 {
+        self.least_work
+    }
+
+    /// The most work each pixel may do in a frame of `pixels` pixels: [`Limits::work`], or less
+    /// where that many pixels doing so much would take the frame past [`Limits::frame_work`].
+    pub fn work_for(&self, pixels: usize) -> u32 {
+        let each = self.limits.frame_work / (pixels.max(1) as u64);
+        each.min(u64::from(self.limits.work)) as u32
     }
 
     /// The inputs at the values the file gives them, at time 0 on a picture one cell in size.
@@ -177,6 +192,9 @@ impl Program {
 
 fn compile_here(source: &str, limits: &Limits) -> Res<Program> {
     let header = crate::isf::header(source)?;
+    if let Some(need) = header.unsupported() {
+        return fail(0, need);
+    }
     let tokens = crate::lex::lex(source, limits)?;
     let tokens = crate::lex::preprocess(&tokens, limits)?;
     let unit = crate::parse::parse(&tokens, limits)?;
@@ -405,17 +423,8 @@ impl<'a> Lower<'a> {
         let nodes = std::mem::take(&mut self.cur);
         let cost = nodes
             .iter()
-            .filter(|n| {
-                matches!(
-                    n,
-                    Code::Ins(_) | Code::Store { .. } | Code::Load { .. } | Code::StoreAt { .. }
-                )
-            })
-            .count();
-        Block {
-            nodes,
-            cost: cost as u32,
-        }
+            .fold(0u32, |cost, node| cost.saturating_add(node.weight()));
+        Block { nodes, cost }
     }
 
     fn deeper(&mut self, by: u16, line: u32) -> Res<()> {
@@ -2087,7 +2096,19 @@ impl<'a> Lower<'a> {
         body_first: bool,
     ) -> Res<()> {
         let mark = self.next;
-        self.deeper(2, cond.map_or(0, |c| c.line))?;
+        let line = cond
+            .map(|c| c.line)
+            .or_else(|| init.and_then(first_line))
+            .or_else(|| step.map(|s| s.line))
+            .or_else(|| first_line(body))
+            .unwrap_or(0);
+        self.deeper(2, line)?;
+        let turns = match body_first {
+            false => self.counted_turns(init, cond, step, body),
+            true => None,
+        };
+        // `while (true)` asks nothing each turn.
+        let cond = cond.filter(|c| c.e != Expr::Bool(true));
         let (live, body_lvl) = (self.lvl + 1, self.lvl + 2);
         let outer = std::mem::take(&mut self.cur);
         self.scopes.push(HashMap::new());
@@ -2122,6 +2143,8 @@ impl<'a> Lower<'a> {
                 body,
                 step,
                 body_first,
+                turns,
+                line,
             })
         })();
         self.lvl = live - 1;
@@ -2129,6 +2152,81 @@ impl<'a> Lower<'a> {
         self.cur = outer;
         self.next = mark;
         self.push(Code::Loop(Box::new(parts?)))
+    }
+
+    /// How many turns a `for` loop takes, when that is plain from how it's written: a whole
+    /// number counted from one constant to another by a constant step, which nothing in the
+    /// body changes. A loop that would count the wrong way for ever takes as many as can be
+    /// told of.
+    fn counted_turns(
+        &self,
+        init: Option<&Stmt>,
+        cond: Option<&Node>,
+        step: Option<&Node>,
+        body: &Stmt,
+    ) -> Option<u32> {
+        let Stmt::Decl {
+            ty: Ty::INT, vars, ..
+        } = init?
+        else {
+            return None;
+        };
+        let [counter] = vars.as_slice() else {
+            return None;
+        };
+        if counter.array.is_some() {
+            return None;
+        }
+        let name = counter.name.as_str();
+        let is_counter = |e: &Node| matches!(&e.e, Expr::Var(v) if v == name);
+        let from = i64::from(self.const_int(counter.init.as_ref()?)?);
+        let Expr::Binary(test, left, right) = &cond?.e else {
+            return None;
+        };
+        if !is_counter(left) || mentions(right, name) {
+            return None;
+        }
+        let to = i64::from(self.const_int(right)?);
+        let by = match &step?.e {
+            Expr::Step { target, up, .. } if is_counter(target) => {
+                if *up {
+                    1
+                } else {
+                    -1
+                }
+            }
+            Expr::Assign(Some(op @ (BinOp::Add | BinOp::Sub)), target, amount)
+                if is_counter(target) && !mentions(amount, name) =>
+            {
+                let amount = i64::from(self.const_int(amount)?);
+                if *op == BinOp::Add { amount } else { -amount }
+            }
+            _ => return None,
+        };
+        if stmt_changes(body, name, self.unit) {
+            return None;
+        }
+        // Turns of a counter that gets there; one that never does goes round until it wraps.
+        let never = i64::from(u32::MAX);
+        let turns = match (test, by.signum()) {
+            (BinOp::Lt, 1) => (to - from + by - 1).div_euclid(by).max(0),
+            (BinOp::Le, 1) if from <= to => (to - from) / by + 1,
+            (BinOp::Gt, -1) => (from - to - by - 1).div_euclid(-by).max(0),
+            (BinOp::Ge, -1) if from >= to => (from - to) / -by + 1,
+            (BinOp::Le, 1) | (BinOp::Ge, -1) => 0,
+            (BinOp::Lt, _) if from < to => never,
+            (BinOp::Le, _) if from <= to => never,
+            (BinOp::Gt, _) if from > to => never,
+            (BinOp::Ge, _) if from >= to => never,
+            (BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge, _) => 0,
+            (BinOp::Ne, _) if from == to => 0,
+            (BinOp::Ne, sign) if sign != 0 && (to - from) % by == 0 && (to - from) / by > 0 => {
+                (to - from) / by
+            }
+            (BinOp::Ne, _) => never,
+            _ => return None,
+        };
+        Some(turns.min(never) as u32)
     }
 
     // ---- the whole program -----------------------------------------------------------------
@@ -2297,10 +2395,238 @@ impl<'a> Lower<'a> {
             input_at,
             defaults,
             instructions: self.written,
+            least_work: 0,
         };
         check(&program.code, 0, &program, slots)?;
-        Ok(program)
+        // What can't finish is refused here, not stopped a frame at a time.
+        let least_work = match least(&program.code, 0) {
+            Least {
+                endless: Some(line), ..
+            } => return fail(line, "a loop that never ends"),
+            found => found.least(),
+        };
+        if least_work > u64::from(program.limits.work) {
+            return fail(
+                0,
+                format!(
+                    "the shader does more work for every pixel than a shader may ({least_work}, and the most is {})",
+                    program.limits.work
+                ),
+            );
+        }
+        Ok(Program {
+            least_work,
+            ..program
+        })
     }
+}
+
+/// The first line of `stmt` that is known (a statement doesn't keep its own).
+fn first_line(stmt: &Stmt) -> Option<u32> {
+    match stmt {
+        Stmt::Empty | Stmt::Discard => None,
+        Stmt::Decl { vars, .. } => vars.first().map(|v| v.line),
+        Stmt::Expr(e) | Stmt::If(e, ..) | Stmt::While(e, _) => Some(e.line),
+        Stmt::Return(_, line) | Stmt::Break(line) | Stmt::Continue(line) => Some(*line),
+        Stmt::For {
+            init,
+            cond,
+            step,
+            body,
+        } => init
+            .as_deref()
+            .and_then(first_line)
+            .or(cond.as_ref().map(|c| c.line))
+            .or(step.as_ref().map(|s| s.line))
+            .or_else(|| first_line(body)),
+        Stmt::DoWhile(body, cond) => first_line(body).or(Some(cond.line)),
+        Stmt::Block(stmts) => stmts.iter().find_map(first_line),
+    }
+}
+
+/// Whether `e` names the variable `name` anywhere.
+fn mentions(e: &Node, name: &str) -> bool {
+    match &e.e {
+        Expr::Int(_) | Expr::Float(_) | Expr::Bool(_) => false,
+        Expr::Var(v) => v == name,
+        Expr::Call(_, args) => args.iter().any(|a| mentions(a, name)),
+        Expr::Field(a, _) | Expr::Unary(_, a) => mentions(a, name),
+        Expr::Step { target, .. } => mentions(target, name),
+        Expr::Index(a, b) | Expr::Binary(_, a, b) | Expr::Comma(a, b) | Expr::Assign(_, a, b) => {
+            mentions(a, name) || mentions(b, name)
+        }
+        Expr::Ternary(a, b, c) => mentions(a, name) || mentions(b, name) || mentions(c, name),
+    }
+}
+
+/// Whether working `e` out could change the variable `name`: it is stored to, counted up or
+/// down, or handed to one of the shader's own functions (which may pass it back out).
+fn expr_changes(e: &Node, name: &str, unit: &Unit) -> bool {
+    match &e.e {
+        Expr::Int(_) | Expr::Float(_) | Expr::Bool(_) | Expr::Var(_) => false,
+        Expr::Assign(_, target, value) => mentions(target, name) || expr_changes(value, name, unit),
+        Expr::Step { target, .. } => mentions(target, name),
+        Expr::Call(called, args) => {
+            let own = unit.functions.iter().any(|f| &f.name == called);
+            args.iter()
+                .any(|a| (own && mentions(a, name)) || expr_changes(a, name, unit))
+        }
+        Expr::Field(a, _) | Expr::Unary(_, a) => expr_changes(a, name, unit),
+        Expr::Index(a, b) | Expr::Binary(_, a, b) | Expr::Comma(a, b) => {
+            expr_changes(a, name, unit) || expr_changes(b, name, unit)
+        }
+        Expr::Ternary(a, b, c) => {
+            expr_changes(a, name, unit) || expr_changes(b, name, unit) || expr_changes(c, name, unit)
+        }
+    }
+}
+
+/// Whether `stmt` could change the variable `name`, or declares another of that name (which
+/// would make it hard to tell which one a later line means).
+fn stmt_changes(stmt: &Stmt, name: &str, unit: &Unit) -> bool {
+    let expr = |e: &Node| expr_changes(e, name, unit);
+    let inner = |s: &Stmt| stmt_changes(s, name, unit);
+    match stmt {
+        Stmt::Empty | Stmt::Break(_) | Stmt::Continue(_) | Stmt::Discard | Stmt::Return(None, _) => false,
+        Stmt::Decl { vars, .. } => vars.iter().any(|v| {
+            v.name == name || v.init.as_ref().is_some_and(expr) || v.array.as_ref().is_some_and(expr)
+        }),
+        Stmt::Expr(e) | Stmt::Return(Some(e), _) => expr(e),
+        Stmt::If(cond, then, otherwise) => {
+            expr(cond) || inner(then) || otherwise.as_deref().is_some_and(inner)
+        }
+        Stmt::For {
+            init,
+            cond,
+            step,
+            body,
+        } => {
+            init.as_deref().is_some_and(inner)
+                || cond.as_ref().is_some_and(expr)
+                || step.as_ref().is_some_and(expr)
+                || inner(body)
+        }
+        Stmt::While(cond, body) | Stmt::DoWhile(body, cond) => expr(cond) || inner(body),
+        Stmt::Block(stmts) => stmts.iter().any(inner),
+    }
+}
+
+/// The least work a pixel can do in a block: on its way through to the end, and on its way out
+/// by a `break`, `continue`, `return`, or `discard`.
+#[derive(Debug, Default)]
+struct Least {
+    /// To the end of the block (`None`: nothing gets there).
+    through: Option<u64>,
+    /// To each way out, with the level it leaves (0 for `discard`: every level).
+    out: Vec<(u16, u64)>,
+    /// The line of a loop no pixel can leave, if there is one on the way.
+    endless: Option<u32>,
+}
+
+impl Least {
+    /// The least of all, whichever way a pixel goes.
+    fn least(&self) -> u64 {
+        let out = self.out.iter().map(|&(_, work)| work);
+        self.through.into_iter().chain(out).min().unwrap_or(0)
+    }
+
+    /// Takes in a part that starts once `done` work is done: its ways out are carried up, and
+    /// the least work to its end is returned (`None`: nothing gets through it).
+    fn part(&mut self, done: u64, part: Least) -> Option<u64> {
+        self.endless = self.endless.or(part.endless);
+        for (to, work) in part.out {
+            self.out.push((to, done.saturating_add(work)));
+        }
+        part.through
+    }
+}
+
+/// The least work any pixel does running `block` at level `lvl`, from how the program is
+/// written alone: every `if` takes its cheaper side, a loop whose turns can be counted
+/// ([`Loop::turns`]) and that nothing leaves early takes them all, and any other loop takes
+/// none. A lower bound, so that what it refuses could never have finished.
+fn least(block: &Block, lvl: u16) -> Least {
+    let mut done = u64::from(block.cost);
+    let mut found = Least::default();
+    for node in &block.nodes {
+        match node {
+            Code::If { then, otherwise, .. } => {
+                let then = found.part(done, least(then, lvl + 1));
+                let otherwise = found.part(done, least(otherwise, lvl + 1));
+                match then.into_iter().chain(otherwise).min() {
+                    Some(least) => done = done.saturating_add(least),
+                    None => return found,
+                }
+            }
+            Code::Call(body) => {
+                let mut call = least(body, lvl + 1);
+                // A `return` leaves the call and carries on here.
+                let returns = call.out.iter().filter(|o| o.0 == lvl + 1).map(|o| o.1).min();
+                call.out.retain(|o| o.0 != lvl + 1);
+                let through = found.part(done, call);
+                match through.into_iter().chain(returns).min() {
+                    Some(least) => done = done.saturating_add(least),
+                    None => return found,
+                }
+            }
+            Code::Loop(l) => {
+                let (live, body) = (lvl + 1, lvl + 2);
+                let Some(init) = found.part(done, least(&l.init, live)) else {
+                    return found;
+                };
+                done = done.saturating_add(init);
+                let Some(test) = found.part(done, least(&l.test, live)) else {
+                    return found;
+                };
+                let mut turn = least(&l.body, body);
+                let leaves = turn.out.iter().any(|o| o.0 == live);
+                let goes_on = turn.out.iter().filter(|o| o.0 == body).map(|o| o.1).min();
+                turn.out.retain(|o| o.0 < live);
+                let escapes = !turn.out.is_empty();
+                // A pixel that leaves does so, at the soonest, in the first turn.
+                let first = match l.body_first {
+                    true => done,
+                    false => done.saturating_add(test),
+                };
+                let body_through = found.part(first.saturating_add(1), turn);
+                let step = found.part(first, least(&l.step, live));
+                let each = body_through
+                    .into_iter()
+                    .chain(goes_on)
+                    .min()
+                    .zip(step)
+                    .map(|(body, step)| {
+                        1u64.saturating_add(body)
+                            .saturating_add(step)
+                            .saturating_add(test)
+                    });
+                match (l.cond.is_some(), leaves, l.turns, each) {
+                    // Nothing asks it to stop and nothing leaves it.
+                    (false, false, _, _) => {
+                        if !escapes {
+                            found.endless = found.endless.or(Some(l.line));
+                        }
+                        return found;
+                    }
+                    (true, false, Some(turns), Some(each)) if !l.body_first => {
+                        done = first.saturating_add(each.saturating_mul(u64::from(turns)));
+                    }
+                    _ => done = first,
+                }
+            }
+            Code::Break { lvl: to } | Code::Continue { lvl: to } | Code::Return { lvl: to } => {
+                found.out.push((*to, done));
+                return found;
+            }
+            Code::Discard => {
+                found.out.push((0, done));
+                return found;
+            }
+            Code::Ins(_) | Code::Store { .. } | Code::Load { .. } | Code::StoreAt { .. } => {}
+        }
+    }
+    found.through = Some(done);
+    found
 }
 
 /// Moves the constants' slots to follow the `slots` others.

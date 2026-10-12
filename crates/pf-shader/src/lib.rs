@@ -1,8 +1,17 @@
-//! A spike: fragment shader files run on the CPU.
+//! Fragment shader files run on the CPU.
 //!
 //! A shader file is a GLSL fragment shader with a JSON header in a comment that declares its
 //! inputs (the Interactive Shader Format). [`Program::compile`] reads one; a [`Machine`] runs it
 //! for a batch of pixels at a time, each instruction working along the whole batch.
+//!
+//! The reader is PixelFlow's own: a lexer and preprocessor ([`lex`]), a parser ([`parse`]), and
+//! a type check that writes the program out as instructions with every call expanded in place
+//! ([`lower`]). What it reads is the GLSL that shaders for lights are written in: scalars,
+//! vectors, and square matrices of floats, whole numbers, and truths; arrays of them; functions
+//! (`out` and `inout` arguments among them), `if`, loops, `break`, `continue`, `return`, and
+//! `discard`; `#define` and `#if`; and the built-in functions that work on numbers. Structures,
+//! pictures (`texture2D`, `IMG_PIXEL`), and how a value changes from pixel to pixel (`dFdx`)
+//! are refused by name.
 //!
 //! What a pixel comes out as depends only on the program, the inputs, and that pixel's place:
 //! never on the pixels drawn beside it, the thread, or the computer. The arithmetic is IEEE
@@ -12,7 +21,9 @@
 //!
 //! A shader is a program from a file, so nothing in it is trusted. It can't read or write
 //! anything but its own variables; its size, its nesting, its memory, and the work it does for a
-//! pixel are all capped (see [`Limits`]); recursion is refused; and no input makes it panic.
+//! pixel and for a frame are all capped (see [`Limits`]), by counting and never by the clock, so
+//! a shader that is stopped is stopped at the same place every time; recursion is refused, and
+//! so is a loop nothing can leave; and no input makes it panic.
 
 mod ast;
 mod isf;
@@ -22,14 +33,14 @@ pub mod math;
 mod parse;
 mod vm;
 
-pub use isf::{Header, Input, InputKind};
+pub use isf::{Header, Input, InputKind, MAX_CHOICES, MAX_INPUTS};
+pub use lower::Program;
+pub use vm::{Machine, RunStats, Uniforms};
 
 /// What a shader file says about itself, without reading the shader that follows.
 pub fn read_header(source: &str) -> Result<Header, Error> {
     isf::header(source)
 }
-pub use lower::Program;
-pub use vm::{Machine, RunStats, Uniforms};
 
 /// Why a shader file can't be used.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -75,12 +86,23 @@ pub struct Limits {
     pub slots: usize,
     /// Elements in one array.
     pub array_len: u32,
-    /// Instructions run for one pixel in one frame. A pixel that reaches it stops and comes out
-    /// clear.
+    /// Work done for one pixel in one frame: each instruction it runs counts for about what it
+    /// costs beside an addition (a sine for twelve). A pixel that reaches it stops and comes out
+    /// clear, and a shader that does more than this for every pixel is refused when it's read.
     pub work: u32,
+    /// Work done for all the pixels of one frame of one effect. Where there are so many pixels
+    /// that `work` each would pass it, each may do less (see [`Program::work_for`]).
+    pub frame_work: u64,
 }
 
 impl Default for Limits {
+    /// The limits PixelFlow reads and runs shader files under.
+    ///
+    /// The two on work bound the time a frame can take whatever the file says. Measured on one
+    /// thread of an M-series laptop, the dearest work there is costs about a quarter of a
+    /// nanosecond a unit, so no frame of one effect takes longer than about 150 ms, and one on
+    /// a few thousand pixels no longer than about 50 ms a thousand; a shader written to be
+    /// drawn costs a small part of that (see `docs/benchmarks.md`).
     fn default() -> Self {
         Self {
             source_bytes: 256 * 1024,
@@ -89,7 +111,8 @@ impl Default for Limits {
             instructions: 200_000,
             slots: 16_384,
             array_len: 1024,
-            work: 400_000,
+            work: 200_000,
+            frame_work: 600_000_000,
         }
     }
 }

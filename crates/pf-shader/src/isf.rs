@@ -5,9 +5,16 @@ use crate::Error;
 use serde_json::Value;
 
 /// Most inputs one shader declares.
-const MAX_INPUTS: usize = 64;
+pub const MAX_INPUTS: usize = 64;
 /// Most choices one input offers.
-const MAX_CHOICES: usize = 256;
+pub const MAX_CHOICES: usize = 256;
+/// Most characters kept of a description, a credit, and a label.
+const MAX_DESCRIPTION: usize = 1000;
+const MAX_CREDIT: usize = 200;
+const MAX_LABEL: usize = 100;
+/// The furthest from zero a number in a header may be: far past any range a shader has a use
+/// for, and small enough that arithmetic on two of them stays a number.
+const MOST: f32 = 1.0e9;
 
 /// What a shader file says about itself.
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -17,10 +24,42 @@ pub struct Header {
     pub inputs: Vec<Input>,
     /// Passes it asks to be drawn in (0: one, straight to the picture).
     pub passes: usize,
+    /// Whether any pass draws to a picture of its own for a later pass to read.
+    pub targets: bool,
     /// Whether any pass keeps its picture from one frame to the next.
     pub persistent: bool,
     /// Whether it brings picture files of its own.
     pub imported: bool,
+}
+
+impl Header {
+    /// What the shader needs that PixelFlow doesn't give a shader yet, in plain words (`None`:
+    /// nothing). Such a shader is refused, not drawn without it.
+    pub fn unsupported(&self) -> Option<String> {
+        if self.persistent {
+            return Some(
+                "it keeps its picture from one frame to the next (a persistent buffer), which isn't supported yet"
+                    .into(),
+            );
+        }
+        if self.passes > 1 || self.targets {
+            return Some("it draws in several passes (PASSES), which isn't supported yet".into());
+        }
+        if self.imported {
+            return Some("it brings picture files of its own (IMPORTED), which isn't supported yet".into());
+        }
+        self.inputs.iter().find_map(|input| {
+            let what = match input.kind {
+                InputKind::Image => "a picture (an image input)",
+                InputKind::Audio | InputKind::AudioFft => "the music (an audio input)",
+                _ => return None,
+            };
+            Some(format!(
+                "its input \"{}\" is {what}, which isn't supported yet",
+                input.name
+            ))
+        })
+    }
 }
 
 /// One input a shader declares.
@@ -72,7 +111,7 @@ fn number(value: Option<&Value>) -> Option<f32> {
         Value::String(s) => s.trim().parse::<f64>().ok()?,
         _ => return None,
     };
-    n.is_finite().then_some(n as f32)
+    n.is_finite().then_some((n as f32).clamp(-MOST, MOST))
 }
 
 fn numbers<const N: usize>(value: Option<&Value>) -> Option<[f32; N]> {
@@ -84,12 +123,10 @@ fn numbers<const N: usize>(value: Option<&Value>) -> Option<[f32; N]> {
     Some(out)
 }
 
-fn text(value: Option<&Value>) -> String {
-    value
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .trim()
-        .to_string()
+/// A JSON string, trimmed, and at most `most` characters of it.
+fn text(value: Option<&Value>, most: usize) -> String {
+    let text = value.and_then(Value::as_str).unwrap_or_default().trim();
+    text.chars().take(most).collect()
 }
 
 /// The header comment's JSON, if the file has one.
@@ -115,15 +152,21 @@ pub(crate) fn header(source: &str) -> Result<Header, Error> {
     let root: Value = serde_json::from_str(json)
         .map_err(|e| Error::new(0, format!("its header isn't valid JSON ({e})")))?;
     let mut header = Header {
-        description: text(root.get("DESCRIPTION")),
-        credit: text(root.get("CREDIT")),
+        description: text(root.get("DESCRIPTION"), MAX_DESCRIPTION),
+        credit: text(root.get("CREDIT"), MAX_CREDIT),
         ..Header::default()
     };
     if let Some(passes) = root.get("PASSES").and_then(Value::as_array) {
+        // `"PERSISTENT": false` says nothing is kept, as leaving it out does.
+        let set = |pass: &Value, key: &str| {
+            pass.get(key)
+                .is_some_and(|v| !v.is_null() && v.as_bool() != Some(false))
+        };
         header.passes = passes.len();
-        header.persistent = passes.iter().any(|p| p.get("PERSISTENT").is_some());
+        header.targets = passes.iter().any(|p| set(p, "TARGET"));
+        header.persistent = passes.iter().any(|p| set(p, "PERSISTENT"));
     }
-    header.persistent |= root.get("PERSISTENT_BUFFERS").is_some();
+    header.persistent |= root.get("PERSISTENT_BUFFERS").is_some_and(|v| !v.is_null());
     header.imported = root.get("IMPORTED").is_some_and(|v| !v.is_null());
     let inputs = root.get("INPUTS").and_then(Value::as_array);
     for item in inputs.into_iter().flatten() {
@@ -133,8 +176,9 @@ pub(crate) fn header(source: &str) -> Result<Header, Error> {
                 format!("it declares more than {MAX_INPUTS} inputs"),
             ));
         }
-        let name = text(item.get("NAME"));
+        let name = text(item.get("NAME"), MAX_LABEL + 1);
         let plain = !name.is_empty()
+            && name.len() <= MAX_LABEL
             && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
             && !name.starts_with(|c: char| c.is_ascii_digit());
         if !plain {
@@ -143,12 +187,12 @@ pub(crate) fn header(source: &str) -> Result<Header, Error> {
                 format!("an input's name isn't a name (\"{name}\")"),
             ));
         }
-        let kind = match text(item.get("TYPE")).to_ascii_lowercase().as_str() {
+        let kind = match text(item.get("TYPE"), MAX_LABEL).to_ascii_lowercase().as_str() {
             "float" => {
                 let min = number(item.get("MIN")).unwrap_or(0.0);
                 let max = number(item.get("MAX")).unwrap_or(1.0);
                 let (min, max) = if min <= max { (min, max) } else { (max, min) };
-                let default = number(item.get("DEFAULT")).unwrap_or(min);
+                let default = number(item.get("DEFAULT")).unwrap_or(min).clamp(min, max);
                 InputKind::Float { min, max, default }
             }
             "bool" => InputKind::Bool {
@@ -169,22 +213,36 @@ pub(crate) fn header(source: &str) -> Result<Header, Error> {
                     .into_iter()
                     .flatten()
                     .take(MAX_CHOICES)
-                    .map(|v| v.as_str().unwrap_or_default().to_string())
+                    .map(|v| text(Some(v), MAX_LABEL))
                     .collect();
-                let default = number(item.get("DEFAULT")).map_or(0, |n| n as i32);
+                // The first choice, when the file's own isn't one of them.
+                let default = number(item.get("DEFAULT"))
+                    .map(|n| n as i32)
+                    .filter(|n| values.is_empty() || values.contains(n))
+                    .or(values.first().copied())
+                    .unwrap_or(0);
                 InputKind::Long {
                     values,
                     labels,
                     default,
                 }
             }
-            "point2d" => InputKind::Point {
-                min: numbers(item.get("MIN")).unwrap_or([0.0, 0.0]),
-                max: numbers(item.get("MAX")).unwrap_or([1.0, 1.0]),
-                default: numbers(item.get("DEFAULT")).unwrap_or([0.0, 0.0]),
-            },
+            "point2d" => {
+                let a: [f32; 2] = numbers(item.get("MIN")).unwrap_or([0.0, 0.0]);
+                let b: [f32; 2] = numbers(item.get("MAX")).unwrap_or([1.0, 1.0]);
+                let min = [a[0].min(b[0]), a[1].min(b[1])];
+                let max = [a[0].max(b[0]), a[1].max(b[1])];
+                let at: [f32; 2] = numbers(item.get("DEFAULT")).unwrap_or(min);
+                InputKind::Point {
+                    min,
+                    max,
+                    default: [at[0].clamp(min[0], max[0]), at[1].clamp(min[1], max[1])],
+                }
+            }
             "color" => InputKind::Color {
-                default: numbers(item.get("DEFAULT")).unwrap_or([1.0, 1.0, 1.0, 1.0]),
+                default: numbers(item.get("DEFAULT"))
+                    .unwrap_or([1.0, 1.0, 1.0, 1.0])
+                    .map(|v: f32| v.clamp(0.0, 1.0)),
             },
             "event" => InputKind::Event,
             "image" => InputKind::Image,
@@ -200,7 +258,7 @@ pub(crate) fn header(source: &str) -> Result<Header, Error> {
         if header.inputs.iter().any(|i| i.name == name) {
             return Err(Error::new(0, format!("two inputs are called \"{name}\"")));
         }
-        let label = text(item.get("LABEL"));
+        let label = text(item.get("LABEL"), MAX_LABEL);
         header.inputs.push(Input {
             label: if label.is_empty() { name.clone() } else { label },
             name,
@@ -245,7 +303,7 @@ void main() {}"#;
             h.inputs[2].kind,
             InputKind::Long {
                 values: vec![0, 5],
-                labels: vec!["One".into(), "Two ".into()],
+                labels: vec!["One".into(), "Two".into()],
                 default: 5
             }
         );
@@ -264,6 +322,56 @@ void main() {}"#;
             }
         );
         assert_eq!((h.passes, h.persistent, h.imported), (0, false, false));
+        assert_eq!(h.unsupported(), None);
+    }
+
+    #[test]
+    fn defaults_outside_their_range_and_absurd_numbers_are_brought_inside() {
+        let h = header(
+            r#"/*{"INPUTS":[
+                {"NAME":"a","TYPE":"float","MIN":2,"MAX":1,"DEFAULT":9},
+                {"NAME":"b","TYPE":"float","MIN":-1e30,"MAX":1e30},
+                {"NAME":"c","TYPE":"long","VALUES":[3,4],"LABELS":["x","y"],"DEFAULT":7},
+                {"NAME":"d","TYPE":"point2D","MIN":[1,1],"MAX":[0,0],"DEFAULT":[5,-5]},
+                {"NAME":"e","TYPE":"color","DEFAULT":[2,-1,0.5,1]}
+            ]}*/"#,
+        )
+        .unwrap();
+        let kinds: Vec<&InputKind> = h.inputs.iter().map(|i| &i.kind).collect();
+        assert_eq!(
+            *kinds[0],
+            InputKind::Float {
+                min: 1.0,
+                max: 2.0,
+                default: 2.0
+            }
+        );
+        assert_eq!(
+            *kinds[1],
+            InputKind::Float {
+                min: -1.0e9,
+                max: 1.0e9,
+                default: -1.0e9
+            }
+        );
+        assert!(matches!(kinds[2], InputKind::Long { default: 3, .. }));
+        assert_eq!(
+            *kinds[3],
+            InputKind::Point {
+                min: [0.0, 0.0],
+                max: [1.0, 1.0],
+                default: [1.0, 0.0]
+            }
+        );
+        assert_eq!(
+            *kinds[4],
+            InputKind::Color {
+                default: [1.0, 0.0, 0.5, 1.0]
+            }
+        );
+        // A description is kept to a length a panel can show.
+        let long = format!(r#"/*{{"DESCRIPTION":"{}"}}*/"#, "x".repeat(5000));
+        assert_eq!(header(&long).unwrap().description.len(), 1000);
     }
 
     #[test]
@@ -286,5 +394,16 @@ void main() {}"#;
         )
         .unwrap();
         assert_eq!((h.passes, h.persistent, h.imported), (2, true, true));
+        assert!(h.unsupported().unwrap().contains("from one frame to the next"));
+        // Each thing a shader can need that isn't given yet is named.
+        let need = |json: &str| header(json).unwrap().unsupported().unwrap_or_default();
+        assert!(need(r#"/*{"PASSES":[{"TARGET":"a"},{}]}*/"#).contains("several passes"));
+        assert!(need(r#"/*{"PASSES":[{"TARGET":"a"}]}*/"#).contains("several passes"));
+        assert!(need(r#"/*{"IMPORTED":{"x":{"PATH":"x.png"}}}*/"#).contains("picture files of its own"));
+        assert!(need(r#"/*{"INPUTS":[{"NAME":"in","TYPE":"image"}]}*/"#).contains("\"in\" is a picture"));
+        assert!(need(r#"/*{"INPUTS":[{"NAME":"fft","TYPE":"audioFFT"}]}*/"#).contains("the music"));
+        // One pass straight to the picture is no different from none.
+        assert_eq!(need(r#"/*{"PASSES":[{}]}*/"#), "");
+        assert_eq!(need(r#"/*{"PASSES":[{"PERSISTENT":false}]}*/"#), "");
     }
 }

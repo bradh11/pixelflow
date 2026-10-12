@@ -227,8 +227,9 @@ are merged, and the [code of conduct](CODE_OF_CONDUCT.md) for how we treat each 
 PixelFlow is free, and every feature is for everyone. If it is useful to you and you would like
 to help with what it costs to make, there are two places to look: the **Sponsor** button at the
 top of the [project's GitHub page](https://github.com/bradh11/pixelflow), and **Support
-PixelFlow** in the app (under **Settings**, in **About**). Each lists the ways to give that are
-set up. If you see neither, none is set up yet, and there is nothing to do.
+PixelFlow** in the app (in **About**: on the start page, in **Settings**, in the command palette,
+and in the PixelFlow menu on macOS). Each lists the ways to give that are set up, and opens the
+one you pick in your web browser. If you see neither, none is set up yet.
 
 A donation is a gift. It buys no licence, no extra feature, and no support contract. Reporting
 a bug, sharing a show that imports badly, or improving these pages helps just as much.

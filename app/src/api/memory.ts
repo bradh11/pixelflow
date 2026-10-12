@@ -45,6 +45,7 @@ import type {
   FilesFound,
   HistoryEntry,
   MenuAction,
+  ProjectLink,
   MissingFile,
   OutputStatus,
   PatternSpec,
@@ -918,6 +919,10 @@ export class MemoryBackend implements Backend {
   async openDevicePage(address: string, page?: "about.php") {
     this.calls.push(page ? `openDevicePage:${address}:${page}` : `openDevicePage:${address}`);
     this.openUrl?.(`http://${address}/${page ?? ""}`);
+  }
+
+  async openProjectLink(link: ProjectLink) {
+    this.calls.push(`openProjectLink:${link}`);
   }
 
   /** The fake FPP's music, playlists (sequence files on each), free space (null when it doesn't

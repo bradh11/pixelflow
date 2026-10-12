@@ -344,8 +344,9 @@ fn every_call_names_a_command_and_its_parameters() {
 }
 
 /// Commands that can't be run even against fakes, and why. Their names are still checked.
-const NOT_RUN: [(&str, &str); 3] = [
+const NOT_RUN: [(&str, &str); 4] = [
     ("open_device_page", "opens the system's browser"),
+    ("open_project_link", "opens the system's browser, or a text file"),
     ("download_alignment_models", "downloads from the internet"),
     (
         "video_export_choices",

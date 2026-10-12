@@ -88,10 +88,7 @@ fn lists_music_with_its_play_time_and_playlists_with_their_items() {
             .iter()
             .map(|f| (f.name.as_str(), f.duration_ms))
             .collect::<Vec<_>>(),
-        vec![
-            ("Chimes Medley 2020.mp3", Some(371_000)),
-            ("Wizards.mp3", None)
-        ]
+        vec![("Chimes Medley 2020.mp3", Some(371_000)), ("Wizards.mp3", None)]
     );
     let playlists = fpp_info::list(&client(), fpp.address(), FppFolder::Playlists).unwrap();
     assert_eq!(playlists.len(), 1);

@@ -485,10 +485,7 @@ mod tests {
         let mut moved = stored.clone();
         moved.resolve_paths(Path::new("/Users/me/Shows/Home"));
         let to = "/Users/me/Shows/Home";
-        assert_eq!(
-            moved.sequences[0].path,
-            below(to, &["Chimes Medley 2020.fseq"])
-        );
+        assert_eq!(moved.sequences[0].path, below(to, &["Chimes Medley 2020.fseq"]));
         assert_eq!(
             moved.sequences[0].audio,
             Some(below(to, &["MP3 Music", "Chimes Medley 2020.mp3"]))

@@ -101,11 +101,7 @@ fn names_match_ignoring_case_and_spaces_and_prefer_the_same_pixel_count() {
                 "pylon  right".into(),
                 MatchReason::SameName
             ),
-            (
-                "port2/string1".into(),
-                "Pylon Left".into(),
-                MatchReason::SameName
-            ),
+            ("port2/string1".into(), "Pylon Left".into(), MatchReason::SameName),
             (
                 "port4/string1".into(),
                 "Roof Gate".into(),
@@ -130,10 +126,6 @@ fn no_prop_is_suggested_for_two_strings() {
     show.controllers.push(controller);
     assert_eq!(
         suggested(&show, &device, &config),
-        [(
-            "port1/string1".into(),
-            "Pylon Left".into(),
-            MatchReason::SamePort
-        )]
+        [("port1/string1".into(), "Pylon Left".into(), MatchReason::SamePort)]
     );
 }

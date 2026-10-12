@@ -14,6 +14,7 @@ mod fpp_download;
 mod fpp_send;
 mod house;
 mod layout;
+mod links;
 mod logging;
 mod lyrics;
 mod menu;
@@ -2228,6 +2229,15 @@ mod tests {
         )
         .unwrap_err();
         assert_eq!(error, json!("api/system/status isn't a page PixelFlow opens."));
+    }
+
+    #[test]
+    fn the_window_can_only_name_a_project_link_never_give_an_address() {
+        let (_app, webview, _dir) = app();
+        for link in ["https://example.com/give", "file:///etc/passwd", "donate", ""] {
+            let error = call(&webview, "open_project_link", json!({ "link": link })).unwrap_err();
+            assert_eq!(error, json!(format!("{link} isn't a link PixelFlow opens.")));
+        }
     }
 
     #[test]

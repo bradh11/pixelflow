@@ -591,6 +591,15 @@
       "command": "open_device_page",
       "args": { "address": "192.0.2.10", "page": "about.php" }
     },
+    { "api": "backend.openProjectLink", "command": "open_project_link", "args": { "link": "source" } },
+    { "api": "backend.openProjectLink", "command": "open_project_link", "args": { "link": "xlights" } },
+    { "api": "backend.openProjectLink", "command": "open_project_link", "args": { "link": "licence" } },
+    { "api": "backend.openProjectLink", "command": "open_project_link", "args": { "link": "credits" } },
+    { "api": "backend.openProjectLink", "command": "open_project_link", "args": { "link": "notices" } },
+    { "api": "backend.openProjectLink", "command": "open_project_link", "args": { "link": "githubSponsors" } },
+    { "api": "backend.openProjectLink", "command": "open_project_link", "args": { "link": "koFi" } },
+    { "api": "backend.openProjectLink", "command": "open_project_link", "args": { "link": "buyMeACoffee" } },
+    { "api": "backend.openProjectLink", "command": "open_project_link", "args": { "link": "payPal" } },
     {
       "api": "backend.fppSequenceNames",
       "command": "fpp_sequence_names",

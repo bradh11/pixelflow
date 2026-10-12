@@ -11,10 +11,7 @@ fn status_reports_what_is_playing_and_whats_next() {
     assert_eq!(status.playlist.as_deref(), Some("Chimes Medley 2020.fseq"));
     assert_eq!(status.sequence.as_deref(), Some("Chimes Medley 2020.fseq"));
     assert_eq!((status.seconds_elapsed, status.seconds_remaining), (109, 456));
-    assert_eq!(
-        status.next_playlist.as_deref(),
-        Some("Chimes Medley 2020.fseq")
-    );
+    assert_eq!(status.next_playlist.as_deref(), Some("Chimes Medley 2020.fseq"));
     assert_eq!(
         status.next_start.as_deref(),
         Some("Mon Oct  5 @ 06:48 PM - (Everyday)")

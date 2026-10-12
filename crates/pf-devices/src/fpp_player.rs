@@ -181,10 +181,7 @@ mod tests {
 
     #[test]
     fn segments_are_percent_encoded() {
-        assert_eq!(
-            encode_segment("Chimes Medley 2020"),
-            "Chimes%20Medley%202020"
-        );
+        assert_eq!(encode_segment("Chimes Medley 2020"), "Chimes%20Medley%202020");
         assert_eq!(encode_segment("a/b?c#d&é"), "a%2Fb%3Fc%23d%26%C3%A9");
         assert_eq!(encode_segment("Show_1.fseq"), "Show_1.fseq");
     }

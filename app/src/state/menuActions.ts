@@ -1,7 +1,8 @@
-// What the File menu in the menu bar does, and the save it shares with ⌘S: the same store
+// What the menu bar's items do, and the save the File menu shares with ⌘S: the same store
 // actions as the show menu and the shortcuts, so each asks about unsaved work the same way.
 
 import type { MenuAction } from "../api/types";
+import { useAbout } from "./about";
 import { isBusyOrAsking, requestWindowClose } from "./busy";
 import { saveSequenceAndShow } from "./saveAll";
 import { useSequencer } from "./sequencer";
@@ -102,8 +103,15 @@ export async function closeWindow(): Promise<void> {
   if (requestWindowClose()) await useApp.getState().backend?.closeWindow();
 }
 
-/** Runs a File menu item chosen in the menu bar. */
+/** Runs an item chosen in the menu bar. */
 export async function runMenuAction(action: MenuAction): Promise<void> {
+  if (action.action === "about" || action.action === "support") {
+    // The app's own panel: one swaps for the other while it is up, and it waits behind any
+    // other dialog or question.
+    const about = useAbout.getState();
+    if (about.open !== null || !isBusyOrAsking()) about.show(action.action);
+    return;
+  }
   if (action.action === "undo" || action.action === "redo") {
     // Edit → Undo / Redo (and ⌘Z / ⇧⌘Z the window left alone): a text field's own undo while
     // one is being typed in, else the show's or the sequence's.

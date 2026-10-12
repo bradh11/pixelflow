@@ -138,9 +138,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let sequence = dir.path().join("Home 2024/Chimes Medley 2020.fseq");
         touch(&sequence);
-        let song = dir
-            .path()
-            .join("Home 2024/MP3 Music/Chimes Medley 2020.mp3");
+        let song = dir.path().join("Home 2024/MP3 Music/Chimes Medley 2020.mp3");
         touch(&song);
         let media = "/Users/someone/Documents/xlights/sequences/Home 2024/MP3 Music/Chimes Medley 2020.mp3";
         assert_eq!(find_audio(&sequence, Some(media)), Some(song.clone()));

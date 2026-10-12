@@ -85,10 +85,7 @@ fn files_in_the_show_folder_are_saved_relative_and_opened_in_full() {
     assert_eq!(json["schemaVersion"], pf_model::CURRENT_SCHEMA_VERSION);
     assert_eq!(json["savedIn"], text(&f.root));
     assert_eq!(json["sequences"][0]["path"], "Chimes Medley 2020.fseq");
-    assert_eq!(
-        json["sequences"][0]["audio"],
-        "MP3 Music/Chimes Medley 2020.mp3"
-    );
+    assert_eq!(json["sequences"][0]["audio"], "MP3 Music/Chimes Medley 2020.mp3");
     assert_eq!(json["background"]["path"], "photos/house.jpg");
     let model = f.root.parent().unwrap().join("Models").join("house.glb");
     assert_eq!(
@@ -202,10 +199,7 @@ fn missing_files_are_listed_plainly() {
     assert_eq!(missing.len(), 2, "{missing:?}");
     assert_eq!(missing[0].file, FileRole::Music { id: entry.id });
     assert_eq!(missing[0].name, "Chimes Medley 2020.mp3");
-    assert_eq!(
-        missing[0].message,
-        "Chimes Medley 2020.mp3 isn't where it was."
-    );
+    assert_eq!(missing[0].message, "Chimes Medley 2020.mp3 isn't where it was.");
     assert_eq!(missing[0].owner, "Music for Medley");
     assert_eq!(missing[0].was_at, missing[0].path, "nothing better known");
     assert_eq!(missing[1].file, FileRole::Photo);

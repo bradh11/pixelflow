@@ -43,6 +43,9 @@ struct Written {
     effects: usize,
     measured: Counts,
     measured_alone: Counts,
+    /// Scorecards from before looks that say too little were set apart have none.
+    #[serde(default)]
+    says_little: usize,
     score: Option<f64>,
 }
 
@@ -66,6 +69,9 @@ pub struct Row {
     pub effects: usize,
     pub measured: ByVerdict<usize>,
     pub measured_alone: ByVerdict<usize>,
+    /// Effects measured and not judged, for a look that says too little: nothing is held
+    /// against the table for them, and nothing for it.
+    pub says_little: usize,
     pub score: Option<f64>,
 }
 
@@ -83,6 +89,7 @@ pub fn read(json: &str) -> Result<Vec<Row>, serde_json::Error> {
             effects: row.effects,
             measured: row.measured.into(),
             measured_alone: row.measured_alone.into(),
+            says_little: row.says_little,
             score: row.score,
         })
         .collect())
@@ -166,15 +173,15 @@ pub fn markdown(checked: &[Checked]) -> String {
     );
     let _ = writeln!(
         out,
-        "| | Effect | The importer noted | Table says | Earned | Effects | Judged | Judged alone | Look |"
+        "| | Effect | The importer noted | Table says | Earned | Effects | Judged | Judged alone | Say little | Look |"
     );
-    let _ = writeln!(out, "|---|---|---|---|---|---|---|---|---|");
+    let _ = writeln!(out, "|---|---|---|---|---|---|---|---|---|---|");
     let mut ordered: Vec<&Checked> = checked.iter().collect();
     ordered.sort_by_key(|c| !c.disagrees());
     for c in ordered {
         let _ = writeln!(
             out,
-            "| {} | {} | {} | {} | {} | {} | {} | {} | {} |",
+            "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
             if c.disagrees() { "✗" } else { "" },
             c.row.kind.replace('|', "\\|"),
             if c.row.notes.is_empty() {
@@ -190,6 +197,7 @@ pub fn markdown(checked: &[Checked]) -> String {
             c.row.effects,
             counts(&c.row.measured),
             counts(&c.row.measured_alone),
+            c.row.says_little,
             c.row.score.map_or_else(|| "–".to_string(), |s| format!("{s:.0}")),
         );
     }
@@ -214,6 +222,7 @@ mod tests {
             effects: all.iter().sum(),
             measured: by(all),
             measured_alone: by(alone),
+            says_little: 0,
             score: Some(90.0),
         }
     }
@@ -282,5 +291,28 @@ mod tests {
             (Verdict::Close, Some(Verdict::Close))
         );
         assert!(read("{}").is_err());
+    }
+
+    #[test]
+    fn an_effect_whose_look_says_too_little_is_held_against_nothing() {
+        // One Fireworks, measured, with a look that says too little: it earned nothing, so the
+        // table is neither borne out nor contradicted, and the row says why.
+        let json = r#"{ "schema": 4, "labels": { "judged": 0, "agree": 0, "rows": [
+            { "kind": "Fireworks", "notes": [], "expected": "matches", "effects": 1,
+              "measured": { "matches": 0, "close": 0, "different": 0, "noEquivalent": 0 },
+              "measuredAlone": { "matches": 0, "close": 0, "different": 0, "noEquivalent": 0 },
+              "saysLittle": 1, "score": null } ] } }"#;
+        let rows = read(json).unwrap();
+        assert_eq!((rows[0].says_little, rows[0].score), (1, None));
+        let checked = check(&rows);
+        assert_eq!(
+            (checked[0].table, checked[0].earned, checked[0].disagrees()),
+            (Verdict::Matches, None, false)
+        );
+        let text = markdown(&checked);
+        assert!(
+            text.contains("| Fireworks | – | Matches | – | 1 | 0 / 0 / 0 / 0 | 0 / 0 / 0 / 0 | 1 | – |"),
+            "{text}"
+        );
     }
 }

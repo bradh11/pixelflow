@@ -1099,9 +1099,10 @@ fn fireworks_are_fireworks_and_burst_on_their_timing_track() {
         fireworks.iter().map(|p| p.timing_track).collect::<Vec<_>>(),
         [None, Some(beats), None, None]
     );
-    // The one on its track is expected to look the same; the others say why they won't.
-    assert_eq!((i.summary.exact, i.summary.approximate), (1, 3));
-    assert_note(&i, "bursts go off at other random moments than xLights' (1)");
+    // The one that bursts at random moments, as xLights' does, and the one on its track are
+    // expected to look the same; the two whose track can't be used say why they won't.
+    assert_eq!((i.summary.exact, i.summary.approximate), (2, 2));
+    assert!(!has_note(&i, "other random moments"), "{:#?}", i.notes);
     assert_note(
         &i,
         "its timing track has more than one layer, so bursts go off at random moments (1)",

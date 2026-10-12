@@ -5,8 +5,9 @@
 //! same channel space, read back pixel by pixel through one table ([`Slot`]): what is compared is
 //! what PixelFlow would write against what xLights wrote, channel for channel.
 
+use crate::chance::{self, Chance};
 use crate::layout::{ComparisonShow, comparison_show};
-use crate::look::{Grid, Look, LookStats, Scratch};
+use crate::look::{Grid, Look, LookStats, Parts, Scratch, next_to_seeds};
 use crate::metrics::{Limits, PIXELFLOW, Sample, Stats, XLIGHTS};
 use crate::scorecard::{
     AuditLimits, Class, Coverage, EffectScore, Gap, Label, Method, Music, OffsetError, Onset, PropScore,
@@ -46,6 +47,11 @@ const STOCHASTIC: [&str; 14] = [
 /// An effect whose sparkles alone can change more than this share of its lit pixels is compared
 /// as a stochastic one.
 const MOSTLY_SPARKLES: f64 = 0.15;
+/// How many more times PixelFlow renders a sequence, each from other seeds, to see what chance
+/// does to the effects that draw on it. One would say how far chance moved an effect between
+/// two renders, which may be the two that happen to be most alike; two give three pairs to take
+/// the least alike of. Each one more is steadier, and takes as long again to render and read.
+pub const OTHER_SEEDS: u32 = 2;
 /// Frames either side of each frame the timing check tries.
 const OFFSETS: i64 = 2;
 /// Most frames the timing check reads the neighbors of.
@@ -73,6 +79,13 @@ pub struct Options {
     pub skip_music: bool,
     /// What the scorecard calls the sequence (its file's name otherwise).
     pub label: Option<String>,
+    /// Judges every effect moment by moment against xLights' render alone, whatever chance
+    /// decides in it: the numbers from before effects that draw on chance were held against
+    /// PixelFlow's own renders from other seeds.
+    pub by_moment: bool,
+    /// How many more renders from other seeds to hold such effects against ([`OTHER_SEEDS`]
+    /// when `None`).
+    pub seeds: Option<u32>,
 }
 
 /// Where a pixel's channels are in both files.
@@ -113,6 +126,12 @@ pub struct EffectEntry {
     pub class_reason: Option<String>,
     /// The share of its lit pixels that random sparkles may make differ.
     pub sparkles: f64,
+    /// What chance decides in it, and so how its look is compared.
+    pub chance: Chance,
+    pub chance_reason: Option<&'static str>,
+    /// Another effect that draws on chance plays on some of its pixels while it does: the
+    /// picture there changes from seed to seed, whatever this effect draws.
+    pub shares_chance: bool,
     pub start_ms: u64,
     pub end_ms: u64,
     /// The row's layer, counting from the bottom.
@@ -142,6 +161,10 @@ struct LeftOut {
 /// list), and where each of those is on the target's own grid.
 type TargetPixels = (usize, Rc<[u32]>, Rc<Grid>);
 
+/// One pair of renders over an effect's pixel-frames, alone and layered: the look moment by
+/// moment and the parts to hold against other pairs, where there were frames to look at.
+type Looked = [Option<(Look, Parts)>; 2];
+
 /// Both renderings, open and lined up.
 pub struct Prepared {
     options: Options,
@@ -150,6 +173,8 @@ pub struct Prepared {
     import: SequenceImport,
     geometry: SceneGeometry,
     pixelflow: pf_fseq::Sequence<Cursor<Vec<u8>>>,
+    /// The same sequence rendered from other seeds, for effects that draw on chance.
+    others: Vec<pf_fseq::Sequence<Cursor<Vec<u8>>>>,
     reference: pf_fseq::Sequence,
     /// By place in the show-wide pixel list; `None` where either side has no data.
     slots: Vec<Option<Slot>>,
@@ -242,23 +267,45 @@ impl Prepared {
             }
         };
         let pictures = Pictures::new(|file| std::fs::read(file).map_err(|e| e.to_string()));
-        let exported = export_fseq(
-            show,
-            &comparison.map,
-            seq,
-            &audio,
-            &pictures,
-            Cursor::new(Vec::new()),
-            0,
-            |_, _| true,
-        );
-        let (bytes, summary) = match exported {
-            Ok((out, summary)) => (out.into_inner(), summary),
-            Err(ExportError::NoChannels) => return Err(FidelityError::NoChannels),
-            Err(e) => return Err(FidelityError::Render(e.to_string())),
+        let render = |seq: &Sequence| {
+            let exported = export_fseq(
+                show,
+                &comparison.map,
+                seq,
+                &audio,
+                &pictures,
+                Cursor::new(Vec::new()),
+                0,
+                |_, _| true,
+            );
+            let (bytes, summary) = match exported {
+                Ok((out, summary)) => (out.into_inner(), summary),
+                Err(ExportError::NoChannels) => return Err(FidelityError::NoChannels),
+                Err(e) => return Err(FidelityError::Render(e.to_string())),
+            };
+            let frames = pf_fseq::Sequence::from_reader(Cursor::new(bytes))
+                .map_err(|e| FidelityError::Render(e.to_string()))?;
+            Ok((frames, summary))
         };
-        let pixelflow = pf_fseq::Sequence::from_reader(Cursor::new(bytes))
-            .map_err(|e| FidelityError::Render(e.to_string()))?;
+        let (pixelflow, summary) = render(seq)?;
+        // The same sequence from other seeds, when any of its effects draws on chance: what
+        // PixelFlow's own renders disagree on is chance, and isn't held against the import.
+        let draws_on_chance = seq.effects().any(|e| chance::chance(e).chance != Chance::Nothing);
+        let mut others = Vec::new();
+        if draws_on_chance && !options.by_moment {
+            for draw in 1..=u64::from(options.seeds.unwrap_or(OTHER_SEEDS)) {
+                let mut again = seq.clone();
+                for effect in again
+                    .rows
+                    .iter_mut()
+                    .flat_map(|r| &mut r.layers)
+                    .flat_map(|l| &mut l.effects)
+                {
+                    effect.id = chance::reseeded(effect.id, draw);
+                }
+                others.push(render(&again)?.0);
+            }
+        }
 
         let (slots, mut props) = lay_out(&comparison, summary.channels, &reference);
         let geometry = SceneGeometry::new(show, &comparison.map);
@@ -318,6 +365,7 @@ impl Prepared {
                     ),
                 };
                 let (class, class_reason, sparkles) = class_of(&kind, effect, music);
+                let declared = chance::chance(effect);
                 let expected = imported.map_or(Verdict::Close, |i| i.verdict);
                 effects.push(EffectEntry {
                     target: row.target,
@@ -329,6 +377,9 @@ impl Prepared {
                     class,
                     class_reason,
                     sparkles,
+                    chance: declared.chance,
+                    chance_reason: declared.why,
+                    shares_chance: false,
                     start_ms: effect.start_ms,
                     end_ms: effect.end_ms,
                     layer,
@@ -338,6 +389,43 @@ impl Prepared {
                     expected,
                 });
             }
+        }
+        // Which effects share pixels, while they play, with one that draws on chance. The same
+        // two targets are asked about again and again, so each answer is kept.
+        let mut meet: HashMap<(usize, usize), bool> = HashMap::new();
+        let mut meets = |a: &Rc<[u32]>, b: &Rc<[u32]>| {
+            let key = (
+                Rc::as_ptr(a).cast::<u32>() as usize,
+                Rc::as_ptr(b).cast::<u32>() as usize,
+            );
+            *meet.entry(key).or_insert_with(|| {
+                // Both lists are in order.
+                let (mut i, mut j) = (0, 0);
+                while i < a.len() && j < b.len() {
+                    match a[i].cmp(&b[j]) {
+                        std::cmp::Ordering::Less => i += 1,
+                        std::cmp::Ordering::Greater => j += 1,
+                        std::cmp::Ordering::Equal => return true,
+                    }
+                }
+                false
+            })
+        };
+        let shares: Vec<bool> = effects
+            .iter()
+            .enumerate()
+            .map(|(i, effect)| {
+                effects.iter().enumerate().any(|(j, other)| {
+                    j != i
+                        && other.chance != Chance::Nothing
+                        && other.start_ms < effect.end_ms
+                        && effect.start_ms < other.end_ms
+                        && meets(&effect.measured, &other.measured)
+                })
+            })
+            .collect();
+        for (effect, shares) in effects.iter_mut().zip(shares) {
+            effect.shares_chance = shares;
         }
         let label = options.label.clone().unwrap_or_else(|| {
             request
@@ -352,6 +440,7 @@ impl Prepared {
             import,
             geometry,
             pixelflow,
+            others,
             reference,
             slots,
             props,
@@ -553,8 +642,21 @@ impl Prepared {
         let mut layered = vec![Stats::new(frame_ms, &limits); self.effects.len()];
         // Each effect's look, alone and layered: summed while it plays, worked out when it ends.
         let mut looking: Vec<Option<[LookStats; 2]>> = vec![None; self.effects.len()];
-        let mut looks: Vec<[Option<Look>; 2]> = vec![[None; 2]; self.effects.len()];
+        let mut looks: Vec<Looked> = vec![[None; 2]; self.effects.len()];
         let mut scratch = [Scratch::default(), Scratch::default()];
+        // An effect that draws on chance is read between more renders than PixelFlow's first and
+        // xLights': each of PixelFlow's other seeds against xLights' (`with_xlights` of these),
+        // then PixelFlow's renders against one another. A render is numbered from PixelFlow's
+        // first (0) through its other seeds to xLights' (the last).
+        let others = self.others.len();
+        let xlights = others + 1;
+        let mut pairs: Vec<(usize, usize)> = (1..=others).map(|seed| (seed, xlights)).collect();
+        let with_xlights = pairs.len();
+        pairs.extend((0..=others).flat_map(|a| (a + 1..=others).map(move |b| (a, b))));
+        let mut seeding: Vec<Vec<[LookStats; 2]>> = vec![Vec::new(); self.effects.len()];
+        let mut seeded: Vec<Vec<Looked>> = vec![Vec::new(); self.effects.len()];
+        let mut other = vec![0u8; self.pixelflow.header().channels as usize];
+        let mut drawn_by = vec![vec![[0u8; 3]; count]; others];
         // Each effect's share of the pixel-frames it was lit on: a pixel under three effects
         // counts a third for each.
         let mut shares = vec![0f64; self.effects.len()];
@@ -582,7 +684,11 @@ impl Prepared {
             active.retain(|&i| {
                 let playing = span(&self.effects[i]).1 > at;
                 if !playing && let Some(stats) = looking[i].take() {
-                    looks[i] = stats.map(LookStats::finish);
+                    looks[i] = stats.map(LookStats::looks);
+                    seeded[i] = std::mem::take(&mut seeding[i])
+                        .into_iter()
+                        .map(|pair| pair.map(LookStats::looks))
+                        .collect();
                 }
                 playing
             });
@@ -593,8 +699,19 @@ impl Prepared {
                 if span(&self.effects[i]).1 > at {
                     active.push(i);
                     started.push(i);
-                    let stats = || LookStats::new(self.effects[i].grid.clone(), frame_ms, &limits);
+                    // Held against PixelFlow's other seeds: an effect that draws on chance, and
+                    // (where others are on its pixels) one that shares them with such an effect.
+                    let effect = &self.effects[i];
+                    let draws = effect.chance != Chance::Nothing;
+                    let held = others > 0 && (draws || effect.shares_chance);
+                    let stats = || {
+                        let stats = LookStats::new(effect.grid.clone(), frame_ms, &limits);
+                        if held { stats.over(effect.chance) } else { stats }
+                    };
                     looking[i] = Some([stats(), stats()]);
+                    if held {
+                        seeding[i] = pairs.iter().map(|_| [stats(), stats()]).collect();
+                    }
                 }
             }
             let Some(theirs_at) = self.reference_frame(frame) else {
@@ -611,6 +728,14 @@ impl Prepared {
                 .map_err(FidelityError::ReferenceFrame)?;
             decode(&self.slots, &ours, &mut colors[PIXELFLOW]);
             decode(&self.slots, &theirs, &mut colors[XLIGHTS]);
+            if active.iter().any(|&i| !seeding[i].is_empty()) {
+                for (frames, drawn) in self.others.iter_mut().zip(&mut drawn_by) {
+                    frames
+                        .read_frame(frame, &mut other)
+                        .map_err(|e| FidelityError::Render(e.to_string()))?;
+                    decode(&self.slots, &other, drawn);
+                }
+            }
             for &g in &measurable {
                 live[g] = !left_out[prop_of[g]][frame as usize];
                 samples[g] = Sample::of(colors[PIXELFLOW][g], colors[XLIGHTS][g], &limits);
@@ -691,6 +816,29 @@ impl Prepared {
                     alone.end_frame(&mut scratch[0], frame);
                     all.end_frame(&mut scratch[1], frame);
                 }
+                // The same pixels between each other two renders.
+                let draws = self.effects[i].chance != Chance::Nothing;
+                for ([alone, all], &(a, b)) in seeding[i].iter_mut().zip(&pairs) {
+                    let from = |render: usize, g: usize| match render {
+                        0 => colors[PIXELFLOW][g],
+                        seed if seed <= others => drawn_by[seed - 1][g],
+                        _ => colors[XLIGHTS][g],
+                    };
+                    for (k, &g) in self.effects[i].measured.iter().enumerate() {
+                        let g = g as usize;
+                        if !live[g] {
+                            continue;
+                        }
+                        let drawn = [from(a, g), from(b, g)];
+                        all.add(&mut scratch[1], frame, k, drawn);
+                        // Alone on a pixel, only what the effect itself draws can be chance.
+                        if draws && cover[g] == 1 {
+                            alone.add(&mut scratch[0], frame, k, drawn);
+                        }
+                    }
+                    alone.end_frame(&mut scratch[0], frame);
+                    all.end_frame(&mut scratch[1], frame);
+                }
                 if let Some(onset) = &mut onsets[i] {
                     for side in [PIXELFLOW, XLIGHTS] {
                         if lit[side] && onset[side].is_none() {
@@ -741,9 +889,43 @@ impl Prepared {
 
         for (stats, look) in looking.into_iter().zip(&mut looks) {
             if let Some(stats) = stats {
-                *look = stats.map(LookStats::finish);
+                *look = stats.map(LookStats::looks);
             }
         }
+        for (stats, held) in seeding.into_iter().zip(&mut seeded) {
+            if !stats.is_empty() {
+                *held = stats.into_iter().map(|pair| pair.map(LookStats::looks)).collect();
+            }
+        }
+        // The look an effect is judged on, alone (0) or layered (1), and the one moment by
+        // moment when that is another: an effect that draws on chance is judged next to
+        // PixelFlow's other seeds, and so is one layered with such an effect.
+        let judged = |index: usize, basis: usize| -> (Option<Look>, Option<Look>) {
+            let Some((by_moment, parts)) = looks[index][basis] else {
+                return (None, None);
+            };
+            let draws = self.effects[index].chance != Chance::Nothing;
+            if seeded[index].is_empty() || (basis == 0 && !draws) {
+                return (Some(by_moment), None);
+            }
+            let (mut between, mut within) = (vec![parts], Vec::new());
+            for (n, pair) in seeded[index].iter().enumerate() {
+                if let Some((_, parts)) = pair[basis] {
+                    if n < with_xlights {
+                        between.push(parts);
+                    } else {
+                        within.push(parts);
+                    }
+                }
+            }
+            // What chance decides in the picture: the effect's own moments, or no more than
+            // what it or its neighbors draw.
+            let chance = self.effects[index].chance.max(Chance::Drawn);
+            (
+                Some(next_to_seeds(&by_moment, chance, &between, &within)),
+                Some(by_moment),
+            )
+        };
         let mut overall = Stats::new(frame_ms, &limits);
         for stats in &prop_stats {
             overall.merge(stats);
@@ -770,36 +952,45 @@ impl Prepared {
             .effects
             .iter()
             .enumerate()
-            .map(|(index, e)| EffectScore {
-                index,
-                kind: e.kind.clone(),
-                pixelflow_kind: e.pixelflow_kind.clone(),
-                target: e.target_name.clone(),
-                start_ms: e.start_ms,
-                end_ms: e.end_ms,
-                layer: e.layer,
-                label: e.label,
-                notes: e.notes.clone(),
-                class: e.class,
-                class_reason: e.class_reason.clone(),
-                sparkles: round(e.sparkles),
-                pixels: e.pixels,
-                measured_pixels: e.measured.len(),
-                solo: solo[index].scores(),
-                layered: layered[index].scores(),
-                share: round(shares[index] * f64::from(frame_ms) / 1000.0),
-                onset: onsets[index].and_then(|o| {
-                    Some(Onset {
-                        pixelflow: o[PIXELFLOW]?,
-                        xlights: o[XLIGHTS]?,
-                    })
-                }),
-                expected: e.expected,
-                look_solo: looks[index][0],
-                look_layered: looks[index][1],
-                look: None,
-                solo_stats: solo[index].clone(),
-                layered_stats: layered[index].clone(),
+            .map(|(index, e)| {
+                let (look_solo, look_solo_by_moment) = judged(index, 0);
+                let (look_layered, look_layered_by_moment) = judged(index, 1);
+                EffectScore {
+                    index,
+                    kind: e.kind.clone(),
+                    pixelflow_kind: e.pixelflow_kind.clone(),
+                    target: e.target_name.clone(),
+                    start_ms: e.start_ms,
+                    end_ms: e.end_ms,
+                    layer: e.layer,
+                    label: e.label,
+                    notes: e.notes.clone(),
+                    class: e.class,
+                    class_reason: e.class_reason.clone(),
+                    sparkles: round(e.sparkles),
+                    pixels: e.pixels,
+                    measured_pixels: e.measured.len(),
+                    solo: solo[index].scores(),
+                    layered: layered[index].scores(),
+                    share: round(shares[index] * f64::from(frame_ms) / 1000.0),
+                    onset: onsets[index].and_then(|o| {
+                        Some(Onset {
+                            pixelflow: o[PIXELFLOW]?,
+                            xlights: o[XLIGHTS]?,
+                        })
+                    }),
+                    expected: e.expected,
+                    chance: e.chance,
+                    chance_reason: e.chance_reason.map(str::to_string),
+                    look_solo,
+                    look_layered,
+                    look_solo_by_moment,
+                    look_layered_by_moment,
+                    look: None,
+                    says_little: None,
+                    solo_stats: solo[index].clone(),
+                    layered_stats: layered[index].clone(),
+                }
             })
             .collect();
 
@@ -974,6 +1165,9 @@ impl Prepared {
                 audit: self.options.audit,
                 matches: crate::look::MATCHES,
                 close: crate::look::CLOSE,
+                by_moment: self.options.by_moment,
+                other_seeds: self.others.len(),
+                little: crate::look::LITTLE,
                 set_aside: self.comparison.set_aside,
                 stand_in_controllers: self.comparison.stand_ins.len(),
             },

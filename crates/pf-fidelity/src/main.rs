@@ -5,11 +5,11 @@ use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand};
 use pf_fidelity::compare::{Options, Prepared, Request};
 use pf_fidelity::corpus::{self, MANIFEST_VARIABLE, Manifest};
-use pf_fidelity::labels;
 use pf_fidelity::metrics::Limits;
 use pf_fidelity::report::{headline, sequence_markdown};
 use pf_fidelity::scorecard::Scorecard;
 use pf_fidelity::strips;
+use pf_fidelity::{calibrate, labels};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -56,6 +56,15 @@ struct How {
     /// PixelFlow lights it: xLights hadn't rendered it. 0 scores everything.
     #[arg(long, default_value_t = Limits::default().dark_run_ms)]
     dark_run_ms: u32,
+    /// Judge every effect moment by moment against xLights' render alone, whatever chance
+    /// decides in it: the numbers from before effects that draw on chance were held against
+    /// PixelFlow's own renders from other seeds.
+    #[arg(long)]
+    by_moment: bool,
+    /// How many more times to render the sequence from other seeds, for the effects that draw
+    /// on chance to be held against. More is steadier and slower.
+    #[arg(long, default_value_t = pf_fidelity::compare::OTHER_SEEDS)]
+    seeds: u32,
 }
 
 impl How {
@@ -69,6 +78,8 @@ impl How {
             },
             frame_offset: self.frame_offset,
             skip_music: self.no_music,
+            by_moment: self.by_moment,
+            seeds: Some(self.seeds.max(1)),
             ..Options::default()
         }
     }
@@ -105,6 +116,30 @@ enum Command {
         /// The scorecard, as `score --out` or `corpus --out` wrote it.
         scorecard: PathBuf,
     },
+    /// Hold the look score against PixelFlow's own renders, where the answer is known: every
+    /// seeded effect against itself from another seed, and against itself with one setting
+    /// wrong. No xLights files are needed.
+    Calibrate {
+        /// How long each effect runs, in seconds.
+        #[arg(long, default_value_t = calibrate::Settings::default().seconds)]
+        seconds: u32,
+        /// Pairs of seeds each line is scored over.
+        #[arg(long, default_value_t = calibrate::Settings::default().pairs)]
+        pairs: u32,
+        /// Milliseconds a frame.
+        #[arg(long, default_value_t = calibrate::Settings::default().frame_ms)]
+        frame_ms: u32,
+        /// How many more renders from other seeds an effect that draws on chance is held
+        /// against.
+        #[arg(long, default_value_t = calibrate::Settings::default().seeds)]
+        seeds: u32,
+        /// Make one table alone: same, wrong, short, or timed.
+        #[arg(long, value_parser = table)]
+        only: Option<calibrate::Table>,
+        /// Write the tables here as calibration.md.
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
     /// Draw frames as PNGs: xLights' above, PixelFlow's below.
     Strips {
         #[command(flatten)]
@@ -138,6 +173,17 @@ enum Command {
     },
 }
 
+/// One of the calibration's tables, by name.
+fn table(name: &str) -> Result<calibrate::Table, String> {
+    match name {
+        "same" => Ok(calibrate::Table::Same),
+        "wrong" => Ok(calibrate::Table::Wrong),
+        "short" => Ok(calibrate::Table::Short),
+        "timed" => Ok(calibrate::Table::Timed),
+        other => Err(format!("{other} isn't a table: same, wrong, short, or timed")),
+    }
+}
+
 fn main() -> ExitCode {
     match run(Cli::parse()) {
         Ok(code) => code,
@@ -151,16 +197,28 @@ fn main() -> ExitCode {
 /// One line on how a sequence scored.
 fn summary(card: &Scorecard) -> String {
     let (coverage, look) = (&card.coverage, &card.look);
+    // What was measured and has a look that says too little is not judged, and said so.
+    let little = &look.says_little;
+    let said_little = if little.effects == 0 {
+        String::new()
+    } else {
+        format!(
+            "; {} more ({:.0} s, {:.0}% of the effect-time) not judged: their looks say too little",
+            little.effects,
+            little.seconds,
+            little.share * 100.0
+        )
+    };
     match look.score {
         Some(score) => format!(
-            "{} (look score {score:.0}, {} of {} effects judged, {} of {} pixels measured)",
+            "{} (look score {score:.0}, {} of {} effects judged, {} of {} pixels measured{said_little})",
             headline(look),
             look.judged,
             look.of,
             coverage.pixels_measured,
             coverage.pixels
         ),
-        None => "nothing could be judged".to_string(),
+        None => format!("nothing could be judged{said_little}"),
     }
 }
 
@@ -232,6 +290,35 @@ fn run(cli: Cli) -> Result<ExitCode> {
             } else {
                 ExitCode::SUCCESS
             })
+        }
+        Command::Calibrate {
+            seconds,
+            pairs,
+            frame_ms,
+            seeds,
+            only,
+            out,
+        } => {
+            let settings = calibrate::Settings {
+                seconds: seconds.max(1),
+                pairs: pairs.max(1),
+                frame_ms: frame_ms.max(1),
+                seeds,
+                only,
+            };
+            let tables = calibrate::markdown(&calibrate::run(settings, |line| eprintln!("{line}")));
+            match out {
+                Some(dir) => {
+                    std::fs::create_dir_all(&dir)
+                        .with_context(|| format!("could not create {}", dir.display()))?;
+                    let path = dir.join("calibration.md");
+                    std::fs::write(&path, tables)
+                        .with_context(|| format!("could not write {}", path.display()))?;
+                    println!("{}", path.display());
+                }
+                None => print!("{tables}"),
+            }
+            Ok(ExitCode::SUCCESS)
         }
         Command::Strips {
             files,

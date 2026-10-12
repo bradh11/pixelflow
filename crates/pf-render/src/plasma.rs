@@ -363,15 +363,19 @@ fn raised(angle: u64, ahead: u64) -> f32 {
 impl Shade for Plasma {
     #[inline]
     fn shade(&self, px: &Pixel) -> Rgba {
+        if let Paint::Flat = self.paint {
+            return Rgba::opaque(self.palette[0]);
+        }
+        // Worked out in one place, whatever the coloring.
+        let angle = self.color_angle(px);
         Rgba::opaque(match self.paint {
-            Paint::Flat => self.palette[0],
-            Paint::Palette => {
+            Paint::Flat | Paint::Palette => {
                 // Where along the palette, counting its colors from 0: the raised sine a third
                 // of a turn ahead, times the steps from the first color to the last. Then the
                 // color below that place, the next one, and how far from one to the other (at
                 // the very top, the last color and none of what follows).
                 let half = self.half_palette;
-                let place = half + half * sine(self.color_angle(px).wrapping_add(THIRD_TURN));
+                let place = half + half * sine(angle.wrapping_add(THIRD_TURN));
                 let below = (place as usize).min(MAX_PALETTE_COLORS - 2);
                 let part = unit((place - below as f64) as f32);
                 let (from, to) = (self.palette[below], self.palette[below + 1]);
@@ -381,23 +385,14 @@ impl Shade for Plasma {
                     from[2] + (to[2] - from[2]) * part,
                 ]
             }
-            Paint::RedGreen => {
-                let angle = self.color_angle(px);
-                [raised(angle, 0), raised(angle, QUARTER_TURN), 0.0]
-            }
-            Paint::BlueGreen => {
-                let angle = self.color_angle(px);
-                [1.0 / 255.0, raised(angle, QUARTER_TURN), raised(angle, 0)]
-            }
-            Paint::Rainbow => {
-                let angle = self.color_angle(px);
-                [
-                    raised(angle, 0),
-                    raised(angle, THIRD_TURN),
-                    raised(angle, 2 * THIRD_TURN),
-                ]
-            }
-            Paint::White => [raised(self.color_angle(px), 0); 3],
+            Paint::RedGreen => [raised(angle, 0), raised(angle, QUARTER_TURN), 0.0],
+            Paint::BlueGreen => [1.0 / 255.0, raised(angle, QUARTER_TURN), raised(angle, 0)],
+            Paint::Rainbow => [
+                raised(angle, 0),
+                raised(angle, THIRD_TURN),
+                raised(angle, 2 * THIRD_TURN),
+            ],
+            Paint::White => [raised(angle, 0); 3],
         })
     }
 }

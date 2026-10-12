@@ -2161,8 +2161,9 @@ fn palette_colors(palette: &ParsedPalette, diff: &mut Diff) -> Vec<Rgb> {
         .collect()
 }
 
-/// Translates one xLights effect lasting `duration_ms` in a sequence with `frame_ms` frames.
-/// `None` for effects that are left out ([`Fidelity::Skipped`]).
+/// Translates one xLights effect lasting `duration_ms` (the length the file gives it, even when
+/// the sequence ends before it does) in a sequence with `frame_ms` frames. `None` for effects
+/// that are left out ([`Fidelity::Skipped`]).
 pub fn translate(
     name: &str,
     s: &Settings,

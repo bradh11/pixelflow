@@ -77,12 +77,12 @@ describe("Export video", () => {
     await user.click(within(dialog).getByRole("button", { name: "Export…" }));
     expect(await within(dialog).findByRole("progressbar")).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "Cancel" })).toBeInTheDocument();
-    expect(await within(dialog).findByText("Saved Christmas Medley 2017.mp4 (1:00, 1080p).")).toBeInTheDocument();
+    expect(await within(dialog).findByText("Saved Chimes Medley 2020.mp4 (1:00, 1080p).")).toBeInTheDocument();
     expect([...labels]).toEqual(["Rendering frames", "Encoding the sound", "Writing the MP4"]);
     expect(seq.calls).toContain("exportVideo");
     expect(seq.video.requests).toEqual([
       {
-        path: "/Users/you/Movies/Christmas Medley 2017.mp4",
+        path: "/Users/you/Movies/Chimes Medley 2020.mp4",
         request: { width: 1920, height: 1080, fps: 30, startMs: 0, endMs: null, photo: true, pixelSize: 1, glow: 0, ffmpeg: false },
       },
     ]);
@@ -104,7 +104,7 @@ describe("Export video", () => {
     fireEvent.change(glow, { target: { value: "40" } });
     expect(within(dialog).getByText("40%")).toBeInTheDocument();
     await user.click(within(dialog).getByRole("button", { name: "Export…" }));
-    expect(await within(dialog).findByText("Saved Christmas Medley 2017.mp4 (1:00, 720p60).")).toBeInTheDocument();
+    expect(await within(dialog).findByText("Saved Chimes Medley 2020.mp4 (1:00, 720p60).")).toBeInTheDocument();
     expect(seq.video.requests[0].request).toEqual({ width: 1280, height: 720, fps: 60, startMs: 0, endMs: null, photo: false, pixelSize: 1.5, glow: 0.4, ffmpeg: true });
     await user.click(within(dialog).getByRole("button", { name: "Done" }));
 
@@ -128,7 +128,7 @@ describe("Export video", () => {
     // Other choices are remembered without fixing the glow.
     await user.selectOptions(within(dialog).getByLabelText("Size"), "720");
     await user.click(within(dialog).getByRole("button", { name: "Export…" }));
-    expect(await within(dialog).findByText("Saved Christmas Medley 2017.mp4 (1:00, 720p).")).toBeInTheDocument();
+    expect(await within(dialog).findByText("Saved Chimes Medley 2020.mp4 (1:00, 720p).")).toBeInTheDocument();
     expect(seq.video.requests[0].request).toMatchObject({ height: 720, glow: 0.3 });
     await user.click(within(dialog).getByRole("button", { name: "Done" }));
 
@@ -205,7 +205,7 @@ describe("Export video", () => {
     await user.type(to, "0:30.5");
     expect(within(custom).queryByRole("alert")).toBeNull();
     await user.click(within(custom).getByRole("button", { name: "Export…" }));
-    expect(await within(custom).findByText("Saved Christmas Medley 2017.mp4 (0:21, 1080p).")).toBeInTheDocument();
+    expect(await within(custom).findByText("Saved Chimes Medley 2020.mp4 (0:21, 1080p).")).toBeInTheDocument();
     expect(seq.video.requests[1].request).toMatchObject({ startMs: 10_000, endMs: 30_500 });
   });
 

@@ -24,7 +24,9 @@ node scripts/licenses.mjs  # or: make licenses
 
 That rewrites everything below the "BEGIN GENERATED" line in this file, and
 `app/src-tauri/resources/THIRD-PARTY-NOTICES.txt` (the notices the built app bundles).
-`node scripts/licenses.mjs --check` changes nothing and exits 1 if either is out of date. The
+`node scripts/licenses.mjs --check` changes nothing and exits 1 if either is out of date, if one
+of PixelFlow's own manifests states a licence other than `GPL-3.0-only`, or if a shipped package
+offers no licence compatible with it. The
 script uses `cargo metadata` and the installed `node_modules`; it needs no other tool. Run it
 whenever a lockfile changes, and before every release.
 
@@ -37,14 +39,22 @@ package counts as shipped even if the linker later drops all of its code.
 The tables are below. In short:
 
 - **No GPL, LGPL, or AGPL dependency is linked into the app.** `r-efi` offers LGPL as one of
-  three choices, and is not used on any desktop target.
+  three choices, and is not used on any desktop target. (PixelFlow itself is under the GPL
+  because of the code it derives from xLights, which is not a dependency: see
+  [provenance.md](provenance.md).)
 - **MPL-2.0 packages are shipped** (17 in the app, 13 in the engine): see the next section.
 - **No package is missing a licence**, and none states one the script does not recognize.
 - **40 shipped packages name a licence but include no licence file.** The notices file prints the
   standard text of the licence they name (from `scripts/license-texts/`, copied from the SPDX
   licence list, version 3.29.0), with the package's authors as stated in its manifest.
 - **The UI's production packages are all MIT, ISC, 0BSD, or "Apache-2.0 OR MIT".**
-- **PixelFlow's own packages state no licence**, and the repository has no `LICENSE` file.
+- **PixelFlow's own packages all state `GPL-3.0-only`**, the licence in the `LICENSE` file at
+  the repo root.
+- **Every shipped package offers a licence that can be part of a GPL-3.0-only program.** For 18
+  of them that rests on a permissive licence the Free Software Foundation's list does not name
+  (`Unicode-3.0`, `CDLA-Permissive-2.0`, `0BSD`); they are listed apart, under "Shipped packages
+  against PixelFlow's licence". The script fails its check if a shipped package ever offers no
+  compatible licence.
 
 ## Notes on the flagged packages
 
@@ -140,7 +150,34 @@ Code and data taken from xLights and other projects' **source** are a different 
 
 ## PixelFlow's own packages
 
-None of PixelFlow's 24 own packages states a licence (no `license` or `license-file` in any manifest).
+All 25 of PixelFlow's own packages state `GPL-3.0-only`: the GNU General Public License, version 3 (the `LICENSE` file at the repo root).
+
+## Shipped packages against PixelFlow's licence (`GPL-3.0-only`)
+
+Of the 502 packages shipped (engine, app, and UI together), 484 offer a licence the Free Software Foundation's licence list names as compatible with the GNU GPL, version 3. Where a package offers a choice, one compatible option is enough.
+
+**Shipped under a permissive licence that list does not name (read, and nothing in it limits distribution under the GPL; not confirmed by anyone with authority)** (18):
+
+- `icu_collections` 2.3.0: `Unicode-3.0`
+- `icu_locale_core` 2.3.0: `Unicode-3.0`
+- `icu_normalizer` 2.3.0: `Unicode-3.0`
+- `icu_normalizer_data` 2.3.0: `Unicode-3.0`
+- `icu_properties` 2.3.0: `Unicode-3.0`
+- `icu_properties_data` 2.3.0: `Unicode-3.0`
+- `icu_provider` 2.3.1: `Unicode-3.0`
+- `litemap` 0.8.3: `Unicode-3.0`
+- `potential_utf` 0.1.6: `Unicode-3.0`
+- `tinystr` 0.8.4: `Unicode-3.0`
+- `tslib` 2.8.1: `0BSD`
+- `unicode-ident` 1.0.26: `(MIT OR Apache-2.0) AND Unicode-3.0`
+- `webpki-roots` 1.0.9: `CDLA-Permissive-2.0`
+- `writeable` 0.6.4: `Unicode-3.0`
+- `yoke` 0.8.3: `Unicode-3.0`
+- `zerofrom` 0.1.8: `Unicode-3.0`
+- `zerotrie` 0.2.5: `Unicode-3.0`
+- `zerovec` 0.11.8: `Unicode-3.0`
+
+**Shipped with no licence known to be compatible:** none.
 
 ## (a) Engine workspace: shipped packages by licence
 

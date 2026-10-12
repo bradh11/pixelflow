@@ -1,24 +1,75 @@
 # PixelFlow
 
-A modern, fast, easy-to-use application for designing and running pixel light displays. A fresh take on xLights, built on a modern stack and free of legacy tech debt.
+A modern, fast, easy-to-use application for designing and running pixel light displays: lay out
+your props, wire them to your controllers, sequence them to music, and play the show. PixelFlow
+is free and open source. It is an independent project inspired by
+[xLights](https://github.com/xLightsSequencer/xLights), and it can import xLights shows and
+sequences.
 
-> **Status:** early development. Milestone 1 (layout, mapping & output) is in progress.
+> **Status:** early development, with no released version yet. To try it you build it from
+> source ([Install](#install)). Expect rough edges, and keep a copy of any show you care about.
 
-## Goals
+*No screenshots yet: they will go here, and in `docs/images/`, once there is a release to show.*
+
+## What it does
+
+- **Layout:** place props in 2D or 3D, group them, and see them lit in a live preview.
+- **Controllers and wiring:** find FPP, Falcon, and WLED controllers on your network, read their
+  setup, and wire props to ports by dragging. Channels and universes are worked out for you.
+- **Test:** send test patterns to a prop, a port, a controller, or the whole show over sACN or
+  DDP.
+- **Sequence:** a timeline with effects, beat and section detection from the music, lyric timing,
+  and singing faces.
+- **Play:** play a sequence on screen and on your lights, send it to an FPP for unattended
+  playback, or export a video.
+- **xLights import:** bring in a show folder and its sequences, and map a vendor's sequence onto
+  your own props.
+- **Assistant:** bring your own Anthropic or OpenAI key and ask for changes to layouts and
+  sequences in plain language. Nothing changes until you apply it.
+
+What it aims for:
 
 - **Easy to use:** guided setup, drag-and-drop wiring, plain-language errors, undo everywhere.
 - **Built for scale:** 200k+ pixels and 1,200+ universes at 40 fps.
 - **No manual channel math:** channels and universes are assigned automatically from your wiring.
-- **AI-assisted editing:** bring your own Anthropic or OpenAI key and edit layouts, configs, and (later) sequences with natural-language prompts.
 
-## Roadmap
+## Install
 
-| Milestone | Focus |
+There are no downloads yet. Installers for macOS and Windows will be on the project's
+[Releases](https://github.com/bradh11/pixelflow/releases) page when the first version is
+published. Until then, build it from source.
+
+### What you need
+
+On every system: [Rust](https://rustup.rs) (the version is pinned in `rust-toolchain.toml`, and
+rustup installs it for you), [Node.js](https://nodejs.org) 22 or newer, [pnpm](https://pnpm.io),
+and a C++ compiler (the video export builds its H.264 encoder from source).
+
+| System | Also needed |
 |---|---|
-| **M1** | Layout & props, automatic channel mapping, sACN/DDP output, FPP/WLED discovery and config push, test patterns, 2D/3D preview, camera-based pixel mapping, xLights import, AI assistant |
-| M2 | 3D camera mapping |
-| M3 | Sequencer: timeline, effects, audio analysis (beats/sections), lyric-to-prop mapping, AI-generated sequences |
-| M4 | Rendering and `.fseq` export, FPP playback integration |
+| **macOS** | Xcode's command line tools: `xcode-select --install`. |
+| **Windows** | Microsoft's C++ Build Tools (the "Desktop development with C++" workload). WebView2 comes with Windows 11; on Windows 10, install Microsoft's WebView2 runtime. |
+| **Linux** | The libraries Tauri needs (WebKitGTK 4.1 and GTK 3) and ALSA's headers. On Debian or Ubuntu: `sudo apt install build-essential pkg-config libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev libxdo-dev libasound2-dev`. |
+
+macOS and Windows are built and tested on every change. The engine is tested on Linux too, but
+the desktop app is not yet built or tried there: it should build, and reports of how it goes are
+welcome.
+
+### Build and run
+
+```sh
+git clone https://github.com/bradh11/pixelflow.git
+cd pixelflow
+make setup   # install the app's dependencies (once)
+make run     # run the desktop app with live reload
+make build   # or build an installable app (in app/src-tauri/target/release/bundle)
+```
+
+Without `make` (on Windows, say): `cd app`, then `pnpm install`, then `pnpm tauri dev` or
+`pnpm tauri build`.
+
+To look around without any hardware, choose **Try the demo show** on the welcome screen.
+[Your first show](docs/first-show.md) takes it from there.
 
 ## Documentation
 
@@ -30,6 +81,9 @@ A modern, fast, easy-to-use application for designing and running pixel light di
 - [Scale benchmark](docs/benchmarks.md): how large a show the engine can run.
 - [Your data: what stays on your computer](docs/privacy-and-data-flow.md): what PixelFlow sends, and when.
 - [Releasing](docs/releasing.md): building the macOS and Windows installers, signing, installing a test build, and where the app keeps its data.
+- [Security](SECURITY.md) and the [threat model](docs/security/threat-model.md): how to report a vulnerability, and how PixelFlow is meant to protect you.
+- [Licensing](docs/licensing/): what is derived from other projects, the licences of everything PixelFlow is built from, and what distributing it involves.
+- For contributors: [CONTRIBUTING.md](CONTRIBUTING.md), and the notes in [docs/dev/](docs/dev/).
 
 ## Stack
 
@@ -165,4 +219,35 @@ For UI-only work in a plain browser, run `pnpm dev` and open `http://localhost:1
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for branching, issues, and release workflow.
+Bug reports, show files that import badly, and pull requests are welcome. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for how to build and test, the house rules, and how changes
+are merged, and the [code of conduct](CODE_OF_CONDUCT.md) for how we treat each other.
+
+## Support the project
+
+PixelFlow is free, and every feature is for everyone. If it is useful to you and you would like
+to help with what it costs to make, there are two places to look: the **Sponsor** button at the
+top of the [project's GitHub page](https://github.com/bradh11/pixelflow), and **Support
+PixelFlow** in the app (in **About**: on the start page, in **Settings**, in the command palette,
+and in the PixelFlow menu on macOS). Each lists the ways to give that are set up, and opens the
+one you pick in your web browser. If you see neither, none is set up yet.
+
+A donation is a gift. It buys no licence, no extra feature, and no support contract. Reporting
+a bug, sharing a show that imports badly, or improving these pages helps just as much.
+
+## Licence and credit
+
+PixelFlow is free software under the [GNU General Public License, version 3](LICENSE). You may
+use it, study it, change it, and pass it on under that licence. It comes with no warranty.
+
+PixelFlow is an independent project, inspired by [xLights](https://github.com/xLightsSequencer/xLights)
+and able to import its shows and sequences. It is not affiliated with the xLights project. Most
+of PixelFlow is its own design and code. Some parts are derived from xLights' source code and are
+used under xLights' licence (the GPL, version 3), with thanks to its authors: a number of effects,
+the model geometry, value curves, and some tables. [NOTICE](NOTICE) has the full credit, and
+[docs/licensing/provenance.md](docs/licensing/provenance.md) lists the files. That list gets
+shorter as parts are rewritten as PixelFlow's own.
+
+The licences of everything PixelFlow is built from are in
+[docs/licensing/dependencies.md](docs/licensing/dependencies.md), and travel with the app as its
+third-party notices.

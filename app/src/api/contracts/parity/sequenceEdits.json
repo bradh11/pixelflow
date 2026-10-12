@@ -52,7 +52,7 @@
         "frameMs": 25,
         "name": "Song",
         "rows": [{ "id": "44444444-0000-4000-8000-000000000001", "layers": [{ "effects": [] }], "target": { "prop": "11111111-0000-4000-8000-000000000001" } }, { "id": "44444444-0000-4000-8000-000000000002", "layers": [{ "effects": [] }], "target": { "prop": "11111111-0000-4000-8000-000000000002" } }],
-        "schemaVersion": 13,
+        "schemaVersion": 14,
         "timingTracks": []
       },
       "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }
@@ -233,7 +233,7 @@
     {
       "args": { "edits": [{ "audio": null, "durationMs": 30000, "frameMs": 50, "name": "Carol", "type": "updateInfo" }] },
       "command": "edit_sequence",
-      "reply": { "changed": true, "changes": { "info": { "audio": null, "durationMs": 30000, "frameMs": 50, "name": "Carol", "rowBlending": "cover" } } },
+      "reply": { "changed": true, "changes": { "info": { "audio": null, "durationMs": 30000, "frameMs": 50, "musicLevelSource": "louderChannel", "name": "Carol", "rowBlending": "cover" } } },
       "sequence": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 9 },
       "sequenceNow": {
         "audio": null,
@@ -259,12 +259,18 @@
             "target": { "prop": "11111111-0000-4000-8000-000000000002" }
           }
         ],
-        "schemaVersion": 13,
+        "schemaVersion": 14,
         "timingTracks": []
       },
       "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }
     },
-    { "args": {}, "command": "undo_sequence", "reply": { "changed": true, "changes": { "info": { "audio": null, "durationMs": 20000, "frameMs": 25, "name": "Song", "rowBlending": "cover" } } }, "sequence": { "canRedo": true, "canUndo": true, "dirty": true, "path": null, "revision": 10 }, "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 } },
+    {
+      "args": {},
+      "command": "undo_sequence",
+      "reply": { "changed": true, "changes": { "info": { "audio": null, "durationMs": 20000, "frameMs": 25, "musicLevelSource": "louderChannel", "name": "Song", "rowBlending": "cover" } } },
+      "sequence": { "canRedo": true, "canUndo": true, "dirty": true, "path": null, "revision": 10 },
+      "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }
+    },
     {
       "args": {},
       "command": "undo_sequence",
@@ -356,7 +362,7 @@
             "target": { "prop": "11111111-0000-4000-8000-000000000002" }
           }
         ],
-        "schemaVersion": 13,
+        "schemaVersion": 14,
         "timingTracks": []
       },
       "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }
@@ -405,7 +411,7 @@
             "target": { "prop": "11111111-0000-4000-8000-000000000002" }
           }
         ],
-        "schemaVersion": 13,
+        "schemaVersion": 14,
         "timingTracks": []
       },
       "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }
@@ -448,7 +454,7 @@
             "target": { "prop": "11111111-0000-4000-8000-000000000002" }
           }
         ],
-        "schemaVersion": 13,
+        "schemaVersion": 14,
         "timingTracks": []
       },
       "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }
@@ -686,7 +692,7 @@
         "frameMs": 25,
         "name": "Song",
         "rows": [{ "id": "44444444-0000-4000-8000-000000000001", "layers": [{ "effects": [] }], "target": { "prop": "11111111-0000-4000-8000-000000000001" } }, { "id": "44444444-0000-4000-8000-000000000002", "layers": [{ "effects": [] }], "target": { "prop": "11111111-0000-4000-8000-000000000002" } }],
-        "schemaVersion": 13,
+        "schemaVersion": 14,
         "timingTracks": []
       },
       "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }
@@ -756,7 +762,7 @@
           },
           { "id": "44444444-0000-4000-8000-000000000002", "layers": [{ "effects": [] }], "target": { "prop": "11111111-0000-4000-8000-000000000002" } }
         ],
-        "schemaVersion": 13,
+        "schemaVersion": 14,
         "timingTracks": []
       },
       "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }

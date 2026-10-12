@@ -174,6 +174,8 @@ export function describeSequenceEdits(edits: SequenceEdit[], doc: Sequence, labe
       return "Change the sequence's details";
     case "setRowBlending":
       return "Change how rows overlap";
+    case "setMusicLevelSource":
+      return "Change where the music's loudness comes from";
     default:
       return "Change the sequence";
   }

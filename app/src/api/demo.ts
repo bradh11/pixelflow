@@ -149,15 +149,15 @@ export function demoRecentShows(backend: MemoryBackend) {
 }
 
 export function demoMissingFiles(backend: MemoryBackend) {
-  const medley = "/Shows/Christmas Medley 2017.mp3";
+  const medley = "/Shows/Chimes Medley 2020.mp3";
   backend.show.sequences = [
-    { id: crypto.randomUUID(), name: "Christmas Medley 2017", path: "/Shows/Christmas Medley 2017.fseq", audio: medley, offsetMs: 0 },
+    { id: crypto.randomUUID(), name: "Chimes Medley 2020", path: "/Shows/Chimes Medley 2020.fseq", audio: medley, offsetMs: 0 },
     { id: crypto.randomUUID(), name: "Wizards in Winter", path: "/Shows/Wizards in Winter.fseq", audio: "/Shows/Wizards in Winter.mp3", offsetMs: 0 },
   ];
   backend.path = "/Shows/Demo House.pixelflow.json";
   backend.files.set(backend.path, structuredClone(backend.show));
   backend.missingPaths = new Set([medley, "/Shows/Wizards in Winter.fseq", DEMO_PHOTO]);
-  backend.findable.set(medley, "/Shows/Music/Christmas Medley 2017.mp3");
+  backend.findable.set(medley, "/Shows/Music/Chimes Medley 2020.mp3");
   backend.findable.set(DEMO_PHOTO, "/Shows/Photos/Demo House.svg");
   backend.images.set("/Shows/Photos/Demo House.svg", demoHousePhoto());
   backend.nextLocatePath = "/Volumes/USB/Wizards in Winter.fseq";
@@ -205,7 +205,7 @@ export function demoDevices(): { details: DeviceDetails[]; silent: SilentPeer[] 
   const empty = emptyShow("Devices");
   const tree = { ...newProp("tree", empty), name: "Falcon Mega Tree" };
   const arch = { ...newProp("arch", empty), name: "Falcon Arch" };
-  const falcon = newController("Falcon_F16V5_B9F5", "192.0.2.20", "ddp", 2);
+  const falcon = newController("Falcon_F16V5_A1B2", "192.0.2.20", "ddp", 2);
   falcon.adapter = "falcon";
   // Like the engine's import of an F16V5 in its 16-port board mode: 1,024 pixels a port.
   for (const port of falcon.ports) port.maxPixels = 1024;
@@ -225,14 +225,14 @@ export function demoDevices(): { details: DeviceDetails[]; silent: SilentPeer[] 
           input: { type: "ddp" },
           ports: [],
           destinations: [
-            { address: "192.0.2.20", description: "Falcon_F16V5_B9F5", protocol: "DDP", channels: 6147, startChannel: 1, startUniverse: null, universeSize: null, ddpRaw: false, unevenUniverses: false },
+            { address: "192.0.2.20", description: "Falcon_F16V5_A1B2", protocol: "DDP", channels: 6147, startChannel: 1, startUniverse: null, universeSize: null, ddpRaw: false, unevenUniverses: false },
           ],
           notes: ["This FPP has no light outputs of its own: it passes its sequence on to the controllers it sends to."],
         },
         plan: { controller: fppController, props: [], notes: ["This FPP has no light outputs of its own: it passes its sequence on to the controllers it sends to."], alreadyInShow: false, canImport: false, suggested: {} },
       },
       {
-        device: { address: "192.0.2.20", kind: "falcon", name: "Falcon_F16V5_B9F5", model: "F16v5", firmware: "F16V5 v2.00", mode: null, foundBy: ["fppPeer"] },
+        device: { address: "192.0.2.20", kind: "falcon", name: "Falcon_F16V5_A1B2", model: "F16v5", firmware: "F16V5 v2.00", mode: null, foundBy: ["fppPeer"] },
         config: {
           input: { type: "ddp" },
           ports: [
@@ -307,8 +307,8 @@ export function demoShowDevices(show: Show): { details: DeviceDetails[]; players
 export function demoFppFiles(): Record<string, { media: string[]; playlists: Record<string, string[]>; freeBytes: number }> {
   return {
     "192.0.2.10": {
-      media: ["Christmas Medley 2017.mp3"],
-      playlists: { "Christmas Show": ["Christmas Medley 2017.fseq"] },
+      media: ["Chimes Medley 2020.mp3"],
+      playlists: { "Christmas Show": ["Chimes Medley 2020.fseq"] },
       freeBytes: 24_600_000_000,
     },
   };
@@ -318,8 +318,8 @@ export function demoFppFiles(): Record<string, { media: string[]; playlists: Rec
 export function demoFppFileDetails(): Record<string, Record<string, { sizeBytes?: number; modified?: string; durationMs?: number }>> {
   return {
     "192.0.2.10": {
-      "Christmas Medley 2017.fseq": { sizeBytes: 69_700_000, modified: "2025-11-28 19:42" },
-      "Christmas Medley 2017.mp3": { sizeBytes: 8_910_000, modified: "2025-11-28 19:40", durationMs: 566_600 },
+      "Chimes Medley 2020.fseq": { sizeBytes: 69_700_000, modified: "2025-11-28 19:42" },
+      "Chimes Medley 2020.mp3": { sizeBytes: 8_910_000, modified: "2025-11-28 19:40", durationMs: 566_600 },
       "Christmas Show": { sizeBytes: 1_204, modified: "2025-11-29 10:15" },
     },
   };
@@ -344,7 +344,7 @@ export function demoFppSchedules(): Record<string, ScheduleEntry[]> {
   });
   return {
     "192.0.2.10": [
-      entry({ name: "Christmas Medley 2017.fseq", kind: "sequence", startTime: "SunSet", startOffset: 15 }),
+      entry({ name: "Chimes Medley 2020.fseq", kind: "sequence", startTime: "SunSet", startOffset: 15 }),
       entry({ day: 0x10000 | 0x200 | 0x100, endTime: "23:00:00" }),
       entry({ enabled: false, name: "Halloween", startDate: "2026-10-01", endDate: "2026-10-31", repeat: 0 }),
     ],
@@ -357,15 +357,15 @@ export function demoPlayers(): Record<string, { status: PlayerStatus; sequences:
     "192.0.2.10": {
       status: {
         state: "playing",
-        playlist: "Christmas Medley 2017.fseq",
-        sequence: "Christmas Medley 2017.fseq",
+        playlist: "Chimes Medley 2020.fseq",
+        sequence: "Chimes Medley 2020.fseq",
         secondsElapsed: 109,
         secondsRemaining: 456,
-        nextPlaylist: "Christmas Medley 2017.fseq",
+        nextPlaylist: "Chimes Medley 2020.fseq",
         nextStart: "Mon Oct  5 @ 06:48 PM - (Everyday)",
-        warnings: ["Cannot Ping DDP Channel Data Target 192.0.2.20 Falcon_F16V5_B9F5"],
+        warnings: ["Cannot Ping DDP Channel Data Target 192.0.2.20 Falcon_F16V5_A1B2"],
       },
-      sequences: [{ name: "Christmas Medley 2017", frames: 11332, stepMs: 50, channels: 6148 }],
+      sequences: [{ name: "Chimes Medley 2020", frames: 11332, stepMs: 50, channels: 6148 }],
     },
   };
 }

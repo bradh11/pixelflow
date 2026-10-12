@@ -1,7 +1,9 @@
 //! The macOS menu bar: the standard menus, with a File menu for shows (New, Open…, Open Recent,
-//! Close Show, Save, Save As…), and Edit → Undo / Redo that reach the show and the sequence. The window does the work: each item sends it a [`MENU_EVENT`],
-//! and it runs the same action as its show menu and shortcuts (asking about unsaved changes
-//! first). A recent show chosen here is opened through `open_show` like any other.
+//! Close Show, Save, Save As…), Edit → Undo / Redo that reach the show and the sequence, and the
+//! app's own About (and Support PixelFlow…, while a way to give is set up: see `links`). The
+//! window does the work: each item sends it a [`MENU_EVENT`], and it runs the same action as its
+//! show menu and shortcuts (asking about unsaved changes first). A recent show chosen here is
+//! opened through `open_show` like any other.
 //!
 //! The window sees ⌘-keys before the menu does, so its shortcuts keep working; the menu's
 //! key equivalents only act when the window leaves a key alone.
@@ -24,6 +26,18 @@ const RECENT_PREFIX: &str = "recent:";
 const CLEAR_RECENT: &str = "clear-recent";
 const CLOSE_WINDOW: &str = "close-window";
 const QUIT: &str = "quit";
+const ABOUT: &str = "about";
+const SUPPORT: &str = "support";
+
+/// The app menu's own items above Services: About, and Support PixelFlow… only while there is a
+/// way to give (an item that led nowhere would be worse than none).
+fn about_items(support: bool) -> Vec<(&'static str, &'static str)> {
+    let mut items = vec![(ABOUT, "About PixelFlow")];
+    if support {
+        items.push((SUPPORT, "Support PixelFlow…"));
+    }
+    items
+}
 
 /// What the window is asked to do.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -31,13 +45,19 @@ const QUIT: &str = "quit";
 pub(crate) enum MenuAction {
     NewShow,
     OpenShow,
-    OpenRecent { path: String },
+    OpenRecent {
+        path: String,
+    },
     ClearRecent,
     CloseShow,
     Save,
     SaveAs,
     Undo,
     Redo,
+    /// The app's About: its version, licence, and credits.
+    About,
+    /// The ways to support the project.
+    Support,
 }
 
 /// The action for a menu item's id (a recent show only while it's still on the list).
@@ -50,6 +70,8 @@ pub(crate) fn action_for(id: &str, recent: &RecentShows) -> Option<MenuAction> {
         "save-as" => MenuAction::SaveAs,
         "undo" => MenuAction::Undo,
         "redo" => MenuAction::Redo,
+        ABOUT => MenuAction::About,
+        SUPPORT => MenuAction::Support,
         CLEAR_RECENT => MenuAction::ClearRecent,
         _ => {
             let path = id.strip_prefix(RECENT_PREFIX)?;
@@ -86,25 +108,26 @@ pub(crate) fn build<R: Runtime>(app: &AppHandle<R>, recent: &RecentShows) -> tau
         ],
     )?;
     let name = app.package_info().name.clone();
+    // The app's own About, in the window: the system's panel has no room for the licence, the
+    // credits, or how to read them.
+    let own = Submenu::new(app, name, true)?;
+    for (id, text) in about_items(crate::links::SUPPORT.any()) {
+        own.append(&item(id, text, None)?)?;
+    }
+    own.append_items(&[
+        &PredefinedMenuItem::separator(app)?,
+        &PredefinedMenuItem::services(app, None)?,
+        &PredefinedMenuItem::separator(app)?,
+        &PredefinedMenuItem::hide(app, None)?,
+        &PredefinedMenuItem::hide_others(app, None)?,
+        &PredefinedMenuItem::show_all(app, None)?,
+        &PredefinedMenuItem::separator(app)?,
+        &item(QUIT, "Quit PixelFlow", Some("CmdOrCtrl+Q"))?,
+    ])?;
     Menu::with_items(
         app,
         &[
-            &Submenu::with_items(
-                app,
-                name,
-                true,
-                &[
-                    &PredefinedMenuItem::about(app, None, None)?,
-                    &PredefinedMenuItem::separator(app)?,
-                    &PredefinedMenuItem::services(app, None)?,
-                    &PredefinedMenuItem::separator(app)?,
-                    &PredefinedMenuItem::hide(app, None)?,
-                    &PredefinedMenuItem::hide_others(app, None)?,
-                    &PredefinedMenuItem::show_all(app, None)?,
-                    &PredefinedMenuItem::separator(app)?,
-                    &item(QUIT, "Quit PixelFlow", Some("CmdOrCtrl+Q"))?,
-                ],
-            )?,
+            &own,
             &file,
             &Submenu::with_items(
                 app,
@@ -220,7 +243,7 @@ pub(crate) fn on_event<R: Runtime>(app: &AppHandle<R>, event: MenuEvent) {
     let Some(action) = action_for(id, &state.recent) else {
         return;
     };
-    // ⌘W closes the window in front: with another one there (the About panel), the show stays.
+    // ⌘W closes the window in front: with another one there (the preview's own), the show stays.
     let main_in_front = app
         .get_webview_window("main")
         .is_some_and(|window| window.is_focused().unwrap_or(false));
@@ -234,6 +257,15 @@ pub(crate) fn on_event<R: Runtime>(app: &AppHandle<R>, event: MenuEvent) {
 mod tests {
     use super::*;
     use crate::recent::Visit;
+
+    #[test]
+    fn support_is_in_the_menu_only_while_there_is_a_way_to_give() {
+        assert_eq!(about_items(false), [("about", "About PixelFlow")]);
+        assert_eq!(
+            about_items(true),
+            [("about", "About PixelFlow"), ("support", "Support PixelFlow…")]
+        );
+    }
 
     #[test]
     fn items_become_actions_and_recent_shows_must_be_on_the_list() {
@@ -266,6 +298,13 @@ mod tests {
         assert_eq!(
             serde_json::to_value(MenuAction::Undo).unwrap(),
             serde_json::json!({ "action": "undo" })
+        );
+        // The app's own About, and the ways to support it, open in the window.
+        assert_eq!(action_for("about", &recent), Some(MenuAction::About));
+        assert_eq!(action_for("support", &recent), Some(MenuAction::Support));
+        assert_eq!(
+            serde_json::to_value(MenuAction::Support).unwrap(),
+            serde_json::json!({ "action": "support" })
         );
         // Quit and Close Window go through the window's close (and its question), not here.
         assert_eq!(action_for(QUIT, &recent), None);

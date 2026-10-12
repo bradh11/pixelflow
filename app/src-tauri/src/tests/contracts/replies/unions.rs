@@ -134,6 +134,10 @@ fn union_members() {
         every!(pf_sequence::RowBlending: Cover, Blend, Replace),
     );
     all(
+        "sequence.MusicLevelSource",
+        every!(pf_sequence::MusicLevelSource: LouderChannel, LeftChannel),
+    );
+    all(
         "sequence.SequenceIssue['severity']",
         every!(pf_model::Severity: Warning, Error),
     );
@@ -302,10 +306,12 @@ fn union_members() {
         MenuAction::SaveAs,
         MenuAction::Undo,
         MenuAction::Redo,
+        MenuAction::About,
+        MenuAction::Support,
     ];
     assert_every_variant(
         "menu action",
-        9,
+        11,
         actions.iter().map(|a| match a {
             MenuAction::NewShow => 0,
             MenuAction::OpenShow => 1,
@@ -316,6 +322,8 @@ fn union_members() {
             MenuAction::SaveAs => 6,
             MenuAction::Undo => 7,
             MenuAction::Redo => 8,
+            MenuAction::About => 9,
+            MenuAction::Support => 10,
         }),
     );
     fixtures.all_of("types.MenuAction", Some("action"), &wire(&actions));

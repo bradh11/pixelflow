@@ -93,14 +93,14 @@ fn reads_the_sequence_and_finds_its_music_from_the_mf_path() {
 #[test]
 fn streams_a_file_whole_with_progress_and_places_it() {
     let data = pattern(300_000);
-    let fpp = FakeFpp::start().with_sequence_file("Medley 2017.fseq", &data);
+    let fpp = FakeFpp::start().with_sequence_file("Medley 2020.fseq", &data);
     let dir = tempfile::tempdir().unwrap();
     let mut seen = Vec::new();
     let got = fpp_download::download(
         &client(),
         fpp.address(),
         FppFolder::Sequences,
-        "Medley 2017.fseq",
+        "Medley 2020.fseq",
         dir.path(),
         Some(data.len() as u64),
         &mut |done| {
@@ -116,13 +116,13 @@ fn streams_a_file_whole_with_progress_and_places_it() {
     // Waiting, whole, in a hidden file until placed.
     assert_eq!(files_in(dir.path()).len(), 1);
     assert!(files_in(dir.path())[0].starts_with('.'));
-    let to = dir.path().join("Medley 2017.fseq");
+    let to = dir.path().join("Medley 2020.fseq");
     got.place(&to).unwrap();
     assert_eq!(std::fs::read(&to).unwrap(), data);
-    assert_eq!(files_in(dir.path()), vec!["Medley 2017.fseq"]);
+    assert_eq!(files_in(dir.path()), vec!["Medley 2020.fseq"]);
     assert_eq!(
         fpp.state().requests,
-        vec!["GET /api/file/sequences/Medley%202017.fseq"]
+        vec!["GET /api/file/sequences/Medley%202020.fseq"]
     );
     read_only(&fpp);
 }

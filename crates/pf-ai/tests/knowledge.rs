@@ -11,7 +11,7 @@ use pf_ai::stage::Stage;
 use pf_ai::{Cancel, Draft, OpenDoc, Toolbox, UiContext, Workspace};
 use pf_model::{GroupLayout, RenderStyle};
 use pf_render::{AudioSource, Pictures};
-use pf_sequence::{Blend, CurveShape, EffectKind, RowBlending, SettingValue};
+use pf_sequence::{Blend, CurveShape, EffectKind, MusicLevelSource, RowBlending, SettingValue};
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -136,6 +136,11 @@ fn every_blend_curve_shape_layout_cue_and_timing_track_is_in_its_topic() {
         "blends",
         "ways rows meet",
         RowBlending::ALL.iter().map(reference::key_of),
+    );
+    topic_names_all(
+        "music-reactive",
+        "channels the music's level can come from",
+        MusicLevelSource::ALL.iter().map(reference::key_of),
     );
     topic_names_all(
         "curves",
@@ -643,6 +648,18 @@ fn everything_the_guides_name_can_be_said_to_a_tool() {
         assert!(
             ways.contains(&format!("\"{}\"", reference::key_of(&way))),
             "{ways}"
+        );
+    }
+    let level = &toolbox
+        .find("sequence_set_music_level_source")
+        .unwrap()
+        .spec
+        .input_schema;
+    let channels = level["$defs"]["MusicLevelSource"].to_string();
+    for channel in MusicLevelSource::ALL {
+        assert!(
+            channels.contains(&format!("\"{}\"", reference::key_of(&channel))),
+            "{channels}"
         );
     }
 }

@@ -60,6 +60,7 @@ import type {
   FppSendRequest,
   Group,
   PatternKind,
+  ProjectLink,
   PickKind,
   PlaylistChoice,
   Prop,
@@ -170,6 +171,7 @@ const edits = each<Edit, "type">("type", {
 const sequenceEdits = each<SequenceEdit, "type">("type", {
   updateInfo: { type: "updateInfo", name: "Carol", audio: `${DIR}/music/Carol.mp3`, durationMs: 60_000, frameMs: 50 },
   setRowBlending: { type: "setRowBlending", rowBlending: "blend" },
+  setMusicLevelSource: { type: "setMusicLevelSource", musicLevelSource: "leftChannel" },
   addRow: { type: "addRow", row, index: 1 },
   removeRow: { type: "removeRow", id: ROW },
   moveRow: { type: "moveRow", id: ROW, index: 2 },
@@ -309,6 +311,9 @@ async function callTheBackend(backend: Backend) {
   await backend.fppSoftware(FPP);
   await backend.openDevicePage(FPP);
   await backend.openDevicePage(FPP, "about.php");
+  for (const link of all<ProjectLink>({ source: true, xlights: true, licence: true, credits: true, notices: true, githubSponsors: true, koFi: true, buyMeACoffee: true, payPal: true })) {
+    await backend.openProjectLink(link);
+  }
   await backend.fppSequenceNames(FPP);
   await backend.fppSendPlan(FPP, sources[0], `${DIR}/music/Carol.mp3`);
   await backend.fppSendPlan(FPP, sources[1], null);

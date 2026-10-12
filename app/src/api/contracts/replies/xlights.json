@@ -158,7 +158,7 @@
               "adapter": "generic",
               "address": "192.0.2.20",
               "id": "00000000-0000-4000-a000-000000000001",
-              "name": "Falcon_F16V5_B9F5",
+              "name": "Falcon_F16V5_A1B2",
               "ports": [
                 {
                   "brightness": 100,
@@ -570,7 +570,8 @@
         "1 model in the sequence isn't in the show; it had no effects, so nothing was lost.",
         "These submodels aren't in the show, so their effects weren't imported: Mega Tree/Star (2 effects).",
         "PixelFlow doesn't import effects on strands or single nodes yet; these weren't imported: Mega Tree (1 effect).",
-        "1 effect is xLights' Random effect (xLights doesn't load it either), so it was left out."
+        "1 effect is xLights' Random effect (xLights doesn't load it either), so it was left out.",
+        "Effects that follow the music follow its left channel, as they do in xLights, so they play as they did there. You can change this in Sequence settings."
       ],
       "snapshot": {
         "canRedo": false,
@@ -596,6 +597,7 @@
           "audio": null,
           "durationMs": 20000,
           "frameMs": 25,
+          "musicLevelSource": "leftChannel",
           "name": "Effects",
           "rowBlending": "blend",
           "rows": [
@@ -1120,7 +1122,7 @@
               "target": { "group": "00000000-0000-4000-a000-000000000009" }
             }
           ],
-          "schemaVersion": 13,
+          "schemaVersion": 14,
           "timingTracks": []
         }
       },
@@ -1434,7 +1436,8 @@
       "notes": [
         "These xLights models weren't mapped to anything, so their effects weren't imported: Mega Tree (6 effects), Santa's Sleigh & Reindeer (1 effect), Garage Door (2 effects).",
         "These submodels and strands weren't mapped to anything, so their effects weren't imported: Mega Tree/Star (2 effects).",
-        "PixelFlow doesn't import effects on single nodes yet; these weren't imported: Mega Tree (1 effect)."
+        "PixelFlow doesn't import effects on single nodes yet; these weren't imported: Mega Tree (1 effect).",
+        "Effects that follow the music follow its left channel, as they do in xLights, so they play as they did there. You can change this in Sequence settings."
       ],
       "snapshot": {
         "canRedo": false,
@@ -1447,10 +1450,11 @@
           "audio": "/fixture/House/music/effects.mp3",
           "durationMs": 20000,
           "frameMs": 25,
+          "musicLevelSource": "leftChannel",
           "name": "Effects",
           "rowBlending": "blend",
           "rows": [],
-          "schemaVersion": 13,
+          "schemaVersion": 14,
           "timingTracks": []
         }
       },
@@ -1730,6 +1734,6 @@
   {
     "name": "an xLights mapping file read",
     "ts": "types.XmapRead",
-    "value": { "mapping": { "items": { "Mega Tree": ["Pillars", "Tree"] } }, "nodesSkipped": 0 }
+    "value": { "mapping": { "items": { "Mega Tree": ["Pylons", "Tree"] } }, "nodesSkipped": 0 }
   }
 ]

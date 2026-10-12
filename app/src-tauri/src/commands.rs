@@ -2,9 +2,9 @@
 //! (the last part of its path here), so a test pins the names.
 
 use crate::{
-    assistant, camera_map, device_setup, devices, files, fpp_download, fpp_send, house, layout, lyrics,
-    output, pickers, pictures, playback, preview_window, recent, sequencer, shaders, sync, vendor, video,
-    vocals, xlights,
+    assistant, camera_map, device_setup, devices, files, fpp_download, fpp_send, house, layout, links,
+    lyrics, output, pickers, pictures, playback, preview_window, recent, sequencer, shaders, sync, vendor,
+    video, vocals, xlights,
 };
 use tauri::generate_handler;
 
@@ -168,6 +168,7 @@ macro_rules! command_list {
             preview_window::preview_link,
             preview_window::set_fullscreen,
             preview_window::is_fullscreen,
+            links::open_project_link,
         ]
     };
 }
@@ -315,6 +316,7 @@ mod tests {
             "nudge_lyrics",
             "open_device_page",
             "open_preview_window",
+            "open_project_link",
             "open_sample_show",
             "open_sequence_doc",
             "open_show",

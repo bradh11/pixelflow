@@ -1,7 +1,7 @@
 import { Keyboard, Sparkles } from "lucide-react";
 import type { ReactNode } from "react";
-import { version } from "../../package.json";
 import { providerName } from "../api/assistant";
+import { AboutDetails } from "../components/About";
 import { PreviewSyncSettings } from "../components/PreviewSyncSettings";
 import { Button, Card, PageHeader } from "../components/ui";
 import { hintFor } from "../lib/shortcuts";
@@ -134,7 +134,7 @@ export function SettingsScreen() {
       </Section>
 
       <Section title="About">
-        <p className="text-sm">PixelFlow {version}</p>
+        <AboutDetails />
         <div>
           <Button onClick={() => useShortcutSheet.getState().setOpen(true)}>
             <Keyboard size={14} aria-hidden /> Keyboard shortcuts <kbd className="font-sans text-xs text-neutral-400">{hintFor("shortcuts")}</kbd>

@@ -29,8 +29,8 @@ pub use look::{ByVerdict, LookGroup, Verdict};
 use pf_model::{Generator, RenderStyle, ShapeSource, Show};
 use pf_sequence::{
     ChaseOrder, Effect, EffectId, EffectParams, Gradient, Layer, MAX_DURATION_MS, MAX_EFFECTS, MAX_FRAME_MS,
-    MAX_LAYERS_PER_ROW, MAX_MARKS, MAX_ROWS, MAX_TEXT_LEN, MAX_TIMING_TRACKS, MIN_FRAME_MS, Mark, Row,
-    RowBlending, RowId, Sequence, Target, TimingKind, TimingTrack, TimingTrackId,
+    MAX_LAYERS_PER_ROW, MAX_MARKS, MAX_ROWS, MAX_TEXT_LEN, MAX_TIMING_TRACKS, MIN_FRAME_MS, Mark,
+    MusicLevelSource, Row, RowBlending, RowId, Sequence, Target, TimingKind, TimingTrack, TimingTrackId,
 };
 use serde::Serialize;
 pub use shaders::{FoundShader, NearbyShaders};
@@ -41,6 +41,11 @@ use std::path::{Path, PathBuf};
 const MAX_LISTED: usize = 20;
 /// Frame time xLights falls back to when the file doesn't give a usable one.
 const DEFAULT_FRAME_MS: u32 = 50;
+
+/// Said of every imported sequence made to music: how loud the music is comes from its left
+/// channel ([`MusicLevelSource::LeftChannel`]), which isn't what a sequence made in PixelFlow
+/// follows.
+const MUSIC_LEVEL_NOTE: &str = "Effects that follow the music follow its left channel, as they do in xLights, so they play as they did there. You can change this in Sequence settings.";
 
 /// Counts for the import report.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
@@ -935,6 +940,9 @@ fn build(
     } else {
         RowBlending::Replace
     };
+    // How loud the music is, to xLights, is its left channel alone: what follows the music
+    // here follows the same, so it plays as it did there.
+    sequence.music_level_source = MusicLevelSource::LeftChannel;
     let song = unxml_safe(file.head.song.trim());
     if !song.trim().is_empty() {
         sequence.name = song.trim().to_string();
@@ -1394,6 +1402,12 @@ fn build(
     notes.extend(b.notes);
 
     let media = file.head.media_file.trim();
+    // A sequence made to music (one that names its music, or says it has some) is told which
+    // channel its effects follow, since a sequence made in PixelFlow follows another.
+    let animation = matches!(file.head.sequence_type.trim(), "Animation" | "Effect");
+    if !animation && (!media.is_empty() || !file.head.sequence_type.trim().is_empty()) {
+        notes.push(MUSIC_LEVEL_NOTE.to_string());
+    }
     SequenceImport {
         sequence,
         summary: b.summary,

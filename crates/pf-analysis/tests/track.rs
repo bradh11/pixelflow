@@ -1,6 +1,7 @@
 //! The audio track of generated music files.
 
 use pf_analysis::{AudioTrack, audio_track, audio_track_file};
+use pf_sequence::MusicLevelSource;
 use std::f32::consts::TAU;
 
 const RATE: u32 = 22_050;
@@ -61,6 +62,15 @@ fn a_files_peaks_follow_its_louder_channel() {
     for (got, want) in peaks.iter().chain(&troughs).zip([1.0, 1.0, 1.0, 0.25].repeat(2)) {
         assert!((got - want).abs() < 0.01, "{peaks:?} {troughs:?}");
     }
+    // The left channel's level is kept beside it, for a sequence that follows the left alone:
+    // it hears nothing of the second on the right.
+    let left_level = MusicLevelSource::LeftChannel;
+    let left_peaks: Vec<f32> = (0..4)
+        .map(|second| t.peak_from(left_level, second * 20 + 10))
+        .collect();
+    for (got, want) in left_peaks.iter().zip([1.0, 0.0, 1.0, 0.25]) {
+        assert!((got - want).abs() < 0.01, "{left_peaks:?}");
+    }
     // How loud it sounds is still the mix's: silence where the channels cancel.
     assert_eq!(t.level(50), 0.0);
     assert!(t.level(10) > 0.99);
@@ -73,5 +83,15 @@ fn a_files_peaks_follow_its_louder_channel() {
     let decoded: Vec<f32> = pf_audio::MonoSamples::open(&one).unwrap().collect();
     assert_eq!(track(&one), audio_track(decoded, RATE, 50));
     assert_eq!(track(&two), track(&one));
+    // With one channel the level is the same whichever a sequence follows.
+    let one = track(&one);
+    for frame in 0..one.len() as u64 {
+        assert_eq!(one.peak_from(left_level, frame), one.peak(frame), "frame {frame}");
+        assert_eq!(
+            one.trough_from(left_level, frame),
+            one.trough(frame),
+            "frame {frame}"
+        );
+    }
     let _ = std::fs::remove_dir_all(&dir);
 }

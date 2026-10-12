@@ -6,6 +6,24 @@ It is **not legal advice**, and it does not say whether any file is a "derivativ
 a legal question, and the author of this inventory is not a lawyer. See
 [distribution-checklist.md](distribution-checklist.md) for what follows from it.
 
+## What this inventory is for
+
+PixelFlow is open source under the GNU General Public License, version 3
+([`LICENSE`](../../LICENSE)), the licence xLights is under. Offering the whole project under that
+licence covers every file below, so the inventory is not a list of problems to clear. It is:
+
+- **the record behind the credit.** [`NOTICE`](../../NOTICE) says that parts of PixelFlow are
+  derived from xLights' source and points here for which parts. PixelFlow is an independent
+  project inspired by xLights; the rows below marked "direct port" are the parts that are more
+  than inspired, and they are credited as derived;
+- **for anyone who wants to know** where a file came from, for example before reusing it
+  somewhere else;
+- **a guide to what is worth rewriting.** A part is rewritten as PixelFlow's own where there is a
+  real gain (speed, simplicity, or a closer match to what xLights draws), not to get out from
+  under the licence. A rewritten part moves to "behaviour-matching" and the list of direct ports
+  gets shorter. Pinwheel and Shockwave are done, Plasma is in progress, and the rest stays,
+  credited.
+
 ## How this was made
 
 - Every PixelFlow file that names xLights, FPP, or WLED source was read, and compared with the
@@ -32,7 +50,8 @@ a legal question, and the author of this inventory is not a lawyer. See
 
 No PixelFlow file carries a copyright or licence notice of its own, and none reproduces
 xLights' file header. The files below name the xLights file and function they follow in their
-opening comment.
+opening comment. The project's licence and its credit to xLights are stated once, in `LICENSE`
+and `NOTICE` at the repo root.
 
 ## Categories
 
@@ -43,10 +62,12 @@ opening comment.
 | **Format reading** | Reads or writes a file format or wire protocol for interoperability: attribute names, setting keys, packet layouts. No algorithm carried over. |
 | **Independent** | PixelFlow's own design. At most it shares public names or visible behaviour. |
 
-Clean-room effort: **S** under a day, **M** days, **L** a week or more. "Clean room" here means
-one person writes a description of the behaviour (from watching xLights, its manual, or files it
-saves) and a different person, who has not read the xLights source, writes the code from that
-description.
+The "Clean-room" column is what rewriting the piece as PixelFlow's own would take: **S** under a
+day, **M** days, **L** a week or more. "Clean room" here means one person writes a description of
+the behaviour (from watching xLights, its manual, or files it saves) and a different person, who
+has not read the xLights source, writes the code from that description. The estimates were made
+when relicensing was still an open question; they serve now to choose which rewrites are worth
+their cost.
 
 ## Summary
 
@@ -312,10 +333,14 @@ named, the desktop shell (`app/src-tauri`), and the UI apart from the files name
 | WLED codes | `pf-devices/src/wled.rs` | WLED `const.h`, per PixelFlow's comments | WLED's repository is under EUPL 1.2. |
 | 5 by 7 pixel font | `pf-render/src/text.rs`, `FONT` (95 glyphs) | Not stated; the file calls it "the classic 5 x 7 one" | Not from xLights. The table resembles one that circulates widely in display libraries; its origin and terms were not established. |
 | Fire constants | `pf-render/src/effects.rs`, `Fire` | Not stated | The cooling and spark constants resemble the FastLED "Fire2012" demo (MIT). Not verified; the code's structure is PixelFlow's. |
-| Device fixtures | `crates/pf-devices/fixtures/` | Per its README: `fpp/` and `falcon/` recorded from the owner's own devices with addresses, MAC, and serial removed; `fpp-hat/` and `wled/` synthetic; `falcon/synthetic/` built from the sample replies quoted in comments in `Falcon.cpp` (about 1.2 KB); `fpp/github_releases.json` a trimmed public release list | Tests only. They hold no credentials, but they still carry details of the owner's own show: prop names, a sequence name ("Christmas Medley 2017"), and a controller name whose suffix may derive from a MAC address. Scrubbing those is optional and is the owner's call; the fixtures were not changed. |
+| Device fixtures | `crates/pf-devices/fixtures/` | Per its README: `fpp/` and `falcon/` recorded from the owner's own devices with addresses, MAC, and serial removed; `fpp-hat/` and `wled/` synthetic; `falcon/synthetic/` built from the sample replies quoted in comments in `Falcon.cpp` (about 1.2 KB); `fpp/github_releases.json` a trimmed public release list | Tests only. They hold no credentials. The details of the owner's own show that the recordings carried (prop names, a sequence name, and a controller name whose suffix may have derived from a MAC address) have been replaced with made-up ones, here and in the tests that use them; the earlier values remain in the repository's history. |
 | FPP oracle | `scripts/fseq-fpp-oracle.sh` | Fetches FPP's `src/fseq` when run, into a scratch directory | Nothing from FPP is copied into the repository. The script holds a 45-line harness written against FPP's `FSEQFile` API. |
 
 ## What a clean-room rewrite would involve
+
+Nothing here has to be rewritten: under the GPL the ported code may stay, credited. This table is
+what each rewrite would take, for choosing the ones that pay for themselves in speed, simplicity,
+or fidelity.
 
 | Piece | Effort | What it takes |
 |---|---|---|
@@ -361,7 +386,10 @@ What this inventory does and doesn't say about the result: the new file is organ
 independently and shares no code with the old one or with xLights, and it is listed as
 behaviour-matching, not independent, because the conventions it keeps reached it by way of a
 description drawn up from the port. Whether that makes it free of xLights' licence is the same
-legal question as for every other row, and this inventory doesn't answer it.
+legal question as for every other row, and this inventory doesn't answer it. With the whole
+project under the GPL it doesn't need answering: the rewrite was done for what it gained (see
+[../benchmarks.md](../benchmarks.md) and [../fidelity.md](../fidelity.md)), and the credit to
+xLights stands either way.
 
 Shockwave followed, with the method tightened so that the output stays the same. Its description
 was measured, not read: the old effect was drawn through the renderer's public interface across

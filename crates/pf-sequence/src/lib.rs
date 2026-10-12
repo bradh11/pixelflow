@@ -21,7 +21,8 @@ pub use curve::{
     MIN_CURVE_CYCLES,
 };
 pub use document::{
-    CURRENT_SCHEMA_VERSION, Layer, Mark, Row, RowBlending, Sequence, Target, TimingKind, TimingTrack,
+    CURRENT_SCHEMA_VERSION, Layer, Mark, MusicLevelSource, Row, RowBlending, Sequence, Target, TimingKind,
+    TimingTrack,
 };
 pub use effect::{
     Axis, BarsMotion, BarsParams, Blend, ButterflyColors, ButterflyParams, ChaseOrder, ChaseParams,

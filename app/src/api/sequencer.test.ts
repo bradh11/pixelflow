@@ -65,7 +65,7 @@ describe("applySequenceChanges", () => {
     const reordered = applySequenceChanges(next, {
       ...noChanges(),
       rowOrder: [second.id, first.id],
-      info: { name: "t", audio: "a.mp3", durationMs: 5, frameMs: 50, rowBlending: "cover" },
+      info: { name: "t", audio: "a.mp3", durationMs: 5, frameMs: 50, rowBlending: "cover", musicLevelSource: "louderChannel" },
     });
     expect(reordered.rows.map((r) => r.id)).toEqual([second.id, first.id]);
     expect(reordered).toMatchObject({ name: "t", audio: "a.mp3", durationMs: 5, frameMs: 50 });

@@ -7,8 +7,8 @@ use pf_model::{
 use pf_sequence::{
     Axis, BarsMotion, BarsParams, Blend, ChaseParams, ColorWashParams, Direction, Effect, EffectParams,
     FaceColorSource, FaceEyes, FacesParams, FireParams, FireStyle, FireworksParams, Gradient, Mark,
-    MeteorDirection, MeteorsParams, OnParams, Rgb, RippleParams, Row, RowBlending, ShapeObject,
-    ShimmerParams, SpiralParams, StrobeParams, Target, TimingKind, TwinkleParams, WaveParams,
+    MeteorDirection, MeteorsParams, MusicLevelSource, OnParams, Rgb, RippleParams, Row, RowBlending,
+    ShapeObject, ShimmerParams, SpiralParams, StrobeParams, Target, TimingKind, TwinkleParams, WaveParams,
 };
 use pf_xlights::sequence::{Fidelity, SequenceImport, Verdict, build_sequence, parse_xsq};
 use pf_xlights::{import_folder, import_sequence_file};
@@ -233,6 +233,39 @@ fn model_blending_comes_across_as_how_rows_meet() {
     assert_eq!(import(r#" ModelBlending="true""#), RowBlending::Blend);
     assert_eq!(import(r#" ModelBlending="false""#), RowBlending::Replace);
     assert_eq!(import(""), RowBlending::Replace);
+}
+
+#[test]
+fn an_imported_sequence_follows_the_left_channel_and_says_so_when_it_has_music() {
+    // To xLights, how loud the music is is its left channel alone: what follows the music here
+    // follows the same.
+    let with_music = import("effects.xsq");
+    assert_opens(&with_music);
+    assert_eq!(
+        with_music.sequence.music_level_source,
+        MusicLevelSource::LeftChannel
+    );
+    let said: Vec<&String> = with_music
+        .notes
+        .iter()
+        .filter(|n| n.contains("left channel"))
+        .collect();
+    assert_eq!(
+        said,
+        [
+            "Effects that follow the music follow its left channel, as they do in xLights, so they play as they did there. You can change this in Sequence settings."
+        ]
+    );
+    // It is kept when the sequence is saved.
+    let saved = pf_sequence::sequence_to_json(&with_music.sequence).unwrap();
+    assert!(saved.contains(r#""musicLevelSource": "leftChannel""#), "{saved}");
+    // An animation has no music to follow: it is set the same way, and nothing is said.
+    let animation = import("seconds.xsq");
+    assert_eq!(
+        animation.sequence.music_level_source,
+        MusicLevelSource::LeftChannel
+    );
+    assert!(!has_note(&animation, "left channel"), "{:#?}", animation.notes);
 }
 
 #[test]

@@ -85,6 +85,30 @@ describe("MemorySequencer", () => {
     expect(seq.files.get("/shows/song.pfseq.json")).not.toHaveProperty("rowBlending");
   });
 
+  it("sets which channel of the music is how loud it is, through undo, redo, and a save", async () => {
+    const { seq } = await authored();
+    let copy = structuredClone(seq.doc!);
+    const left = (): SequenceEdit[] => [{ type: "setMusicLevelSource", musicLevelSource: "leftChannel" }];
+    const reply = await seq.editSequence(left());
+    expect(reply.changes.info).toMatchObject({ musicLevelSource: "leftChannel", rowBlending: "cover" });
+    expect(seq.doc!.musicLevelSource).toBe("leftChannel");
+    copy = applySequenceChanges(copy, reply.changes);
+    expect(copy).toEqual(seq.doc);
+    // Already set: nothing changes, and there's no second step to undo.
+    expect((await seq.editSequence(left())).changed).toBe(false);
+    await seq.saveSequenceDocAs("/shows/song.pfseq.json");
+    expect(seq.files.get("/shows/song.pfseq.json")).toMatchObject({ musicLevelSource: "leftChannel" });
+    // The louder channel is left out, as in the file.
+    copy = applySequenceChanges(copy, (await seq.undoSequence()).changes);
+    expect(copy).not.toHaveProperty("musicLevelSource");
+    expect(copy).toEqual(seq.doc);
+    copy = applySequenceChanges(copy, (await seq.redoSequence()).changes);
+    expect(copy.musicLevelSource).toBe("leftChannel");
+    expect(copy).toEqual(seq.doc);
+    await seq.editSequence([{ type: "setMusicLevelSource", musicLevelSource: "louderChannel" }]);
+    expect(seq.doc).not.toHaveProperty("musicLevelSource");
+  });
+
   it("merges edits with the same gesture id into one undo step", async () => {
     const { seq, effect } = await authored();
     const move = (startMs: number, gesture?: string) =>

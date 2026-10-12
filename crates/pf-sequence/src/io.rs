@@ -31,7 +31,7 @@ type Migration = fn(Value) -> Result<Value, SequenceError>;
 /// `MIGRATIONS[i]` upgrades a document from schema version `i + 1` to `i + 2`.
 const MIGRATIONS: &[Migration] = &[
     v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8, v8_to_v9, v9_to_v10, v10_to_v11,
-    v11_to_v12, v12_to_v13,
+    v11_to_v12, v12_to_v13, v13_to_v14,
 ];
 
 /// Version 2 only adds submodel targets, so version 1 documents are already valid.
@@ -102,9 +102,16 @@ fn v11_to_v12(doc: Value) -> Result<Value, SequenceError> {
     Ok(doc)
 }
 
-/// Version 13 only adds an effect kind (Shader) and the curve keys that go with it
-/// (`inputs.<name>`), so version 12 documents are already valid.
+/// Version 13 only adds which channel of the music is how loud it is (`musicLevelSource`; the
+/// louder one, as those sequences have been playing, when it's missing), so version 12 documents
+/// are already valid.
 fn v12_to_v13(doc: Value) -> Result<Value, SequenceError> {
+    Ok(doc)
+}
+
+/// Version 14 only adds an effect kind (Shader) and the curve keys that go with it
+/// (`inputs.<name>`), so version 13 documents are already valid.
+fn v13_to_v14(doc: Value) -> Result<Value, SequenceError> {
     Ok(doc)
 }
 
@@ -334,7 +341,7 @@ mod tests {
             .effects
             .push(crate::Effect::new(crate::EffectKind::Dancer, 500, 1000).with_params(dancer));
         let saved = sequence_to_json(&seq).unwrap();
-        assert!(saved.contains(r#""schemaVersion": 13"#), "{saved}");
+        assert!(saved.contains(r#""schemaVersion": 14"#), "{saved}");
         assert_eq!(sequence_from_json(&saved).unwrap(), seq);
     }
 
@@ -372,7 +379,7 @@ mod tests {
             .effects
             .push(crate::Effect::new(crate::EffectKind::Picture, 500, 1000).with_params(picture));
         let saved = sequence_to_json(&seq).unwrap();
-        assert!(saved.contains(r#""schemaVersion": 13"#), "{saved}");
+        assert!(saved.contains(r#""schemaVersion": 14"#), "{saved}");
         assert!(saved.contains(r#""file": "images/santa dancing.gif""#), "{saved}");
         assert_eq!(sequence_from_json(&saved).unwrap(), seq);
         // A new picture has no file yet and plays at its own speed; settings out of range are
@@ -455,7 +462,7 @@ mod tests {
             .effects
             .push(crate::Effect::new(crate::EffectKind::Fire, 500, 1000).with_params(flicker));
         let saved = sequence_to_json(&seq).unwrap();
-        assert!(saved.contains(r#""schemaVersion": 13"#), "{saved}");
+        assert!(saved.contains(r#""schemaVersion": 14"#), "{saved}");
         assert!(saved.contains(r#""style": "flicker""#), "{saved}");
         let again = sequence_from_json(&saved).unwrap();
         // Out-of-range settings are pulled back in on open.
@@ -503,7 +510,7 @@ mod tests {
             .effects
             .push(crate::Effect::new(crate::EffectKind::Fireworks, 500, 1000).with_params(fireworks));
         let saved = sequence_to_json(&seq).unwrap();
-        assert!(saved.contains(r#""schemaVersion": 13"#), "{saved}");
+        assert!(saved.contains(r#""schemaVersion": 14"#), "{saved}");
         assert_eq!(sequence_from_json(&saved).unwrap(), seq);
         // A new one bursts at random moments and places, with soft sparks, in percent of the prop.
         let EffectParams::Fireworks(new) = EffectParams::default_for(crate::EffectKind::Fireworks) else {
@@ -542,8 +549,34 @@ mod tests {
     }
 
     #[test]
-    fn version_12_files_open_as_the_current_version_and_shaders_round_trip() {
-        let text = r#"{ "schemaVersion": 12, "name": "x", "durationMs": 1000, "rows": [
+    fn version_12_files_open_following_the_louder_channel_and_the_level_source_round_trips() {
+        let text = r#"{ "schemaVersion": 12, "name": "x", "durationMs": 1000, "rows": [] }"#;
+        let mut seq = sequence_from_json(text).unwrap();
+        assert_eq!(seq.schema_version, CURRENT_SCHEMA_VERSION);
+        assert_eq!(seq.music_level_source, MusicLevelSource::LouderChannel);
+        assert_eq!(
+            Sequence::new("x", 1000).music_level_source,
+            MusicLevelSource::LouderChannel
+        );
+        let saved = sequence_to_json(&seq).unwrap();
+        assert!(
+            !saved.contains("musicLevelSource"),
+            "left out when it's the louder channel: {saved}"
+        );
+        seq.music_level_source = MusicLevelSource::LeftChannel;
+        let saved = sequence_to_json(&seq).unwrap();
+        assert!(saved.contains(r#""musicLevelSource": "leftChannel""#), "{saved}");
+        assert_eq!(sequence_from_json(&saved).unwrap(), seq);
+        let named = saved.replace("leftChannel", "louderChannel");
+        assert_eq!(
+            sequence_from_json(&named).unwrap().music_level_source,
+            MusicLevelSource::LouderChannel
+        );
+    }
+
+    #[test]
+    fn version_13_files_open_as_the_current_version_and_shaders_round_trip() {
+        let text = r#"{ "schemaVersion": 13, "name": "x", "durationMs": 1000, "rows": [
             { "id": "11111111-0000-4000-8000-000000000001",
               "target": { "prop": "22222222-0000-4000-8000-000000000001" },
               "layers": [ { "effects": [ { "id": "33333333-0000-4000-8000-000000000001",
@@ -597,7 +630,7 @@ mod tests {
         effect.curves.insert("speed".into(), crate::Curve::ramp(0.5, 2.0));
         seq.rows[0].layers[0].effects.push(effect);
         let saved = sequence_to_json(&seq).unwrap();
-        assert!(saved.contains(r#""schemaVersion": 13"#), "{saved}");
+        assert!(saved.contains(r#""schemaVersion": 14"#), "{saved}");
         assert!(saved.contains(r#""file": "shaders/rings.fs""#), "{saved}");
         assert!(saved.contains(r#""inputs.at.x""#), "{saved}");
         assert_eq!(sequence_from_json(&saved).unwrap(), seq);
@@ -755,7 +788,7 @@ mod tests {
             sequence_from_json(r#"{ "schemaVersion": "1", "name": "x" }"#),
             Err(SequenceError::InvalidSchemaVersion(_))
         ));
-        let err = sequence_from_json(r#"{ "schemaVersion": 14, "name": "x" }"#).unwrap_err();
+        let err = sequence_from_json(r#"{ "schemaVersion": 15, "name": "x" }"#).unwrap_err();
         assert!(err.to_string().contains("update PixelFlow"), "{err}");
         assert!(matches!(sequence_from_json("[1, 2"), Err(SequenceError::Json(_))));
     }

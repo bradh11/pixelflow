@@ -272,6 +272,12 @@
     "value": ["cover", "blend", "replace"]
   },
   {
+    "allOf": "sequence.MusicLevelSource",
+    "name": "every sequence.MusicLevelSource",
+    "ts": "(sequence.MusicLevelSource)[]",
+    "value": ["louderChannel", "leftChannel"]
+  },
+  {
     "allOf": "sequence.SequenceIssue['severity']",
     "name": "every sequence.SequenceIssue['severity']",
     "ts": "(sequence.SequenceIssue['severity'])[]",
@@ -510,7 +516,9 @@
       { "action": "save" },
       { "action": "saveAs" },
       { "action": "undo" },
-      { "action": "redo" }
+      { "action": "redo" },
+      { "action": "about" },
+      { "action": "support" }
     ]
   },
   {

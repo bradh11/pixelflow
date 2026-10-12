@@ -446,13 +446,13 @@ mod tests {
 
     fn show_with_files() -> Show {
         let mut show = Show::new("Files");
-        let mut medley = SequenceEntry::new("Medley", below("/Shows/Haas", &["Christmas Medley 2017.fseq"]));
-        medley.audio = Some(below("/Shows/Haas", &["MP3 Music", "Christmas Medley 2017.mp3"]));
+        let mut medley = SequenceEntry::new("Medley", below("/Shows/Home", &["Chimes Medley 2020.fseq"]));
+        medley.audio = Some(below("/Shows/Home", &["MP3 Music", "Chimes Medley 2020.mp3"]));
         show.sequences.push(medley);
         show.sequences
             .push(SequenceEntry::new("Elsewhere", "/Volumes/USB/Wizards.fseq"));
         show.background = Some(Background::new(
-            below("/Shows/Haas", &["photos", "house.jpg"]),
+            below("/Shows/Home", &["photos", "house.jpg"]),
             0.0,
             0.0,
             10.0,
@@ -464,11 +464,11 @@ mod tests {
     #[test]
     fn files_in_the_show_folder_are_stored_relative_and_read_back_in_full() {
         let show = show_with_files();
-        let stored = show.with_paths_relative_to(Path::new("/Shows/Haas"));
-        assert_eq!(stored.sequences[0].path, "Christmas Medley 2017.fseq");
+        let stored = show.with_paths_relative_to(Path::new("/Shows/Home"));
+        assert_eq!(stored.sequences[0].path, "Chimes Medley 2020.fseq");
         assert_eq!(
             stored.sequences[0].audio.as_deref(),
-            Some("MP3 Music/Christmas Medley 2017.mp3")
+            Some("MP3 Music/Chimes Medley 2020.mp3")
         );
         assert_eq!(
             stored.sequences[1].path, "/Volumes/USB/Wizards.fseq",
@@ -483,15 +483,12 @@ mod tests {
 
         // The folder moved: the relative files follow it, the others stay put.
         let mut moved = stored.clone();
-        moved.resolve_paths(Path::new("/Users/me/Shows/Haas"));
-        let to = "/Users/me/Shows/Haas";
-        assert_eq!(
-            moved.sequences[0].path,
-            below(to, &["Christmas Medley 2017.fseq"])
-        );
+        moved.resolve_paths(Path::new("/Users/me/Shows/Home"));
+        let to = "/Users/me/Shows/Home";
+        assert_eq!(moved.sequences[0].path, below(to, &["Chimes Medley 2020.fseq"]));
         assert_eq!(
             moved.sequences[0].audio,
-            Some(below(to, &["MP3 Music", "Christmas Medley 2017.mp3"]))
+            Some(below(to, &["MP3 Music", "Chimes Medley 2020.mp3"]))
         );
         assert_eq!(moved.sequences[1].path, "/Volumes/USB/Wizards.fseq");
         assert_eq!(
@@ -500,7 +497,7 @@ mod tests {
         );
 
         let mut same = stored;
-        same.resolve_paths(Path::new("/Shows/Haas"));
+        same.resolve_paths(Path::new("/Shows/Home"));
         assert_eq!(same, show);
     }
 

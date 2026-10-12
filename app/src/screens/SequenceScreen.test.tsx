@@ -97,8 +97,8 @@ describe("sequence screen", () => {
     await user.click(screen.getByText("Start from a song.").closest("button")!);
     const dialog = screen.getByRole("dialog", { name: "New sequence" });
     await user.click(within(dialog).getByRole("button", { name: "Choose music…" }));
-    expect(await within(dialog).findByText(/Christmas Medley 2017.mp3 · 1:00/)).toBeInTheDocument();
-    expect(within(dialog).getByRole("textbox", { name: "Name" })).toHaveValue("Christmas Medley 2017");
+    expect(await within(dialog).findByText(/Chimes Medley 2020.mp3 · 1:00/)).toBeInTheDocument();
+    expect(within(dialog).getByRole("textbox", { name: "Name" })).toHaveValue("Chimes Medley 2020");
     await user.click(within(dialog).getByRole("radio", { name: /Start empty/ }));
     await user.click(within(dialog).getByRole("button", { name: "Create" }));
     await waitFor(() => expect(seq.doc?.audio).toBe(DEMO_MUSIC));
@@ -791,7 +791,7 @@ describe("sequence screen", () => {
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Send to FPP…" }));
     const dialog = screen.getByRole("dialog", { name: "Send to FPP" });
-    expect(within(dialog).getByText("Christmas Medley 2017.mp3")).toBeInTheDocument();
+    expect(within(dialog).getByText("Chimes Medley 2020.mp3")).toBeInTheDocument();
     await within(dialog).findByText(/free/);
     // The demo FPP already has this sequence: nothing is chosen for the user.
     const send = within(dialog).getByRole("button", { name: /^Send$/ });
@@ -801,7 +801,7 @@ describe("sequence screen", () => {
     expect(backend.calls.some((c) => c.startsWith("fppSend:"))).toBe(false);
     await user.click(send);
     expect(await within(dialog).findByRole("button", { name: "Play it now on the FPP" })).toBeInTheDocument();
-    expect(backend.calls).toContain("fppSend:192.0.2.10:Christmas Medley 2017 (2).fseq:none");
+    expect(backend.calls).toContain("fppSend:192.0.2.10:Chimes Medley 2020 (2).fseq:none");
     await user.click(within(dialog).getByRole("button", { name: "Close" }));
     expect(screen.queryByRole("dialog", { name: "Send to FPP" })).not.toBeInTheDocument();
   });
@@ -838,7 +838,7 @@ describe("sequence screen", () => {
     await more("Export and add to this show's playlist…");
     await waitFor(() => expect(useApp.getState().snapshot?.show.sequences).toHaveLength(1));
     expect(seq.calls).toContain("exportSequenceDoc");
-    expect(useApp.getState().snapshot?.show.sequences[0]).toMatchObject({ name: "Christmas Medley 2017", path: "/Shows/Medley.fseq", audio: DEMO_MUSIC });
+    expect(useApp.getState().snapshot?.show.sequences[0]).toMatchObject({ name: "Chimes Medley 2020", path: "/Shows/Medley.fseq", audio: DEMO_MUSIC });
     // The show changed (one undo step on the show): the top bar and the notice say it needs saving.
     expect(await screen.findByText(/It's on the show's playlist; save the show to keep it there/)).toBeInTheDocument();
     expect(screen.getByText("Show not saved")).toBeInTheDocument();
@@ -1143,15 +1143,15 @@ describe("unsaved work", () => {
     const backend = new MemoryBackend(show);
     const seq = new MemorySequencer(backend);
     const kept = demoSequence(show, 60_000);
-    seq.recoveries = [{ id: "r1", name: "Christmas Medley 2017", path: DEMO_SEQUENCE_PATH, savedAtMs: Date.now() - 5 * 60_000, doc: kept }];
+    seq.recoveries = [{ id: "r1", name: "Chimes Medley 2020", path: DEMO_SEQUENCE_PATH, savedAtMs: Date.now() - 5 * 60_000, doc: kept }];
     await useApp.getState().connect(backend);
     useApp.setState({ started: true, screen: "sequence" });
     await useSequencer.getState().connect(seq);
     const user = userEvent.setup();
     render(<App />);
     const offer = screen.getByRole("region", { name: "Unsaved sequences from last time" });
-    expect(offer).toHaveTextContent("PixelFlow kept unsaved changes to Christmas Medley 2017 from 5 min ago (Christmas Medley 2017.pfseq.json).");
-    await user.click(within(offer).getByRole("button", { name: "Recover unsaved sequence Christmas Medley 2017" }));
+    expect(offer).toHaveTextContent("PixelFlow kept unsaved changes to Chimes Medley 2020 from 5 min ago (Chimes Medley 2020.pfseq.json).");
+    await user.click(within(offer).getByRole("button", { name: "Recover unsaved sequence Chimes Medley 2020" }));
     await waitFor(() => expect(useSequencer.getState().doc?.rows).toHaveLength(4));
     expect(useSequencer.getState()).toMatchObject({ dirty: true, path: DEMO_SEQUENCE_PATH });
     expect(screen.queryByRole("region", { name: "Unsaved sequences from last time" })).not.toBeInTheDocument();
@@ -1165,7 +1165,7 @@ describe("unsaved work", () => {
     expect(within(screen.getByRole("dialog", { name: "Unsaved changes" })).getByRole("button", { name: "Save" })).toHaveFocus();
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("dialog", { name: "Unsaved changes" })).not.toBeInTheDocument();
-    expect(useSequencer.getState().doc?.name).toBe("Christmas Medley 2017");
+    expect(useSequencer.getState().doc?.name).toBe("Chimes Medley 2020");
     // Thrown away instead.
     await user.click(screen.getByRole("button", { name: "Discard unsaved sequence Older" }));
     await waitFor(() => expect(screen.queryByRole("region", { name: "Unsaved sequences from last time" })).not.toBeInTheDocument());
@@ -1180,7 +1180,7 @@ describe("unsaved work", () => {
     await act(() => useSequencer.getState().edit((doc) => [{ type: "removeRow", id: doc.rows[3].id }]));
     expect(backend.requestClose()).toBe(false);
     const dialog = await screen.findByRole("dialog", { name: "Save your changes before closing?" });
-    expect(dialog).toHaveTextContent("There are unsaved changes to the sequence “Christmas Medley 2017”.");
+    expect(dialog).toHaveTextContent("There are unsaved changes to the sequence “Chimes Medley 2020”.");
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("dialog", { name: "Save your changes before closing?" })).not.toBeInTheDocument();
     expect(backend.calls).not.toContain("closeWindow");
@@ -1189,7 +1189,7 @@ describe("unsaved work", () => {
     await act(() => useApp.getState().apply([{ type: "renameShow", name: "House" }]));
     act(() => void backend.requestClose());
     const both = await screen.findByRole("dialog", { name: "Save your changes before closing?" });
-    expect(both).toHaveTextContent("the show “House” and the sequence “Christmas Medley 2017”");
+    expect(both).toHaveTextContent("the show “House” and the sequence “Chimes Medley 2020”");
     backend.nextSavePath = "/Shows/House.pixelflow.json";
     await user.click(within(both).getByRole("button", { name: "Save" }));
     await waitFor(() => expect(backend.calls).toContain("closeWindow"));
@@ -1366,7 +1366,7 @@ describe("saving", () => {
     await waitFor(() => expect(useApp.getState().snapshot!.dirty).toBe(false));
     expect(useSequencer.getState().dirty).toBe(false);
     expect(backend.calls).toContain("saveShowAs:/Shows/Demo House.pixelflow.json");
-    expect(screen.getByTestId("toast")).toHaveTextContent("Saved Demo House and Christmas Medley 2017");
+    expect(screen.getByTestId("toast")).toHaveTextContent("Saved Demo House and Chimes Medley 2020");
     expect(within(toolbar()).queryByText("Sequence not saved")).not.toBeInTheDocument();
   });
 
@@ -1383,7 +1383,7 @@ describe("saving", () => {
     await removeFirstRow();
     await act(() => useApp.getState().apply([{ type: "setFrameRate", fps: 30 }]));
     await user.keyboard("{Meta>}s{/Meta}");
-    await waitFor(() => expect(useApp.getState().error).toBe("Christmas Medley 2017 wasn't saved: The folder is read-only."));
+    await waitFor(() => expect(useApp.getState().error).toBe("Chimes Medley 2020 wasn't saved: The folder is read-only."));
     expect(order).toEqual(["show", "sequence"]);
     expect(useApp.getState().snapshot!.dirty).toBe(false);
     expect(useSequencer.getState().dirty).toBe(true);
@@ -1403,7 +1403,7 @@ describe("saving", () => {
     await user.keyboard("{Meta>}s{/Meta}");
     await waitFor(() => expect(useSequencer.getState().dirty).toBe(false));
     await waitFor(() => expect(useApp.getState().error).toBe("Demo House wasn't saved: The disk is full."));
-    expect(screen.getAllByTestId("toast").map((t) => t.textContent)).toEqual([expect.stringContaining("Saved Christmas Medley 2017")]);
+    expect(screen.getAllByTestId("toast").map((t) => t.textContent)).toEqual([expect.stringContaining("Saved Chimes Medley 2020")]);
   });
 
   it("⌘S with the show's save cancelled saves the sequence without claiming the show", async () => {
@@ -1414,7 +1414,7 @@ describe("saving", () => {
     await user.keyboard("{Meta>}s{/Meta}");
     await waitFor(() => expect(useSequencer.getState().dirty).toBe(false));
     expect(useApp.getState().error).toBeNull();
-    expect(screen.getAllByTestId("toast").map((t) => t.textContent)).toEqual([expect.stringContaining("Saved Christmas Medley 2017")]);
+    expect(screen.getAllByTestId("toast").map((t) => t.textContent)).toEqual([expect.stringContaining("Saved Chimes Medley 2020")]);
   });
 
   it("⌘S saves only the sequence when the show has no changes", async () => {
@@ -1423,7 +1423,7 @@ describe("saving", () => {
     await user.keyboard("{Meta>}s{/Meta}");
     await waitFor(() => expect(useSequencer.getState().dirty).toBe(false));
     expect(backend.calls.some((c) => c.startsWith("saveShow"))).toBe(false);
-    expect(screen.getByTestId("toast")).toHaveTextContent("Saved Christmas Medley 2017");
+    expect(screen.getByTestId("toast")).toHaveTextContent("Saved Chimes Medley 2020");
   });
 
   it.each([
@@ -1439,7 +1439,7 @@ describe("saving", () => {
     await act(async () => void (await save()));
     await waitFor(() => expect(useSequencer.getState().dirty).toBe(false));
     expect(useApp.getState().snapshot!.dirty).toBe(false);
-    expect(screen.getAllByTestId("toast").map((t) => t.textContent)).toEqual([expect.stringContaining("Saved Demo House and Christmas Medley 2017")]);
+    expect(screen.getAllByTestId("toast").map((t) => t.textContent)).toEqual([expect.stringContaining("Saved Demo House and Chimes Medley 2020")]);
     expect(screen.queryByText("Show not saved")).not.toBeInTheDocument();
   });
 

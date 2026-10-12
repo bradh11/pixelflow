@@ -8,6 +8,10 @@
 //   docs/licensing/dependencies.md                       the inventory, between the GENERATED markers
 //   app/src-tauri/resources/THIRD-PARTY-NOTICES.txt      the notices the built app bundles
 //
+// The notices open with PixelFlow's own notice (the NOTICE file at the repo root: its licence and
+// its credit to xLights), word for word. The inventory also holds every shipped package's licence
+// against PixelFlow's own, and `--check` fails on one that offers no compatible licence.
+//
 // Reads `cargo metadata` for both Cargo workspaces (the engine at the repo root and the desktop
 // app in app/src-tauri) and the installed packages under app/node_modules, so run `pnpm install`
 // in app/ first. Needs only Node and cargo: no other tools, and no network beyond what
@@ -26,6 +30,10 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const INVENTORY = "docs/licensing/dependencies.md";
 const NOTICES = "app/src-tauri/resources/THIRD-PARTY-NOTICES.txt";
 const STANDARD_TEXTS = "scripts/license-texts";
+/** PixelFlow's own notice: its licence, and its credit to xLights. */
+const OWN_NOTICE = "NOTICE";
+/** PixelFlow's own licence, which every one of its manifests states. */
+const OWN_LICENCE = "GPL-3.0-only";
 const BEGIN = "<!-- BEGIN GENERATED (scripts/licenses.mjs): do not edit below this line by hand -->";
 const END = "<!-- END GENERATED -->";
 
@@ -60,6 +68,32 @@ const COMMON = new Set([
 ]);
 // Permissive, but with terms of their own worth reading once (data licences, exceptions).
 const SPECIAL = new Set(["Unicode-3.0", "Unicode-DFS-2016", "CDLA-Permissive-2.0", "BlueOak-1.0.0", "OpenSSL"]);
+
+// Licences the Free Software Foundation's licence list names as compatible with the GNU GPL,
+// version 3 (https://www.gnu.org/licenses/license-list.html): code under them may be part of a
+// program distributed under GPL-3.0-only.
+const GPL3_LISTED = new Set([
+  "MIT",
+  "Apache-2.0",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Zlib",
+  "Unlicense",
+  "CC0-1.0",
+  "BSL-1.0",
+  "MPL-2.0",
+  "Unicode-DFS-2016",
+  "LGPL-2.1-or-later",
+  "LGPL-3.0-only",
+  "LGPL-3.0-or-later",
+  "GPL-2.0-or-later",
+  "GPL-3.0-only",
+  "GPL-3.0-or-later",
+]);
+// Permissive licences that list does not name. Each was read once and nothing in it limits
+// distribution under the GPL, but nobody with authority has said so: they are reported apart.
+const GPL3_UNLISTED = new Set(["0BSD", "MIT-0", "Unicode-3.0", "CDLA-Permissive-2.0", "BlueOak-1.0.0"]);
 
 // Data built into the app that is not a package (so no manifest lists it).
 const EMBEDDED = [
@@ -159,11 +193,53 @@ function flagOf(expression) {
   return null;
 }
 
+const STANDING = { none: 0, unlisted: 1, listed: 2 };
+
+/**
+ * Where a licence expression stands against the GPL, version 3: `listed` (it offers a licence
+ * the FSF lists as compatible), `unlisted` (the best it offers is a permissive licence that list
+ * does not name), or `none` (it offers nothing known to be compatible). `A OR B` takes the
+ * better of the two; `A AND B` the worse; an exception (`WITH`) only adds permissions.
+ */
+function gplStanding(expression) {
+  const tokens = expression.match(/[()]|[^\s()]+/g) ?? [];
+  let at = 0;
+  const best = (a, b) => (STANDING[a] >= STANDING[b] ? a : b);
+  const worst = (a, b) => (STANDING[a] <= STANDING[b] ? a : b);
+  const atom = () => {
+    const token = tokens[at++];
+    if (token === "(") {
+      const inner = either();
+      at += 1; // the closing bracket
+      return inner;
+    }
+    if (tokens[at] === "WITH") at += 2;
+    return GPL3_LISTED.has(token) ? "listed" : GPL3_UNLISTED.has(token) ? "unlisted" : "none";
+  };
+  const both = () => {
+    let standing = atom();
+    while (tokens[at] === "AND") {
+      at += 1;
+      standing = worst(standing, atom());
+    }
+    return standing;
+  };
+  const either = () => {
+    let standing = both();
+    while (tokens[at] === "OR") {
+      at += 1;
+      standing = best(standing, both());
+    }
+    return standing;
+  };
+  return tokens.length === 0 ? "none" : either();
+}
+
 // ---------------------------------------------------------------------------------------------
 // Licence files
 
 const LICENCE_FILE = /^(licen[sc]e|copying|copyright|notice|unlicense|patents)/i;
-const NOT_TEXT = /\.(rs|c|h|cc|cpp|py|js|mjs|ts|toml|json|ya?ml|sh|cmake|html|svg|png)$/i;
+const NOT_TEXT = /\.(rs|c|h|cc|cpp|py|js|mjs|ts|map|toml|json|ya?ml|sh|cmake|html|svg|png)$/i;
 const SKIP_DIRS = new Set(["tests", "test", "benches", "examples", "docs", "doc", "target", "node_modules", ".git", ".github"]);
 const MAX_LICENCE_BYTES = 256 * 1024;
 
@@ -416,15 +492,32 @@ function inventory(engine, app, npm) {
 
   out.push("## PixelFlow's own packages");
   const own = [...engine.own, ...app.own.filter((p) => !engine.own.some((e) => e.name === p.name))];
-  const stated = own.filter((p) => p.license || p.licenseFile);
+  const ui = readJson(rel("app/package.json"));
+  own.push({ name: `${ui.name} (app/package.json)`, license: ui.license ?? "", licenseFile: null });
   out.push(
-    stated.length === 0
-      ? `None of PixelFlow's ${own.length} own packages states a licence (no \`license\` or \`license-file\` in any manifest).`
+    own.every((p) => p.license === OWN_LICENCE)
+      ? `All ${own.length} of PixelFlow's own packages state \`${OWN_LICENCE}\`: the GNU General Public License, version 3 (the \`LICENSE\` file at the repo root).`
       : table(
           ["Package", "Licence stated"],
           own.map((p) => [`\`${p.name}\``, p.license || p.licenseFile || "none"]),
         ),
   );
+
+  out.push(`## Shipped packages against PixelFlow's licence (\`${OWN_LICENCE}\`)`);
+  const everyShipped = [...new Map([...shipped(engine), ...shipped(app)].map((p) => [p.id, p])).values(), ...npm];
+  const standing = (which) => everyShipped.filter((p) => gplStanding(p.license) === which).sort(byName);
+  const named = (p) => `\`${p.name}\` ${p.version}: \`${p.license || "none stated"}\``;
+  out.push(
+    `Of the ${everyShipped.length} packages shipped (engine, app, and UI together), ${standing("listed").length} offer a licence the Free Software Foundation's licence list names as compatible with the GNU GPL, version 3. Where a package offers a choice, one compatible option is enough.`,
+  );
+  out.push(
+    flagList(
+      "Shipped under a permissive licence that list does not name (read, and nothing in it limits distribution under the GPL; not confirmed by anyone with authority)",
+      standing("unlisted"),
+      named,
+    ),
+  );
+  out.push(flagList("Shipped with no licence known to be compatible", standing("none"), named));
 
   for (const [title, packages] of [
     ["(a) Engine workspace: shipped packages by licence", shipped(engine)],
@@ -549,7 +642,7 @@ function notices(app, npm) {
   out.push(RULE);
   out.push(
     wrap(
-      "PixelFlow includes the third-party software and data listed below. Each is the work of its own authors and is provided under its own licence. This file lists them (part 1) and reproduces their licence texts (parts 2 and 3).",
+      "This file opens with PixelFlow's own notice: its licence, and its credit to xLights and to the other work that parts of it are derived from. After that comes the third-party software and data PixelFlow includes. Each is the work of its own authors and is provided under its own licence. This file lists them (part 1) and reproduces their licence texts (parts 2 and 3).",
     ),
   );
   out.push(
@@ -557,6 +650,9 @@ function notices(app, npm) {
       "This file is generated from the app's lockfiles by scripts/licenses.mjs. Do not edit it by hand.",
     ),
   );
+
+  out.push(`${RULE}\nPixelFlow's own notice\n${RULE}`);
+  out.push(cleanText(read(rel(OWN_NOTICE))));
 
   out.push(`${RULE}\nPart 1. What is included\n${RULE}`);
   out.push("Data built into the app:");
@@ -636,6 +732,17 @@ function main() {
     [INVENTORY, spliceGenerated(existing, inventory(engine, app, npm))],
     [NOTICES, made.text],
   ];
+  const everyShipped = [...engine.packages, ...app.packages].filter((p) => p.use === "shipped").concat(npm);
+  for (const p of everyShipped) {
+    if (gplStanding(p.license) === "none") {
+      made.problems.push(`${p.name} ${p.version} (${p.license || "no licence stated"}) offers no licence known to be compatible with ${OWN_LICENCE}`);
+    }
+  }
+  const ui = { name: "app/package.json", license: readJson(rel("app/package.json")).license };
+  for (const p of [...engine.own, ...app.own, ui]) {
+    if (p.license !== OWN_LICENCE) made.problems.push(`${p.name} (PixelFlow's own) states ${p.license || "no licence"}, not ${OWN_LICENCE}`);
+  }
+  made.problems = [...new Set(made.problems)];
   for (const problem of made.problems) console.error(`warning: ${problem}`);
   let stale = false;
   for (const [file, text] of outputs) {
@@ -652,7 +759,7 @@ function main() {
     }
   }
   if (!check) {
-    console.log(`${made.components} components in the notices; ${made.problems.length} without a licence text.`);
+    console.log(`${made.components} components in the notices; ${made.problems.length} ${made.problems.length === 1 ? "problem" : "problems"}.`);
   }
   process.exit(stale || (check && made.problems.length > 0) ? 1 : 0);
 }

@@ -1,5 +1,7 @@
 import { FolderOpen, Network, PartyPopper, Sparkles, Upload } from "lucide-react";
 import { type ReactNode, useEffect } from "react";
+import { supportLinks } from "../lib/support";
+import { useAbout } from "../state/about";
 import { useApp } from "../state/store";
 import { RecentShowCard } from "./RecentShows";
 
@@ -104,7 +106,20 @@ export function Welcome() {
             />
           </nav>
         </div>
+        {/* Out of the way, and only what there is: no way to give set up, no mention of giving. */}
+        <footer className="mt-10 flex gap-1 text-xs text-neutral-500 dark:text-neutral-400">
+          <FooterLink onClick={() => useAbout.getState().show("about")}>About PixelFlow</FooterLink>
+          {supportLinks().length > 0 && <FooterLink onClick={() => useAbout.getState().show("support")}>Support PixelFlow</FooterLink>}
+        </footer>
       </div>
     </div>
+  );
+}
+
+function FooterLink({ onClick, children }: { onClick: () => void; children: ReactNode }) {
+  return (
+    <button type="button" onClick={onClick} className="rounded px-1.5 py-0.5 hover:bg-neutral-100 hover:text-neutral-800 dark:hover:bg-neutral-800 dark:hover:text-neutral-200">
+      {children}
+    </button>
   );
 }

@@ -5,7 +5,7 @@ use pf_audio::AudioClock;
 use pf_engine::{ClockFactory, Edit, Engine, EngineError, SequenceEdit};
 use pf_model::{Controller, Generator, Port, PortSlot, Prop, Protocol, ShapeSource};
 use pf_output::{Recorded, RecordingTransport, Transport};
-use pf_sequence::{Blend, Effect, EffectKind, Rgb, Row, RowBlending, Target};
+use pf_sequence::{Blend, Effect, EffectKind, MusicLevelSource, Rgb, Row, RowBlending, Target};
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -234,6 +234,141 @@ fn the_edit_that_sets_how_rows_meet_is_camel_case_json() {
         row_blending: RowBlending::Replace,
     };
     let json = serde_json::json!({ "type": "setRowBlending", "rowBlending": "replace" });
+    assert_eq!(serde_json::to_value(&edit).unwrap(), json);
+    assert_eq!(serde_json::from_value::<SequenceEdit>(json).unwrap(), edit);
+}
+
+/// A 16-bit WAV with a left and a right channel (the same length).
+fn stereo_wav(left: &[f32], right: &[f32], rate: u32) -> Vec<u8> {
+    let data_len = (left.len() * 4) as u32;
+    let mut out = Vec::new();
+    out.extend_from_slice(b"RIFF");
+    out.extend_from_slice(&(36 + data_len).to_le_bytes());
+    out.extend_from_slice(b"WAVEfmt ");
+    out.extend_from_slice(&16u32.to_le_bytes());
+    out.extend_from_slice(&1u16.to_le_bytes());
+    out.extend_from_slice(&2u16.to_le_bytes());
+    out.extend_from_slice(&rate.to_le_bytes());
+    out.extend_from_slice(&(rate * 4).to_le_bytes());
+    out.extend_from_slice(&4u16.to_le_bytes());
+    out.extend_from_slice(&16u16.to_le_bytes());
+    out.extend_from_slice(b"data");
+    out.extend_from_slice(&data_len.to_le_bytes());
+    for (l, r) in left.iter().zip(right) {
+        for sample in [l, r] {
+            let s = (sample.clamp(-1.0, 1.0) * f32::from(i16::MAX)) as i16;
+            out.extend_from_slice(&s.to_le_bytes());
+        }
+    }
+    out
+}
+
+#[test]
+fn which_channel_is_how_loud_the_music_is_is_an_edit_the_preview_and_the_export_follow() {
+    let (mut engine, _recorded, dir) = engine();
+    let mut controller = engine.show().controllers[0].clone();
+    controller.sequence_channels = Some(pf_model::SequenceChannels {
+        start: 1,
+        count: 30,
+        raw_ddp_offsets: false,
+    });
+    engine.apply(vec![Edit::UpdateController { controller }]).unwrap();
+    // A second on the left alone, then a second on the right alone.
+    let rate = 22_050usize;
+    let tone: Vec<f32> = (0..rate)
+        .map(|i| (std::f32::consts::TAU * 440.0 * i as f32 / rate as f32).sin())
+        .collect();
+    let none = vec![0.0; rate];
+    let (left, right) = ([&tone[..], &none].concat(), [&none[..], &tone].concat());
+    let song = dir.path().join("song.wav");
+    std::fs::write(&song, stereo_wav(&left, &right, rate as u32)).unwrap();
+    engine.set_audio_cache_dir(Some(dir.path().join("cache")));
+    engine
+        .new_sequence_doc("Song", 2000, Some(song.to_str().unwrap()))
+        .unwrap();
+    let row = Row::new(Target::Prop(engine.show().props[0].id));
+    let row_id = row.id;
+    let mut effect = on(Rgb::RED, 0, 2000);
+    for key in ["startLevel", "endLevel"] {
+        effect
+            .curves
+            .insert(key.into(), pf_sequence::Curve::music(0.0, 1.0, 0.0, false));
+    }
+    engine
+        .edit_sequence(vec![
+            SequenceEdit::AddRow { row, index: None },
+            SequenceEdit::AddEffect {
+                row: row_id,
+                layer: 0,
+                effect,
+            },
+        ])
+        .unwrap();
+    // A sequence made here follows the louder channel: it hears both seconds.
+    let (lit, dark) = (solid([255, 0, 0]), solid([0, 0, 0]));
+    wait_until(|| engine.sequence_doc_frame(500).unwrap() == lit);
+    assert_eq!(engine.sequence_doc_frame(1500).unwrap(), lit);
+
+    // Following the left channel, as xLights does, the second on the right goes unheard. The
+    // preview shows it at once: the music isn't worked out again.
+    let follow = |music_level_source| vec![SequenceEdit::SetMusicLevelSource { music_level_source }];
+    let reply = engine
+        .edit_sequence(follow(MusicLevelSource::LeftChannel))
+        .unwrap();
+    assert!(reply.changed && reply.dirty);
+    assert_eq!(
+        reply.changes.info.unwrap().music_level_source,
+        MusicLevelSource::LeftChannel
+    );
+    assert_eq!(engine.sequence_doc_frame(500).unwrap(), lit);
+    assert_eq!(engine.sequence_doc_frame(1500).unwrap(), dark);
+    let already = engine
+        .edit_sequence(follow(MusicLevelSource::LeftChannel))
+        .unwrap();
+    assert!(!already.changed, "already set");
+
+    // The export follows the same channel, and the file keeps the setting.
+    let fseq = dir.path().join("song.fseq");
+    engine.export_sequence_doc(&fseq).unwrap();
+    let mut file = pf_fseq::Sequence::open(&fseq).unwrap();
+    let mut frame = vec![0u8; 30];
+    for (index, want) in [(20u32, &lit), (60, &dark)] {
+        file.read_frame(index, &mut frame).unwrap();
+        assert_eq!(&frame, want, "frame {index}");
+    }
+    let path = dir.path().join("song.pfseq.json");
+    let saved = |engine: &mut Engine| {
+        engine.save_sequence_doc_as(&path).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        json.get("musicLevelSource").cloned()
+    };
+    assert_eq!(saved(&mut engine), Some("leftChannel".into()));
+    let opened = engine.open_sequence_doc(&path).unwrap();
+    assert_eq!(opened.sequence.music_level_source, MusicLevelSource::LeftChannel);
+    assert_eq!(engine.sequence_doc_frame(1500).unwrap(), dark);
+
+    // Set back, it is one step to undo, and is left out of the file.
+    engine
+        .edit_sequence(follow(MusicLevelSource::LouderChannel))
+        .unwrap();
+    assert_eq!(engine.sequence_doc_frame(1500).unwrap(), lit);
+    assert_eq!(saved(&mut engine), None);
+    let reply = engine.undo_sequence().unwrap();
+    assert_eq!(
+        reply.changes.info.unwrap().music_level_source,
+        MusicLevelSource::LeftChannel
+    );
+    assert_eq!(engine.sequence_doc_frame(1500).unwrap(), dark);
+    // One track of the song serves both.
+    assert_eq!(std::fs::read_dir(dir.path().join("cache")).unwrap().count(), 1);
+}
+
+#[test]
+fn the_edit_that_sets_the_music_level_channel_is_camel_case_json() {
+    let edit = SequenceEdit::SetMusicLevelSource {
+        music_level_source: MusicLevelSource::LeftChannel,
+    };
+    let json = serde_json::json!({ "type": "setMusicLevelSource", "musicLevelSource": "leftChannel" });
     assert_eq!(serde_json::to_value(&edit).unwrap(), json);
     assert_eq!(serde_json::from_value::<SequenceEdit>(json).unwrap(), edit);
 }

@@ -44,7 +44,7 @@ pub enum FileRole {
 #[serde(rename_all = "camelCase")]
 pub struct MissingFile {
     pub file: FileRole,
-    /// The file's name ("Christmas Medley 2017.mp3").
+    /// The file's name ("Chimes Medley 2020.mp3").
     pub name: String,
     /// Where the show looks for it now (path text, see [`pf_model::path_to_text`]).
     pub path: String,
@@ -53,7 +53,7 @@ pub struct MissingFile {
     pub was_at: String,
     /// What it belongs to ("Music for Medley", "Background photo").
     pub owner: String,
-    /// "Christmas Medley 2017.mp3 isn't where it was."
+    /// "Chimes Medley 2020.mp3 isn't where it was."
     pub message: String,
 }
 

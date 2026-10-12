@@ -9,14 +9,14 @@ import { newController } from "../lib/shows";
 import { useSequencer } from "../state/sequencer";
 import { useApp } from "../state/store";
 
-const FSEQ = "/Shows/Haas 2024/Christmas Medley 2017.fseq";
-const SONG = "/Shows/Haas 2024/MP3 Music/Christmas Medley 2017.mp3";
-const SONG_NOW = "/Shows/Haas 2024/Audio/Christmas Medley 2017.mp3";
-const PHOTO = "/Shows/Haas 2024/photos/house.jpg";
-const SHOW_FILE = "/Shows/Haas 2024/show.pixelflow.json";
+const FSEQ = "/Shows/Home 2024/Chimes Medley 2020.fseq";
+const SONG = "/Shows/Home 2024/MP3 Music/Chimes Medley 2020.mp3";
+const SONG_NOW = "/Shows/Home 2024/Audio/Chimes Medley 2020.mp3";
+const PHOTO = "/Shows/Home 2024/photos/house.jpg";
+const SHOW_FILE = "/Shows/Home 2024/show.pixelflow.json";
 
 function showWithFiles(): Show {
-  const show = emptyShow("Haas 2024");
+  const show = emptyShow("Home 2024");
   show.controllers = [{ ...newController("Falcon", "192.0.2.20", "ddp", 0), sequenceChannels: { start: 1, count: 600 } }];
   show.sequences = [{ id: "11111111-0000-4000-8000-000000000001", name: "Medley", path: FSEQ, audio: SONG, offsetMs: 0 }];
   show.background = { path: PHOTO, x: -10, y: 10, width: 20, opacity: 1 };
@@ -40,12 +40,12 @@ describe("missing files", () => {
   it("offers to find every missing file when the show opens, and finding them is one undo step", async () => {
     const { backend, user } = await openMoved();
     const banner = screen.getByRole("region", { name: "Missing files" });
-    expect(banner).toHaveTextContent("2 files aren't where they were: Christmas Medley 2017.mp3, house.jpg.");
+    expect(banner).toHaveTextContent("2 files aren't where they were: Chimes Medley 2020.mp3, house.jpg.");
     await user.click(within(banner).getByRole("button", { name: /Find all missing files/ }));
     expect(backend.calls).toContain("findMissingFiles");
 
     const report = await screen.findByRole("dialog", { name: "Found 1 file" });
-    expect(report).toHaveTextContent("Christmas Medley 2017.mp3 is now in /Shows/Haas 2024/Audio");
+    expect(report).toHaveTextContent("Chimes Medley 2020.mp3 is now in /Shows/Home 2024/Audio");
     expect(report).toHaveTextContent("Undo puts the old places back");
     expect(within(report).getByText("Still missing")).toBeInTheDocument();
     expect(within(report).getByText("house.jpg")).toBeInTheDocument();
@@ -55,13 +55,13 @@ describe("missing files", () => {
     );
 
     // Locate the photo from the report: it comes off the list.
-    backend.nextLocatePath = "/Shows/Haas 2024/house.jpg";
+    backend.nextLocatePath = "/Shows/Home 2024/house.jpg";
     await user.click(within(report).getByRole("button", { name: "Locate house.jpg" }));
     expect(backend.calls).toContain("locateFile:photo");
     await waitFor(() => expect(within(report).queryByText("Still missing")).not.toBeInTheDocument());
     await user.click(within(report).getByRole("button", { name: "Done" }));
     expect(screen.queryByRole("region", { name: "Missing files" })).not.toBeInTheDocument();
-    expect(useApp.getState().snapshot?.show.background?.path).toBe("/Shows/Haas 2024/house.jpg");
+    expect(useApp.getState().snapshot?.show.background?.path).toBe("/Shows/Home 2024/house.jpg");
 
     // Each change was one undo step: undoing the locate, then the find, brings back both.
     await useApp.getState().undo();
@@ -100,7 +100,7 @@ describe("missing files", () => {
     // A file that isn't there either is refused plainly.
     backend.nextLocatePath = SONG;
     await user.click(within(problems).getByRole("button", { name: "Locate house.jpg" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Christmas Medley 2017.mp3 isn't there anymore. Choose another file.");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Chimes Medley 2020.mp3 isn't there anymore. Choose another file.");
   });
 
   it("asks for the show to be saved before searching its folder", async () => {
@@ -122,11 +122,11 @@ describe("missing files", () => {
     const drawer = screen.getByRole("complementary", { name: "Playlist" });
     const playlist = within(drawer).getByRole("region", { name: "Playlist" });
     expect(within(playlist).getByLabelText("A file isn't where it was")).toBeInTheDocument();
-    expect(within(playlist).getByRole("group", { name: "Christmas Medley 2017.fseq isn't where it was." })).toBeInTheDocument();
+    expect(within(playlist).getByRole("group", { name: "Chimes Medley 2020.fseq isn't where it was." })).toBeInTheDocument();
     const music = within(drawer).getByRole("region", { name: "Music" });
-    const song = within(music).getByRole("group", { name: "Christmas Medley 2017.mp3 isn't where it was." });
-    expect(song).toHaveTextContent("It was in /Shows/Haas 2024/MP3 Music.");
-    await user.click(within(song).getByRole("button", { name: "Find Christmas Medley 2017.mp3 again" }));
+    const song = within(music).getByRole("group", { name: "Chimes Medley 2020.mp3 isn't where it was." });
+    expect(song).toHaveTextContent("It was in /Shows/Home 2024/MP3 Music.");
+    await user.click(within(song).getByRole("button", { name: "Find Chimes Medley 2020.mp3 again" }));
     await screen.findByRole("dialog", { name: "Found 1 file" });
     expect(within(music).queryByRole("group", { name: /mp3 isn't where it was/ })).not.toBeInTheDocument();
   });
@@ -135,7 +135,7 @@ describe("missing files", () => {
     const { user } = await openMoved();
     await user.click(await screen.findByRole("button", { name: /^Photo/ }));
     const panel = await screen.findByRole("group", { name: "house.jpg isn't where it was." });
-    expect(panel).toHaveTextContent("It was in /Shows/Haas 2024/photos.");
+    expect(panel).toHaveTextContent("It was in /Shows/Home 2024/photos.");
     expect(within(panel).getByRole("button", { name: "Locate house.jpg" })).toBeInTheDocument();
   });
 
@@ -163,14 +163,14 @@ describe("missing files", () => {
   it("says a file is missing once: the screen's note waits while the show's banner names the same file", async () => {
     const { backend, user } = await openMoved();
     const seq = new MemorySequencer(backend);
-    seq.files.set("/Shows/Haas 2024/Medley.pfseq.json", { schemaVersion: 2, name: "Medley", audio: SONG, durationMs: 60_000, frameMs: 25, timingTracks: [], rows: [] });
-    await seq.openSequenceDoc("/Shows/Haas 2024/Medley.pfseq.json");
+    seq.files.set("/Shows/Home 2024/Medley.pfseq.json", { schemaVersion: 2, name: "Medley", audio: SONG, durationMs: 60_000, frameMs: 25, timingTracks: [], rows: [] });
+    await seq.openSequenceDoc("/Shows/Home 2024/Medley.pfseq.json");
     await useSequencer.getState().connect(seq);
     await user.click(screen.getByRole("button", { name: "Sequence" }));
     await waitFor(() => expect(useSequencer.getState().musicMissing).not.toBeNull());
-    expect(screen.queryByRole("group", { name: "Christmas Medley 2017.mp3 isn't where it was." })).not.toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "Chimes Medley 2020.mp3 isn't where it was." })).not.toBeInTheDocument();
     await user.click(within(screen.getByRole("region", { name: "Missing files" })).getByRole("button", { name: "Not now" }));
-    expect(await screen.findByRole("group", { name: "Christmas Medley 2017.mp3 isn't where it was." })).toBeInTheDocument();
+    expect(await screen.findByRole("group", { name: "Chimes Medley 2020.mp3 isn't where it was." })).toBeInTheDocument();
   });
 
   it("asks for the files to be checked when the show hasn't looked at them yet, and on focus", async () => {
@@ -189,18 +189,18 @@ describe("missing files", () => {
 
   it("says where a file really was, what else fits, and when the search gave up", async () => {
     const { backend, user } = await openMoved();
-    backend.wasAt.set(SONG, "/Old Disk/Haas 2024/MP3 Music/Christmas Medley 2017.mp3");
-    backend.alsoFound.set(SONG, ["/Shows/Haas 2024/Backup/Christmas Medley 2017.mp3"]);
+    backend.wasAt.set(SONG, "/Old Disk/Home 2024/MP3 Music/Chimes Medley 2020.mp3");
+    backend.alsoFound.set(SONG, ["/Shows/Home 2024/Backup/Chimes Medley 2020.mp3"]);
     backend.searchGivesUp = true;
     await useApp.getState().connect(backend);
     await user.click(screen.getByRole("button", { name: /2 warnings/ }));
     const problems = screen.getByRole("dialog", { name: "Problems" });
-    expect(within(problems).getByRole("group", { name: "Christmas Medley 2017.mp3 isn't where it was." })).toHaveTextContent(
-      "It was in /Old Disk/Haas 2024/MP3 Music.",
+    expect(within(problems).getByRole("group", { name: "Chimes Medley 2020.mp3 isn't where it was." })).toHaveTextContent(
+      "It was in /Old Disk/Home 2024/MP3 Music.",
     );
     await user.click(within(problems).getByRole("button", { name: "Find all missing files" }));
     const report = await screen.findByRole("dialog", { name: "Found 1 file" });
-    expect(report).toHaveTextContent("Also found in /Shows/Haas 2024/Backup. If that's the right one, use Locate… to choose it.");
+    expect(report).toHaveTextContent("Also found in /Shows/Home 2024/Backup. If that's the right one, use Locate… to choose it.");
     expect(report).toHaveTextContent("PixelFlow stopped looking before it had checked every folder.");
   });
 });

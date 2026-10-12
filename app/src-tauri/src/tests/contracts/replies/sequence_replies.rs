@@ -288,14 +288,17 @@ fn sequence_replies() {
         ),
     );
 
-    // A sequence imported from xLights keeps how its rows meet: read from its own file.
+    // A sequence imported from xLights keeps how its rows meet, and which channel of its music
+    // is how loud it is: read from its own file.
     let blended = dir.join("Blended.pfseq.json");
     let mut doc = saved["sequence"].clone();
     doc["rowBlending"] = json!("blend");
+    doc["musicLevelSource"] = json!("leftChannel");
     doc["audio"] = Value::Null;
     std::fs::write(&blended, doc.to_string()).unwrap();
     let opened = shell.ok("open_sequence_doc", json!({ "path": blended }));
     assert_eq!(opened["sequence"]["rowBlending"], "blend");
+    assert_eq!(opened["sequence"]["musicLevelSource"], "leftChannel");
     fixtures.reply(
         "a sequence whose rows blend, without music",
         "sequence.SequenceSnapshot",
@@ -592,7 +595,10 @@ fn xlights_replies() {
 
     // An xLights mapping file.
     let xmap = dir.join("vendor.xmap");
-    shell.ok("write_xmap", json!({ "path": xmap, "mapping": { "items": { "Mega Tree": ["Tree", "Pillars"], "Arch/Left": [] } } }));
+    shell.ok(
+        "write_xmap",
+        json!({ "path": xmap, "mapping": { "items": { "Mega Tree": ["Tree", "Pylons"], "Arch/Left": [] } } }),
+    );
     fixtures.reply(
         "an xLights mapping file read",
         "types.XmapRead",

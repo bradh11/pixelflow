@@ -743,6 +743,14 @@ export interface TimingTrack {
  */
 export type RowBlending = "cover" | "blend" | "replace";
 
+/**
+ * Which channel of the music is how loud it is, to everything that follows its level (music
+ * sparkles, curves that follow the music, effects that fire, grow, or measure by it).
+ * "louderChannel": whichever is louder at each moment, PixelFlow's own. "leftChannel": the left
+ * alone, as xLights reads it, kept by imported sequences so they play as they did there.
+ */
+export type MusicLevelSource = "louderChannel" | "leftChannel";
+
 /** An authored sequence (`*.pfseq.json`). Rows are drawn in order. */
 export interface Sequence {
   schemaVersion: number;
@@ -753,6 +761,8 @@ export interface Sequence {
   timingTracks: TimingTrack[];
   /** Left out when rows cover. */
   rowBlending?: RowBlending;
+  /** Left out when it's the louder channel. */
+  musicLevelSource?: MusicLevelSource;
   rows: Row[];
 }
 
@@ -785,13 +795,15 @@ export interface SequenceSnapshot {
   issues: SequenceIssue[];
 }
 
-/** The sequence's name, music, length, frame time, and how its rows meet the rows before them. */
+/** The sequence's name, music, length, frame time, how its rows meet the rows before them, and
+ * which channel of its music is how loud it is. */
 export interface SequenceInfo {
   name: string;
   audio: string | null;
   durationMs: number;
   frameMs: number;
   rowBlending: RowBlending;
+  musicLevelSource: MusicLevelSource;
 }
 
 /** An effect and where it now sits: `index` within `layer` of row `row`. */
@@ -870,11 +882,13 @@ function upsert<T extends { id: Uuid }>(items: T[], updates: T[]): T[] {
 export function applySequenceChanges(doc: Sequence, changes: SequenceChanges): Sequence {
   const next: Sequence = { ...doc };
   if (changes.info) {
-    const { rowBlending, ...info } = changes.info;
+    const { rowBlending, musicLevelSource, ...info } = changes.info;
     Object.assign(next, info);
-    // Left out when rows cover, as in the file.
+    // Left out when rows cover, and when the level is the louder channel's, as in the file.
     if (rowBlending === "cover") delete next.rowBlending;
     else next.rowBlending = rowBlending;
+    if (musicLevelSource === "louderChannel") delete next.musicLevelSource;
+    else next.musicLevelSource = musicLevelSource;
   }
   let rows = upsert(
     doc.rows.filter((r) => !changes.removedRows.includes(r.id)),
@@ -973,6 +987,7 @@ export interface ExportProgress {
 export type SequenceEdit =
   | { type: "updateInfo"; name: string; audio: string | null; durationMs: number; frameMs: number }
   | { type: "setRowBlending"; rowBlending: RowBlending }
+  | { type: "setMusicLevelSource"; musicLevelSource: MusicLevelSource }
   | { type: "addRow"; row: Row; index?: number }
   | { type: "removeRow"; id: Uuid }
   | { type: "moveRow"; id: Uuid; index: number }

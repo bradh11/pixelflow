@@ -515,6 +515,7 @@ fn sequence_summary(show: &Show, doc: &Sequence) -> Value {
         "durationMs": doc.duration_ms,
         "frameMs": doc.frame_ms,
         "music": doc.audio,
+        "musicLevelSource": doc.music_level_source,
         "rows": doc.rows.iter().map(|row| json!({
             "id": row.id,
             "lights": target_name(show, row.target),

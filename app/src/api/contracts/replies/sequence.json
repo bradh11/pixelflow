@@ -37,7 +37,7 @@
             }
           }
         ],
-        "schemaVersion": 13,
+        "schemaVersion": 14,
         "timingTracks": []
       }
     }
@@ -1425,6 +1425,7 @@
           "audio": "/fixture/Song.wav",
           "durationMs": 45000,
           "frameMs": 50,
+          "musicLevelSource": "louderChannel",
           "name": "Song (remix)",
           "rowBlending": "cover"
         },
@@ -1608,7 +1609,7 @@
             "target": { "group": "22222222-0000-4000-8000-000000000001" }
           }
         ],
-        "schemaVersion": 13,
+        "schemaVersion": 14,
         "timingTracks": [
           {
             "id": "66666666-0000-4000-8000-000000000002",
@@ -1788,6 +1789,7 @@
         "audio": null,
         "durationMs": 45000,
         "frameMs": 50,
+        "musicLevelSource": "leftChannel",
         "name": "Song (remix)",
         "rowBlending": "blend",
         "rows": [
@@ -1893,7 +1895,7 @@
             "target": { "group": "22222222-0000-4000-8000-000000000001" }
           }
         ],
-        "schemaVersion": 13,
+        "schemaVersion": 14,
         "timingTracks": [
           {
             "id": "66666666-0000-4000-8000-000000000002",

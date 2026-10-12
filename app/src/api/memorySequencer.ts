@@ -219,6 +219,11 @@ export function applySequenceEdit(doc: Sequence, edit: SequenceEdit) {
       if (edit.rowBlending === "cover") delete doc.rowBlending;
       else doc.rowBlending = edit.rowBlending;
       return;
+    case "setMusicLevelSource":
+      // Left out when it's the louder channel, as in the file.
+      if (edit.musicLevelSource === "louderChannel") delete doc.musicLevelSource;
+      else doc.musicLevelSource = edit.musicLevelSource;
+      return;
     case "addRow": {
       if (doc.rows.some((r) => r.id === edit.row.id)) fail("A row with that id already exists.");
       const at = Math.min(edit.index ?? doc.rows.length, doc.rows.length);
@@ -454,9 +459,17 @@ export function diffSequences(before: Sequence, after: Sequence): SequenceChange
     before.audio !== after.audio ||
     before.durationMs !== after.durationMs ||
     before.frameMs !== after.frameMs ||
-    (before.rowBlending ?? "cover") !== (after.rowBlending ?? "cover")
+    (before.rowBlending ?? "cover") !== (after.rowBlending ?? "cover") ||
+    (before.musicLevelSource ?? "louderChannel") !== (after.musicLevelSource ?? "louderChannel")
   ) {
-    changes.info = { name: after.name, audio: after.audio, durationMs: after.durationMs, frameMs: after.frameMs, rowBlending: after.rowBlending ?? "cover" };
+    changes.info = {
+      name: after.name,
+      audio: after.audio,
+      durationMs: after.durationMs,
+      frameMs: after.frameMs,
+      rowBlending: after.rowBlending ?? "cover",
+      musicLevelSource: after.musicLevelSource ?? "louderChannel",
+    };
   }
   const rows = listChanges(before.rows, after.rows);
   changes.rows = rows.changed;
@@ -470,7 +483,7 @@ export function diffSequences(before: Sequence, after: Sequence): SequenceChange
 }
 
 function newSequence(name: string, durationMs: number): Sequence {
-  return { schemaVersion: 13, name, audio: null, durationMs, frameMs: 25, timingTracks: [], rows: [] };
+  return { schemaVersion: 14, name, audio: null, durationMs, frameMs: 25, timingTracks: [], rows: [] };
 }
 
 /** Find lyrics' steps that read the whole song, and so report how far they've got. */

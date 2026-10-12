@@ -3,6 +3,8 @@ import { useEffect } from "react";
 import { fileName } from "../lib/format";
 import { hintFor } from "../lib/shortcuts";
 import { PROP_KINDS } from "../lib/shows";
+import { supportLinks } from "../lib/support";
+import { useAbout } from "../state/about";
 import { addPropInView } from "../state/addProp";
 import { useAssistant } from "../state/assistant";
 import { saveFocused, undoFocused } from "../state/menuActions";
@@ -79,6 +81,9 @@ export function CommandPalette() {
     },
     { id: "shortcuts", label: "Keyboard shortcuts", shortcut: hintFor("shortcuts"), run: () => useShortcutSheet.getState().setOpen(true) },
     { id: "settings", label: "Settings", shortcut: hintFor("settings"), run: () => state.setScreen("settings") },
+    { id: "about", label: "About PixelFlow (version, licence, credits)", run: () => useAbout.getState().show("about") },
+    // Only while there is a way to give: a command that led nowhere would be worse than none.
+    ...(supportLinks().length > 0 ? [{ id: "support", label: "Support PixelFlow…", run: () => useAbout.getState().show("support") }] : []),
     { id: "ai-settings", label: "AI settings…", run: () => useAssistant.getState().setSettingsOpen(true) },
     { id: "setup", label: "Show the setup checklist", run: () => useSetup.getState().setDismissed(currentSetupKey(), false) },
     go("layout", "Layout"),

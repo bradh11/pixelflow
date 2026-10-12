@@ -46,7 +46,8 @@ export type EffectKind =
   | "picture"
   | "shockwave"
   | "fill"
-  | "fireworks";
+  | "fireworks"
+  | "shader";
 
 export type Gradient = "none" | "horizontal" | "vertical";
 /** What the Shape effect draws. */
@@ -491,7 +492,31 @@ export type EffectParams =
       soft?: boolean;
       /** Sizes in percent of the prop's longer side rather than cells of its grid. */
       scale?: boolean;
+    }
+  | {
+      kind: "shader";
+      /** The shader: `pixelflow:<name>` for one of PixelFlow's own, else a file in the show's shaders folder. */
+      file?: string;
+      /** What the shader's own inputs are set to, by name; one left out is as its file has it. */
+      inputs?: ShaderInputs;
+      /** Times the shader's own pace: 0 holds it still, below 0 runs it backwards. */
+      speed?: number;
+      /** Seconds the shader is already into when the effect starts. */
+      leadIn?: number;
+      /** xLights' offset and zoom, kept from an import and not applied. */
+      offsetX?: number;
+      offsetY?: number;
+      zoom?: number;
     };
+
+/**
+ * What one input of a shader is set to: a switch, a number (for a choice, the number of the one
+ * chosen), a point (across, then up), or a color (red, green, blue, alpha, each 0 to 1).
+ */
+export type ShaderValue = boolean | number | [number, number] | [number, number, number, number];
+
+/** The inputs a Shader effect sets, by the name its shader file gives each. */
+export type ShaderInputs = Record<string, ShaderValue>;
 
 /** Who a Dancer is (see `DancerCharacter` in crates/pf-sequence/src/effect.rs). */
 export type DancerCharacter = "skeleton" | "ghost" | "witch" | "santa" | "snowman" | "elf";
@@ -922,6 +947,10 @@ export type EffectSetting = SettingBase &
     | { type: "text"; default: string }
     /** A picture file, as the effect stores it ("" = none chosen yet). */
     | { type: "image"; default: string }
+    /** A shader, as the effect names it ("" = none chosen yet). */
+    | { type: "shaderFile"; default: string }
+    /** What the shader's own inputs are set to (which there are comes from the shader: see `ShaderInfo`). */
+    | { type: "shaderInputs"; default: ShaderInputs }
     /** One of the sequence's timing tracks, by id. */
     | { type: "timingTrack"; default: Uuid | null }
   );
@@ -1179,6 +1208,7 @@ export const EFFECT_KINDS: { kind: EffectKind; label: string }[] = [
   { kind: "shockwave", label: "Shockwave" },
   { kind: "fill", label: "Fill" },
   { kind: "fireworks", label: "Fireworks" },
+  { kind: "shader", label: "Shader" },
 ];
 
 /** A new effect of `kind` (engine-default settings, white) from `startMs` to `endMs`. */

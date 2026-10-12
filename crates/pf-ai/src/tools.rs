@@ -878,8 +878,11 @@ fn query_tools() -> Vec<Tool> {
         ),
         query(
             "list_effect_kinds",
-            "Every effect kind with its settings' keys; or one `kind`'s settings as data: ranges, defaults, and choices (get_guide says how to use them).",
-            object(json!({ "kind": { "type": "string" } }), &[]),
+            "Every effect kind with its settings' keys; or one `kind`'s settings as data: ranges, defaults, and choices (get_guide says how to use them). Kind shader also lists the shaders it can run; with a `file`, that shader's inputs.",
+            object(
+                json!({ "kind": { "type": "string" }, "file": { "type": "string" } }),
+                &[],
+            ),
             Query::EffectKinds,
         ),
         query(

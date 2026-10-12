@@ -152,6 +152,13 @@ fn setting_line(kind: EffectKind, setting: &SettingInfo) -> String {
             "a timing track: its id (in place_effects and change_effects, its name will do); none by default"
                 .to_string()
         }
+        SettingValue::ShaderFile { default } => format!(
+            "a shader's file, as list_effect_kinds with kind \"shader\" lists them (`pixelflow:<name>` for PixelFlow's own); default `{default}`"
+        ),
+        SettingValue::ShaderInputs { .. } => {
+            "the shader's own inputs by name, each as list_effect_kinds with kind \"shader\" and its file describes it; one left out is as the shader has it"
+                .to_string()
+        }
     };
     format!(
         "- `{}` ({}{more}): {holds}. {}",

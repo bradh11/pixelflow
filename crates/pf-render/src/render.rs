@@ -28,9 +28,10 @@ use crate::adjust::Adjust;
 use crate::audio::{Audio, AudioSource, AudioTrack, RenderContext};
 use crate::blur::{Grid, PIECE_OF_CELLS, SHARE_FROM_CELLS, Working, in_pieces};
 use crate::color::{Acc, Colors, Rgba, to_u8, write_pixel};
-use crate::effects::{Canvas, EffectTime, Shade, Shader, ShaderVisitor};
+use crate::effects::{Canvas, EffectTime, RUN_PIXELS, Shade, Shader, ShaderVisitor};
 use crate::faces::FaceProp;
 use crate::geometry::{Pixel, PixelBuffer, SceneGeometry};
+use crate::glsl::Shaders;
 use crate::picture::Pictures;
 use crate::pool::RenderPool;
 use crate::sim::{Sims, may_be_simulated};
@@ -130,7 +131,8 @@ pub struct Renderer {
     sims: Sims<SimKey>,
     /// The music effects follow (none, or still on its way: they draw as in silence).
     audio: AudioSource,
-    /// The pictures Picture effects draw (none: they draw nothing).
+    /// The pictures Picture effects draw (none: they draw nothing), and with them the shader
+    /// files Shader effects run (none: only PixelFlow's own shaders).
     pictures: Pictures,
     /// What the frame being built draws, its lists kept from frame to frame.
     plan: Plan,
@@ -208,13 +210,25 @@ impl Renderer {
         &self.audio
     }
 
-    /// The pictures the sequences drawn from now on show (see [`Pictures`]).
+    /// The pictures the sequences drawn from now on show (see [`Pictures`]), and the shader
+    /// files that come with them.
     pub fn set_pictures(&mut self, pictures: Pictures) {
         self.pictures = pictures;
     }
 
     pub fn pictures(&self) -> &Pictures {
         &self.pictures
+    }
+
+    /// The shader files the sequences drawn from now on run (see [`Shaders`]), with the
+    /// pictures it has. A show's shader files come with its pictures ([`Renderer::set_pictures`]);
+    /// this is for a renderer that is given them on their own.
+    pub fn set_shaders(&mut self, shaders: Shaders) {
+        self.pictures = self.pictures.clone().with_shaders(shaders);
+    }
+
+    pub fn shaders(&self) -> Shaders {
+        self.pictures.shaders()
     }
 
     /// Starts reading the pictures `seq`'s Picture effects draw that aren't here yet, in the
@@ -302,6 +316,7 @@ impl Renderer {
     pub fn render(&mut self, seq: &Sequence, t_ms: u64, frame: &mut [u8]) {
         let track = self.audio.track().cloned();
         let pictures = self.pictures.clone();
+        let shaders = pictures.shaders();
         let cx = RenderContext::new(
             track
                 .as_deref()
@@ -312,6 +327,8 @@ impl Renderer {
         .with_pictures(&pictures);
         let started = Instant::now();
         self.plan(seq, t_ms, &cx);
+        // The frame's Shader effects share one allowance of work among all their pixels.
+        let cx = cx.with_shaders(&shaders, self.plan.shader_pixels);
         let planned = started.elapsed();
         let pool = self.threads.of(self.plan.work);
         let scene = Scene {
@@ -500,6 +517,16 @@ impl Renderer {
                     let cells = blur.map_or(0, |blur| self.grids[blur.grid as usize].cells.len());
                     self.plan.unit(part, blur, cells, simulated, faces);
                 }
+                let mut heavier = 0;
+                if let EffectParams::Shader(p) = &source.params {
+                    // Each buffer it draws on counts for at least a part of a run (see
+                    // `LEAST_LOAD`), and a pixel of a heavy shader for as many plain ones as it
+                    // costs, roughly, so a frame that is a few pixels of one is still shared out.
+                    let buffers = (self.plan.units.len() - first_unit as usize).max(1);
+                    self.plan.shader_pixels += len.max(buffers * crate::glsl::LEAST_LOAD);
+                    let heaviness = self.pictures.shaders().heaviness(&p.file);
+                    heavier = len.saturating_mul((heaviness / 256).min(4096) as usize);
+                }
                 self.plan.ops.push(Op {
                     at: (r as u32, layer, place),
                     laid,
@@ -514,7 +541,7 @@ impl Renderer {
                     sparkles: None,
                     adjust: None,
                 });
-                self.plan.work += len;
+                self.plan.work += len.saturating_add(heavier);
             }
             let planned = self.plan.rows.len() as u32;
             self.plan.rows.push(PlannedRow {
@@ -686,8 +713,11 @@ struct Plan {
     units: Vec<Unit>,
     /// For each tile, the rows with pixels in it, in the sequence's order.
     tiles: Vec<Vec<RowInTile>>,
-    /// Pixels to draw, counting a pixel once for each effect on it.
+    /// Pixels to draw, counting a pixel once for each effect on it (and more for a heavy
+    /// shader's).
     work: usize,
+    /// The pixels the frame's Shader effects draw on, added up (see `glsl.rs`).
+    shader_pixels: usize,
     /// Two of the frame's effects share frame-by-frame state (see [`Sims::reserve`]).
     shared_state: bool,
     spare_cells: Vec<Vec<Rgba>>,
@@ -733,6 +763,7 @@ impl Plan {
         self.tiles.resize_with(tiles, Vec::new);
         self.tiles.iter_mut().for_each(Vec::clear);
         self.work = 0;
+        self.shader_pixels = 0;
         self.shared_state = false;
     }
 
@@ -1145,7 +1176,7 @@ impl Scene<'_> {
     ) {
         match tiles.len() {
             0 => {}
-            1 => self.draw_tile(plan, tiles.start, show, frame, at),
+            1 => self.draw_tile(plan, tiles.start, show, frame, at, shared),
             len => {
                 let middle = tiles.start + len / 2;
                 let (first, next) = (&self.tiles.tiles[tiles.start], &self.tiles.tiles[middle]);
@@ -1164,7 +1195,16 @@ impl Scene<'_> {
     }
 
     /// Draws one tile: every row with pixels in it, in the sequence's order, then its bytes.
-    fn draw_tile(&self, plan: &Plan, index: usize, show: &mut [Acc], frame: &mut [u8], at: usize) {
+    /// `shared` says whether there are threads to share a heavy effect's pixels with.
+    fn draw_tile(
+        &self,
+        plan: &Plan,
+        index: usize,
+        show: &mut [Acc],
+        frame: &mut [u8],
+        at: usize,
+        shared: bool,
+    ) {
         let tile = &self.tiles.tiles[index];
         let show = &mut show[..tile.len];
         show.fill(Acc::ZERO);
@@ -1172,7 +1212,7 @@ impl Scene<'_> {
         if !rows.is_empty() {
             let mut space = self.space.row();
             for row in rows {
-                self.draw_row(plan, tile, index as u32, row, show, &mut space);
+                self.draw_row(plan, tile, index as u32, row, show, &mut space, shared);
             }
             self.space.give_row(space);
         }
@@ -1198,6 +1238,7 @@ impl Scene<'_> {
     }
 
     /// Draws one row's part of a tile and lays it over what the rows before drew there.
+    #[allow(clippy::too_many_arguments)]
     fn draw_row(
         &self,
         plan: &Plan,
@@ -1206,6 +1247,7 @@ impl Scene<'_> {
         part: &RowInTile,
         show: &mut [Acc],
         space: &mut RowSpace,
+        shared: bool,
     ) {
         let row = &plan.rows[part.row as usize];
         let base = &self.laid[row.base as usize];
@@ -1242,7 +1284,7 @@ impl Scene<'_> {
                     let to = to.min(laid.buffer.pixels.len());
                     if from < to {
                         let pixels = &laid.buffer.pixels[from..to];
-                        op.mix(&units[0], self.grids, pixels, from, &mut acc[..to - from]);
+                        op.mix(&units[0], self.grids, pixels, from, &mut acc[..to - from], shared);
                     }
                 }
                 continue;
@@ -1265,7 +1307,7 @@ impl Scene<'_> {
                 for &(from, to) in runs {
                     let (from, to) = (from as usize, to as usize);
                     let own = &mut own[done..done + (to - from)];
-                    op.mix(unit, self.grids, &pixels[from..to], from, own);
+                    op.mix(unit, self.grids, &pixels[from..to], from, own, shared);
                     done += to - from;
                 }
                 let runs = runs
@@ -1297,8 +1339,9 @@ impl Scene<'_> {
 impl Op {
     /// Mixes the effect onto `acc`, the layers below it at `pixels` (which start at place `from`
     /// of the unit's buffer): shaded (or its blurred colors taken), its colors adjusted around
-    /// its sparkles, faded, and mixed in by its blend.
-    fn mix(&self, unit: &Unit, grids: &[Grid], pixels: &[Pixel], from: usize, acc: &mut [Acc]) {
+    /// its sparkles, faded, and mixed in by its blend. `shared` says whether there are threads
+    /// to share a heavy effect's pixels with.
+    fn mix(&self, unit: &Unit, grids: &[Grid], pixels: &[Pixel], from: usize, acc: &mut [Acc], shared: bool) {
         let Some(shader) = &unit.shader else {
             return;
         };
@@ -1311,6 +1354,7 @@ impl Op {
                 sparkles: self.sparkles,
                 adjust: self.adjust,
                 halves: unit.halves,
+                shared,
             });
             return;
         };
@@ -1347,6 +1391,14 @@ impl ShaderVisitor<()> for Cells<'_> {
     #[inline]
     fn visit<S: Shade + Sync>(self, shader: &S) {
         match self.near {
+            None if S::RUNS => {
+                self.cells.clear();
+                self.cells.resize(self.grid.cells.len(), Rgba::CLEAR);
+                let piece = shader.share_from().filter(|_| self.shared);
+                in_runs(shader, &self.grid.cells, self.cells, piece, &|_, color, cell| {
+                    *cell = color
+                });
+            }
             None => {
                 self.cells.clear();
                 self.cells
@@ -1364,12 +1416,66 @@ impl ShaderVisitor<()> for Cells<'_> {
                     piece,
                     &|&cell| cell as usize,
                     &|part, out, at| {
+                        if S::RUNS {
+                            // The cells of each run gathered up, shaded, and put where they go.
+                            let Some(&first) = grid.cells.first() else {
+                                return;
+                            };
+                            let mut pixels = [first; RUN_PIXELS];
+                            let mut colors = [Rgba::CLEAR; RUN_PIXELS];
+                            for run in part.chunks(RUN_PIXELS) {
+                                for (px, &cell) in pixels.iter_mut().zip(run) {
+                                    *px = grid.cells[cell as usize];
+                                }
+                                shader.shade_run(&pixels[..run.len()], &mut colors[..run.len()]);
+                                for (&cell, &color) in run.iter().zip(&colors) {
+                                    out[cell as usize - at] = color;
+                                }
+                            }
+                            return;
+                        }
                         for &cell in part {
                             let cell = cell as usize;
                             out[cell - at] = shader.shade(&grid.cells[cell]);
                         }
                     },
                 );
+            }
+        }
+    }
+}
+
+/// Shades `pixels` a run at a time ([`Shade::shade_run`]) and hands each one's color, with
+/// its place in `out`, to `put`: in pieces of at most `piece` pixels at the same time (on the
+/// threads of the pool this is called in) when there are more than that, else on this thread.
+/// A pixel's color is the same whichever run and piece it falls in.
+fn in_runs<S: Shade + Sync, O: Send>(
+    shader: &S,
+    pixels: &[Pixel],
+    out: &mut [O],
+    piece: Option<usize>,
+    put: &(impl Fn(&Pixel, Rgba, &mut O) + Sync),
+) {
+    match piece {
+        Some(most) if pixels.len() > most.max(1) && out.len() >= pixels.len() => {
+            // Cut at a whole number of pieces, so every piece but the last is a full run.
+            let most = most.max(1);
+            let cut = (pixels.len() / 2).div_ceil(most) * most;
+            let (left, right) = pixels.split_at(cut);
+            let (out_left, out_right) = out.split_at_mut(cut);
+            rayon::join(
+                || in_runs(shader, left, out_left, piece, put),
+                || in_runs(shader, right, out_right, piece, put),
+            );
+        }
+        _ => {
+            let mut colors = [Rgba::CLEAR; RUN_PIXELS];
+            for (run, out) in pixels.chunks(RUN_PIXELS).zip(out.chunks_mut(RUN_PIXELS)) {
+                let colors = &mut colors[..run.len()];
+                shader.shade_run(run, colors);
+                for ((px, out), &color) in run.iter().zip(out).zip(colors.iter()) {
+                    put(px, color, out);
+                }
             }
         }
     }
@@ -1384,11 +1490,35 @@ struct Fill<'a> {
     sparkles: Option<Sparkles>,
     adjust: Option<Adjust>,
     halves: Halves,
+    /// Whether there are threads to share a heavy effect's pixels with.
+    shared: bool,
 }
 
 impl ShaderVisitor<()> for Fill<'_> {
     #[inline]
     fn visit<S: Shade + Sync>(self, shader: &S) {
+        if S::RUNS {
+            let (blend, fade, sparkles, adjust, halves) =
+                (self.blend, self.fade, self.sparkles, self.adjust, self.halves);
+            let piece = shader.share_from().filter(|_| self.shared);
+            in_runs(
+                shader,
+                self.pixels,
+                self.acc,
+                piece,
+                &|px, shaded, acc: &mut Acc| {
+                    let mut color = adjust.as_ref().map_or(shaded, |a| a.shift(shaded));
+                    if let Some(s) = &sparkles {
+                        color = s.apply(color, px.index);
+                    }
+                    if let Some(a) = &adjust {
+                        color = a.level(color);
+                    }
+                    acc.blend(color, blend, fade, halves.first(px));
+                },
+            );
+            return;
+        }
         let Some(adjust) = self.adjust else {
             for (px, acc) in self.pixels.iter().zip(self.acc.iter_mut()) {
                 let mut color: Rgba = shader.shade(px);

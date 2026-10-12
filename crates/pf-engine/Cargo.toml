@@ -19,6 +19,7 @@ pf-fseq.workspace = true
 pf-audio.workspace = true
 pf-sequence.workspace = true
 pf-render.workspace = true
+pf-shader.workspace = true
 pf-analysis.workspace = true
 sha2.workspace = true
 serde.workspace = true

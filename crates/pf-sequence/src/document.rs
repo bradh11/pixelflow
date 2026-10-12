@@ -24,8 +24,10 @@ use serde::{Deserialize, Serialize};
 /// Shockwave and Fill effects, every effect has color adjustments (`hueAdjust`,
 /// `saturationAdjust`, `valueAdjust`, `brightness`, `contrast`), and a Picture can be resized as
 /// an older xLights resized it (`resize`); 12 = the Fireworks effect; 13 = the sequence says which
-/// channel of its music is how loud the music is (`musicLevelSource`).
-pub const CURRENT_SCHEMA_VERSION: u32 = 13;
+/// channel of its music is how loud the music is (`musicLevelSource`); 14 = the Shader
+/// effect, whose settings include the inputs its shader file declares, by name (`inputs`), and
+/// whose curves can change one of those (`inputs.<name>`).
+pub const CURRENT_SCHEMA_VERSION: u32 = 14;
 
 fn default_frame_ms() -> u32 {
     25

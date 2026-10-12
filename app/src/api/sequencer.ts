@@ -29,6 +29,7 @@ import type {
   SequenceSnapshot,
   TimingImported,
 } from "./sequence";
+import type { Uuid } from "./types";
 
 /** The event the engine sends while exporting. */
 export const EXPORT_PROGRESS_EVENT = "sequence-export-progress";
@@ -107,6 +108,34 @@ export interface MusicFound {
   result: SequenceEditResult | null;
   /** True when the search stopped before looking everywhere (it took too long). */
   gaveUp: boolean;
+}
+
+/** One input a shader declares: what the Shader effect's settings show a control for. */
+export type ShaderInputInfo =
+  | { type: "number"; name: string; label: string; min: number; max: number; default: number }
+  | { type: "bool"; name: string; label: string; default: boolean }
+  /** `value` is the number the shader is given, which is what the effect stores. */
+  | { type: "choice"; name: string; label: string; default: number; options: { value: number; label: string }[] }
+  /** Across, then up. */
+  | { type: "point"; name: string; label: string; min: [number, number]; max: [number, number]; default: [number, number] }
+  /** Red, green, blue, and alpha, each 0 to 1. */
+  | { type: "color"; name: string; label: string; default: [number, number, number, number] };
+
+/** A shader as a Shader effect's settings show it: what its file says of itself, and its inputs. */
+export interface ShaderInfo {
+  /** What an effect's `file` setting holds for it. */
+  file: string;
+  /** Its name as people see it. */
+  name: string;
+  /** One of PixelFlow's own (not a file of the show's). */
+  builtIn: boolean;
+  description: string;
+  credit: string;
+  inputs: ShaderInputInfo[];
+  /** Why it can't be drawn, in plain words; null when it can. */
+  problem: string | null;
+  /** The line of the file the problem is on, when it's on one. */
+  line: number | null;
 }
 
 /** The open sequence's pictures that can't be drawn, and its problems (which name them). */
@@ -263,9 +292,21 @@ export interface SequencerApi extends VideoApi {
   findSequencePictures(): Promise<PicturesRelinked>;
   /** Asks where a missing picture (its `path`) is now and uses the file chosen; null when cancelled. */
   locateSequencePicture(path: string): Promise<PicturesRelinked | null>;
-  /** Calls `handler` whenever a picture the preview was waiting for has been read; the answer
-   * stops it. */
+  /** Calls `handler` whenever a picture (or a shader file) the preview was waiting for has been
+   * read; the answer stops it. */
   onPicturesArrived(handler: () => void): () => void;
+  /** Every shader a Shader effect can use: PixelFlow's own, then the files in the show's shaders folder. */
+  listShaders(): Promise<ShaderInfo[]>;
+  /** What the shader a Shader effect's `file` names is and takes (or why it can't be used). */
+  shaderInfo(file: string): Promise<ShaderInfo>;
+  /**
+   * Asks for a shader file for a Shader effect (a native dialog). It's copied into the show's
+   * shaders folder (used where it is while the show isn't saved); null when cancelled.
+   */
+  pickShader(): Promise<ShaderInfo | null>;
+  /** Why a Shader effect drew nothing the last time it was drawn, when it was stopped for doing
+   * more work than a shader may; null when it wasn't. */
+  shaderStopped(effect: Uuid): Promise<string | null>;
   /** Native dialogs; null when cancelled. */
   pickXlightsSequencePath(): Promise<string | null>;
   pickXlightsPackageFolder(): Promise<string | null>;
@@ -351,6 +392,10 @@ export const tauriSequencer: SequencerApi = {
     const stop = listen(PICTURES_EVENT, handler);
     return () => void stop.then((unlisten) => unlisten());
   },
+  listShaders: () => invoke("list_shaders"),
+  shaderInfo: (file) => invoke("shader_info", { file }),
+  pickShader: () => whileFileDialog(() => invoke("pick_shader")),
+  shaderStopped: (effect) => invoke("shader_stopped", { effect }),
   pickXlightsSequencePath: () => pickPath("xlightsSequence"),
   pickXlightsPackageFolder: () => pickPath("xlightsPackageFolder"),
   pickXmapPath: () => pickPath("xmap"),

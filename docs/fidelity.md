@@ -108,7 +108,8 @@ what the pictures showed. Some of what settled them:
 | Fire over a group of outline props where xLights lights one of them blue and little else | error 98 | 47 | Different |
 | Fireworks drawn as steady twinkles (before it had an effect of its own), where xLights is dark between bursts | error 26 | 22 | Different |
 | Snow on a tree that PixelFlow also washes blue and the reference leaves dark (the file turned out to be unfinished there) | error 94 | 5 | Different |
-| A shader shown as a dim fill | error 57–108 | 13–40 | No equivalent |
+| A shader shown as a dim fill (before the Shader effect) | error 57–108 | 13–40 | No equivalent |
+| A shader drawn with its own file, on a group across the layout | error 0.13–0.15, every pixel within tolerance | 100 | Matches |
 
 ## Effects that draw on chance
 
@@ -1046,6 +1047,35 @@ as half as many frames of glow, and noted), frames other than 25 ms (taken as xL
 in frames), colors that change (hold color off), a firework that moves, firing with the music,
 and firing from a timing track.
 
+**Shader, drawn with its file.** Sequence G has ten Shader effects using three shader files
+(shader A eight times, on a group across the layout, 4,959 pixels on a 400 by 178 grid, and on a
+row of small props, 1,271 pixels; B and C once each on a group of two props, 1,200 pixels on 206
+by 175). They were the largest thing PixelFlow couldn't show: a dim fill scoring 15 to 38. The
+Shader effect runs the same files (`docs/shaders.md`): the import finds each file by name near
+the sequence, reads which settings are the shader's inputs from its header, and sets them as the
+sequence has them. What a sequence keeps, worked out from sequences and xLights' frames: a
+number as its slider, a hundred times the value; a switch as 0 or 1; a choice as the chosen
+label's text; a point as two sliders, `<name>X` and `<name>Y`; the effect's speed as a hundred
+times the rate, and its lead-in in frames. No sequence seen has a key for a color input. The
+shader sees the target's grid as its picture: `RENDERSIZE` is the grid's size in cells and a
+pixel is the middle of its cell, counted from the bottom left. xLights' own Offset X, Offset Y,
+and Zoom are 0 in every instance here; what they do isn't known, so they are carried over and a
+note says they aren't applied when one isn't 0.
+
+Through the real import, over four runs on the final code, nine of the ten score 100 in every run
+(pixel error 0.03 to 0.15 alone, 0.14 to 0.31 under the layers above) and the tenth 95.3 in every
+run; before, on `develop`, they scored 32.4, 32.3, 32.3, 32.3, 15.0, 32.5, 37.6, 37.6, 37.4, and
+37.5. Sequence G's look went from 67.9 to between 89.4 and 90.2, and as seen from 72.3 to 99.9.
+`pf-fidelity labels` agrees with the importer's table: Shader matches, ten of ten.
+
+The tenth (shader C on the group of two props) matches on one prop and not on the other: on the
+first of its two members PixelFlow's picture is placed or sized otherwise than xLights' (pixel
+error 35 alone, three quarters of pixels within tolerance). The group's other member, and shader B
+on the same group, match exactly, so the grid and the file are not the cause. The spike tried the
+picture at other zooms and offsets against it without a fit. It is probably the reference's
+doing (a render made with an older version of that one prop's settings), and was not chased
+further.
+
 **What to improve, by look:**
 
 - *Mappings to check.* None is known in this corpus. What the last list had here is fixed (the
@@ -1065,11 +1095,13 @@ and firing from a timing track.
   louder of the two channels in a sequence made in PixelFlow and the left channel in one
   imported from xLights, a setting of the sequence's own; and sparkles flash on an effect its
   own Transparency hides.
-- *What PixelFlow can't show yet.* Shader (ten effects, the largest item by far) and Text in
-  the sequence's own font. A Tendril that wanders at random shows less of itself and pulses at
-  other moments (the pulsing no longer counts against it: PixelFlow's own renders of it pulse
-  at other moments from each other, see "What changed verdict"). A Wave has no square shape. A
-  Fireworks that moves stays where it goes off.
+- *What PixelFlow can't show yet.* Text in the sequence's own font. A Shader whose file isn't
+  found near the sequence, or needs what PixelFlow doesn't give a shader yet (several passes,
+  kept buffers, pictures, the music), is still a dim fill; an input on a value curve stays at its
+  slider's value. A Tendril that wanders at random shows less of itself and pulses at other
+  moments (the pulsing no longer counts against it: PixelFlow's own renders of it pulse at other
+  moments from each other, see "What changed verdict"). A Wave has no square shape. A Fireworks
+  that moves stays where it goes off.
 
 How rows are laid over one another was not changed: where the references are whole, rows that
 blend as the sequence says match them, a group's row over its props' own rows included.

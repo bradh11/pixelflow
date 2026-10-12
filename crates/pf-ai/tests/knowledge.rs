@@ -33,6 +33,10 @@ fn draft() -> Draft {
         audio: AudioSource::none(),
         pictures: Pictures::none(),
         images: Vec::new(),
+        shaders: pf_render::built_in_shaders()
+            .iter()
+            .map(|file| pf_render::Shaders::none().describe(file))
+            .collect(),
         context: UiContext::default(),
     })
 }
@@ -549,6 +553,8 @@ fn everything_the_guides_name_can_be_said_to_a_tool() {
                 SettingValue::Face { .. } | SettingValue::Text { .. } => vec![json!("Face")],
                 SettingValue::Image { .. } => vec![json!(pf_ai::stage::PICTURE)],
                 SettingValue::TimingTrack { .. } => vec![json!("Beats"), Value::Null],
+                SettingValue::ShaderFile { .. } => vec![json!(pf_sequence::DEFAULT_SHADER)],
+                SettingValue::ShaderInputs { .. } => vec![json!({}), json!({ "speed": 2 })],
             };
             for value in values {
                 placed(json!({ "kind": kind, "settings": { setting.key: value } }));

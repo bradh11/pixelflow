@@ -16,6 +16,7 @@ pf-model.workspace = true
 pf-mapping.workspace = true
 pf-sequence.workspace = true
 pf-render.workspace = true
+pf-shader.workspace = true
 pf-output.workspace = true
 pf-fseq.workspace = true
 pf-xlights.workspace = true

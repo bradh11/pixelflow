@@ -24,6 +24,7 @@ mod pictures;
 mod playback;
 mod recovery;
 mod sequence_doc;
+mod shaders;
 mod snapshot;
 
 pub use audio::{AudioTracks, TrackProgress};
@@ -43,6 +44,8 @@ pub use persist::{
     HistoryEntry, HistoryFile, LoadedShow, load_show, read_show, save_show_atomic, write_atomic,
 };
 pub use pf_render::export::{ExportBlock, ExportLayout, ExportSummary};
+pub use pf_render::{ShaderChoice, ShaderInfo, ShaderInputInfo, shader_input_problem};
+pub use pf_shader::{MAX_SHADER_BYTES, SHADER_EXTENSIONS, read_shader_file};
 pub use pictures::{
     IMAGES_FOLDER, MAX_PICTURE_BYTES, PICTURE_EXTENSIONS, PictureCheck, PictureFiles, PictureStatus,
     read_picture_file,
@@ -55,4 +58,5 @@ pub use sequence_doc::{
     PlacedEffect, SequenceChanges, SequenceEdit, SequenceEditResult, SequenceInfo, SequenceSnapshot,
     load_sequence, save_sequence_atomic,
 };
+pub use shaders::{SHADERS_FOLDER, ShaderFiles, list_shaders};
 pub use snapshot::{PreviewProp, ShowSnapshot, Summary};

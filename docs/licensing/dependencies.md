@@ -150,7 +150,7 @@ Code and data taken from xLights and other projects' **source** are a different 
 
 ## PixelFlow's own packages
 
-All 24 of PixelFlow's own packages state `GPL-3.0-only`: the GNU General Public License, version 3 (the `LICENSE` file at the repo root).
+All 25 of PixelFlow's own packages state `GPL-3.0-only`: the GNU General Public License, version 3 (the `LICENSE` file at the repo root).
 
 ## Shipped packages against PixelFlow's licence (`GPL-3.0-only`)
 

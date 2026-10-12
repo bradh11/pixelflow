@@ -4422,5 +4422,82 @@
         "type": "bool"
       }
     ]
+  },
+  {
+    "description": "A shader file's moving pattern drawn over the prop: one of PixelFlow's own, or your own file.",
+    "kind": "shader",
+    "label": "Shader",
+    "settings": [
+      {
+        "default": "pixelflow:aurora",
+        "description": "The shader: `pixelflow:<name>` for one of PixelFlow's own, or a file in the show's shaders folder.",
+        "key": "file",
+        "label": "Shader",
+        "type": "shaderFile"
+      },
+      {
+        "default": {},
+        "description": "What the shader's own inputs are set to, by name. One left out is as its file has it.",
+        "key": "inputs",
+        "label": "Inputs",
+        "type": "shaderInputs"
+      },
+      {
+        "default": 1.0,
+        "description": "Times the shader's own pace: 0 holds it still, below 0 runs it backwards.",
+        "key": "speed",
+        "label": "Time speed",
+        "max": 10.0,
+        "min": -10.0,
+        "step": 0.05,
+        "type": "number",
+        "unit": "x"
+      },
+      {
+        "default": 0.0,
+        "description": "Seconds the shader is already into when the effect starts.",
+        "key": "leadIn",
+        "label": "Start ahead",
+        "max": 600.0,
+        "min": 0.0,
+        "more": true,
+        "step": 0.05,
+        "type": "number",
+        "unit": "s"
+      },
+      {
+        "default": 0.0,
+        "description": "xLights' Offset X, kept from an import. PixelFlow doesn't apply it.",
+        "key": "offsetX",
+        "label": "xLights offset X (not applied)",
+        "max": 1000.0,
+        "min": -1000.0,
+        "more": true,
+        "step": 1.0,
+        "type": "number"
+      },
+      {
+        "default": 0.0,
+        "description": "xLights' Offset Y, kept from an import. PixelFlow doesn't apply it.",
+        "key": "offsetY",
+        "label": "xLights offset Y (not applied)",
+        "max": 1000.0,
+        "min": -1000.0,
+        "more": true,
+        "step": 1.0,
+        "type": "number"
+      },
+      {
+        "default": 0.0,
+        "description": "xLights' Zoom, kept from an import. PixelFlow doesn't apply it.",
+        "key": "zoom",
+        "label": "xLights zoom (not applied)",
+        "max": 1000.0,
+        "min": -1000.0,
+        "more": true,
+        "step": 1.0,
+        "type": "number"
+      }
+    ]
   }
 ]

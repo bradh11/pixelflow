@@ -721,6 +721,56 @@ buffer its bursts reach and how many sparks a pixel there has to look at: 5 burs
 200 sparks with full tails, glowing for 3 seconds and as big as the prop, take 21.1 ms a frame
 (105 ns a pixel).
 
+#### Shaders
+
+The Shader effect runs a shader file for every pixel (see [shaders.md](shaders.md)), a run of
+256 pixels at a time on a machine each thread keeps, so what is the same for every pixel (a
+loop's counter, a rotation's sine) is worked out once a run. Measured with
+`cargo run --release -p pf-fidelity --example shader_cost` on one thread of an M-series laptop,
+the effect alone in the frame, less the same frame with a plain fill in its place, quickest of
+five passes over 48 frames; nothing is allocated while a frame is drawn
+(`crates/pf-bench/tests/shader_allocations.rs`), and the frames are the same bytes on 1, 2, 4,
+and 8 threads.
+
+PixelFlow's own shaders, beside two effects of the tables, on the demo show's mega tree (800
+pixels, 16 strings of 50) and its window matrix (200 pixels, 20 by 10):
+
+| Effect | Work a pixel | Tree, ns a pixel | Tree, µs a frame | Matrix, ns a pixel |
+|---|---|---|---|---|
+| Prism | 97 | 12.9 | 10.3 | 15.0 |
+| Tunnel | 106 | 15.6 | 12.5 | 18.5 |
+| Lava Lamp | 461 | 17.4 | 13.9 | 23.4 |
+| Pond | 180 | 22.5 | 18.0 | 25.6 |
+| Aurora | 160 | 30.2 | 24.1 | 33.8 |
+| Kaleidoscope | 194 | 33.4 | 26.7 | 37.3 |
+| Stained Glass | 1,243 | 134 | 107 | 157 |
+| Nebula | 1,962 | 138 | 110 | 177 |
+| *Plasma* | | 11.4 | 9.1 | 13.1 |
+| *Butterfly* | | 9.2 | 7.4 | 10.9 |
+
+The lighter shaders cost one to three times what Plasma does; Stained Glass and Nebula, which
+look at several squares of a grid for every pixel, about twelve times. On a small prop the
+fixed cost of a run shows: a 200-pixel matrix pays more a pixel than an 800-pixel tree.
+
+Three shader files from sequences people use, on their own targets in sequence G of the fidelity
+corpus (see [fidelity.md](fidelity.md)), one thread and eight:
+
+| Shader on its target | Pixels | Work a pixel | 1 thread, ms a frame | ns a pixel | 8 threads, ms a frame |
+|---|---|---|---|---|---|
+| A, on a group across the layout | 4,959 | 320 | 0.126 | 25.4 | 0.058 |
+| A, on a row of small props | 1,271 | 320 | 0.035 | 27.5 | 0.044 |
+| B, on a group of two props | 1,200 | 18,619 | 1.08 | 902 | 0.41 |
+| C, on the same group | 1,200 | 13,001 | 0.43 | 356 | 0.21 |
+
+B is the heaviest shader measured: a 1,200-pixel prop sits in one 2,048-pixel tile, so a frame
+of it shares out its runs of 256 among the frame's threads (any shader whose pixels each did
+1,500 work or more the last time it was drawn), which more than halves it. A light one isn't
+shared, since handing a run over costs more than drawing it. Before the effect had a run's
+machine (one pixel at a time), the same shaders cost 34 to 106 times as much.
+
+The limits on what a shader may do (see [shaders.md](shaders.md#limits)) put the slowest frame a
+hostile file can cause at 136 ms on one thread; B does a fifth of what a pixel may.
+
 #### Each kind alone
 
 | Effect | On every prop, ms a frame | ns a pixel | Allocations a frame | KB allocated a frame | On the whole-house group, ms a frame | ns a pixel |

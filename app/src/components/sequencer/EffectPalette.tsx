@@ -6,6 +6,7 @@ import {
   Bomb,
   Blend,
   Blinds,
+  Braces,
   CircleDot,
   CloudLightning,
   CloudSnow,
@@ -88,6 +89,7 @@ export const EFFECT_ICONS: Record<EffectKind, LucideIcon> = {
   shockwave: Target,
   fill: PaintBucket,
   fireworks: PartyPopper,
+  shader: Braces,
 };
 
 /** Drags this far (screen pixels) before a press on the palette becomes a drag. */

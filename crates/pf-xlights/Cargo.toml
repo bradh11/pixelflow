@@ -11,6 +11,7 @@ license.workspace = true
 pf-model.workspace = true
 pf-geometry.workspace = true
 pf-sequence.workspace = true
+pf-shader.workspace = true
 roxmltree.workspace = true
 zstd.workspace = true
 zip.workspace = true

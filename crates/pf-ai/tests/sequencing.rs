@@ -1617,3 +1617,136 @@ fn pictures_are_listed_looked_up_and_placed_like_any_effect() {
         assert!(!summary.contains("ictures"), "{summary}");
     }
 }
+
+#[test]
+fn shaders_are_listed_and_placed_with_inputs_held_against_the_shader() {
+    let s = setup(Some("/music/song.mp3"));
+    let row = s.rows[0].clone();
+    let shader = |settings: Value| {
+        (
+            "place_effects",
+            json!({ "rowIds": [row], "fromMs": 8000, "toMs": 24000, "effect": { "kind": "shader", "settings": settings } }),
+        )
+    };
+    let lava = "pixelflow:lava-lamp";
+    let provider = ScriptedProvider::new(vec![
+        calls(
+            "",
+            &[
+                ("list_effect_kinds", json!({ "kind": "shader" })),
+                ("list_effect_kinds", json!({ "kind": "shader", "file": lava })),
+                (
+                    "list_effect_kinds",
+                    json!({ "kind": "shader", "file": "shaders/gone.fs" }),
+                ),
+            ],
+        ),
+        calls(
+            "",
+            &[
+                // Not one of its inputs; not one of a choice's values; out of an input's range;
+                // and not a shader the show has. Then one that fits.
+                shader(json!({ "file": lava, "inputs": { "glow": 1 } })),
+                shader(json!({ "file": lava, "inputs": { "blobs": 4 } })),
+                shader(json!({ "file": lava, "inputs": { "size": 3 } })),
+                shader(json!({ "file": "shaders/mine.fs" })),
+                shader(
+                    json!({ "file": lava, "inputs": { "blobs": 8, "size": 0.25, "first": [0, 0.5, 1, 1] }, "speed": 0.5 }),
+                ),
+            ],
+        ),
+        says("Lava through the loud part."),
+    ]);
+    let (mut session, _) = session();
+    let (reply, events) = ask(&mut session, &provider, &s.engine, "Something flowing on A");
+    reply.unwrap();
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, ChatEvent::Activity { label } if label == "Looking at the effects"))
+    );
+    // The list says how to use a shader, and what each of PixelFlow's own looks like and takes,
+    // in a few short lines' worth; one asked for by file comes in full.
+    let listed = results_in(&provider, 1);
+    assert!(!listed[0].1 && !listed[1].1 && listed[2].1, "{listed:?}");
+    assert!(listed[0].0.len() < 6_000, "{} bytes", listed[0].0.len());
+    let list: Value = serde_json::from_str(&listed[0].0).unwrap();
+    let guide = list["guide"].as_str().unwrap();
+    for said in ["settings.inputs", "get_guide with effects [\"shader\"]"] {
+        assert!(guide.contains(said), "{said}: {guide}");
+    }
+    let shaders = list["shaders"].as_array().unwrap();
+    assert_eq!(shaders.len(), pf_render::built_in_shaders().len());
+    let second = shaders.iter().find(|s| s["file"] == lava).unwrap();
+    assert_eq!(second["name"], "Lava Lamp");
+    assert!(second["looks"].as_str().unwrap().contains("lava lamp"));
+    assert_eq!(
+        second["inputs"],
+        json!(["blobs", "size", "speed", "soft", "first", "second"])
+    );
+    let full: Value = serde_json::from_str(&listed[1].0).unwrap();
+    assert_eq!(full["inputs"][0]["type"], "choice");
+    assert_eq!(
+        full["inputs"][0]["options"][2],
+        json!({ "value": 8, "label": "Eight" })
+    );
+    assert_eq!(full["inputs"][1]["max"], 0.5);
+    // What isn't the shader's is refused in plain words; what is, is placed with its inputs by
+    // name.
+    let results = results_in(&provider, 2);
+    assert!(!results[4].1, "{results:?}");
+    for (result, said) in results[..4].iter().zip([
+        "\"glow\" isn't one of this shader's inputs (Lava Lamp has: blobs, size, speed, soft, first, second)",
+        "\"blobs\" is 4; use one of 3 (Three), 5 (Five), 8 (Eight)",
+        "\"size\" is 3; use 0.05 to 0.5",
+        "\"shaders/mine.fs\", which isn't a shader this show can use",
+    ]) {
+        assert!(result.1 && result.0.contains(said), "{said}: {result:?}");
+    }
+    let doc = session.draft().unwrap().sequence().unwrap();
+    assert_eq!(placed(&session, &row, 0), [(8000, 24000)]);
+    let placed = doc.rows.iter().find(|r| r.id.to_string() == row).unwrap();
+    let effect = &placed.layers[0].effects[0];
+    assert_eq!(effect.kind(), EffectKind::Shader);
+    let settings = serde_json::to_value(&effect.params).unwrap();
+    assert_eq!(settings["file"], lava);
+    assert_eq!(settings["speed"], 0.5);
+    assert_eq!(
+        settings["inputs"],
+        json!({ "blobs": 8.0, "first": [0.0, 0.5, 1.0, 1.0], "size": 0.25 })
+    );
+    // A curve on one of its number inputs goes on with the effect's other settings; one on
+    // what isn't a number of the shader's is refused.
+    let mut curved = serde_json::to_value(effect).unwrap();
+    curved["curves"] = json!({ "inputs.size": { "shape": "ramp", "from": 0.1, "to": 0.4 } });
+    let mut wrong = curved.clone();
+    wrong["curves"] = json!({ "inputs.blobs": { "shape": "ramp", "from": 3, "to": 8 } });
+    let provider = ScriptedProvider::new(vec![
+        calls(
+            "",
+            &[
+                ("sequence_update_effect", json!({ "effect": curved })),
+                ("sequence_update_effect", json!({ "effect": wrong })),
+            ],
+        ),
+        says("The blobs grow."),
+    ]);
+    ask(&mut session, &provider, &s.engine, "Make the blobs grow")
+        .0
+        .unwrap();
+    let results = results_in(&provider, 1);
+    assert!(!results[0].1, "{results:?}");
+    assert!(
+        results[1].1
+            && results[1]
+                .0
+                .contains("\"blobs\" isn't a number, so it can't change over the effect"),
+        "{results:?}"
+    );
+    let doc = session.draft().unwrap().sequence().unwrap();
+    let placed = doc.rows.iter().find(|r| r.id.to_string() == row).unwrap();
+    assert_eq!(
+        placed.layers[0].effects[0].curves.keys().collect::<Vec<_>>(),
+        ["inputs.size"]
+    );
+}

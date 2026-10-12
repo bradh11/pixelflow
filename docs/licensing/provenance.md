@@ -40,8 +40,8 @@ licence covers every file below, so the inventory is not a list of problems to c
   on PixelFlow's comments and say so.
 - Line counts are as they stood at that reading, apart from Pinwheel's, which were brought up
   to date when it was rebuilt (see "Rebuilt from a description of its behaviour"). The renderer's
-  multi-threaded drawing and the Fireworks effect, added since, are PixelFlow's own and are not
-  in the totals.
+  multi-threaded drawing, the Fireworks effect, and the Shader effect with its engine, added
+  since, are PixelFlow's own and are not in the totals.
 - Line counts are of the file as it stands. "Impl" leaves out the file's own `#[cfg(test)]`
   module. The share of a mixed file that follows the source is an estimate from reading, not a
   measured diff.
@@ -110,6 +110,25 @@ Fireworks (`fireworks.rs`) was written without xLights' `FireworksEffect.cpp` be
 the frames xLights rendered for a sequence (see [../fidelity.md](../fidelity.md)), its public
 manual, and the setting names a sequence file saves. The importer's translation of it reads
 those setting names, which are format, and the numbers it uses were measured from the frames.
+
+The Shader effect and its engine are PixelFlow's own. `crates/pf-shader` (the GLSL lexer,
+preprocessor, parser, type check, the machine that runs a batch of pixels at a time, and the
+math functions it works out the same way on every system) was written for PixelFlow, without
+xLights' `ShaderEffect.cpp` or any shader compiler's source being read; the renderer's Shader
+effect (`crates/pf-render/src/glsl.rs`) and the importer's translation of it
+(`crates/pf-xlights/src/sequence/shaders.rs`, `shader` in `effects.rs`) likewise. What they follow
+is format: the Interactive Shader Format's header keys (`INPUTS`, `NAME`, `TYPE`, `MIN`, `MAX`,
+`DEFAULT`, `LABELS`, `VALUES`, `PASSES`, `IMPORTED`, and the rest) and built-in names (`TIME`,
+`RENDERSIZE`, `isf_FragNormCoord`, `TIMEDELTA`, `FRAMEINDEX`, `DATE`) from the format's public
+description; GLSL's own language and built-in functions; and the setting names an xLights sequence
+saves for a Shader effect, with how their values map, worked out from sequences and xLights'
+rendered frames. The eight shaders that come with PixelFlow (`crates/pf-shader/shaders/*.fs`)
+were written for it from scratch and are credited to the project's author.
+
+**Third-party shader files are never bundled.** Shader files from shared collections are their
+authors' work under their own licences. None is in the repository, its tests, fixtures, or
+documents; the tests use shaders written in them. A show's own files are copied into that show's
+folder, on the user's computer, by the user's import or choice.
 
 **Tests.** No unit test compares against frames rendered by xLights, and there are no golden
 files from xLights in the repository. (A separate tool, `pf-fidelity`, measures an imported
@@ -284,7 +303,8 @@ none; they were not all read line by line.
 
 ## Independent
 
-Everything not listed above. In particular: `pf-engine`, `pf-output` (sACN and DDP from their
+Everything not listed above. In particular: `pf-shader` (see the summary above for what its
+format follows), `pf-engine`, `pf-output` (sACN and DDP from their
 public specifications), `pf-fidelity` (which compares rendered output and cites no source),
 `pf-audio`, `pf-analysis` apart from the note spectrogram, `pf-align`,
 `pf-camera-map`, `pf-video`, `pf-patterns`, `pf-frame`, `pf-cli`, `pf-ai` apart from

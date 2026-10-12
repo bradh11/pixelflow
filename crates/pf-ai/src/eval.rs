@@ -599,6 +599,10 @@ pub fn workspace(stage: &Stage, doc: &Sequence) -> Workspace {
         audio: stage::audio(),
         pictures: stage::pictures(),
         images: vec![PICTURE.to_string()],
+        shaders: pf_render::built_in_shaders()
+            .iter()
+            .map(|file| pf_render::Shaders::none().describe(file))
+            .collect(),
         context: UiContext {
             screen: Some("sequence".into()),
             ..UiContext::default()

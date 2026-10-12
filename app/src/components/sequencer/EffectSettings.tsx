@@ -1,5 +1,5 @@
 import { SlidersHorizontal, Trash2 } from "lucide-react";
-import type { Blend, Curve, Effect, EffectParams, Sequence, SequenceTarget } from "../../api/sequence";
+import type { Blend, Curve, Effect, EffectParams, Sequence, SequenceTarget, ShaderInputs, ShaderValue } from "../../api/sequence";
 import type { Show } from "../../api/types";
 import { withCurve } from "../../lib/curves";
 import { effectBounds, formatTime } from "../../lib/timelineMath";
@@ -29,6 +29,7 @@ import {
   usesColors,
 } from "./effectControls";
 import { MultiEffectSettings } from "./MultiEffectSettings";
+import { ShaderFileSetting, ShaderInputsSetting } from "./ShaderSettings";
 import { More } from "../ui";
 import { BUFFER_TRANSFORMS, renderStyleOptions } from "../../lib/renderStyles";
 import type { BufferTransform, RenderStyle } from "../../api/sequence";
@@ -94,7 +95,27 @@ function Settings({ doc }: { doc: Sequence }) {
     onChange: (curve: Curve | null, gesture?: string) =>
       change((e) => (e.params.kind === effect.params.kind ? { ...e, curves: withCurve(e.curves, key, curve) } : null), gesture),
   });
+  /** Another shader for a Shader effect: its inputs, and the curves on them, were the old one's. */
+  const chooseShader = (file: string) =>
+    change((e) => {
+      if (e.params.kind !== "shader" || e.params.file === file) return null;
+      const curves = Object.fromEntries(Object.entries(e.curves ?? {}).filter(([key]) => !key.startsWith("inputs.")));
+      return { ...e, params: { ...e.params, file, inputs: {} }, curves: Object.keys(curves).length > 0 ? curves : undefined };
+    });
+  /** One input of a Shader effect's shader set, or (undefined) left as its file has it. */
+  const setShaderInput = (name: string, value: ShaderValue | undefined, gesture?: string) =>
+    change((e) => {
+      if (e.params.kind !== "shader") return null;
+      const inputs: ShaderInputs = { ...e.params.inputs };
+      if (value === undefined) delete inputs[name];
+      else inputs[name] = value;
+      return { ...e, params: { ...e.params, inputs } };
+    }, gesture);
   const length = effect.endMs - effect.startMs;
+  // xLights' own offset and zoom for a shader are kept from an import but not applied, so there
+  // is nothing to set: they show only on an effect that came with one, to say so.
+  const params = effect.params as Record<string, unknown>;
+  const settings = (info?.settings ?? []).filter((s) => !(effect.params.kind === "shader" && KEPT_FROM_XLIGHTS.includes(s.key) && (params[s.key] ?? 0) === 0));
 
   return (
     <Panel>
@@ -117,11 +138,30 @@ function Settings({ doc }: { doc: Sequence }) {
       </div>
       {info?.description && <p className="mt-1 text-xs text-neutral-500">{info.description}</p>}
 
-      {info && info.settings.length > 0 && (
+      {settings.length > 0 && (
         <Section title="Settings">
           <KindSettings
-            settings={info.settings}
-            control={(setting) => (
+            settings={settings}
+            control={(setting) =>
+              effect.params.kind === "shader" && setting.type === "shaderFile" ? (
+                <ShaderFileSetting
+                  key={`${id}:${setting.key}`}
+                  effectId={id}
+                  label={setting.label}
+                  description={setting.description}
+                  file={effect.params.file ?? setting.default}
+                  onChoose={chooseShader}
+                />
+              ) : effect.params.kind === "shader" && setting.type === "shaderInputs" ? (
+                <ShaderInputsSetting
+                  key={`${id}:${setting.key}`}
+                  effectId={id}
+                  file={effect.params.file ?? ""}
+                  inputs={effect.params.inputs ?? {}}
+                  onChange={setShaderInput}
+                  animate={animate}
+                />
+              ) : (
               <SettingControl
                 key={`${id}:${setting.key}`}
                 setting={setting}
@@ -132,7 +172,8 @@ function Settings({ doc }: { doc: Sequence }) {
                 singing={effect.params.kind === "faces"}
                 animate={setting.type === "number" || setting.type === "int" ? animate(setting.key) : undefined}
               />
-            )}
+              )
+            }
           />
         </Section>
       )}
@@ -304,6 +345,9 @@ function Settings({ doc }: { doc: Sequence }) {
     </Panel>
   );
 }
+
+/** The Shader effect's settings that hold what an xLights import brought and PixelFlow doesn't apply. */
+const KEPT_FROM_XLIGHTS = ["offsetX", "offsetY", "zoom"];
 
 function findEffect(
   doc: Sequence,

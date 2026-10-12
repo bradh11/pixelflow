@@ -103,6 +103,76 @@ pub fn read_picture_file(path: &Path) -> Result<Vec<u8>, String> {
     Ok(bytes)
 }
 
+/// Keeps a copy of the file at `path`, whose contents are `bytes`, in `folder` (one of the
+/// show's own: it's made if it isn't there) under the file's own name, and returns where. The
+/// same file already there is used as it is; a different one of that name is left alone, and
+/// this one saved as "name (2).ext". Nothing half-written is left behind. `many` and `kept_in`
+/// say what the folder holds and what it's called ("pictures", "images"), for the errors.
+pub(crate) fn keep_copy(
+    folder: &Path,
+    path: &Path,
+    bytes: &[u8],
+    many: &str,
+    kept_in: &str,
+) -> Result<PathBuf, String> {
+    let name = file_name_of(&path_to_text(path));
+    let own = match path.file_name().map(|n| n.to_string_lossy().into_owned()) {
+        Some(own) if !own.trim().is_empty() && !own.starts_with('.') => own,
+        _ => {
+            return Err(format!(
+                "{name} can't be used: its name can't be used as a file name."
+            ));
+        }
+    };
+    let write_err = |e: std::io::Error| format!("Couldn't copy {name} into {} ({e}).", folder.display());
+    fs::create_dir_all(folder).map_err(write_err)?;
+    let named = Path::new(&own);
+    let (stem, ext) = (
+        named
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default(),
+        named
+            .extension()
+            .map(|e| format!(".{}", e.to_string_lossy()))
+            .unwrap_or_default(),
+    );
+    let mut n = 1;
+    let target = loop {
+        let candidate = folder.join(if n == 1 {
+            own.clone()
+        } else {
+            format!("{stem} ({n}){ext}")
+        });
+        match fs::metadata(&candidate) {
+            // The same file, copied before.
+            Ok(meta)
+                if meta.is_file()
+                    && meta.len() == bytes.len() as u64
+                    && fs::read(&candidate).is_ok_and(|there| there == bytes) =>
+            {
+                return Ok(candidate);
+            }
+            Ok(_) => n += 1,
+            Err(_) => break candidate,
+        }
+        if n > 1000 {
+            return Err(format!(
+                "There are too many {many} named {name} in the show's {kept_in} folder already."
+            ));
+        }
+    };
+    let temp = folder.join(format!(".{own}.pixelflow-part"));
+    let written = fs::File::create(&temp)
+        .and_then(|mut f| f.write_all(bytes).and_then(|_| f.sync_all()))
+        .and_then(|_| fs::rename(&temp, &target));
+    if let Err(e) = written {
+        let _ = fs::remove_file(&temp);
+        return Err(write_err(e));
+    }
+    Ok(target)
+}
+
 impl PictureFiles {
     /// The show's folder from now on (`None`: the show isn't saved). True when it changed.
     pub(crate) fn set_folder(&self, folder: Option<&Path>) -> bool {
@@ -197,60 +267,7 @@ impl PictureFiles {
         if self.allowed(path) && path.starts_with(&images) {
             return Ok(self.stored(path));
         }
-        let own = match path.file_name().map(|n| n.to_string_lossy().into_owned()) {
-            Some(own) if !own.trim().is_empty() && !own.starts_with('.') => own,
-            _ => {
-                return Err(format!(
-                    "{name} can't be used: its name can't be used as a file name."
-                ));
-            }
-        };
-        let write_err = |e: std::io::Error| format!("Couldn't copy {name} into {} ({e}).", images.display());
-        fs::create_dir_all(&images).map_err(write_err)?;
-        let named = Path::new(&own);
-        let (stem, ext) = (
-            named
-                .file_stem()
-                .map(|s| s.to_string_lossy().into_owned())
-                .unwrap_or_default(),
-            named
-                .extension()
-                .map(|e| format!(".{}", e.to_string_lossy()))
-                .unwrap_or_default(),
-        );
-        let mut n = 1;
-        let target = loop {
-            let candidate = images.join(if n == 1 {
-                own.clone()
-            } else {
-                format!("{stem} ({n}){ext}")
-            });
-            match fs::metadata(&candidate) {
-                // The same picture, copied before.
-                Ok(meta)
-                    if meta.is_file()
-                        && meta.len() == bytes.len() as u64
-                        && fs::read(&candidate).is_ok_and(|there| there == bytes) =>
-                {
-                    return Ok(self.stored(&candidate));
-                }
-                Ok(_) => n += 1,
-                Err(_) => break candidate,
-            }
-            if n > 1000 {
-                return Err(format!(
-                    "There are too many pictures named {name} in the show's images folder already."
-                ));
-            }
-        };
-        let temp = images.join(format!(".{own}.pixelflow-part"));
-        let written = fs::File::create(&temp)
-            .and_then(|mut f| f.write_all(&bytes).and_then(|_| f.sync_all()))
-            .and_then(|_| fs::rename(&temp, &target));
-        if let Err(e) = written {
-            let _ = fs::remove_file(&temp);
-            return Err(write_err(e));
-        }
+        let target = keep_copy(&images, path, &bytes, "pictures", "images")?;
         Ok(self.stored(&target))
     }
 

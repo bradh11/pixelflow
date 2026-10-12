@@ -165,6 +165,22 @@ fn setting(kind: EffectKind, key: &str, value: &Value, cx: &Context<'_>) -> Resu
                 return track_id(value, key, cx);
             }
         }
+        // Which shaders there are, and what each one's inputs hold, is held against the show
+        // when the effect goes into the draft (see `Draft::edit_sequence_batch`).
+        SettingValue::ShaderFile { .. } => {
+            if !value.is_string() {
+                return Err(format!(
+                    "{key} is a shader's file, as list_effect_kinds with kind \"shader\" gives it."
+                ));
+            }
+        }
+        SettingValue::ShaderInputs { .. } => {
+            if !value.is_object() {
+                return Err(format!(
+                    "{key} is an object of the shader's inputs by name, as list_effect_kinds with kind \"shader\" and a file gives them."
+                ));
+            }
+        }
     }
     Ok(value.clone())
 }

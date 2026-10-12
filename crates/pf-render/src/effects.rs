@@ -22,6 +22,7 @@ pub use crate::fireworks::Fireworks;
 pub use crate::garlands::Garlands;
 use crate::geometry::Members;
 use crate::geometry::Pixel;
+use crate::glsl::Glsl;
 pub use crate::impact::Impact;
 pub use crate::life::Life;
 pub use crate::lightning::Lightning;
@@ -181,9 +182,33 @@ pub(crate) fn hash01(seed: u64, a: u64, b: u64) -> f32 {
 /// down (negative, down to -10); 0 leaves it as it is. 0 stays 0 and 1 stays 1.
 pub(crate) use crate::carried::accelerate;
 
+/// The most pixels an effect that is drawn a run at a time is given at once (see
+/// [`Shade::shade_run`]). Measured on shader files: one pixel at a time costs 30 to 100 times
+/// what 64 at a time do, 256 about half what 64 do, and past that there is little in it.
+pub const RUN_PIXELS: usize = 256;
+
 /// Draws one effect, one pixel at a time.
 pub trait Shade {
     fn shade(&self, px: &Pixel) -> Rgba;
+
+    /// Whether the effect is drawn a run of pixels at a time ([`Shade::shade_run`]), because
+    /// that is much the cheaper way for it.
+    const RUNS: bool = false;
+
+    /// The colors of `pixels`, in order, into `colors` (as long as `pixels`; at most
+    /// [`RUN_PIXELS`] of them). What a pixel comes out as never depends on the pixels it's
+    /// drawn with, so a run can be cut anywhere.
+    fn shade_run(&self, pixels: &[Pixel], colors: &mut [Rgba]) {
+        for (color, px) in colors.iter_mut().zip(pixels) {
+            *color = self.shade(px);
+        }
+    }
+
+    /// For an effect drawn a run at a time that is heavy enough to be worth it: the most
+    /// pixels one thread takes when there are others to share with.
+    fn share_from(&self) -> Option<usize> {
+        None
+    }
 }
 
 /// Pixel position along the target in wiring order, at the pixel's center (0–1).
@@ -1103,6 +1128,8 @@ pub enum Shader {
     Shockwave(Shockwave),
     Fill(Fill),
     Fireworks(Fireworks),
+    /// The Shader effect: a shader file (see `glsl.rs` for why it isn't called that here).
+    Glsl(Glsl),
 }
 
 /// When a Shape fires its shapes (ms from the effect's start, while it plays): at each mark on its
@@ -1165,6 +1192,11 @@ impl Shader {
         canvas: Canvas,
         cx: &RenderContext,
     ) -> Self {
+        // A Shader effect is drawn from its settings as they are: it brings each one inside
+        // its range itself, so nothing (a file's name, a list of inputs) is copied each frame.
+        if let EffectParams::Shader(p) = params {
+            return Shader::Glsl(Glsl::new(p, time, seed, canvas, cx));
+        }
         match &params.sanitized() {
             EffectParams::On(p) => Shader::On(On::new(p, time, colors)),
             EffectParams::Off(_) => Shader::Off(Off),
@@ -1223,6 +1255,7 @@ impl Shader {
             EffectParams::Fireworks(p) => {
                 Shader::Fireworks(Fireworks::new(p, time, colors, seed, canvas, cx))
             }
+            EffectParams::Shader(p) => Shader::Glsl(Glsl::new(p, time, seed, canvas, cx)),
         }
     }
 
@@ -1271,6 +1304,7 @@ impl Shader {
             Shader::Shockwave(s) => each.visit(s),
             Shader::Fill(s) => each.visit(s),
             Shader::Fireworks(s) => each.visit(s),
+            Shader::Glsl(s) => each.visit(s),
         }
     }
 }
@@ -1284,6 +1318,16 @@ impl Shade for Shader {
             }
         }
         self.with(One(px))
+    }
+
+    fn shade_run(&self, pixels: &[Pixel], colors: &mut [Rgba]) {
+        struct Run<'a>(&'a [Pixel], &'a mut [Rgba]);
+        impl ShaderVisitor<()> for Run<'_> {
+            fn visit<S: Shade + Sync>(self, shader: &S) {
+                shader.shade_run(self.0, self.1);
+            }
+        }
+        self.with(Run(pixels, colors));
     }
 }
 

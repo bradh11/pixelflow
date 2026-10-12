@@ -31,7 +31,7 @@ type Migration = fn(Value) -> Result<Value, SequenceError>;
 /// `MIGRATIONS[i]` upgrades a document from schema version `i + 1` to `i + 2`.
 const MIGRATIONS: &[Migration] = &[
     v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8, v8_to_v9, v9_to_v10, v10_to_v11,
-    v11_to_v12, v12_to_v13,
+    v11_to_v12, v12_to_v13, v13_to_v14,
 ];
 
 /// Version 2 only adds submodel targets, so version 1 documents are already valid.
@@ -106,6 +106,12 @@ fn v11_to_v12(doc: Value) -> Result<Value, SequenceError> {
 /// louder one, as those sequences have been playing, when it's missing), so version 12 documents
 /// are already valid.
 fn v12_to_v13(doc: Value) -> Result<Value, SequenceError> {
+    Ok(doc)
+}
+
+/// Version 14 only adds an effect kind (Shader) and the curve keys that go with it
+/// (`inputs.<name>`), so version 13 documents are already valid.
+fn v13_to_v14(doc: Value) -> Result<Value, SequenceError> {
     Ok(doc)
 }
 
@@ -335,7 +341,7 @@ mod tests {
             .effects
             .push(crate::Effect::new(crate::EffectKind::Dancer, 500, 1000).with_params(dancer));
         let saved = sequence_to_json(&seq).unwrap();
-        assert!(saved.contains(r#""schemaVersion": 13"#), "{saved}");
+        assert!(saved.contains(r#""schemaVersion": 14"#), "{saved}");
         assert_eq!(sequence_from_json(&saved).unwrap(), seq);
     }
 
@@ -373,7 +379,7 @@ mod tests {
             .effects
             .push(crate::Effect::new(crate::EffectKind::Picture, 500, 1000).with_params(picture));
         let saved = sequence_to_json(&seq).unwrap();
-        assert!(saved.contains(r#""schemaVersion": 13"#), "{saved}");
+        assert!(saved.contains(r#""schemaVersion": 14"#), "{saved}");
         assert!(saved.contains(r#""file": "images/santa dancing.gif""#), "{saved}");
         assert_eq!(sequence_from_json(&saved).unwrap(), seq);
         // A new picture has no file yet and plays at its own speed; settings out of range are
@@ -456,7 +462,7 @@ mod tests {
             .effects
             .push(crate::Effect::new(crate::EffectKind::Fire, 500, 1000).with_params(flicker));
         let saved = sequence_to_json(&seq).unwrap();
-        assert!(saved.contains(r#""schemaVersion": 13"#), "{saved}");
+        assert!(saved.contains(r#""schemaVersion": 14"#), "{saved}");
         assert!(saved.contains(r#""style": "flicker""#), "{saved}");
         let again = sequence_from_json(&saved).unwrap();
         // Out-of-range settings are pulled back in on open.
@@ -504,7 +510,7 @@ mod tests {
             .effects
             .push(crate::Effect::new(crate::EffectKind::Fireworks, 500, 1000).with_params(fireworks));
         let saved = sequence_to_json(&seq).unwrap();
-        assert!(saved.contains(r#""schemaVersion": 13"#), "{saved}");
+        assert!(saved.contains(r#""schemaVersion": 14"#), "{saved}");
         assert_eq!(sequence_from_json(&saved).unwrap(), seq);
         // A new one bursts at random moments and places, with soft sparks, in percent of the prop.
         let EffectParams::Fireworks(new) = EffectParams::default_for(crate::EffectKind::Fireworks) else {
@@ -566,6 +572,117 @@ mod tests {
             sequence_from_json(&named).unwrap().music_level_source,
             MusicLevelSource::LouderChannel
         );
+    }
+
+    #[test]
+    fn version_13_files_open_as_the_current_version_and_shaders_round_trip() {
+        let text = r#"{ "schemaVersion": 13, "name": "x", "durationMs": 1000, "rows": [
+            { "id": "11111111-0000-4000-8000-000000000001",
+              "target": { "prop": "22222222-0000-4000-8000-000000000001" },
+              "layers": [ { "effects": [ { "id": "33333333-0000-4000-8000-000000000001",
+                  "startMs": 0, "endMs": 500, "params": { "kind": "fireworks", "rate": 2.5 } } ] } ] } ] }"#;
+        let mut seq = sequence_from_json(text).unwrap();
+        assert_eq!(seq.schema_version, CURRENT_SCHEMA_VERSION);
+        assert_eq!(
+            seq.rows[0].layers[0].effects[0].params,
+            EffectParams::Fireworks(crate::FireworksParams {
+                rate: 2.5,
+                ..Default::default()
+            })
+        );
+        // A new Shader effect draws one of PixelFlow's own shaders as its file has it.
+        let EffectParams::Shader(new) = EffectParams::default_for(crate::EffectKind::Shader) else {
+            unreachable!()
+        };
+        assert_eq!(
+            (new.file.as_str(), new.inputs.is_empty(), new.speed, new.lead_in),
+            (crate::DEFAULT_SHADER, true, 1.0, 0.0)
+        );
+        // One with a file of the show's, some of its inputs set, and curves on two of them: the
+        // rest take their defaults, and it saves and opens again.
+        let shader: EffectParams = serde_json::from_str(
+            r#"{ "kind": "shader", "file": "shaders/rings.fs", "speed": 0.5,
+                 "inputs": { "rate": 2.5, "flip": true, "mode": 2, "at": [0.5, 0.25], "tint": [1, 0.5, 0, 1] } }"#,
+        )
+        .unwrap();
+        let mut inputs = crate::ShaderInputs::default();
+        inputs.set("rate", crate::ShaderValue::Number(2.5));
+        inputs.set("flip", crate::ShaderValue::Bool(true));
+        inputs.set("mode", crate::ShaderValue::Number(2.0));
+        inputs.set("at", crate::ShaderValue::Point([0.5, 0.25]));
+        inputs.set("tint", crate::ShaderValue::Color([1.0, 0.5, 0.0, 1.0]));
+        assert_eq!(
+            shader,
+            EffectParams::Shader(crate::ShaderParams {
+                file: "shaders/rings.fs".into(),
+                speed: 0.5,
+                inputs,
+                ..Default::default()
+            })
+        );
+        let mut effect = crate::Effect::new(crate::EffectKind::Shader, 500, 1000).with_params(shader);
+        effect
+            .curves
+            .insert("inputs.rate".into(), crate::Curve::ramp(1.0, 4.0));
+        effect
+            .curves
+            .insert("inputs.at.x".into(), crate::Curve::ramp(0.0, 1.0));
+        effect.curves.insert("speed".into(), crate::Curve::ramp(0.5, 2.0));
+        seq.rows[0].layers[0].effects.push(effect);
+        let saved = sequence_to_json(&seq).unwrap();
+        assert!(saved.contains(r#""schemaVersion": 14"#), "{saved}");
+        assert!(saved.contains(r#""file": "shaders/rings.fs""#), "{saved}");
+        assert!(saved.contains(r#""inputs.at.x""#), "{saved}");
+        assert_eq!(sequence_from_json(&saved).unwrap(), seq);
+        // Halfway through, the curves have moved the inputs they name and left the rest.
+        let effect = &seq.rows[0].layers[0].effects[1];
+        let now = effect.at(750);
+        let EffectParams::Shader(p) = &now.params else {
+            unreachable!()
+        };
+        assert_eq!(p.speed, 1.25);
+        assert_eq!(p.inputs.get("rate"), Some(&crate::ShaderValue::Number(2.5)));
+        assert_eq!(p.inputs.get("at"), Some(&crate::ShaderValue::Point([0.5, 0.25])));
+        assert_eq!(p.inputs.get("flip"), Some(&crate::ShaderValue::Bool(true)));
+        // Settings out of range, and inputs that couldn't be any shader's, are pulled back in
+        // on open; a curve on what isn't a number of the inputs is dropped.
+        let mut odd = crate::Effect::new(crate::EffectKind::Shader, 0, 1000);
+        let EffectParams::Shader(p) = &mut odd.params else {
+            unreachable!()
+        };
+        p.speed = f32::INFINITY;
+        p.lead_in = -1.0;
+        p.inputs.set("not a name", crate::ShaderValue::Number(1.0));
+        p.inputs.set("rate", crate::ShaderValue::Number(f32::NAN));
+        p.inputs.set("level", crate::ShaderValue::Number(-3.0e9));
+        odd.curves
+            .insert("inputs.level".into(), crate::Curve::ramp(-5.0e9, 5.0e9));
+        odd.curves
+            .insert("inputs.at.z".into(), crate::Curve::ramp(0.0, 1.0));
+        odd.curves.insert("inputs".into(), crate::Curve::ramp(0.0, 1.0));
+        odd.curves.insert("file".into(), crate::Curve::ramp(0.0, 1.0));
+        assert!(odd.setting_problem().is_some());
+        odd.sanitize();
+        let EffectParams::Shader(p) = &odd.params else {
+            unreachable!()
+        };
+        assert_eq!((p.speed, p.lead_in), (10.0, 0.0));
+        assert_eq!(
+            serde_json::to_string(&p.inputs).unwrap(),
+            r#"{"level":-1000000000.0}"#
+        );
+        assert_eq!(odd.curves.keys().collect::<Vec<_>>(), ["inputs.level"]);
+        assert_eq!(
+            (odd.curves["inputs.level"].from, odd.curves["inputs.level"].to),
+            (-1.0e9, 1.0e9)
+        );
+        assert_eq!(odd.setting_problem(), None);
+        // What's wrong with a curve on an input is said by the input's name.
+        let mut wide = crate::Effect::new(crate::EffectKind::Shader, 0, 1000);
+        wide.curves
+            .insert("inputs.rate".into(), crate::Curve::ramp(0.0, 5.0e9));
+        let problem = wide.setting_problem().unwrap();
+        assert!(problem.starts_with("rate's curve"), "{problem}");
     }
 
     #[test]
@@ -671,7 +788,7 @@ mod tests {
             sequence_from_json(r#"{ "schemaVersion": "1", "name": "x" }"#),
             Err(SequenceError::InvalidSchemaVersion(_))
         ));
-        let err = sequence_from_json(r#"{ "schemaVersion": 14, "name": "x" }"#).unwrap_err();
+        let err = sequence_from_json(r#"{ "schemaVersion": 15, "name": "x" }"#).unwrap_err();
         assert!(err.to_string().contains("update PixelFlow"), "{err}");
         assert!(matches!(sequence_from_json("[1, 2"), Err(SequenceError::Json(_))));
     }

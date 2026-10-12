@@ -19,7 +19,7 @@
       "reply": {},
       "sequence": { "canRedo": false, "canUndo": false, "dirty": false, "path": null, "revision": 1 },
       "sequenceIssuesNow": [],
-      "sequenceNow": { "audio": "/fixture/music/Song.mp3", "durationMs": 1000, "frameMs": 25, "name": "Song", "rows": [], "schemaVersion": 13, "timingTracks": [] },
+      "sequenceNow": { "audio": "/fixture/music/Song.mp3", "durationMs": 1000, "frameMs": 25, "name": "Song", "rows": [], "schemaVersion": 14, "timingTracks": [] },
       "show": { "canRedo": false, "canUndo": false, "dirty": false, "path": null, "revision": 0 }
     },
     {
@@ -53,7 +53,7 @@
       "command": "edit_sequence",
       "reply": { "changed": true, "changes": { "info": { "audio": null, "durationMs": 1000, "frameMs": 25, "musicLevelSource": "louderChannel", "name": "  ", "rowBlending": "cover" } } },
       "sequence": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 2 },
-      "sequenceNow": { "audio": null, "durationMs": 1000, "frameMs": 25, "name": "  ", "rows": [], "schemaVersion": 13, "timingTracks": [] },
+      "sequenceNow": { "audio": null, "durationMs": 1000, "frameMs": 25, "name": "  ", "rows": [], "schemaVersion": 14, "timingTracks": [] },
       "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 2 }
     },
     {

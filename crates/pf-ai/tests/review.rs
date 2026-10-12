@@ -150,6 +150,7 @@ fn draft(show: &Show, doc: &Sequence) -> Draft {
         audio: AudioSource::none(),
         pictures: Pictures::none(),
         images: Vec::new(),
+        shaders: Vec::new(),
         context: UiContext::default(),
     })
 }

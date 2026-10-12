@@ -153,6 +153,318 @@
   },
   { "name": "the show's pictures", "ts": "string[]", "value": ["images/star.gif"] },
   {
+    "name": "the shaders an effect can use",
+    "ts": "sequencer.ShaderInfo[]",
+    "value": [
+      {
+        "builtIn": true,
+        "credit": "Brad Haas",
+        "description": "Curtains of light that sway and drift, like the northern lights. Best on a tall prop or the whole house.",
+        "file": "pixelflow:aurora",
+        "inputs": [
+          { "default": 1.0, "label": "Speed", "max": 4.0, "min": 0.0, "name": "speed", "type": "number" },
+          {
+            "default": 3.0,
+            "label": "Curtains",
+            "max": 8.0,
+            "min": 1.0,
+            "name": "curtains",
+            "type": "number"
+          },
+          { "default": 0.5, "label": "Sway", "max": 1.0, "min": 0.0, "name": "sway", "type": "number" },
+          { "default": [0.1, 1.0, 0.45, 1.0], "label": "Low color", "name": "low", "type": "color" },
+          { "default": [0.6, 0.2, 1.0, 1.0], "label": "High color", "name": "high", "type": "color" }
+        ],
+        "line": null,
+        "name": "Aurora",
+        "problem": null
+      },
+      {
+        "builtIn": true,
+        "credit": "Brad Haas",
+        "description": "A rainbow flowing over the prop: across it, up it, out from the middle, or round it. The one to reach for on an outline, an arch, or a tree.",
+        "file": "pixelflow:prism",
+        "inputs": [
+          {
+            "default": 0,
+            "label": "Flows",
+            "name": "path",
+            "options": [
+              { "label": "Across", "value": 0 },
+              { "label": "Up", "value": 1 },
+              { "label": "Diagonally", "value": 2 },
+              { "label": "Out from the middle", "value": 3 },
+              { "label": "Round the middle", "value": 4 }
+            ],
+            "type": "choice"
+          },
+          { "default": 1.0, "label": "Speed", "max": 4.0, "min": -4.0, "name": "speed", "type": "number" },
+          {
+            "default": 1.0,
+            "label": "Rainbows",
+            "max": 6.0,
+            "min": 0.25,
+            "name": "rainbows",
+            "type": "number"
+          },
+          { "default": 0.0, "label": "Wave", "max": 1.0, "min": 0.0, "name": "wave", "type": "number" },
+          { "default": 0.0, "label": "Pastel", "max": 1.0, "min": 0.0, "name": "pastel", "type": "number" }
+        ],
+        "line": null,
+        "name": "Prism",
+        "problem": null
+      },
+      {
+        "builtIn": true,
+        "credit": "Brad Haas",
+        "description": "Soft blobs of color that drift, meet, and merge, like a lava lamp. Clear between the blobs, so it sits well over another effect.",
+        "file": "pixelflow:lava-lamp",
+        "inputs": [
+          {
+            "default": 5,
+            "label": "Blobs",
+            "name": "blobs",
+            "options": [
+              { "label": "Three", "value": 3 },
+              { "label": "Five", "value": 5 },
+              { "label": "Eight", "value": 8 }
+            ],
+            "type": "choice"
+          },
+          { "default": 0.2, "label": "Size", "max": 0.5, "min": 0.05, "name": "size", "type": "number" },
+          { "default": 1.0, "label": "Speed", "max": 4.0, "min": 0.0, "name": "speed", "type": "number" },
+          { "default": 0.35, "label": "Soft edges", "max": 1.0, "min": 0.0, "name": "soft", "type": "number" },
+          { "default": [1.0, 0.2, 0.05, 1.0], "label": "First color", "name": "first", "type": "color" },
+          { "default": [1.0, 0.8, 0.1, 1.0], "label": "Second color", "name": "second", "type": "color" }
+        ],
+        "line": null,
+        "name": "Lava Lamp",
+        "problem": null
+      },
+      {
+        "builtIn": true,
+        "credit": "Brad Haas",
+        "description": "Rings spreading from three drops on a pond, crossing and making patterns where they meet. Move the first drop with the point.",
+        "file": "pixelflow:pond",
+        "inputs": [
+          {
+            "default": [0.3, 0.6],
+            "label": "First drop",
+            "max": [1.0, 1.0],
+            "min": [0.0, 0.0],
+            "name": "drop",
+            "type": "point"
+          },
+          { "default": 3.0, "label": "Rings", "max": 12.0, "min": 1.0, "name": "rings", "type": "number" },
+          { "default": 1.0, "label": "Speed", "max": 4.0, "min": -4.0, "name": "speed", "type": "number" },
+          {
+            "default": 0.4,
+            "label": "Crisp rings",
+            "max": 1.0,
+            "min": 0.0,
+            "name": "crisp",
+            "type": "number"
+          },
+          { "default": [0.0, 0.15, 0.6, 1.0], "label": "Water", "name": "water", "type": "color" },
+          { "default": [0.5, 0.95, 1.0, 1.0], "label": "Light", "name": "light", "type": "color" }
+        ],
+        "line": null,
+        "name": "Pond",
+        "problem": null
+      },
+      {
+        "builtIn": true,
+        "credit": "Brad Haas",
+        "description": "Slow, billowing clouds of color that fold into one another, like smoke or a nebula. Clear where the cloud is thin.",
+        "file": "pixelflow:nebula",
+        "inputs": [
+          { "default": 2.0, "label": "Cloud size", "max": 6.0, "min": 0.5, "name": "size", "type": "number" },
+          { "default": 1.0, "label": "Speed", "max": 4.0, "min": 0.0, "name": "speed", "type": "number" },
+          { "default": 0.5, "label": "Swirl", "max": 1.0, "min": 0.0, "name": "swirl", "type": "number" },
+          { "default": 0.6, "label": "Cover", "max": 1.0, "min": 0.0, "name": "cover", "type": "number" },
+          { "default": [0.25, 0.0, 0.9, 1.0], "label": "Thin cloud", "name": "deep", "type": "color" },
+          { "default": [1.0, 0.25, 0.55, 1.0], "label": "Thick cloud", "name": "glow", "type": "color" },
+          { "default": [1.0, 0.9, 0.6, 1.0], "label": "Thickest", "name": "core", "type": "color" }
+        ],
+        "line": null,
+        "name": "Nebula",
+        "problem": null
+      },
+      {
+        "builtIn": true,
+        "credit": "Brad Haas",
+        "description": "Panes of colored glass with dark leading between them, slowly shifting shape as the light behind them flickers.",
+        "file": "pixelflow:stained-glass",
+        "inputs": [
+          {
+            "default": 4.0,
+            "label": "Panes across",
+            "max": 12.0,
+            "min": 1.0,
+            "name": "panes",
+            "type": "number"
+          },
+          { "default": 1.0, "label": "Speed", "max": 4.0, "min": 0.0, "name": "speed", "type": "number" },
+          { "default": 0.1, "label": "Leading", "max": 0.4, "min": 0.0, "name": "leading", "type": "number" },
+          { "default": 0.4, "label": "Flicker", "max": 1.0, "min": 0.0, "name": "flicker", "type": "number" },
+          { "default": 1.0, "label": "Colors", "max": 1.0, "min": 0.0, "name": "colors", "type": "number" },
+          {
+            "default": 0.0,
+            "label": "Color shift",
+            "max": 1.0,
+            "min": 0.0,
+            "name": "shift",
+            "type": "number"
+          }
+        ],
+        "line": null,
+        "name": "Stained Glass",
+        "problem": null
+      },
+      {
+        "builtIn": true,
+        "credit": "Brad Haas",
+        "description": "Bands of color folded into mirrored wedges that turn about the middle, like looking down a kaleidoscope. Best on a matrix, a spinner, or anything round.",
+        "file": "pixelflow:kaleidoscope",
+        "inputs": [
+          {
+            "default": 6,
+            "label": "Wedges",
+            "name": "wedges",
+            "options": [
+              { "label": "3", "value": 3 },
+              { "label": "4", "value": 4 },
+              { "label": "6", "value": 6 },
+              { "label": "8", "value": 8 },
+              { "label": "12", "value": 12 }
+            ],
+            "type": "choice"
+          },
+          { "default": 0.3, "label": "Turn", "max": 2.0, "min": -2.0, "name": "turn", "type": "number" },
+          { "default": 1.0, "label": "Flow", "max": 4.0, "min": 0.0, "name": "flow", "type": "number" },
+          { "default": 1.5, "label": "Zoom", "max": 4.0, "min": 0.5, "name": "zoom", "type": "number" },
+          {
+            "default": 0.0,
+            "label": "Color shift",
+            "max": 1.0,
+            "min": 0.0,
+            "name": "shift",
+            "type": "number"
+          }
+        ],
+        "line": null,
+        "name": "Kaleidoscope",
+        "problem": null
+      },
+      {
+        "builtIn": true,
+        "credit": "Brad Haas",
+        "description": "Flying down a tunnel of checkered rings that twist as they rush past. Move the far end with the point.",
+        "file": "pixelflow:tunnel",
+        "inputs": [
+          {
+            "default": [0.5, 0.5],
+            "label": "Far end",
+            "max": [1.0, 1.0],
+            "min": [0.0, 0.0],
+            "name": "end",
+            "type": "point"
+          },
+          { "default": 1.0, "label": "Speed", "max": 4.0, "min": -4.0, "name": "speed", "type": "number" },
+          { "default": 3.0, "label": "Rings", "max": 10.0, "min": 1.0, "name": "rings", "type": "number" },
+          {
+            "default": 4,
+            "label": "Spokes",
+            "name": "spokes",
+            "options": [
+              { "label": "None", "value": 0 },
+              { "label": "2", "value": 2 },
+              { "label": "3", "value": 3 },
+              { "label": "4", "value": 4 },
+              { "label": "6", "value": 6 },
+              { "label": "8", "value": 8 }
+            ],
+            "type": "choice"
+          },
+          { "default": 0.5, "label": "Twist", "max": 2.0, "min": -2.0, "name": "twist", "type": "number" },
+          { "default": [0.0, 0.6, 1.0, 1.0], "label": "First color", "name": "first", "type": "color" },
+          { "default": [1.0, 0.1, 0.6, 1.0], "label": "Second color", "name": "second", "type": "color" }
+        ],
+        "line": null,
+        "name": "Tunnel",
+        "problem": null
+      },
+      {
+        "builtIn": false,
+        "credit": "",
+        "description": "",
+        "file": "shaders/broken.fs",
+        "inputs": [],
+        "line": 2,
+        "name": "broken",
+        "problem": "line 2: there is no function `nothing`"
+      },
+      {
+        "builtIn": false,
+        "credit": "A test",
+        "description": "Rings from a point.",
+        "file": "shaders/rings.fs",
+        "inputs": [
+          { "default": 1.0, "label": "Rate", "max": 4.0, "min": 0.0, "name": "rate", "type": "number" },
+          { "default": true, "label": "flip", "name": "flip", "type": "bool" },
+          {
+            "default": 2,
+            "label": "mode",
+            "name": "mode",
+            "options": [{ "label": "Soft", "value": 0 }, { "label": "Hard", "value": 2 }],
+            "type": "choice"
+          },
+          {
+            "default": [0.5, 0.5],
+            "label": "at",
+            "max": [1.0, 1.0],
+            "min": [0.0, 0.0],
+            "name": "at",
+            "type": "point"
+          },
+          { "default": [1.0, 0.5, 0.0, 1.0], "label": "tint", "name": "tint", "type": "color" }
+        ],
+        "line": null,
+        "name": "rings",
+        "problem": null
+      }
+    ]
+  },
+  {
+    "name": "a shader file that can't be run",
+    "ts": "sequencer.ShaderInfo",
+    "value": {
+      "builtIn": false,
+      "credit": "",
+      "description": "",
+      "file": "shaders/broken.fs",
+      "inputs": [],
+      "line": 2,
+      "name": "broken",
+      "problem": "line 2: there is no function `nothing`"
+    }
+  },
+  {
+    "name": "a shader file that isn't there",
+    "ts": "sequencer.ShaderInfo",
+    "value": {
+      "builtIn": false,
+      "credit": "",
+      "description": "",
+      "file": "shaders/gone.fs",
+      "inputs": [],
+      "line": null,
+      "name": "gone",
+      "problem": "it isn't there"
+    }
+  },
+  { "name": "a Shader effect that wasn't stopped", "ts": "string | null", "value": null },
+  {
     "name": "a search for pictures that gave up (built)",
     "ts": "sequencer.PicturesRelinked",
     "value": {

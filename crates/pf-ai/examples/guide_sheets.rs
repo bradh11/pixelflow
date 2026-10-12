@@ -292,7 +292,13 @@ fn auto_variants(kind: EffectKind) -> Vec<(String, Value)> {
                     json!({ key: stage::PICTURE }),
                 ));
             }
-            SettingValue::Face { .. } | SettingValue::Text { .. } => {}
+            // Each of PixelFlow's own shaders, as it is.
+            SettingValue::ShaderFile { .. } => {
+                for file in pf_render::built_in_shaders() {
+                    out.push((format!("{key} = {file}"), json!({ key: file })));
+                }
+            }
+            SettingValue::Face { .. } | SettingValue::Text { .. } | SettingValue::ShaderInputs { .. } => {}
         }
     }
     out

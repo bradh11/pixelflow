@@ -34,6 +34,7 @@ fn setup() -> Setup {
         audio: AudioSource::none(),
         pictures: Pictures::none(),
         images: vec![pf_ai::stage::PICTURE.to_string()],
+        shaders: Vec::new(),
         context: UiContext::default(),
     });
     Setup {

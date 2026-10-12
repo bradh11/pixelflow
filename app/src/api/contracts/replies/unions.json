@@ -170,7 +170,8 @@
       "picture",
       "shockwave",
       "fill",
-      "fireworks"
+      "fireworks",
+      "shader"
     ]
   },
   {
@@ -1173,6 +1174,16 @@
         "timingTrack": null,
         "trail": 0.3,
         "triggerLevel": 50.0
+      },
+      {
+        "file": "pixelflow:aurora",
+        "inputs": {},
+        "kind": "shader",
+        "leadIn": 0.0,
+        "offsetX": 0.0,
+        "offsetY": 0.0,
+        "speed": 1.0,
+        "zoom": 0.0
       }
     ]
   },

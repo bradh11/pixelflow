@@ -1122,7 +1122,7 @@
               "target": { "group": "00000000-0000-4000-a000-000000000009" }
             }
           ],
-          "schemaVersion": 13,
+          "schemaVersion": 14,
           "timingTracks": []
         }
       },
@@ -1454,7 +1454,7 @@
           "name": "Effects",
           "rowBlending": "blend",
           "rows": [],
-          "schemaVersion": 13,
+          "schemaVersion": 14,
           "timingTracks": []
         }
       },

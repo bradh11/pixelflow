@@ -88,6 +88,7 @@ impl Show {
             audio: AudioSource::none(),
             pictures: Pictures::none(),
             images: Vec::new(),
+            shaders: Vec::new(),
             context: UiContext::default(),
         })
     }

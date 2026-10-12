@@ -3,8 +3,8 @@
 
 use crate::{
     assistant, camera_map, device_setup, devices, files, fpp_download, fpp_send, house, layout, links,
-    lyrics, output, pickers, pictures, playback, preview_window, recent, sequencer, sync, vendor, video,
-    vocals, xlights,
+    lyrics, output, pickers, pictures, playback, preview_window, recent, sequencer, shaders, sync, vendor,
+    video, vocals, xlights,
 };
 use tauri::generate_handler;
 
@@ -154,6 +154,10 @@ macro_rules! command_list {
             pictures::check_sequence_pictures,
             pictures::find_sequence_pictures,
             pictures::locate_sequence_picture,
+            shaders::list_shaders,
+            shaders::shader_info,
+            shaders::pick_shader,
+            shaders::shader_stopped,
             pickers::pick_path,
             recent::list_recent_shows,
             recent::forget_recent_show,
@@ -300,6 +304,7 @@ mod tests {
             "list_history",
             "list_pictures",
             "list_recent_shows",
+            "list_shaders",
             "live_frame",
             "locate_file",
             "locate_recent_show",
@@ -321,6 +326,7 @@ mod tests {
             "pick_image",
             "pick_path",
             "pick_picture",
+            "pick_shader",
             "plan_device_restore",
             "plan_device_setup",
             "play_sequence",
@@ -359,6 +365,8 @@ mod tests {
             "set_playback_volume",
             "set_sequence_doc_loop",
             "set_sequence_doc_output",
+            "shader_info",
+            "shader_stopped",
             "start_output",
             "start_playback",
             "stop_output",

@@ -262,19 +262,22 @@ pub(crate) async fn ai_send<R: Runtime>(
         *turns += 1;
         *turns
     };
-    let (mut workspace, pictures) = {
+    let (mut workspace, pictures, shader_files) = {
         let engine = state.engine();
         (
             Workspace::from_engine(&engine, context.unwrap_or_default()),
             engine.picture_files(),
+            (engine.shader_files(), engine.shaders()),
         )
     };
     let vault = Arc::clone(&ai.vault);
     let llm = ai.providers.get(provider);
     let session = Arc::clone(&ai.session);
     off_thread_failing(move || {
-        // The pictures in the show's images folder, read here rather than under the engine.
+        // The pictures in the show's images folder, read here rather than under the engine;
+        // and its shader files, each read and compiled if it hasn't been.
         workspace.images = pictures.listed();
+        workspace.shaders = pf_engine::list_shaders(&shader_files.0, &shader_files.1);
         let key = vault.key(provider)?;
         let mut session = lock(&session);
         Ok(session.run_turn(

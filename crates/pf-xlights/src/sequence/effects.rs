@@ -20,10 +20,10 @@ use pf_sequence::{
     LightningParams, LinesParams, MAX_CURVE_CYCLES, MIN_CURVE_CYCLES, MeteorDirection, MeteorsParams,
     MorphParams, OffParams, OnParams, Palette, PictureFit, PictureMovement, PictureParams, PictureResize,
     PictureTiming, PinwheelParams, PinwheelShading, PinwheelStyle, PlasmaColors, PlasmaParams, Rgb,
-    RippleParams, SettingRange, ShapeObject, ShapeParams, ShimmerParams, ShockwaveParams, SnowflakeShape,
-    SnowflakesMotion, SnowflakesParams, SpiralParams, StrobeParams, TendrilMovement, TendrilParams,
-    TextCountdown, TextMovement, TextOrientation, TextParams, TwinkleParams, VuMeterParams, VuMeterShape,
-    VuMeterType, WaveParams,
+    RippleParams, SettingRange, ShaderInputs, ShaderParams, ShaderValue, ShapeObject, ShapeParams,
+    ShimmerParams, ShockwaveParams, SnowflakeShape, SnowflakesMotion, SnowflakesParams, SpiralParams,
+    StrobeParams, TendrilMovement, TendrilParams, TextCountdown, TextMovement, TextOrientation, TextParams,
+    TwinkleParams, VuMeterParams, VuMeterShape, VuMeterType, WaveParams,
 };
 use std::collections::BTreeMap;
 
@@ -890,6 +890,75 @@ fn shockwave(r: &Reader, diff: &mut Diff) -> EffectParams {
         acceleration: r.get("Shockwave_Accel", 0.0, -10.0, 10.0) as f32,
         blend_edges: r.check_or("Shockwave_Blend_Edges", true),
         scale: r.check_or("Shockwave_Scale", true),
+    })
+}
+
+/// What the importer says of a shader input that xLights changes over the effect.
+pub const SHADER_CURVE_NOTE: &str =
+    "an input that changes over the effect in xLights (a value curve) stays at its slider's value";
+/// What it says of xLights' own offset and zoom when they aren't left at 0.
+pub const SHADER_OFFSET_NOTE: &str = "xLights' offset or zoom isn't applied (what it does isn't known yet), so the picture isn't moved or sized as in xLights";
+
+/// xLights' Shader effect, with its shader file `found` on this computer.
+///
+/// What a sequence keeps for a shader's inputs, as seen in sequences and checked against
+/// xLights' own frames: a number as `E_SLIDER_SHADERXYZZY_<name>`, a hundred times its value; a
+/// switch as `E_CHECKBOX_SHADERXYZZY_<name>`, 0 or 1; a choice as `E_CHOICE_SHADERXYZZY_<name>`,
+/// the label of the one chosen; a point as two sliders, `<name>X` and `<name>Y`. A color has no
+/// key in any sequence seen, and stays as the file has it. An input the sequence doesn't mention
+/// stays as the file has it too. Of the effect's own, `Shader_Speed` is a hundred times the
+/// speed and `Shader_LeadIn` is in frames.
+fn shader(r: &Reader, found: &super::shaders::FoundShader, frame_ms: f64, diff: &mut Diff) -> EffectParams {
+    use pf_shader::InputKind;
+    let s = r.s;
+    let key = |control: &str, name: &str| format!("E_{control}_SHADERXYZZY_{name}");
+    let slider = |name: &str| s.num(&key("SLIDER", name)).map(|v| (v / 100.0) as f32);
+    let curved = |name: &str| s.curve_active(&key("VALUECURVE", name));
+    let mut inputs = ShaderInputs::default();
+    for input in &found.header.inputs {
+        let name = input.name.as_str();
+        let value = match &input.kind {
+            InputKind::Float { .. } => slider(name).map(ShaderValue::Number),
+            InputKind::Bool { .. } => s
+                .contains(&key("CHECKBOX", name))
+                .then(|| ShaderValue::Bool(s.flag(&key("CHECKBOX", name), false))),
+            InputKind::Long { values, labels, .. } => s.get(&key("CHOICE", name)).and_then(|chosen| {
+                let at = labels.iter().position(|label| label.trim() == chosen.trim());
+                if at.is_none() {
+                    diff.add("a choice the shader file doesn't offer left as the file has it");
+                }
+                values.get(at?).map(|&v| ShaderValue::Number(v as f32))
+            }),
+            InputKind::Point { .. } => slider(&format!("{name}X"))
+                .zip(slider(&format!("{name}Y")))
+                .map(|(x, y)| ShaderValue::Point([x, y])),
+            InputKind::Color { .. }
+            | InputKind::Event
+            | InputKind::Image
+            | InputKind::Audio
+            | InputKind::AudioFft => None,
+        };
+        if let Some(value) = value {
+            inputs.set(name, value);
+        }
+        if curved(name) || curved(&format!("{name}X")) || curved(&format!("{name}Y")) {
+            diff.add(SHADER_CURVE_NOTE);
+        }
+    }
+    let own = |id: &str| r.num(id).filter(|v| v.is_finite()).unwrap_or(0.0) as f32;
+    let (offset_x, offset_y, zoom) = (own("Shader_Offset_X"), own("Shader_Offset_Y"), own("Shader_Zoom"));
+    if offset_x != 0.0 || offset_y != 0.0 || zoom != 0.0 {
+        diff.add(SHADER_OFFSET_NOTE);
+    }
+    let lead_frames = r.num("Shader_LeadIn").unwrap_or(0.0).max(0.0);
+    EffectParams::Shader(ShaderParams {
+        file: found.path.clone(),
+        inputs,
+        speed: (r.num("Shader_Speed").unwrap_or(100.0) / 100.0) as f32,
+        lead_in: (lead_frames * frame_ms / 1000.0) as f32,
+        offset_x,
+        offset_y,
+        zoom,
     })
 }
 
@@ -2008,6 +2077,11 @@ fn effect_params(
         "galaxy" => closest("a spiral", EffectParams::Spiral(SpiralParams::default())),
         "curtain" => closest("moving bars", EffectParams::Bars(BarsParams::default())),
         "lightning" => lightning(&r, diff),
+        // Translated only with its shader file in hand: the file says what its inputs are.
+        "shader" => match &s.shader {
+            Some(found) => shader(&r, found, frame, diff),
+            None => return Kind::Placeholder,
+        },
         "adjust" | "warp" | "duplicate" | "dmx" | "servo" | "movinghead" => return Kind::Skip,
         _ => return Kind::Placeholder,
     })
@@ -2288,6 +2362,11 @@ pub fn translate(
     let mut moving = Vec::new();
     let mut driven = Vec::new();
     for (id, curve) in effect_curves(s) {
+        // A curve on one of a shader's own inputs isn't carried over (see `shader`), and must
+        // not move the slider's value either.
+        if id.starts_with("SHADERXYZZY_") {
+            continue;
+        }
         if curve.driven().is_some() {
             put(&mut start, &id, curve.middle());
             driven.push((id, curve));

@@ -240,6 +240,12 @@ pub const TABLE: &[Row] = &[
     noted("VU Meter", "shown as volume bars", Verdict::Different),
     // Judged: light over the whole prop where xLights lights a part of it.
     noted("*", "not just the part xLights draws on", Verdict::Different),
+    // A Shader effect runs the same file and, with nothing noted, is measured to come across
+    // the same (nine of ten in the sequence that has them, the tenth on all but one prop).
+    // Judged: a picture xLights moves or sizes that PixelFlow doesn't, and an input standing
+    // still where xLights changes it, read as a different look.
+    noted("Shader", "offset or zoom isn't applied", Verdict::Different),
+    noted("Shader", "stays at its slider's value", Verdict::Different),
 ];
 
 /// How an effect imported as `fidelity` from the xLights effect `effect` is expected to look,

@@ -1,6 +1,8 @@
 import type { DeviceDetails, FppSequence, NodeRange, Phoneme, PlayerStatus, PortSlot, Prop, Region, ScheduleEntry, FppSoftware, Show, SilentPeer, StringConfig } from "./types";
 import { type MemoryBackend, emptyShow, layoutThumbnail } from "./memory";
 import { newController, newProp, nodeCount } from "../lib/shows";
+import type { Sequence } from "./sequence";
+import type { ShaderInfo } from "./sequencer";
 
 /** A small sample show for browser-only UI development (`?demo`). */
 export function demoShow(): Show {
@@ -382,4 +384,79 @@ export function demoFppSoftware(): Record<string, FppSoftware> {
       checked: true,
     },
   };
+}
+
+/**
+ * Shader files "in the demo show's shaders folder", as the engine would describe them: one that
+ * draws, one with a mistake on a line, one that needs what PixelFlow doesn't give a shader yet,
+ * and one that does more work than a shader may. Nothing in the browser runs a shader, so these
+ * are descriptions only.
+ */
+export function demoShaders(): ShaderInfo[] {
+  return [
+    {
+      file: "shaders/Wavy Lines.fs",
+      name: "Wavy Lines",
+      builtIn: false,
+      description: "Lines that bend and cross as they drift over the prop.",
+      credit: "A demo",
+      inputs: [
+        { type: "number", name: "lines", label: "Lines", min: 1, max: 20, default: 6 },
+        { type: "number", name: "bend", label: "Bend", min: 0, max: 1, default: 0.4 },
+        { type: "choice", name: "style", label: "Style", default: 0, options: [{ value: 0, label: "Smooth" }, { value: 1, label: "Sharp" }, { value: 2, label: "Dotted" }] },
+        { type: "bool", name: "mirror", label: "Mirror", default: false },
+        { type: "point", name: "middle", label: "Middle", min: [0, 0], max: [1, 1], default: [0.5, 0.5] },
+        { type: "color", name: "ink", label: "Line color", default: [0.2, 0.8, 1, 1] },
+      ],
+      problem: null,
+      line: null,
+    },
+    { file: "shaders/Broken Rings.fs", name: "Broken Rings", builtIn: false, description: "", credit: "", inputs: [], problem: "line 14: there is no `ringWidht`", line: 14 },
+    {
+      file: "shaders/Echo Trails.fs",
+      name: "Echo Trails",
+      builtIn: false,
+      description: "",
+      credit: "",
+      inputs: [],
+      problem: "it keeps its picture from one frame to the next (a persistent buffer), which isn't supported yet",
+      line: null,
+    },
+    {
+      file: "shaders/Deep Zoom.fs",
+      name: "Deep Zoom",
+      builtIn: false,
+      description: "A zoom without end into a spiral of spirals.",
+      credit: "A demo",
+      inputs: [{ type: "number", name: "depth", label: "Depth", min: 1, max: 500, default: 200 }],
+      problem: null,
+      line: null,
+    },
+  ];
+}
+
+/** What the engine says of the demo's shader that does too much. */
+export const DEMO_STOPPED_SHADER: [string, string] = [
+  "shaders/Deep Zoom.fs",
+  "Stopped at 0:32.000: it does more work than a shader may in one frame, so it draws nothing there. Try it on a smaller prop, or with fewer shaders playing at once.",
+];
+
+/** Adds a layer of Shader effects to the demo sequence's window matrix: one for each demo shader file, after one of PixelFlow's own. */
+export function addDemoShaderEffects(doc: Sequence, show: Show) {
+  const matrix = show.props[2];
+  const row = doc.rows.find((r) => "prop" in r.target && r.target.prop === matrix?.id);
+  if (!row) return;
+  const files = ["pixelflow:lava-lamp", ...demoShaders().map((s) => s.file)];
+  row.layers.push({
+    effects: files.map((file, i) => ({
+      id: crypto.randomUUID(),
+      startMs: 16_000 + i * 4000,
+      endMs: 20_000 + i * 4000,
+      params: { kind: "shader", file },
+      palette: { colors: [] },
+      blend: "normal",
+      fadeInMs: 0,
+      fadeOutMs: 0,
+    })),
+  });
 }

@@ -224,6 +224,33 @@ fn run_query(query: Query, input: &Value, draft: &Draft) -> Outcome {
         }),
         Query::ListPlaylist => ok(to_json(&show.sequences)),
         Query::Selection => ok(selection(draft)),
+        Query::EffectKinds if input["kind"].as_str() == Some("shader") => {
+            let shaders = &draft.base().shaders;
+            match input["file"].as_str() {
+                Some(file) => match shaders.iter().find(|s| s.file == file) {
+                    Some(shader) => ok(to_json(shader)),
+                    None => err("There's no shader by that file. list_effect_kinds with kind \"shader\" and no file lists them."),
+                },
+                // Briefly: how to use one, what each looks like, and what its inputs are called.
+                None => ok(json!({
+                    "guide": SHADER_GUIDE,
+                    "kind": pf_sequence::effect_catalog().into_iter().find(|i| i.kind == pf_sequence::EffectKind::Shader),
+                    "shaders": shaders
+                        .iter()
+                        .map(|s| match &s.problem {
+                            Some(problem) => json!({ "file": s.file, "name": s.name, "cantBeDrawn": problem }),
+                            None => json!({
+                                "file": s.file,
+                                "name": s.name,
+                                "looks": s.description,
+                                "inputs": s.inputs.iter().map(|i| i.name()).collect::<Vec<_>>(),
+                            }),
+                        })
+                        .collect::<Vec<_>>(),
+                })
+                .to_string()),
+            }
+        }
         Query::EffectKinds => {
             let mut catalog = pf_sequence::effect_catalog();
             let Some(kind) = input["kind"].as_str() else {
@@ -407,6 +434,9 @@ fn grid(prop: &pf_model::Prop) -> Option<(u32, u32)> {
 
 /// The most pictures listed (the rest are counted).
 const MAX_PICTURES: usize = 30;
+
+/// Said with the list of shaders: where the craft of using them is (the Shader effect's guide).
+const SHADER_GUIDE: &str = "Set a shader effect's settings.file to one of these, and its settings.inputs by the names given (with a file, list_effect_kinds gives each input's type, range, default, and choices). get_guide with effects [\"shader\"] says which props each suits, how inputs and curves on them are written, and ready-made looks.";
 
 /// Adds the pictures in the show's images folder to a summary, as a Picture effect's `file`
 /// names them: nothing when there are none.

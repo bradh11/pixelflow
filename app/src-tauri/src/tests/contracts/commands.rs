@@ -568,6 +568,7 @@ fn unread_in(ty: &str, sent: &Value) -> Option<Vec<String>> {
         | "ProviderId"
         | "SequenceId"
         | "TimingTrackId"
+        | "EffectId"
         | "pf_sequence::TimingTrackId"
         | "Option<String>"
         | "Option<bool>"

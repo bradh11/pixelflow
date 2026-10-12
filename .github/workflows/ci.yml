@@ -99,3 +99,9 @@ jobs:
         if: ${{ !cancelled() }}
         working-directory: app/src-tauri
         run: cargo test --locked --no-fail-fast
+      # A shader must come out as the same bits on every system. The engine's tests above prove
+      # it on Linux and Windows; this is the third system (and the other kind of processor).
+      - name: Shader engine, the same bits here
+        if: ${{ !cancelled() && runner.os == 'macOS' }}
+        working-directory: .
+        run: cargo test -p pf-shader --locked

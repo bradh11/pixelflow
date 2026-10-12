@@ -2224,6 +2224,7 @@ dependencies = [
  "pf-patterns",
  "pf-render",
  "pf-sequence",
+ "pf-shader",
  "schemars",
  "serde",
  "serde_json",
@@ -2248,6 +2249,7 @@ dependencies = [
  "pf-output",
  "pf-render",
  "pf-sequence",
+ "pf-shader",
  "pf-xlights",
  "serde",
  "serde_json",
@@ -2342,8 +2344,10 @@ dependencies = [
  "pf-model",
  "pf-output",
  "pf-sequence",
+ "pf-shader",
  "rayon",
  "serde",
+ "serde_json",
  "tempfile",
  "thiserror 2.0.21",
 ]
@@ -2358,6 +2362,13 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.21",
  "uuid",
+]
+
+[[package]]
+name = "pf-shader"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
 ]
 
 [[package]]
@@ -2391,6 +2402,7 @@ dependencies = [
  "pf-model",
  "pf-render",
  "pf-sequence",
+ "pf-shader",
  "roxmltree",
  "serde",
  "tempfile",

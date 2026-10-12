@@ -1,16 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { SequenceTarget } from "../../api/sequence";
 import type { PreviewProp, PreviewSet3d, Show } from "../../api/types";
-import { backgroundBox, boxOfPoints, fitView, toScreen, unionBox } from "../../lib/layoutMath";
-import { DOT_RADIUS, drawPixels } from "../../lib/pixelBatches";
+import { BACKDROP, COLORS, fitDisplay } from "../../lib/flatPreview";
+import { backgroundBox, boxOfPoints, toScreen, unionBox } from "../../lib/layoutMath";
+import { drawPixels } from "../../lib/pixelBatches";
 import { targetNodes, targetPreview } from "../../lib/submodels";
 import { useApp } from "../../state/store";
 import { type LayoutMode, showViewKey, useView3d } from "../../state/view3d";
 import { type PhotoImage, useBackgroundImage, usePreviewProps, usePreviewProps3d } from "../layout/useLayoutData";
 import { Layout3dView } from "../layout3d/Layout3dView";
 
-const BACKDROP = "#0a0a0c";
-const COLORS = { unlit: "rgba(200, 200, 200, 0.35)", selected: "#a78bfa", dark: "rgba(70, 70, 70, 0.55)" };
 const NONE: ReadonlySet<string> = new Set();
 
 /**
@@ -113,7 +112,7 @@ function FlatPreview({
     ctx.clearRect(0, 0, size.width, size.height);
     const bg = show?.background ?? null;
     const box = unionBox([...props.map((p) => boxOfPoints(p.points)), bg && !onlyRow ? backgroundBox(bg, photo.aspect) : null]);
-    const view = fitView(box, size, 16);
+    const { view, radius } = fitDisplay(box, size);
     // The night sky only behind the display itself (around it, the panel shows through).
     ctx.fillStyle = BACKDROP;
     if (box) {
@@ -135,7 +134,6 @@ function FlatPreview({
       ctx.drawImage(photo.image, tl.x, tl.y, br.x - tl.x, br.y - tl.y);
       ctx.globalAlpha = 1;
     }
-    const radius = Math.min(4, Math.max(1.2, view.zoom * DOT_RADIUS));
     drawPixels(ctx, props, frame, view, size, NONE, COLORS, radius, ratio, glow);
   }, [props, frame, size, show?.background, photo, onlyRow, glow]);
 

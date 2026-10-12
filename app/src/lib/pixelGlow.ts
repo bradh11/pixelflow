@@ -1,7 +1,7 @@
 // The glow around lit pixels in the 2D previews, as much as the viewer's Glow setting says (see
-// state/view3d.ts): the look the video export draws at the same level (crates/pf-video's
-// raster.rs), from the same numbers. Around each lit dot is a soft halo in its color, added onto
-// everything it reaches; the dot itself keeps its own color.
+// state/view3d.ts). The video export draws the same glow at the same level, the same way from
+// the same numbers (crates/pf-video's glow.rs). Around each lit dot is a soft halo in its color,
+// added onto everything it reaches; the dot itself keeps its own color.
 //
 // A halo is many times its dot's size, so a filled circle or an image per pixel would be far too
 // slow for a big show. Instead every halo is stamped into one small picture, coarse enough that
@@ -9,19 +9,19 @@
 // picture is drawn over the dots enlarged and smoothed, adding to what's there. Pixels that are
 // off cost nothing, and with no glow none of this runs.
 //
-// A halo here is the plain bell, without the hole the export leaves over the dot itself (too
-// sharp for the coarse picture). So that a dot still ends up its own color, lit dots are drawn
-// dimmer by what their own halo adds back (`coreDim`).
+// A halo is the plain bell, over its own dot too (a hole for the dot would be too sharp for the
+// coarse picture). So that a dot still ends up its own color, lit dots are drawn dimmer by what
+// their own halo adds back (`coreDim`).
 //
-// A halo is sized from the dot a pixel has in the layout (`DOT_RADIUS` of a layout unit), as the
-// export's is, not from the dot drawn for it (bigger in a small preview, so it can be seen, and
-// smaller where a prop's pixels are close together): the glow then covers as much of the display
-// as it does in a video, however small the preview.
+// A halo is sized from the dot a pixel has in the layout (`DOT_RADIUS` of a layout unit), not
+// from the dot drawn for it (bigger in a small preview, so it can be seen, and smaller where a
+// prop's pixels are close together): the glow then covers as much of the display as it does in a
+// video, however small the preview.
 
 import type { PreviewProp } from "../api/types";
 import type { Size, View } from "./layoutMath";
 
-/** A glow's width (its bell's width, in dot radii) and strength beside the dot, at none and at full glow: the export's. */
+/** A glow's width (its bell's width, in dot radii) and strength beside the dot, at none and at full glow: the export's too. */
 export const GLOW_WIDTH = [1.2, 2.4] as const;
 export const GLOW_STRENGTH = [0, 0.7] as const;
 /** Glow is drawn at the nearest of this many steps from none to full (the slider's steps of 5%). */

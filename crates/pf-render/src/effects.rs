@@ -18,6 +18,7 @@ pub use crate::dancer::Dancer;
 pub use crate::fan::Fan;
 use crate::fill::Fill;
 use crate::fire::Flames;
+pub use crate::fireworks::Fireworks;
 pub use crate::garlands::Garlands;
 use crate::geometry::Members;
 use crate::geometry::Pixel;
@@ -1123,6 +1124,7 @@ pub enum Shader {
     Picture(Picture),
     Shockwave(Shockwave),
     Fill(Fill),
+    Fireworks(Fireworks),
 }
 
 /// When a Shape fires its shapes (ms from the effect's start, while it plays): at each mark on its
@@ -1240,6 +1242,9 @@ impl Shader {
             EffectParams::Picture(p) => Shader::Picture(Picture::new(p, time, colors, canvas, cx)),
             EffectParams::Shockwave(p) => Shader::Shockwave(Shockwave::new(p, time, colors, canvas)),
             EffectParams::Fill(p) => Shader::Fill(Fill::new(p, time, colors, canvas)),
+            EffectParams::Fireworks(p) => {
+                Shader::Fireworks(Fireworks::new(p, time, colors, seed, canvas, cx))
+            }
         }
     }
 
@@ -1287,6 +1292,7 @@ impl Shader {
             Shader::Picture(s) => each.visit(s),
             Shader::Shockwave(s) => each.visit(s),
             Shader::Fill(s) => each.visit(s),
+            Shader::Fireworks(s) => each.visit(s),
         }
     }
 }

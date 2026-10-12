@@ -628,10 +628,11 @@ pub enum EffectKind {
     Picture,
     Shockwave,
     Fill,
+    Fireworks,
 }
 
 impl EffectKind {
-    pub const ALL: [EffectKind; 39] = [
+    pub const ALL: [EffectKind; 40] = [
         EffectKind::On,
         EffectKind::Off,
         EffectKind::ColorWash,
@@ -671,6 +672,7 @@ impl EffectKind {
         EffectKind::Picture,
         EffectKind::Shockwave,
         EffectKind::Fill,
+        EffectKind::Fireworks,
     ];
 
     /// The name people see.
@@ -715,6 +717,7 @@ impl EffectKind {
             EffectKind::Picture => "Picture",
             EffectKind::Shockwave => "Shockwave",
             EffectKind::Fill => "Fill",
+            EffectKind::Fireworks => "Fireworks",
         }
     }
 
@@ -778,6 +781,9 @@ impl EffectKind {
                 "One ring bursting out from a point, widening and changing color as it goes."
             }
             EffectKind::Fill => "Color filling the prop from one side, the palette spread along the way.",
+            EffectKind::Fireworks => {
+                "Bursts of sparks that fly out, fall, and fade: at random, on a timing track, or with the music."
+            }
         }
     }
 
@@ -823,6 +829,7 @@ impl EffectKind {
             EffectKind::Picture => PictureParams::SETTINGS,
             EffectKind::Shockwave => ShockwaveParams::SETTINGS,
             EffectKind::Fill => FillParams::SETTINGS,
+            EffectKind::Fireworks => FireworksParams::SETTINGS,
         }
     }
 }
@@ -872,6 +879,7 @@ pub enum EffectParams {
     Picture(PictureParams),
     Shockwave(ShockwaveParams),
     Fill(FillParams),
+    Fireworks(FireworksParams),
 }
 
 impl EffectParams {
@@ -916,6 +924,7 @@ impl EffectParams {
             EffectParams::Picture(_) => EffectKind::Picture,
             EffectParams::Shockwave(_) => EffectKind::Shockwave,
             EffectParams::Fill(_) => EffectKind::Fill,
+            EffectParams::Fireworks(_) => EffectKind::Fireworks,
         }
     }
 
@@ -961,6 +970,7 @@ impl EffectParams {
             EffectKind::Picture => EffectParams::Picture(PictureParams::default()),
             EffectKind::Shockwave => EffectParams::Shockwave(ShockwaveParams::default()),
             EffectKind::Fill => EffectParams::Fill(FillParams::default()),
+            EffectKind::Fireworks => EffectParams::Fireworks(FireworksParams::default()),
         }
     }
 
@@ -1007,6 +1017,7 @@ impl EffectParams {
             EffectParams::Picture(p) => p.sanitize(),
             EffectParams::Shockwave(p) => p.sanitize(),
             EffectParams::Fill(p) => p.sanitize(),
+            EffectParams::Fireworks(p) => p.sanitize(),
         }
     }
 
@@ -1059,6 +1070,7 @@ impl EffectParams {
             EffectParams::Picture(p) => p.number(key),
             EffectParams::Shockwave(p) => p.number(key),
             EffectParams::Fill(p) => p.number(key),
+            EffectParams::Fireworks(p) => p.number(key),
         }
     }
 
@@ -1105,6 +1117,7 @@ impl EffectParams {
             EffectParams::Picture(p) => p.set_number(key, value),
             EffectParams::Shockwave(p) => p.set_number(key, value),
             EffectParams::Fill(p) => p.set_number(key, value),
+            EffectParams::Fireworks(p) => p.set_number(key, value),
         }
     }
 
@@ -1150,6 +1163,7 @@ impl EffectParams {
             EffectParams::Picture(p) => p.setting_problem(),
             EffectParams::Shockwave(p) => p.setting_problem(),
             EffectParams::Fill(p) => p.setting_problem(),
+            EffectParams::Fireworks(p) => p.setting_problem(),
         };
         found.map(|(spec, why)| format!("{} {why}", spec.label))
     }
@@ -1613,6 +1627,77 @@ effect_params! {
         /// The whole fill takes the palette color for the moment in the effect (or bands of the
         /// palette colors), instead of spreading the palette along the fill.
         color_by_time: bool = false => "colorByTime", "Color by time", toggle, more;
+    }
+}
+
+/// How the sparks of a Fireworks burst take the palette's colors.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum FireworksColors {
+    /// Each burst one palette color, picked at random.
+    #[default]
+    Burst,
+    /// Each spark its own palette color.
+    Spark,
+    /// Every spark the palette from its first color to its last, as it fades.
+    Fade,
+}
+
+choices!(FireworksColors {
+    "burst" => "One color a burst",
+    "spark" => "A color for each spark",
+    "fade" => "Through the palette as they fade",
+});
+
+effect_params! {
+    /// Bursts of sparks: each burst goes off somewhere on the prop, and its sparks fly out from
+    /// there, slow down, fall, and fade away. Bursts go off at random moments, on a timing
+    /// track's marks, or with the music.
+    #[derive(Copy)]
+    pub struct FireworksParams {
+        /// Bursts a second, going off at random moments (the first as the effect starts).
+        rate: f32 = 1.0 => "rate", "Bursts", number(0.01, 20.0, 0.01, "per second");
+        /// Sparks in each burst.
+        sparks: u32 = 50 => "sparks", "Sparks", int(1, 200);
+        /// How far the sparks fly before they have faded away: 100 reaches from the middle of
+        /// the prop to the ends of its longer side.
+        size: f32 = 60.0 => "size", "Burst size", number(1.0, 1000.0, 1.0);
+        /// How long a burst's sparks glow before they have faded away.
+        life: f32 = 1.5 => "life", "Glow time", number(0.05, 10.0, 0.05, "seconds");
+        /// The tail each spark draws behind it, as a share of how far it has flown (0: a dot).
+        trail: f32 = 0.3 => "trail", "Tails", number(0.0, 1.0, 0.01);
+        /// How far the sparks drop as they fade, as a share of the burst's size (0: they don't).
+        fall: f32 = 0.3 => "fall", "Fall", number(0.0, 2.0, 0.01);
+        /// One palette color for each burst, one for each spark, or the palette from its first
+        /// color to its last as the sparks fade.
+        colors: FireworksColors = FireworksColors::Burst => "colors", "Colors", choice;
+        /// A burst at each mark of this timing track, instead of at random moments.
+        timing_track: Option<TimingTrackId> = None => "timingTrack", "Burst on marks of", timing_track;
+        /// A burst when the music gets louder than the trigger level (and twice a second while
+        /// it stays louder), instead of at random moments.
+        fire_on_music: bool = false => "fireOnMusic", "Burst with the music", toggle;
+        /// Each burst somewhere new at random, instead of at the center below.
+        random_location: bool = true => "randomLocation", "Random places", toggle;
+        /// How loud the music must get to set off a burst.
+        trigger_level: f32 = 50.0 => "triggerLevel", "Music trigger level", number(0.0, 100.0, 1.0, "%"), more;
+        /// Where the bursts go off without random places, from the left (0) to the right (100).
+        center_x: f32 = 50.0 => "centerX", "Center across", number(0.0, 100.0, 1.0, "%"), more;
+        /// Where the bursts go off without random places, from the bottom (0) to the top (100).
+        center_y: f32 = 50.0 => "centerY", "Center up", number(0.0, 100.0, 1.0, "%"), more;
+        /// How wide each spark is, as a percent of the prop's longer side. A spark is never
+        /// smaller than one pixel.
+        spark_size: f32 = 2.0 => "sparkSize", "Spark size", number(0.0, 100.0, 0.1), more;
+        /// How much the sparks slow down as they fly: 0 keeps them at one speed, 1 brings them
+        /// to a stop as they fade out.
+        slowing: f32 = 0.6 => "slowing", "Slowing", number(0.0, 1.0, 0.01), more;
+        /// Sparks glide from pixel to pixel, their light shared between the pixels they are
+        /// over. Otherwise each lights whole pixels and hops from one to the next, as xLights'
+        /// sparks do.
+        soft: bool = true => "soft", "Soft sparks", toggle, more;
+        /// Burst size and spark size are percent of the prop's longer side. Otherwise they
+        /// count cells of the prop's grid, as an imported xLights sequence's do.
+        scale: bool = true => "scale", "Sizes in percent of the prop", toggle, more;
     }
 }
 

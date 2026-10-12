@@ -249,7 +249,7 @@ fn compact_large_unions(tools: &mut [Tool]) {
                 "EffectParams".into(),
                 json!({
                     "type": "object",
-                    "description": "`kind` plus any of its settings (missing ones take their defaults). list_effect_kinds lists each kind's settings.",
+                    "description": "`kind` plus any of its settings (the rest take their defaults); list_effect_kinds lists them.",
                     "properties": { "kind": { "enum": kinds } },
                     "required": ["kind"],
                 }),

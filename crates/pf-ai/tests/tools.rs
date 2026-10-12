@@ -884,12 +884,9 @@ fn shapes_and_effect_settings_are_compact_and_looked_up_on_demand() {
     let params = &add_effect["$defs"]["EffectParams"];
     assert!(params.get("oneOf").is_none(), "{params}");
     assert_eq!(params["required"], json!(["kind"]));
-    assert!(
-        params["properties"]["kind"]["enum"]
-            .as_array()
-            .unwrap()
-            .contains(&json!("twinkle"))
-    );
+    let kinds = params["properties"]["kind"]["enum"].as_array().unwrap();
+    assert!(kinds.contains(&json!("twinkle")) && kinds.contains(&json!("fireworks")));
+    assert_eq!(kinds.len(), EffectKind::ALL.len());
     assert!(
         params["description"]
             .as_str()

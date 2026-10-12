@@ -45,7 +45,8 @@ export type EffectKind =
   | "dancer"
   | "picture"
   | "shockwave"
-  | "fill";
+  | "fill"
+  | "fireworks";
 
 export type Gradient = "none" | "horizontal" | "vertical";
 /** What the Shape effect draws. */
@@ -464,6 +465,32 @@ export type EffectParams =
       offsetInCells?: boolean;
       wrap?: boolean;
       colorByTime?: boolean;
+    }
+  | {
+      kind: "fireworks";
+      /** Bursts a second, going off at random moments. */
+      rate?: number;
+      sparks?: number;
+      /** How far the sparks fly: 100 reaches the ends of the prop's longer side from its middle. */
+      size?: number;
+      /** Seconds a burst's sparks glow. */
+      life?: number;
+      trail?: number;
+      fall?: number;
+      colors?: "burst" | "spark" | "fade";
+      /** A burst at each of this track's marks, instead of at random moments. */
+      timingTrack?: Uuid | null;
+      fireOnMusic?: boolean;
+      randomLocation?: boolean;
+      triggerLevel?: number;
+      centerX?: number;
+      centerY?: number;
+      sparkSize?: number;
+      slowing?: number;
+      /** Sparks glide between pixels rather than lighting whole ones. */
+      soft?: boolean;
+      /** Sizes in percent of the prop's longer side rather than cells of its grid. */
+      scale?: boolean;
     };
 
 /** Who a Dancer is (see `DancerCharacter` in crates/pf-sequence/src/effect.rs). */
@@ -1136,6 +1163,7 @@ export const EFFECT_KINDS: { kind: EffectKind; label: string }[] = [
   { kind: "picture", label: "Picture" },
   { kind: "shockwave", label: "Shockwave" },
   { kind: "fill", label: "Fill" },
+  { kind: "fireworks", label: "Fireworks" },
 ];
 
 /** A new effect of `kind` (engine-default settings, white) from `startMs` to `endMs`. */

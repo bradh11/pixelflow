@@ -21,8 +21,8 @@ use std::sync::{Arc, OnceLock};
 pub use pf_analysis::{AudioTrack, NOTES, SPECTRUM_BANDS};
 
 /// Whether the effect follows the music: curves or sparkles that follow it, a VU Meter that
-/// reads it, a Tendril moving with it, a Shape fired by it, a Pulse with it, or a Dancer bouncing
-/// with its bass.
+/// reads it, a Tendril moving with it, a Shape or Fireworks fired by it, a Pulse with it, or a
+/// Dancer bouncing with its bass.
 pub fn effect_follows_music(effect: &Effect) -> bool {
     effect.music_sparkles
         || effect.curves.values().any(|c| c.shape.follows_music())
@@ -35,6 +35,7 @@ pub fn effect_follows_music(effect: &Effect) -> bool {
                 )
             }
             EffectParams::Shape(p) => p.fire_on_music && p.timing_track.is_none(),
+            EffectParams::Fireworks(p) => p.fire_on_music && p.timing_track.is_none(),
             EffectParams::Fire(p) => p.style == FireStyle::Flicker && p.grow_with_music,
             EffectParams::Pulse(p) => p.source != PulseSource::Marks,
             EffectParams::Dancer(p) => p.bass_bounce > 0.0 || effect.curves.contains_key("bassBounce"),

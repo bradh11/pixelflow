@@ -185,6 +185,7 @@ pub fn validate_sequence(seq: &Sequence, show: &Show) -> Vec<SequenceIssue> {
                     }
                     EffectParams::Sing(p) => (p.timing_track, "it doesn't sing"),
                     EffectParams::Dancer(p) => (p.timing_track, "it dances to the song's beats instead"),
+                    EffectParams::Fireworks(p) => (p.timing_track, "no bursts go off"),
                     _ => (None, ""),
                 };
                 if let Some(track) = marks_track
@@ -406,6 +407,19 @@ mod tests {
         assert_eq!(messages(&seq, &show), Vec::<String>::new());
         seq.rows[0].layers[0].effects = vec![shapes(Some(crate::TimingTrackId::new()))];
         assert!(messages(&seq, &show)[0].ends_with("isn't in the sequence anymore, so no shapes appear."));
+        // And so do fireworks that burst on one.
+        let fireworks = |timing_track| {
+            Effect::new(EffectKind::Fireworks, 0, 1000).with_params(crate::EffectParams::Fireworks(
+                crate::FireworksParams {
+                    timing_track,
+                    ..Default::default()
+                },
+            ))
+        };
+        seq.rows[0].layers[0].effects = vec![fireworks(Some(track_id))];
+        assert_eq!(messages(&seq, &show), Vec::<String>::new());
+        seq.rows[0].layers[0].effects = vec![fireworks(Some(crate::TimingTrackId::new()))];
+        assert!(messages(&seq, &show)[0].ends_with("isn't in the sequence anymore, so no bursts go off."));
     }
 
     #[test]

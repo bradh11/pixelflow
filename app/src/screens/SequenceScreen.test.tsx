@@ -530,6 +530,37 @@ describe("sequence screen", () => {
     expect(EFFECT_ICONS.dancer).toBeDefined();
   });
 
+  it("shows what makes a firework up front and how its sizes are counted under More", async () => {
+    const { seq, user } = await openScreen();
+    fireEvent.pointerDown(timeline(), { clientX: x(1000), clientY: LANE.archTop, button: 0, pointerId: 1 });
+    fireEvent.pointerUp(timeline(), { clientX: x(1000), clientY: LANE.archTop, pointerId: 1 });
+    const id = useSequencer.getState().selection[0];
+    const effect = () => seq.doc!.rows.flatMap((r) => r.layers.flatMap((l) => l.effects)).find((e) => e.id === id)!;
+    await act(() => useSequencer.getState().edit([{ type: "updateEffect", effect: { ...effect(), params: { kind: "fireworks" } } }]));
+    const panel = screen.getByRole("complementary", { name: "Effect settings" });
+    expect(within(panel).getByRole("slider", { name: "Bursts" })).toHaveValue("1");
+    expect(within(panel).getByRole("slider", { name: "Sparks" })).toHaveValue("50");
+    expect(within(panel).getByRole("slider", { name: "Burst size" })).toHaveValue("60");
+    expect(within(panel).getByRole("slider", { name: "Glow time" })).toHaveValue("1.5");
+    expect(within(panel).getByRole("slider", { name: "Tails" })).toHaveValue("0.3");
+    expect(within(panel).getByRole("slider", { name: "Fall" })).toHaveValue("0.3");
+    const colors = within(panel).getByRole("combobox", { name: "Colors" });
+    expect(within(colors).getAllByRole("option").map((o) => o.textContent)).toEqual(["One color a burst", "A color for each spark", "Through the palette as they fade"]);
+    expect(within(panel).getByRole("combobox", { name: "Burst on marks of" })).toBeInTheDocument();
+    expect(within(panel).getByRole("checkbox", { name: "Burst with the music" })).not.toBeChecked();
+    expect(within(panel).getByRole("checkbox", { name: "Random places" })).toBeChecked();
+    for (const rare of ["Music trigger level", "Center across", "Center up", "Spark size", "Slowing"]) expect(within(panel).queryByRole("slider", { name: rare })).not.toBeInTheDocument();
+    // The rest are a click away, and a change is an ordinary edit.
+    await user.click(within(panel).getByRole("button", { name: "More settings" }));
+    expect(within(panel).getByRole("slider", { name: "Spark size" })).toHaveValue("2");
+    expect(within(panel).getByRole("checkbox", { name: "Soft sparks" })).toBeChecked();
+    expect(within(panel).getByRole("checkbox", { name: "Sizes in percent of the prop" })).toBeChecked();
+    await user.selectOptions(colors, "spark");
+    await user.click(within(panel).getByRole("checkbox", { name: "Soft sparks" }));
+    expect(effect().params).toMatchObject({ kind: "fireworks", colors: "spark", soft: false });
+    expect(EFFECT_ICONS.fireworks).toBeDefined();
+  });
+
   it("shows a picture's file, fit, and movement up front, and chooses a picture through the app's dialog", async () => {
     const { backend, seq, user } = await openScreen();
     // One picture already in the show's images folder, and another the dialog will hand back.

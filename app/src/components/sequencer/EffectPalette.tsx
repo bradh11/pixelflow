@@ -22,6 +22,7 @@ import {
   MicVocal,
   Orbit,
   PaintBucket,
+  PartyPopper,
   PersonStanding,
   Rainbow,
   Ribbon,
@@ -86,6 +87,7 @@ export const EFFECT_ICONS: Record<EffectKind, LucideIcon> = {
   picture: ImageIcon,
   shockwave: Target,
   fill: PaintBucket,
+  fireworks: PartyPopper,
 };
 
 /** Drags this far (screen pixels) before a press on the palette becomes a drag. */

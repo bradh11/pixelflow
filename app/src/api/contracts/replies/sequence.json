@@ -37,7 +37,7 @@
             }
           }
         ],
-        "schemaVersion": 11,
+        "schemaVersion": 12,
         "timingTracks": []
       }
     }
@@ -1068,6 +1068,43 @@
             "index": 38,
             "layer": 0,
             "row": "44444444-0000-4000-8000-000000000001"
+          },
+          {
+            "effect": {
+              "blend": "normal",
+              "blur": 0,
+              "endMs": 40000,
+              "fadeInMs": 0,
+              "fadeOutMs": 0,
+              "id": "55555555-0000-4000-8000-000000000040",
+              "palette": { "colors": ["#ff0000", "#00ff00"] },
+              "params": {
+                "centerX": 50.0,
+                "centerY": 50.0,
+                "colors": "burst",
+                "fall": 0.3,
+                "fireOnMusic": false,
+                "kind": "fireworks",
+                "life": 1.5,
+                "randomLocation": true,
+                "rate": 1.0,
+                "scale": true,
+                "size": 60.0,
+                "slowing": 0.6,
+                "soft": true,
+                "sparkSize": 2.0,
+                "sparks": 50,
+                "timingTrack": null,
+                "trail": 0.3,
+                "triggerLevel": 50.0
+              },
+              "sparkleColor": "#ffffff",
+              "sparkles": 0,
+              "startMs": 39000
+            },
+            "index": 39,
+            "layer": 0,
+            "row": "44444444-0000-4000-8000-000000000001"
           }
         ],
         "info": null,
@@ -1538,7 +1575,7 @@
             "target": { "group": "22222222-0000-4000-8000-000000000001" }
           }
         ],
-        "schemaVersion": 11,
+        "schemaVersion": 12,
         "timingTracks": [
           {
             "id": "66666666-0000-4000-8000-000000000002",
@@ -1823,7 +1860,7 @@
             "target": { "group": "22222222-0000-4000-8000-000000000001" }
           }
         ],
-        "schemaVersion": 11,
+        "schemaVersion": 12,
         "timingTracks": [
           {
             "id": "66666666-0000-4000-8000-000000000002",

@@ -169,7 +169,8 @@
       "dancer",
       "picture",
       "shockwave",
-      "fill"
+      "fill",
+      "fireworks"
     ]
   },
   {
@@ -1144,6 +1145,26 @@
         "position": 100.0,
         "skipSize": 0.0,
         "wrap": true
+      },
+      {
+        "centerX": 50.0,
+        "centerY": 50.0,
+        "colors": "burst",
+        "fall": 0.3,
+        "fireOnMusic": false,
+        "kind": "fireworks",
+        "life": 1.5,
+        "randomLocation": true,
+        "rate": 1.0,
+        "scale": true,
+        "size": 60.0,
+        "slowing": 0.6,
+        "soft": true,
+        "sparkSize": 2.0,
+        "sparks": 50,
+        "timingTrack": null,
+        "trail": 0.3,
+        "triggerLevel": 50.0
       }
     ]
   },

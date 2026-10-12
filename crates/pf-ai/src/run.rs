@@ -86,7 +86,14 @@ pub fn run_tool(toolbox: &Toolbox, call: &ToolCall, draft: &mut Draft, song: &mu
             },
             Err(e) => err(e),
         },
-        ToolKind::Guide => crate::knowledge::answer(input).map_or_else(err, ok),
+        // Bounded by the guides' own limit (`MAX_GUIDE_ANSWER_BYTES`), whole guides only.
+        ToolKind::Guide => match crate::knowledge::answer(input) {
+            Ok(content) => Outcome::Answer {
+                content,
+                is_error: false,
+            },
+            Err(problem) => err(problem),
+        },
         ToolKind::AnalyzeSong => match song.analysis(draft) {
             Ok(analysis) => {
                 let user = draft.base().sequence.as_ref().map(|s| &s.doc);

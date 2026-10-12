@@ -4,7 +4,9 @@
 //! of these fails, its message says what to write and where.
 
 use pf_ai::effect_spec::{self, Context};
-use pf_ai::knowledge::{self, MAX_GUIDE_BYTES, check, library, reference};
+use pf_ai::knowledge::{
+    self, MAX_GUIDE_ANSWER_BYTES, MAX_GUIDE_BYTES, MAX_GUIDES_PER_CALL, PARTS, check, library, reference,
+};
 use pf_ai::provider::{Message, ToolCall};
 use pf_ai::run::{Outcome, run_tool};
 use pf_ai::stage::Stage;
@@ -319,32 +321,42 @@ fn the_guide_tool_reaches_every_guide_and_teaches_the_names_when_one_is_wrong() 
         "{wrong}"
     );
     let (wrong, is_error) = call(&mut draft, "get_guide", json!({ "effect": "bars" }));
-    assert!(is_error && wrong.contains("effects and topics"), "{wrong}");
-    // Too many at once: the first eight come (as many as fit), and the rest are named to ask
+    assert!(
+        is_error && wrong.contains("effects, topics, and parts"),
+        "{wrong}"
+    );
+    let (wrong, is_error) = call(
+        &mut draft,
+        "get_guide",
+        json!({ "effects": ["bars"], "parts": ["recipes"] }),
+    );
+    assert!(
+        is_error && wrong.contains("no part \"recipes\"") && wrong.contains("looks"),
+        "{wrong}"
+    );
+    // Too many at once: the first twelve come (as many as fit), and the rest are named to ask
     // for next, rather than a refusal that costs a round trip.
-    let many = [
-        "method",
-        "song",
-        "roles",
-        "layering",
-        "palettes",
-        "motion",
-        "intensity",
-        "safety",
-        "vocals",
-    ];
+    let many: Vec<&str> = library::topic_keys()
+        .into_iter()
+        .take(MAX_GUIDES_PER_CALL + 1)
+        .collect();
     let (answer, is_error) = call(&mut draft, "get_guide", json!({ "topics": many }));
     assert!(!is_error, "{answer}");
     assert!(
-        answer.contains("# Intensity and change"),
-        "the first eight are sent"
+        answer.starts_with("# How to build a sequence"),
+        "the first are sent"
     );
-    assert!(!answer.contains("# Vocals"));
+    assert!(answer.len() <= MAX_GUIDE_ANSWER_BYTES, "{}", answer.len());
+    let last = many.last().unwrap();
     assert!(
-        answer.ends_with("(8 at a time): vocals. Ask for them next."),
+        answer.contains(&format!("({MAX_GUIDES_PER_CALL} at a time): "))
+            && answer.contains(last)
+            && answer.ends_with(". Ask for them next."),
         "{}",
         &answer[answer.len() - 200..]
     );
+    let sent = answer.matches("\n\n---\n\n").count();
+    assert!((8..=MAX_GUIDES_PER_CALL).contains(&sent), "{sent} guides sent");
     assert!(!draft.has_edits(), "reading a guide changes nothing");
 }
 
@@ -409,6 +421,65 @@ fn a_guide_read_once_in_a_chat_is_not_sent_again() {
 }
 
 #[test]
+fn an_effects_guide_comes_in_parts_and_a_part_read_once_isnt_sent_again() {
+    let mut read = knowledge::GuidesRead::default();
+    let looks =
+        knowledge::answer_once(&json!({ "effects": ["chase"], "parts": ["looks"] }), &mut read).unwrap();
+    let whole = knowledge::effect_text(EffectKind::Chase);
+    // Its title and summary, then only the looks: a fraction of the whole guide.
+    assert!(looks.starts_with("# Chase\n\nBands of light"), "{looks}");
+    assert!(looks.contains("## Looks\n") && looks.contains("**A white runner along an outline**"));
+    assert!(
+        !looks.contains("## Settings") && !looks.contains("## Reference"),
+        "{looks}"
+    );
+    assert!(
+        looks.len() * 3 < whole.len(),
+        "{} of {}",
+        looks.len(),
+        whole.len()
+    );
+    // Every part there is, in the guide's order, is the whole guide.
+    let all: Vec<&str> = PARTS.iter().map(|(p, _)| *p).collect();
+    let pieces = knowledge::effect_parts(EffectKind::Chase, &all);
+    for (_, heading) in PARTS {
+        assert!(pieces.contains(&format!("\n## {heading}\n")), "{heading}");
+    }
+    assert_eq!(pieces.trim_end(), whole.trim_end());
+    // Asked again with another part: only the new one comes.
+    let more = knowledge::answer_once(
+        &json!({ "effects": ["chase"], "parts": ["looks", "reference"] }),
+        &mut read,
+    )
+    .unwrap();
+    assert!(
+        more.contains("## Reference") && !more.contains("## Looks"),
+        "{more}"
+    );
+    let again =
+        knowledge::answer_once(&json!({ "effects": ["chase"], "parts": ["looks"] }), &mut read).unwrap();
+    assert!(again.starts_with("Already read in this chat"), "{again}");
+    // A guide read whole has every part read.
+    knowledge::answer_once(&json!({ "effects": ["bars"] }), &mut read).unwrap();
+    let parts =
+        knowledge::answer_once(&json!({ "effects": ["bars"], "parts": ["settings"] }), &mut read).unwrap();
+    assert!(parts.starts_with("Already read in this chat"), "{parts}");
+}
+
+#[test]
+fn every_effect_is_on_one_page_for_choosing() {
+    let page = knowledge::topic_text("choosing").unwrap();
+    for key in reference::kind_keys() {
+        assert!(page.contains(&format!("- `{key}` (")), "{key}");
+    }
+    assert!(
+        page.contains("- `chase` (string, arch, matrix, tree, house): Bands of light"),
+        "{page}"
+    );
+    assert!(page.len() <= MAX_GUIDE_BYTES, "{}", page.len());
+}
+
+#[test]
 fn a_long_answer_keeps_whole_guides_and_names_the_ones_left_for_another_call() {
     // Eight of the longest guides can't all fit one answer.
     let mut kinds: Vec<(usize, String)> = EffectKind::ALL
@@ -416,12 +487,16 @@ fn a_long_answer_keeps_whole_guides_and_names_the_ones_left_for_another_call() {
         .map(|k| (knowledge::effect_text(*k).len(), reference::key_of(k)))
         .collect();
     kinds.sort_by(|a, b| b.cmp(a));
-    let longest: Vec<String> = kinds.iter().take(8).map(|(_, k)| k.clone()).collect();
-    let total: usize = kinds.iter().take(8).map(|(n, _)| n).sum();
+    let longest: Vec<String> = kinds
+        .iter()
+        .take(MAX_GUIDES_PER_CALL)
+        .map(|(_, k)| k.clone())
+        .collect();
+    let total: usize = kinds.iter().take(MAX_GUIDES_PER_CALL).map(|(n, _)| n).sum();
     let answer = guide(json!({ "effects": longest }));
-    assert!(answer.len() <= pf_ai::run::MAX_RESULT_CHARS, "{}", answer.len());
+    assert!(answer.len() <= MAX_GUIDE_ANSWER_BYTES, "{}", answer.len());
     assert!(!answer.contains("cut short"));
-    if total > pf_ai::run::MAX_RESULT_CHARS {
+    if total > MAX_GUIDE_ANSWER_BYTES {
         assert!(
             answer.contains("Not included"),
             "{}",

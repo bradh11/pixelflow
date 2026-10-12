@@ -169,46 +169,64 @@ fn guides(topics: &[&str], effects: &[&str]) -> Call {
     ("get_guide", json!({ "topics": topics, "effects": effects }))
 }
 
+/// Topics whole, and only some `parts` of each effect's guide.
+fn guide_parts(topics: &[&str], effects: &[&str], parts: &[&str]) -> Call {
+    (
+        "get_guide",
+        json!({ "topics": topics, "effects": effects, "parts": parts }),
+    )
+}
+
 fn propose(summary: &str) -> Turn {
     calls("", &[("propose_changes", json!({ "summary": summary }))])
 }
 
+/// The effects the base is made of.
+const BASE_EFFECTS: [&str; 7] = [
+    "on",
+    "colorWash",
+    "twinkle",
+    "chase",
+    "bars",
+    "spiral",
+    "butterfly",
+];
+
 fn whole_song(on: &Rows<'_>) -> Vec<Turn> {
+    let mut effects = BASE_EFFECTS.to_vec();
+    effects.push("faces");
     vec![
-        calls("", &[guides(&["method"], &[])]),
+        // The method and the design topics in one read; the effects chosen from the overview
+        // and the rest of the topics in a second.
         calls(
             "",
             &[guides(
-                &["song", "roles", "layering", "palettes", "motion", "intensity"],
-                &[],
-            )],
-        ),
-        calls(
-            "",
-            &[guides(
-                &[],
                 &[
-                    "on",
-                    "colorWash",
-                    "twinkle",
-                    "chase",
-                    "bars",
-                    "spiral",
-                    "butterfly",
+                    "method",
+                    "song",
+                    "roles",
+                    "layering",
+                    "palettes",
+                    "motion",
+                    "intensity",
+                    "choosing",
                 ],
+                &[],
             )],
         ),
-        calls("", &[on.base()]),
         calls(
             "",
-            &[guides(
+            &[guide_parts(
                 &["vocals", "openings-endings", "safety", "cues"],
-                &["faces"],
+                &effects,
+                &["draws", "looks"],
             )],
         ),
+        // The whole base in one call, and the moments and the singing beside it.
         calls(
             "",
             &[
+                on.base(),
                 ("stage_cue", json!({ "stageMoments": { "minImportance": 0.5 } })),
                 (
                     "stage_cue",
@@ -297,27 +315,17 @@ fn calm_and_big(on: &Rows<'_>) -> Vec<Turn> {
         on.base(),
     ];
     vec![
+        // What is there, and everything to read, in one step.
         calls(
             "",
             &[
-                guides(&["intensity", "layering", "roles"], &[]),
+                guide_parts(
+                    &["intensity", "layering", "roles"],
+                    &BASE_EFFECTS,
+                    &["draws", "looks"],
+                ),
                 ("list_sequence_effects", json!({})),
             ],
-        ),
-        calls(
-            "",
-            &[guides(
-                &[],
-                &[
-                    "on",
-                    "colorWash",
-                    "twinkle",
-                    "chase",
-                    "bars",
-                    "spiral",
-                    "butterfly",
-                ],
-            )],
         ),
         calls("", &placed),
         calls("", &[("review_draft", json!({}))]),
@@ -415,7 +423,7 @@ fn scroll_words(on: &Rows<'_>) -> Vec<Turn> {
 
 fn question() -> Vec<Turn> {
     vec![
-        calls("", &[guides(&[], &["chase", "bars"])]),
+        calls("", &[guide_parts(&[], &["chase", "bars"], &["draws", "use"])]),
         says(
             "On your arches a Chase sends one band of light running along each arch and round again, so it reads as something travelling. Bars lays several stripes along the arch and slides them all together, so the whole arch is striped and the stripes drift. Use Chase for a pulse that moves, Bars for a candy-stripe that fills the arch.",
         ),

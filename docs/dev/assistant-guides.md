@@ -26,7 +26,14 @@ the `get_guide` tool:
 
 The guides are compiled into the app (`crates/pf-ai/src/knowledge/library.rs`). `get_guide` with
 no arguments answers the index; with `effects` and `topics` it answers those guides, an effect's
-written guide followed by its generated reference.
+written guide followed by its generated reference, up to 12 in one answer of at most 48 KB (the
+reading a design job does before it starts, in one round trip). With `parts` it answers only
+those parts of each effect's guide (`draws`, `settings`, `use`, `looks`, `reference`: its
+sections), after its title and summary; topics always come whole. A guide, or a part of one, is
+sent once in a chat: asked for again, the answer points back at it. Topic `choosing` sets every
+effect side by side in a line each (what it is for, and the kinds of prop its looks were written
+for), generated from the effects' own guides, so the Assistant can choose before reading the
+guides of only the effects it will place.
 
 ## The rules a guide keeps
 

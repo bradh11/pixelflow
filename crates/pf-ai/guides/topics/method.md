@@ -31,7 +31,7 @@ Plan the loudest section first, with everything you have, then work down: each q
 
 ## 4. Lay the base
 
-One look per section on the bottom layer, with `place_effects` on the group rows and prop rows, cut on the "Sections" track so each look starts where its section does. Take the looks from the effects' guides (`get_guide` with `effects`): each has ready-made ones written for each kind of prop. A section that comes back gets the same look again with `repeat_effects`, then a variation with `change_effects` (new colors, a faster speed).
+One look per section on the bottom layer, with `place_effects` on the group rows and prop rows, cut on the "Sections" track so each look starts where its section does. Take the looks from the effects' guides (`get_guide` with `effects`): each has ready-made ones written for each kind of prop. To choose the effects, topic `choosing` sets every one side by side; then read the guides of only those you will place, all in one call. A section that comes back gets the same look again with `repeat_effects`, then a variation with `change_effects` (new colors, a faster speed).
 
 Lay the base in one call: `place_effects` with `items`, an item for each look on each row and section, so the whole base goes down at once rather than an effect a call. Fields beside `items` are every item's default (a shared `layer`, a shared `track`). The repeats are one `repeat_effects` call with `items`, and a pass of variations one `change_effects` call. Each item is done or refused on its own: send again only the refused ones.
 

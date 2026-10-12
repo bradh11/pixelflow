@@ -959,11 +959,12 @@ fn guide_tool() -> Tool {
     let topics = crate::knowledge::library::topic_keys();
     tool(
         "get_guide",
-        "PixelFlow's own guides: read the ones you need before you design. An effect's: what it draws on each kind of prop, the settings that matter, ready-made looks for place_effects, and every setting's range and choices. A topic's: how to design a show, and what every effect shares. Neither: the list.",
+        "PixelFlow's own guides: read the ones you need before you design. An effect's: what it draws on each kind of prop, the settings that matter, ready-made looks for place_effects, and every setting's range and choices (parts: only those). A topic's: how to design a show, and what every effect shares. Neither: the list.",
         object(
             json!({
                 "effects": names(crate::knowledge::reference::kind_keys()),
                 "topics": names(topics.into_iter().map(String::from).collect()),
+                "parts": names(crate::knowledge::PARTS.iter().map(|(p, _)| p.to_string()).collect()),
             }),
             &[],
         ),

@@ -961,7 +961,7 @@ fn misspelled_effect_settings_are_refused_through_either_provider() {
         "effect": { "id": pf_sequence::EffectId::new(), "startMs": 0, "endMs": 1000, "params": { "kind": "twinkle", "twinkles": 3 } },
     });
     for (tool, input, key, hint) in [
-        ("place_effects", &place, "sped", "list_effect_kinds"),
+        ("place_effects", &place, "sped", "Its settings: speed, width"),
         ("place_effects", &colour, "colour", "colors"),
         (
             "sequence_add_effect",
@@ -1630,11 +1630,7 @@ fn shaders_are_listed_and_placed_with_inputs_held_against_the_shader() {
     assert!(listed[0].0.len() < 4_500, "{} bytes", listed[0].0.len());
     let list: Value = serde_json::from_str(&listed[0].0).unwrap();
     let guide = list["guide"].as_str().unwrap();
-    for said in [
-        "inputs.<name>",
-        "matrices, mega trees, and whole-house groups",
-        "You can't write",
-    ] {
+    for said in ["settings.inputs", "get_guide with effects [\"shader\"]"] {
         assert!(guide.contains(said), "{said}: {guide}");
     }
     let shaders = list["shaders"].as_array().unwrap();

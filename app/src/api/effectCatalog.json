@@ -55,7 +55,7 @@
       },
       {
         "default": 0.0,
-        "description": "How much of what's below shows through whatever the brightness (0–1).",
+        "description": "How much of what's below shows through whatever the brightness (0–1). Its sparkles still show.",
         "key": "transparency",
         "label": "Transparency",
         "max": 1.0,
@@ -2172,7 +2172,7 @@
       },
       {
         "default": 10,
-        "description": "How often a new generation comes (10 is two a second; 20 or more, one every frame).",
+        "description": "How many new generations come each second.",
         "key": "speed",
         "label": "Speed",
         "max": 30,
@@ -2279,7 +2279,7 @@
       },
       {
         "default": 10,
-        "description": "How often the point moves (10 every frame, 9 every other, and so on).",
+        "description": "How often the point moves (9 or 10 every frame, 8 every other, and so on).",
         "key": "speed",
         "label": "Speed",
         "max": 10,
@@ -2993,7 +2993,7 @@
       },
       {
         "default": false,
-        "description": "Spread the low notes wider than the high ones.",
+        "description": "Spread the high notes wider than the low ones.",
         "key": "logX",
         "label": "Logarithmic across",
         "more": true,

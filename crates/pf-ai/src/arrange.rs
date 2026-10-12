@@ -8,11 +8,8 @@ use crate::diff::target_name;
 use crate::draft::Draft;
 use crate::song::find_track;
 use pf_engine::SequenceEdit;
-use pf_sequence::{
-    Blend, Effect, EffectId, EffectKind, EffectParams, Mark, Palette, Rgb, Row, RowId, TimingKind,
-    TimingTrack, format_ms,
-};
-use serde_json::{Value, json};
+use pf_sequence::{Effect, EffectId, Mark, Row, RowId, TimingKind, TimingTrack, format_ms};
+use serde_json::Value;
 
 /// Effects one call may add, at most.
 pub const MAX_PLACED: usize = 2_000;
@@ -153,7 +150,7 @@ impl Spread {
     }
 }
 
-fn text_list(value: &Value, what: &str) -> Result<Vec<String>, String> {
+pub(crate) fn text_list(value: &Value, what: &str) -> Result<Vec<String>, String> {
     match value {
         Value::Null => Ok(Vec::new()),
         Value::Array(items) => items
@@ -169,7 +166,7 @@ fn text_list(value: &Value, what: &str) -> Result<Vec<String>, String> {
 }
 
 /// Refuses fields `what` doesn't take (a misspelled option would otherwise be ignored).
-fn known_keys(value: &Value, known: &[&str], what: &str) -> Result<(), String> {
+pub(crate) fn known_keys(value: &Value, known: &[&str], what: &str) -> Result<(), String> {
     let unknown: Vec<&str> = value
         .as_object()
         .map(|o| {
@@ -195,82 +192,6 @@ fn time(input: &Value, field: &str) -> Result<u64, String> {
         .ok_or_else(|| format!("{field} must be a whole number of milliseconds."))
 }
 
-/// The effect described by `place_effects`' `effect`: a kind with settings, colors, blend, and
-/// fades (its id and times are set per copy).
-fn template(spec: &Value) -> Result<Effect, String> {
-    known_keys(
-        spec,
-        &["kind", "settings", "colors", "blend", "fadeInMs", "fadeOutMs"],
-        "effect",
-    )?;
-    let kind = spec["kind"].as_str().unwrap_or_default();
-    if serde_json::from_value::<EffectKind>(json!(kind)).is_err() {
-        let kinds: Vec<String> = EffectKind::ALL
-            .iter()
-            .filter_map(|k| serde_json::to_value(k).ok())
-            .filter_map(|k| k.as_str().map(str::to_string))
-            .collect();
-        return Err(format!(
-            "There's no effect kind \"{kind}\"; choose from {}.",
-            kinds.join(", ")
-        ));
-    }
-    let mut params = match &spec["settings"] {
-        Value::Object(settings) => {
-            let mut object = settings.clone();
-            object.insert("kind".into(), json!(kind));
-            let given = Value::Object(object);
-            let params = serde_json::from_value::<EffectParams>(given.clone()).map_err(|e| {
-                format!("Those settings don't fit a {kind} effect: {e}. list_effect_kinds lists them.")
-            })?;
-            let ignored: Vec<String> =
-                crate::tools::ignored_keys(&given, &serde_json::to_value(&params).unwrap_or(Value::Null))
-                    .into_iter()
-                    .map(|k| format!("settings.{k}"))
-                    .collect();
-            if !ignored.is_empty() {
-                return Err(crate::tools::ignored_message(&ignored));
-            }
-            params
-        }
-        Value::Null => {
-            serde_json::from_value::<EffectParams>(json!({ "kind": kind })).map_err(|e| e.to_string())?
-        }
-        _ => return Err("settings must be an object.".into()),
-    };
-    params.sanitize();
-    let colors = text_list(&spec["colors"], "colors")?;
-    if colors.len() > pf_sequence::MAX_PALETTE_COLORS {
-        return Err(format!(
-            "An effect takes at most {} colors.",
-            pf_sequence::MAX_PALETTE_COLORS
-        ));
-    }
-    let colors: Vec<Rgb> = colors
-        .iter()
-        .map(|c| {
-            serde_json::from_value::<Rgb>(json!(c))
-                .map_err(|_| format!("\"{c}\" isn't a color; use \"#rrggbb\"."))
-        })
-        .collect::<Result<_, _>>()?;
-    let blend = match &spec["blend"] {
-        Value::Null => Blend::default(),
-        value => serde_json::from_value::<Blend>(value.clone()).map_err(|_| {
-            let keys: Vec<&str> = Blend::ALL.iter().map(|b| b.key()).collect();
-            format!("blend is one of {}.", keys.join(", "))
-        })?,
-    };
-    let fade = |field: &str| u32::try_from(spec[field].as_u64().unwrap_or(0)).unwrap_or(u32::MAX);
-    let mut effect = Effect::new(params.kind(), 0, 1).with_params(params);
-    if !colors.is_empty() {
-        effect.palette = Palette::new(colors);
-    }
-    effect.blend = blend;
-    effect.fade_in_ms = fade("fadeInMs");
-    effect.fade_out_ms = fade("fadeOutMs");
-    Ok(effect)
-}
-
 /// `effect` placed from `start` to `end`, with a new id and fades that fit.
 fn placed(effect: &Effect, start_ms: u64, end_ms: u64) -> Effect {
     let mut out = effect.clone();
@@ -283,7 +204,7 @@ fn placed(effect: &Effect, start_ms: u64, end_ms: u64) -> Effect {
     out
 }
 
-fn rows_named<'a>(rows: &'a [Row], ids: &[String]) -> Result<Vec<&'a Row>, String> {
+pub(crate) fn rows_named<'a>(rows: &'a [Row], ids: &[String]) -> Result<Vec<&'a Row>, String> {
     ids.iter()
         .map(|id| {
             rows.iter().find(|r| r.id.to_string() == *id).ok_or_else(|| {
@@ -293,7 +214,7 @@ fn rows_named<'a>(rows: &'a [Row], ids: &[String]) -> Result<Vec<&'a Row>, Strin
         .collect()
 }
 
-fn plural(n: usize, one: &str, many: &str) -> String {
+pub(crate) fn plural(n: usize, one: &str, many: &str) -> String {
     if n == 1 {
         format!("1 {one}")
     } else {
@@ -401,7 +322,13 @@ pub fn place(draft: &mut Draft, input: &Value) -> Result<String, String> {
         ],
         "place_effects",
     )?;
-    let effect = template(&input["effect"])?;
+    let effect = crate::effect_spec::parse(
+        &input["effect"],
+        &crate::effect_spec::Context {
+            tracks: &doc.timing_tracks,
+            pictures: Some(&draft.base().images),
+        },
+    )?;
     let ids = text_list(&input["rowIds"], "rowIds")?;
     if ids.is_empty() {
         return Err("Give at least one row in rowIds.".into());

@@ -24,6 +24,8 @@ pub enum ToolKind {
         tag: String,
     },
     Query(Query),
+    /// Answers guides: what effects draw and how to design with them.
+    Guide,
     /// Reads the open sequence's song (tempo, bars, sections, accents, energy).
     AnalyzeSong,
     /// Adds the song's timing tracks to the draft.
@@ -32,6 +34,8 @@ pub enum ToolKind {
     PlaceEffects,
     /// Copies a stretch of effects to other times.
     RepeatEffects,
+    /// Changes, retimes, copies, moves, or removes many effects at once.
+    ChangeEffects,
     /// Expands lighting cues (hits, blackouts, ramps, ...) into effects.
     StageCue,
     /// Offers the user a button to start a new sequence from a song.
@@ -82,6 +86,7 @@ impl Default for Toolbox {
 impl Toolbox {
     pub fn new() -> Self {
         let mut tools = query_tools();
+        tools.push(guide_tool());
         tools.extend(show_edit_tools());
         tools.extend(sequence_edit_tools());
         tools.extend(song_tools());
@@ -245,12 +250,33 @@ fn compact_large_unions(tools: &mut [Tool]) {
                 }),
             );
         }
+        // What each blend and curve shape does is in the guides (generated from these same
+        // comments): here, their names.
+        for (name, topic) in [("Blend", "blends"), ("CurveShape", "curves")] {
+            let Some(definition) = defs.get(name) else {
+                continue;
+            };
+            let names: Vec<Value> = definition["oneOf"]
+                .as_array()
+                .map(|options| options.iter().map(|o| o["const"].clone()).collect())
+                .unwrap_or_default();
+            if !names.is_empty() {
+                defs.insert(
+                    name.into(),
+                    json!({
+                        "type": "string",
+                        "enum": names,
+                        "description": format!("get_guide topic `{topic}` says what each does."),
+                    }),
+                );
+            }
+        }
         if defs.contains_key("EffectParams") {
             defs.insert(
                 "EffectParams".into(),
                 json!({
                     "type": "object",
-                    "description": "`kind` plus any of its settings (the rest take their defaults); list_effect_kinds lists them.",
+                    "description": "`kind` plus any of its settings (the rest take their defaults); get_guide and list_effect_kinds give them.",
                     "properties": { "kind": { "enum": kinds } },
                     "required": ["kind"],
                 }),
@@ -607,19 +633,90 @@ pub fn sequence_edit(tag: &str, input: &Value) -> Result<SequenceEdit, String> {
     parse_whole(tag, input)
 }
 
-fn parse_whole<T: serde::de::DeserializeOwned + serde::Serialize>(
+fn parse_whole<T: serde::de::DeserializeOwned + serde::Serialize + schemars::JsonSchema>(
     tag: &str,
     input: &Value,
 ) -> Result<T, String> {
     let tagged = tagged(tag, input)?;
     let edit: T = serde_json::from_value(tagged.clone())
         .map_err(|e| format!("That input doesn't fit this edit: {e}"))?;
-    let ignored = ignored_keys(&tagged, &serde_json::to_value(&edit).unwrap_or(Value::Null));
+    let mut ignored = ignored_keys(&tagged, &serde_json::to_value(&edit).unwrap_or(Value::Null));
+    if !ignored.is_empty() {
+        // A setting given its neutral value (a brightness of 1, no curves) isn't written back
+        // either: the edit's schema says whether a name is one it has.
+        let schema = serde_json::to_value(schemars::schema_for!(T)).unwrap_or(Value::Null);
+        ignored.retain(|path| !declares(&schema, &schema, &tagged, &path_segments(path)));
+    }
     if ignored.is_empty() {
         Ok(edit)
     } else {
         Err(ignored_message(&ignored))
     }
+}
+
+/// `prop.regions[2].name` as its steps: names, and `None` for a place in a list.
+fn path_segments(path: &str) -> Vec<Option<String>> {
+    let mut out = Vec::new();
+    for part in path.split('.') {
+        let (name, places) = part.split_once('[').map_or((part, ""), |(n, rest)| (n, rest));
+        out.push(Some(name.to_string()));
+        out.extend(places.matches(']').map(|_| None));
+    }
+    out
+}
+
+/// Whether `schema` (a JSON Schema, its definitions in `root`) has a place for what's at `path`
+/// in `value`: every name on the way is a property of the object it's in (or that object takes
+/// any name). Where the schema offers several shapes, the ones that fit `value`'s tags count.
+fn declares(root: &Value, schema: &Value, value: &Value, path: &[Option<String>]) -> bool {
+    let Some((step, rest)) = path.split_first() else {
+        return true;
+    };
+    // The shapes this schema can be: itself, what it refers to, or one of its choices.
+    let mut shapes: Vec<&Value> = vec![schema];
+    if let Some(name) = schema["$ref"].as_str().and_then(|r| r.strip_prefix("#/$defs/")) {
+        shapes.push(&root["$defs"][name]);
+    }
+    for key in ["oneOf", "anyOf", "allOf"] {
+        if let Some(options) = schema[key].as_array() {
+            for option in options {
+                // A choice tagged with a constant only counts for a value with that tag.
+                let fits = option["properties"].as_object().is_none_or(|properties| {
+                    properties.iter().all(|(tag, property)| {
+                        property.get("const").is_none_or(|c| value.get(tag) == Some(c))
+                    })
+                });
+                if fits && declares(root, option, value, path) {
+                    return true;
+                }
+            }
+        }
+    }
+    shapes.iter().any(|shape| {
+        if !std::ptr::eq(*shape, schema) && declares(root, shape, value, path) {
+            return true;
+        }
+        match step {
+            Some(name) => {
+                let Some(next) = value.get(name) else {
+                    return false;
+                };
+                if let Some(property) = shape["properties"].get(name) {
+                    return declares(root, property, next, rest);
+                }
+                match &shape["additionalProperties"] {
+                    Value::Object(_) => declares(root, &shape["additionalProperties"], next, rest),
+                    _ => false,
+                }
+            }
+            None => shape.get("items").is_some_and(|items| {
+                // Whichever item of the list the path goes through: all are the same shape.
+                value
+                    .as_array()
+                    .is_some_and(|list| list.iter().any(|item| declares(root, items, item, rest)))
+            }),
+        }
+    })
 }
 
 /// Where in `input` there are settings that `parsed` (the same value read into its type and
@@ -734,7 +831,7 @@ fn query_tools() -> Vec<Tool> {
         ),
         query(
             "list_props",
-            "Every prop: id, name, shape type, pixel count, position, the controller port it's wired to, and its groups. Optionally only props whose name contains some text.",
+            "Every prop: id, name, shape type, role (outline, tree, matrix, arch, window, round, other), pixel count, grid (columns x rows, when it is one), position, the controller port it's wired to, its groups, submodels, and faces. Optionally only props whose name contains some text.",
             object(json!({ "nameContains": { "type": "string" } }), &[]),
             Query::ListProps,
         ),
@@ -782,7 +879,7 @@ fn query_tools() -> Vec<Tool> {
         ),
         query(
             "list_effect_kinds",
-            "Effect kinds for sequences, with their settings: keys, ranges, defaults, and choices. All of them, or one `kind`.",
+            "Every effect kind with its settings' keys; or one `kind`'s settings as data: ranges, defaults, and choices (get_guide says how to use them).",
             object(json!({ "kind": { "type": "string" } }), &[]),
             Query::EffectKinds,
         ),
@@ -809,11 +906,12 @@ fn query_tools() -> Vec<Tool> {
         ),
         query(
             "list_sequence_effects",
-            "Effects in the open sequence, in full: optionally one row only, and only those overlapping a time range.",
+            "Effects in the open sequence, in full: optionally one row only, and only those overlapping a time range. brief (or too many to give in full): each as id, row, layer, kind, and times.",
             object(
                 {
                     let mut p = time_range();
                     p["rowId"] = json!({ "type": "string", "description": "Only this row." });
+                    p["brief"] = json!({ "type": "boolean" });
                     p
                 },
                 &[],
@@ -836,6 +934,24 @@ fn query_tools() -> Vec<Tool> {
     ]
 }
 
+/// `get_guide`: the Assistant's knowledge, fetched when it needs it (see [`crate::knowledge`]).
+fn guide_tool() -> Tool {
+    let names = |keys: Vec<String>| json!({ "type": "array", "items": { "enum": keys } });
+    let topics = crate::knowledge::library::topic_keys();
+    tool(
+        "get_guide",
+        "PixelFlow's own guides: read the ones you need before you design. An effect's: what it draws on each kind of prop, the settings that matter, ready-made looks for place_effects, and every setting's range and choices. A topic's: how to design a show, and what every effect shares. Neither: the list.",
+        object(
+            json!({
+                "effects": names(crate::knowledge::reference::kind_keys()),
+                "topics": names(topics.into_iter().map(String::from).collect()),
+            }),
+            &[],
+        ),
+        ToolKind::Guide,
+    )
+}
+
 fn tool(name: &str, description: &str, input_schema: Value, kind: ToolKind) -> Tool {
     Tool {
         spec: ToolSpec {
@@ -845,6 +961,23 @@ fn tool(name: &str, description: &str, input_schema: Value, kind: ToolKind) -> T
         },
         kind,
     }
+}
+
+/// An effect as `place_effects` takes one (see [`crate::effect_spec`]): its settings by key, and
+/// by name whatever else an effect can have.
+fn effect_description() -> Value {
+    let rest = crate::effect_spec::EFFECT_WIDE[1..].join(", ");
+    json!({
+        "type": "object",
+        "description": format!("An effect as the guides' looks give one. Also takes {rest} (get_guide topic `effect-wide`)."),
+        "properties": {
+            "kind": { "type": "string" },
+            "settings": { "type": "object", "description": "The kind's settings by key." },
+            "colors": { "type": "array", "items": { "type": "string" } },
+            "curves": { "type": "object", "description": "A curve by setting key; a timingTrack may be a name." },
+        },
+        "required": ["kind"],
+    })
 }
 
 /// Starting a sequence from a song, reading the song, and placing many effects in one call.
@@ -881,19 +1014,7 @@ fn song_tools() -> Vec<Tool> {
                     "rowIds": ids(),
                     "fromMs": ms(),
                     "toMs": ms(),
-                    "effect": {
-                        "type": "object",
-                        "description": "kind and settings as list_effect_kinds gives them; colors as \"#rrggbb\".",
-                        "properties": {
-                            "kind": { "type": "string" },
-                            "settings": { "type": "object" },
-                            "colors": { "type": "array", "items": { "type": "string" } },
-                            "blend": { "enum": pf_sequence::Blend::ALL.map(pf_sequence::Blend::key) },
-                            "fadeInMs": ms(),
-                            "fadeOutMs": ms(),
-                        },
-                        "required": ["kind"],
-                    },
+                    "effect": effect_description(),
                     "track": { "type": "string", "description": "Id or name." },
                     "match": { "type": "string", "description": "Only marks with this word, phrase, or regex." },
                     "marksEach": { "type": "integer", "minimum": 1, "description": "Marks per effect." },
@@ -921,8 +1042,38 @@ fn song_tools() -> Vec<Tool> {
             ToolKind::RepeatEffects,
         ),
         tool(
+            "change_effects",
+            "Changes many effects there already at once: those with ids, on rowIds, starting from fromMs up to toMs, on layer, of kinds (all you give must hold). Then one of: change, lengthMs, and shiftMs (any together); copyToRowIds (same times and layers); moveTo; remove. Refused where a result overlaps another effect on its layer, unless replace.",
+            object(
+                json!({
+                    "ids": ids(),
+                    "rowIds": ids(),
+                    "fromMs": ms(),
+                    "toMs": ms(),
+                    "layer": ms(),
+                    "kinds": ids(),
+                    "change": { "type": "object", "description": "What changes, the rest staying: as place_effects' effect without kind; settings and curves by key (a curve of null comes off)." },
+                    "lengthMs": { "type": "integer", "minimum": 1, "description": "Each one's length." },
+                    "shiftMs": { "type": "integer", "description": "Later, or (negative) earlier." },
+                    "copyToRowIds": ids(),
+                    "moveTo": { "type": "object", "properties": { "rowId": { "type": "string" }, "layer": ms() } },
+                    "remove": { "type": "boolean" },
+                    "replace": { "type": "boolean" },
+                }),
+                &[],
+            ),
+            ToolKind::ChangeEffects,
+        ),
+        tool(
             "stage_cue",
-            "Stages lighting cues, each expanded into finished effects on a new top layer of its props' rows (section looks stay below; nothing overlaps). hit: ½ beat dark, then a punch decaying 1-2 beats (strobe and lightning when intensity ≥0.85). blackout: off until `until`, then a hit. ramp: brighter, faster, hotter each bar to until; ends on a hit at an impact (or hit:true). sweep: a wipe across the layout. chase: props flash one by one in layout order on track marks (else drum hits, else eighths). call_response: targets and with (else left and right halves) alternate on track marks (else bars). word_pop: a pop on each sung word matching match (a moment's word); ≥0.85 pops everything and sets faces singing. sing: talking props sing. minimal: a few props breathe dimly, the rest dark. full: meters, spirals, chases, bass pulses. sustain: hold, then fade out. color_shift: to colors, travelling across. breathe: a pulse with the bass, or on track. dance: a dancing character (match: skeleton, ghost, witch, santa, snowman, elf) on each matrix, pairs facing each other. stageMoments stages each moment analyze_song lists from minImportance (and of kinds) as its suggest says.",
+            &format!(
+                "Stages lighting cues, each expanded into finished effects on a new top layer of its props' rows (section looks stay below; nothing overlaps). {}. stageMoments stages each moment analyze_song lists from minImportance (and of kinds) as its suggest says.",
+                crate::cues::CUE_NOTES
+                    .iter()
+                    .map(|(cue, note)| format!("{cue}: {note}"))
+                    .collect::<Vec<_>>()
+                    .join(". ")
+            ),
             object(
                 json!({
                     "cues": {
@@ -965,7 +1116,7 @@ fn draft_tools() -> Vec<Tool> {
         Tool {
             spec: ToolSpec {
                 name: "review_draft".into(),
-                description: "Reviews the draft's sequence (the open one, if unchanged) against its song: a score, one per criterion (top moments shown, contrast before hits, energy following the music, repeated sections alike, variety, flash safety, hook words, dark stretches, restraint), and up to 12 fixes with times and the tool calls that make them. Then lists everything your draft changes."
+                description: "Reviews the draft's sequence (the open one, if unchanged) against its song and as a design: a score, one per criterion (moments shown and big enough, contrast, energy, repeated sections alike, new sections changing, variety, palette, every prop used, something resting, effects suited to their props, words readable, flash safety, hook words, dead air, restraint), and up to 12 fixes, one of each kind first, with times and the tool calls that make them. Then lists everything your draft changes."
                     .into(),
                 input_schema: object(json!({}), &[]),
             },

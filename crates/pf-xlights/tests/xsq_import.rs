@@ -6,9 +6,9 @@ use pf_model::{
 };
 use pf_sequence::{
     Axis, BarsMotion, BarsParams, Blend, ChaseParams, ColorWashParams, Direction, Effect, EffectParams,
-    FaceColorSource, FaceEyes, FacesParams, FireParams, FireStyle, Gradient, Mark, MeteorDirection,
-    MeteorsParams, OnParams, Rgb, RippleParams, Row, RowBlending, ShapeObject, ShimmerParams, SpiralParams,
-    StrobeParams, Target, TimingKind, TwinkleParams, WaveParams,
+    FaceColorSource, FaceEyes, FacesParams, FireParams, FireStyle, FireworksParams, Gradient, Mark,
+    MeteorDirection, MeteorsParams, OnParams, Rgb, RippleParams, Row, RowBlending, ShapeObject,
+    ShimmerParams, SpiralParams, StrobeParams, Target, TimingKind, TwinkleParams, WaveParams,
 };
 use pf_xlights::sequence::{Fidelity, SequenceImport, Verdict, build_sequence, parse_xsq};
 use pf_xlights::{import_folder, import_sequence_file};
@@ -974,6 +974,71 @@ fn shapes_fire_on_their_timing_track_and_old_fans_measure_in_pixels() {
     assert!(!has_note(&i, "Fan"), "{:#?}", i.notes);
     // Groups draw on xLights' grid, so sizes in pixels on a group match.
     assert!(!has_note(&i, "Circles"), "{:#?}", i.notes);
+}
+
+/// Fireworks come across as Fireworks, with the timing track they burst on (one with a single
+/// layer). On a track they are expected to look the same; at random moments, close.
+#[test]
+fn fireworks_are_fireworks_and_burst_on_their_timing_track() {
+    let xml = r#"<xsequence FixedPointTiming="1">
+      <head><version>2024.19</version><sequenceTiming>50 ms</sequenceTiming><sequenceDuration>10</sequenceDuration></head>
+      <ElementEffects>
+        <Element type="timing" name="Beats">
+          <EffectLayer><Effect label="" startTime="0" endTime="500"/><Effect label="" startTime="500" endTime="1000"/></EffectLayer>
+        </Element>
+        <Element type="timing" name="Song">
+          <EffectLayer><Effect label="la la" startTime="0" endTime="1000"/></EffectLayer>
+          <EffectLayer><Effect label="la" startTime="0" endTime="500"/></EffectLayer>
+        </Element>
+        <Element type="model" name="Window Matrix"><EffectLayer>
+          <Effect name="Fireworks" startTime="0" endTime="2000">E_CHECKBOX_FIRETIMING=0,E_CHECKBOX_Fireworks_Gravity=1,E_CHECKBOX_Fireworks_HoldColour=1,E_CHECKBOX_Fireworks_UseMusic=0,E_SLIDER_Fireworks_Count=30,E_SLIDER_Fireworks_Explosions=4,E_SLIDER_Fireworks_Fade=50,E_SLIDER_Fireworks_Velocity=2,E_SLIDER_Fireworks_XLocation=-1,E_SLIDER_Fireworks_YLocation=-1</Effect>
+          <Effect name="Fireworks" startTime="2000" endTime="4000">E_CHECKBOX_FIRETIMING=1,E_CHOICE_FIRETIMINGTRACK=Beats</Effect>
+          <Effect name="Fireworks" startTime="4000" endTime="6000">E_CHECKBOX_FIRETIMING=1,E_CHOICE_FIRETIMINGTRACK=Song</Effect>
+          <Effect name="Fireworks" startTime="6000" endTime="8000">E_CHECKBOX_FIRETIMING=1,E_CHOICE_FIRETIMINGTRACK=Gone</Effect>
+        </EffectLayer></Element>
+      </ElementEffects>
+    </xsequence>"#;
+    let show = show();
+    let i = build_sequence(&parse_xsq(xml).unwrap(), &show, "x");
+    assert_opens(&i);
+    let beats = i
+        .sequence
+        .timing_tracks
+        .iter()
+        .find(|t| t.name == "Beats")
+        .unwrap()
+        .id;
+    let effects = &row(&i, &show, "Window Matrix").layers[0].effects;
+    let fireworks: Vec<&FireworksParams> = effects
+        .iter()
+        .map(|e| match &e.params {
+            EffectParams::Fireworks(p) => p,
+            other => panic!("{other:?}"),
+        })
+        .collect();
+    // Four bursts in two seconds; sparks that glow for 25 frames of 50 ms and fly 2 cells in each.
+    let first = fireworks[0];
+    assert_eq!(
+        (first.rate, first.sparks, first.size, first.life),
+        (2.0, 30, 50.0, 1.25)
+    );
+    assert!(!first.scale && !first.soft && first.random_location);
+    assert_eq!(
+        fireworks.iter().map(|p| p.timing_track).collect::<Vec<_>>(),
+        [None, Some(beats), None, None]
+    );
+    // The one on its track is expected to look the same; the others say why they won't.
+    assert_eq!((i.summary.exact, i.summary.approximate), (1, 3));
+    assert_note(&i, "bursts go off at other random moments than xLights' (1)");
+    assert_note(
+        &i,
+        "its timing track has more than one layer, so bursts go off at random moments (1)",
+    );
+    assert_note(
+        &i,
+        "its timing track isn't in the sequence, so bursts go off at random moments (1)",
+    );
+    assert!(!has_note(&i, "shown as twinkles"), "{:#?}", i.notes);
 }
 
 /// VU Meters bring their timing tracks, and so do curves that follow a timing track.

@@ -15,14 +15,15 @@ use pf_model::{BufferTransform, RenderStyle};
 use pf_sequence::{
     Axis, BarsMotion, BarsParams, Blend, ButterflyColors, ButterflyParams, ChaseParams, CirclesLook,
     CirclesParams, ColorWashParams, Curve, CurveShape, Direction, EffectParams, FaceColorSource, FaceEyes,
-    FacesParams, FanParams, FillDirection, FillParams, FireLocation, FireParams, FireStyle, GarlandShape,
-    GarlandsDirection, GarlandsParams, Gradient, LifeParams, LifeRules, LightningParams, LinesParams,
-    MAX_CURVE_CYCLES, MIN_CURVE_CYCLES, MeteorDirection, MeteorsParams, MorphParams, OffParams, OnParams,
-    Palette, PictureFit, PictureMovement, PictureParams, PictureResize, PictureTiming, PinwheelParams,
-    PinwheelShading, PinwheelStyle, PlasmaColors, PlasmaParams, Rgb, RippleParams, SettingRange, ShapeObject,
-    ShapeParams, ShimmerParams, ShockwaveParams, SnowflakeShape, SnowflakesMotion, SnowflakesParams,
-    SpiralParams, StrobeParams, TendrilMovement, TendrilParams, TextCountdown, TextMovement, TextOrientation,
-    TextParams, TwinkleParams, VuMeterParams, VuMeterShape, VuMeterType, WaveParams,
+    FacesParams, FanParams, FillDirection, FillParams, FireLocation, FireParams, FireStyle, FireworksColors,
+    FireworksParams, GarlandShape, GarlandsDirection, GarlandsParams, Gradient, LifeParams, LifeRules,
+    LightningParams, LinesParams, MAX_CURVE_CYCLES, MIN_CURVE_CYCLES, MeteorDirection, MeteorsParams,
+    MorphParams, OffParams, OnParams, Palette, PictureFit, PictureMovement, PictureParams, PictureResize,
+    PictureTiming, PinwheelParams, PinwheelShading, PinwheelStyle, PlasmaColors, PlasmaParams, Rgb,
+    RippleParams, SettingRange, ShapeObject, ShapeParams, ShimmerParams, ShockwaveParams, SnowflakeShape,
+    SnowflakesMotion, SnowflakesParams, SpiralParams, StrobeParams, TendrilMovement, TendrilParams,
+    TextCountdown, TextMovement, TextOrientation, TextParams, TwinkleParams, VuMeterParams, VuMeterShape,
+    VuMeterType, WaveParams,
 };
 use std::collections::BTreeMap;
 
@@ -908,6 +909,88 @@ fn fill(r: &Reader) -> EffectParams {
         offset_in_cells: r.check_or("Fill_Offset_In_Pixels", true),
         wrap: r.check_or("Fill_Wrap", true),
         color_by_time: r.check("Fill_Color_Time"),
+    })
+}
+
+/// Frames a spark of xLights' Fireworks glows for, for each unit of its Particle Fade.
+const FIREWORKS_GLOW_FRAMES: f64 = 0.5;
+/// xLights' usual Particle Fade, the one its sparks were measured at.
+const FIREWORKS_MEASURED_FADE: f64 = 50.0;
+/// With Gravity on, how many cells xLights' sparks have dropped, for the square of the frames
+/// they have glowed: a tenth of how far the fastest has flown, at the settings measured.
+const FIREWORKS_DROP: f64 = 0.008;
+
+/// What an import says of Fireworks that go off at random moments.
+const FIREWORKS_OWN_MOMENTS: &str = "bursts go off at other random moments than xLights'";
+
+/// xLights' Fireworks, set up from what its rendered frames show (`docs/fidelity.md`), measured
+/// with Particle Fade at 50, Velocity at 2, and 25 ms frames: a burst at a time, at random
+/// moments, as many over the effect as "Number of Explosions"; each spark one cell of the
+/// buffer, lit whole, flying at up to Velocity cells a frame, each way as likely as any other;
+/// every spark dimming evenly to nothing over 25 frames; a burst in one palette color with
+/// Hold Color on; and Gravity dropping the sparks no more than a tenth of how far they fly.
+/// xLights counts in frames and cells, PixelFlow in seconds and (here) cells, so the burst's
+/// size is how far the fastest spark flies in its glow time.
+///
+/// A timing track is looked up by name when the effect is placed (see `Builder::effect`).
+fn fireworks(r: &Reader, duration_ms: u64, frame: f64, diff: &mut Diff) -> EffectParams {
+    let use_timing = r.check("FIRETIMING") && !r.choice("FIRETIMINGTRACK", "").trim().is_empty();
+    let fire_on_music = !use_timing && r.check("Fireworks_UseMusic");
+    if fire_on_music {
+        diff.add("bursts follow the music at about the moments xLights' do");
+    } else if !use_timing {
+        // Each program draws its own moments: a burst is as likely at any one as in xLights,
+        // and never at the same ones.
+        diff.add(FIREWORKS_OWN_MOMENTS);
+    }
+    let fade = r.get("Fireworks_Fade", FIREWORKS_MEASURED_FADE, 1.0, 100.0);
+    if (fade - FIREWORKS_MEASURED_FADE).abs() > 0.5 {
+        diff.add("sparks may glow for longer or shorter than in xLights");
+    }
+    let glow_frames = fade * FIREWORKS_GLOW_FRAMES;
+    let velocity = r.get("Fireworks_Velocity", 2.0, 1.0, 100.0);
+    let colors = if r.check_or("Fireworks_HoldColour", true) {
+        FireworksColors::Burst
+    } else {
+        diff.add("sparks change color through the palette as they fade, perhaps not as xLights changes them");
+        FireworksColors::Fade
+    };
+    if r.get("Fireworks_XVelocity", 0.0, -1000.0, 1000.0) != 0.0
+        || r.get("Fireworks_YVelocity", 0.0, -1000.0, 1000.0) != 0.0
+    {
+        diff.add("bursts stay where they go off, where xLights moves them");
+    }
+    // A location of -1 is anywhere at random.
+    let (x, y) = (
+        r.get("Fireworks_XLocation", -1.0, -1.0, 100.0),
+        r.get("Fireworks_YLocation", -1.0, -1.0, 100.0),
+    );
+    if (x < 0.0) != (y < 0.0) {
+        diff.add("bursts go off anywhere on the prop, where xLights keeps them in one line");
+    }
+    let place = |at: f64| if at < 0.0 { 50.0 } else { at as f32 };
+    EffectParams::Fireworks(FireworksParams {
+        rate: per_second(r.get("Fireworks_Explosions", 16.0, 1.0, 1000.0), duration_ms),
+        sparks: count(r.get("Fireworks_Count", 50.0, 1.0, 1000.0), 1, 1000),
+        size: (velocity * glow_frames) as f32,
+        life: (glow_frames * frame / 1000.0) as f32,
+        trail: 0.0,
+        fall: if r.check_or("Fireworks_Gravity", true) {
+            (FIREWORKS_DROP * glow_frames / velocity) as f32
+        } else {
+            0.0
+        },
+        colors,
+        timing_track: None,
+        fire_on_music,
+        random_location: x < 0.0 || y < 0.0,
+        trigger_level: r.get("Fireworks_Sensitivity", 50.0, 0.0, 100.0) as f32,
+        center_x: place(x),
+        center_y: place(y),
+        spark_size: 1.0,
+        slowing: 0.0,
+        soft: false,
+        scale: false,
     })
 }
 
@@ -1920,8 +2003,8 @@ fn effect_params(
         "pictures" => pictures(&r, duration_ms, diff),
         "shockwave" => shockwave(&r, diff),
         "fill" => fill(&r),
+        "fireworks" => fireworks(&r, duration_ms, frame, diff),
         // No direct equivalent: the closest PixelFlow effect, with its default settings.
-        "fireworks" => closest("twinkles", EffectParams::Twinkle(TwinkleParams::default())),
         "snowstorm" => closest("falling meteors", EffectParams::Meteors(MeteorsParams::default())),
         "galaxy" => closest("a spiral", EffectParams::Spiral(SpiralParams::default())),
         "curtain" => closest("moving bars", EffectParams::Bars(BarsParams::default())),
@@ -3992,6 +4075,170 @@ mod tests {
             translate("Fire", &s, &palette(&[]), 2000, 25).unwrap().fidelity,
             Fidelity::Exact
         );
+    }
+
+    #[test]
+    fn fireworks_carry_their_numbers_over_in_cells_and_seconds() {
+        // Every setting as xLights writes it for a new effect: sixteen bursts of fifty sparks.
+        let usual = "E_CHECKBOX_FIRETIMING=0,E_CHECKBOX_Fireworks_Gravity=1,E_CHECKBOX_Fireworks_HoldColour=1,\
+                     E_CHECKBOX_Fireworks_UseMusic=0,E_SLIDER_Fireworks_Count=50,E_SLIDER_Fireworks_Explosions=16,\
+                     E_SLIDER_Fireworks_Fade=50,E_SLIDER_Fireworks_Velocity=2,E_SLIDER_Fireworks_XLocation=-1,\
+                     E_SLIDER_Fireworks_XVelocity=0,E_SLIDER_Fireworks_YLocation=-1,E_SLIDER_Fireworks_YVelocity=0,\
+                     E_TEXTCTRL_Fireworks_XLocation=-1,E_TEXTCTRL_Fireworks_XVelocity=0,\
+                     E_TEXTCTRL_Fireworks_YLocation=-1,E_TEXTCTRL_Fireworks_YVelocity=0";
+        let t = translate(
+            "Fireworks",
+            &Settings::parse(usual),
+            &palette(&[Rgb::RED]),
+            40_000,
+            25,
+        )
+        .unwrap();
+        let expected = FireworksParams {
+            // Sixteen over forty seconds.
+            rate: 0.4,
+            sparks: 50,
+            // A spark glows for 25 frames, and the fastest flies 2 cells in each.
+            size: 50.0,
+            life: 0.625,
+            trail: 0.0,
+            fall: 0.1,
+            colors: FireworksColors::Burst,
+            timing_track: None,
+            fire_on_music: false,
+            random_location: true,
+            trigger_level: 50.0,
+            center_x: 50.0,
+            center_y: 50.0,
+            // A spark is one whole cell of the buffer, at one speed all its life.
+            spark_size: 1.0,
+            slowing: 0.0,
+            soft: false,
+            scale: false,
+        };
+        assert_eq!(t.params, EffectParams::Fireworks(expected));
+        // Every number has its setting; the moments the bursts go off at are each program's own.
+        let own_moments = Fidelity::Approximate(vec![FIREWORKS_OWN_MOMENTS.into()]);
+        assert_eq!(t.fidelity, own_moments);
+        assert!(t.curves.is_empty());
+        // A file that leaves them out means the same.
+        let plain = translate("Fireworks", &Settings::default(), &palette(&[]), 40_000, 25).unwrap();
+        assert_eq!(plain.params, EffectParams::Fireworks(expected));
+        assert_eq!(plain.fidelity, own_moments);
+        // xLights counts in frames: with frames twice as long the sparks glow twice as long
+        // and fly as far.
+        let slow = translate("Fireworks", &Settings::parse(usual), &palette(&[]), 40_000, 50).unwrap();
+        assert_eq!(
+            slow.params,
+            EffectParams::Fireworks(FireworksParams {
+                life: 1.25,
+                ..expected
+            })
+        );
+        // Faster sparks, more of them, more often, in one place, without falling.
+        let s = Settings::parse(
+            "E_SLIDER_Fireworks_Count=80,E_SLIDER_Fireworks_Explosions=30,E_SLIDER_Fireworks_Velocity=4,\
+             E_SLIDER_Fireworks_XLocation=25,E_SLIDER_Fireworks_YLocation=80,E_CHECKBOX_Fireworks_Gravity=0",
+        );
+        let t = translate("Fireworks", &s, &palette(&[]), 10_000, 25).unwrap();
+        assert_eq!(
+            t.params,
+            EffectParams::Fireworks(FireworksParams {
+                rate: 3.0,
+                sparks: 80,
+                size: 100.0,
+                fall: 0.0,
+                random_location: false,
+                center_x: 25.0,
+                center_y: 80.0,
+                ..expected
+            })
+        );
+        assert_eq!(t.fidelity, own_moments);
+        // With gravity, faster sparks have flown further by the time they have dropped as far.
+        let faster = Settings::parse("E_SLIDER_Fireworks_Velocity=4");
+        let EffectParams::Fireworks(fast) = translate("Fireworks", &faster, &palette(&[]), 10_000, 25)
+            .unwrap()
+            .params
+        else {
+            unreachable!()
+        };
+        assert_eq!((fast.size, fast.fall), (100.0, 0.05));
+    }
+
+    #[test]
+    fn fireworks_say_what_was_not_measured_or_cannot_be_shown() {
+        let noted = |settings: &str| match translate(
+            "Fireworks",
+            &Settings::parse(settings),
+            &palette(&[]),
+            8000,
+            25,
+        )
+        .unwrap()
+        {
+            Translated {
+                params: EffectParams::Fireworks(p),
+                fidelity: Fidelity::Approximate(notes),
+                ..
+            } => (p, notes),
+            other => panic!("{other:?}"),
+        };
+        // Another Particle Fade: half as many frames of glow is the reading at 50, held to.
+        let (p, notes) = noted("E_SLIDER_Fireworks_Fade=80");
+        assert_eq!((p.life, p.size), (1.0, 80.0));
+        assert_eq!(
+            notes,
+            [
+                FIREWORKS_OWN_MOMENTS,
+                "sparks may glow for longer or shorter than in xLights"
+            ]
+        );
+        // Colors that change, fireworks that move, and a place along one line only.
+        let (p, notes) = noted(
+            "E_CHECKBOX_Fireworks_HoldColour=0,E_SLIDER_Fireworks_XVelocity=20,E_SLIDER_Fireworks_XLocation=30",
+        );
+        assert_eq!(
+            (p.colors, p.random_location, p.center_x, p.center_y),
+            (FireworksColors::Fade, true, 30.0, 50.0)
+        );
+        assert_eq!(
+            notes,
+            [
+                FIREWORKS_OWN_MOMENTS,
+                "sparks change color through the palette as they fade, perhaps not as xLights changes them",
+                "bursts stay where they go off, where xLights moves them",
+                "bursts go off anywhere on the prop, where xLights keeps them in one line",
+            ]
+        );
+        // With the music, at its trigger level.
+        let (p, notes) = noted("E_CHECKBOX_Fireworks_UseMusic=1,E_SLIDER_Fireworks_Sensitivity=35");
+        assert_eq!((p.fire_on_music, p.trigger_level), (true, 35.0));
+        assert_eq!(
+            notes,
+            ["bursts follow the music at about the moments xLights' do"]
+        );
+        // On a timing track the music is not asked (the track itself is found when the effect
+        // is placed), and the bursts go off when xLights' do.
+        let t = translate(
+            "Fireworks",
+            &Settings::parse(
+                "E_CHECKBOX_FIRETIMING=1,E_CHOICE_FIRETIMINGTRACK=Beats,E_CHECKBOX_Fireworks_UseMusic=1",
+            ),
+            &palette(&[]),
+            8000,
+            25,
+        )
+        .unwrap();
+        let EffectParams::Fireworks(p) = &t.params else {
+            unreachable!()
+        };
+        assert!(!p.fire_on_music);
+        assert_eq!(t.fidelity, Fidelity::Exact);
+        // More than PixelFlow's settings hold is set to the nearest they do.
+        let (p, notes) = noted("E_SLIDER_Fireworks_Explosions=500,E_SLIDER_Fireworks_Count=900");
+        assert_eq!((p.rate, p.sparks), (20.0, 200));
+        assert_eq!(notes, [FIREWORKS_OWN_MOMENTS, BEYOND_RANGE]);
     }
 
     #[test]

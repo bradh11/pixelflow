@@ -39,7 +39,7 @@ function sequencer(): MemorySequencer {
     },
     looks: [
       { verdict: "noEquivalent", effect: "Shader", effects: 40, ms: 120_000, reasons: ["shown as a dim fill in the effect's first color"] },
-      { verdict: "different", effect: "Fireworks", effects: 20, ms: 60_000, reasons: ["shown as twinkles"] },
+      { verdict: "different", effect: "Snowstorm", effects: 20, ms: 60_000, reasons: ["shown as falling meteors"] },
       { verdict: "close", effect: "Bars", effects: 120, ms: 240_000, reasons: ["'Expand' direction shown as straight movement", "fading tail not shown (12)"] },
       { verdict: "close", effect: "Text", effects: 60, ms: 120_000, reasons: ["'Arial' font shown in PixelFlow's pixel font"] },
     ],
@@ -88,7 +88,7 @@ describe("xLights sequence import", () => {
     expect(sections.map((s) => s.getAttribute("aria-label"))).toEqual(["No PixelFlow effect yet", "Looks different", "Looks close"]);
     expect(sections[0]).toHaveTextContent("No PixelFlow effect yet40 effects");
     expect(sections[0]).toHaveTextContent("Shader (40): shown as a dim fill in the effect's first color");
-    expect(sections[1]).toHaveTextContent("Fireworks (20): shown as twinkles");
+    expect(sections[1]).toHaveTextContent("Snowstorm (20): shown as falling meteors");
     expect(sections[2]).toHaveTextContent("Looks close180 effects");
     expect(sections[2]).toHaveTextContent("Bars (120): 'Expand' direction shown as straight movement; fading tail not shown (12)");
     expect(sections[2]).toHaveTextContent("Text (60): 'Arial' font shown in PixelFlow's pixel font");

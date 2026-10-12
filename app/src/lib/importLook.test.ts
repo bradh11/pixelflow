@@ -27,10 +27,10 @@ describe("how an imported sequence comes across", () => {
 
   it("groups what differs by verdict, worst first", () => {
     const group = (verdict: LookGroup["verdict"], effect: string): LookGroup => ({ verdict, effect, effects: 1, ms: 1000, reasons: [] });
-    const sections = looksByVerdict([group("noEquivalent", "Shader"), group("different", "Fireworks"), group("close", "Bars"), group("close", "Text")]);
+    const sections = looksByVerdict([group("noEquivalent", "Shader"), group("different", "Snowstorm"), group("close", "Bars"), group("close", "Text")]);
     expect(sections.map((s) => [s.verdict, s.groups.map((g) => g.effect)])).toEqual([
       ["noEquivalent", ["Shader"]],
-      ["different", ["Fireworks"]],
+      ["different", ["Snowstorm"]],
       ["close", ["Bars", "Text"]],
     ]);
     expect(looksByVerdict([])).toEqual([]);

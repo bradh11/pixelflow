@@ -210,7 +210,7 @@ const COLORS = ["#ff1a1a", "#16c60c", "#ffffff", "#ffb300", "#2a6bff"];
 const LOOKS: Partial<Record<EffectKind, { verdict: LookVerdict; effect: string; reason: string }>> = {
   meteors: { verdict: "close", effect: "Meteors", reason: "about as many meteors at about the speed" },
   wave: { verdict: "close", effect: "Wave", reason: "'Square' wave shown as a sine wave" },
-  shimmer: { verdict: "different", effect: "Fireworks", reason: "shown as twinkles" },
+  shimmer: { verdict: "different", effect: "Snowstorm", reason: "shown as falling meteors" },
 };
 const ORDER: LookVerdict[] = ["matches", "close", "different", "noEquivalent"];
 /** What a vendor's shader on a spinner comes in as: nothing of PixelFlow's draws it yet. */

@@ -34,7 +34,7 @@ plain language: [privacy-and-data-flow.md](../privacy-and-data-flow.md).
 
 | Actor | What they control | Realistic? |
 |---|---|---|
-| **The author of a file the user opens** | A show (`.pixelflow.json`), a sequence (`.pfseq.json`, `.xsq`, `.fseq`), an xLights show folder, a vendor package (`.zip`, `.xsqz`), a picture, a song, a mapping or timing file | Yes. Sequences and props are bought, traded, and downloaded from strangers as a matter of course in this hobby. This is the main way in. |
+| **The author of a file the user opens** | A show (`.pixelflow.json`), a sequence (`.pfseq.json`, `.xsq`, `.fseq`), an xLights show folder, a vendor package (`.zip`, `.xsqz`), a picture, a song, a mapping or timing file, a shader file (`.fs`: a program, see section 9) | Yes. Sequences and props are bought, traded, and downloaded from strangers as a matter of course in this hobby. This is the main way in. |
 | **A device on the same network** | Whatever it answers to HTTP, mDNS, and FPP's discovery ping: a compromised controller, another gadget on the LAN, or a guest's laptop | Plausible. Controllers are unauthenticated and rarely updated. |
 | **Text the assistant reads** | Lyrics from LRCLIB, labels and names inside imported files, song tags | Yes, though it can only steer what the assistant proposes. |
 | **A network attacker between the app and the internet** | Traffic to the AI providers, LRCLIB, Hugging Face, GitHub | Limited by TLS. On the LAN, device traffic is plain HTTP and UDP by the devices' own design. |
@@ -501,6 +501,7 @@ After the fixes on this branch.
 | `.xmap` | `app/src-tauri/src/vendor.rs:141` | 8 MB | |
 | Vendor `.zip`, `.xsqz` | `crates/pf-xlights/src/vendor/package.rs` | None on the zip | Nothing is extracted to a path from the zip; entries are read into memory through a limit (64 MB sequence and layout, 500 MB music); 20,000 entries; 4 GB declared in total |
 | `.fseq` | `crates/pf-fseq/src/` | Never read whole | 64 million channels, 4,095 blocks, 256 MB per decompressed block; compressed blocks read as far as the file goes |
+| Shader files (`.fs`, `.frag`, `.glsl`) | `crates/pf-shader/src/file.rs`, compiled by `crates/pf-shader/src/lower.rs` | 256 KB, ordinary text files only | A program: only `<show>/shaders` or files picked this session, never a network path; see "Shader files are programs" below |
 | Picture effect images | `crates/pf-engine/src/pictures.rs:70`, `crates/pf-render/src/picture/decode.rs` | 64 MB, ordinary files, picture types only | 16,384 a side, 64 million pixels, 512 MB decoded, 2,000 frames; only `<show>/images` or files picked this session; decoder panics caught |
 | Layout photo (window) | `app/src-tauri/src/layout.rs` | 64 MB | Only photos picked or named by an opened show; picture types only |
 | Layout photo (video export) | `crates/pf-video/src/export.rs:103` | 64 MB | The same limits as Picture effect images |
@@ -510,6 +511,60 @@ After the fixes on this branch.
 | Speech model | `crates/pf-align/src/store.rs` | The exact size | Pinned URL, revision, and SHA-256; written to a temporary file and renamed |
 | Downloads from an FPP | `crates/pf-devices/src/http.rs` (`get_to`) | The size the FPP listed, 64 GB at most | Plain file names only; `.fseq` and music only; temporary file, then rename |
 | Device answers (JSON, XML) | `crates/pf-devices/src/http.rs` | 10 MB (the HTTP library's default); status XML 256 KiB | XML 32 levels; no redirects followed |
+
+### Shader files are programs
+
+Added after the review, with the Shader effect. A shader file is GLSL source code that PixelFlow
+runs for every pixel of a prop, every frame, and it comes from wherever the user's shows and
+sequences come from: shared collections, vendors, other people's xLights folders. It is treated
+as hostile code.
+
+- **What it can reach.** Nothing but its own numbers. PixelFlow's own reader and machine
+  (`crates/pf-shader`) run it: no GPU driver, no native code, and no library or system call is
+  reachable from the language it reads. It has no pictures, no files, no music, no network, and
+  no clock (`DATE` is always zero). A shader that asks for what isn't given (pictures, several
+  passes, kept buffers, the music, structures, recursion) is refused when it's read, by name.
+- **Where it comes from.** Only the show's `shaders` folder and files the user picked this
+  session are read (`crates/pf-engine/src/shaders.rs`, `ShaderFiles`), as for pictures; a path in
+  a sequence is not enough, and a network path is never looked at. An xLights import looks for
+  the files a sequence names by name near the sequence and copies those it finds into the show's
+  folder (`crates/pf-xlights/src/sequence/shaders.rs`).
+- **Reading it.** The reader runs on a thread with a stack of its own sized for the deepest
+  input the limits allow, and a fault in reading is an error, not the end of the app. Refused:
+  over 256 KB; over 200,000 tokens after macros (macro expansion is counted as it happens, so
+  macros that double each other stop early); nesting over 128 (expressions, blocks, macros, and
+  calls); over 200,000 instructions once every call is written out in place; over 4,096 numbers a
+  pixel or 256 in one array; 64 inputs, 256 choices each. Header numbers are kept within ±1e9 and
+  defaults inside their ranges. A fuzz-style test (`nonsense_is_refused_and_never_a_crash`)
+  throws damaged shaders at it.
+- **Running it.** Work is counted, never timed, so a shader is stopped at the same place on every
+  computer and every run, and frames stay the same bytes on any number of threads. Each
+  instruction counts for about what it costs beside an addition (a sine 12, a power 24). A pixel
+  may do 100,000; a pixel that would go past is stopped before the block that would take it there
+  and drawn clear. A frame's Shader effects share 500 million between them: the more pixels, the
+  less each may do. A loop nothing can leave, and loops whose turns can be counted and come to
+  more than a pixel may do, are refused when the file is read. Indexes outside an array take the
+  nearest element; division by zero and NaN give what IEEE arithmetic gives, and come out as no
+  light. Memory: at most 4 MB of working numbers for a shader on one thread, and 16 MB a thread in
+  all, made when a shader is first drawn and reused after, with nothing allocated while a frame is
+  drawn (`crates/pf-bench/tests/shader_allocations.rs`).
+- **Measured** (`cargo run --release -p pf-shader --example hostile`, one thread of an M-series
+  laptop, the limits above): loops without end refused in 0.1 to 0.3 ms; two billion counted
+  turns and three nested loops of a thousand refused in 0.1 ms; recursion refused; thirty
+  functions each calling the last twice refused in 17 ms; forty doubling macros refused in 25 ms;
+  a hundred thousand parentheses refused in 11 ms; files of a megabyte refused at once; nine
+  thousand lines of sines refused (more work than a pixel may) in 14 ms. Of what is read and run
+  to its limit, the dearest kind of work costs 0.27 ns a unit (arcsines), and **the slowest frame
+  that could be provoked took 136 ms**, for 4,959 pixels of a loop of arcsines that never ends;
+  ordinary arithmetic stops in 20 to 30 ms. A frame of 250,000 pixels is held to the same, by
+  the frame's limit. Before these limits, the worst such frame took 1.7 s.
+- **What reaches the window.** What a file's header says (description, credit, input names and
+  ranges, each length-limited) and why it can't be used: never the program. The window shows
+  text; nothing there runs a shader.
+- **Not done.** A long fuzzing run, and a review of the machine against a deliberately
+  adversarial work-to-time ratio beyond the table above: a weight that undercounts some
+  instruction pattern could let a frame run longer than 136 ms, though the per-frame cap still
+  ends it.
 
 ## 10. What was already in place
 

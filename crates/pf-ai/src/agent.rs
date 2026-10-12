@@ -147,6 +147,7 @@ fn activity(name: &str) -> String {
         "list_playlist" => "Looking at your playlist".into(),
         "get_selection" => "Looking at what you selected".into(),
         "list_effect_kinds" => "Looking at the effects".into(),
+        "list_shaders" => "Looking at the shaders".into(),
         "ask_for_song" => "Asking for a song".into(),
         "analyze_song" => "Listening to the song".into(),
         "add_song_timing" => "Drafting: song timing".into(),

@@ -13,8 +13,8 @@ use pf_engine::{
     Edit, Engine, EngineError, SequenceEdit, SequenceEditResult, ShowSnapshot, edited_sequence, edited_show,
 };
 use pf_model::{PropId, Show};
-use pf_render::{AudioSource, Pictures};
-use pf_sequence::{EffectId, Sequence, TimingTrackId};
+use pf_render::{AudioSource, Pictures, ShaderInfo, shader_input_problem};
+use pf_sequence::{EffectId, EffectParams, Sequence, TimingTrackId};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
@@ -76,6 +76,10 @@ pub struct Workspace {
     /// The pictures in the show's images folder, as a Picture effect's `file` names them
     /// (`images/santa.gif`). Listed by whoever made the workspace, off the engine.
     pub images: Vec<String>,
+    /// The shaders a Shader effect can run, each as its settings show it (what it is, and the
+    /// inputs its file declares): PixelFlow's own, and the show's shader files as whoever made
+    /// the workspace listed them, off the engine.
+    pub shaders: Vec<ShaderInfo>,
     pub context: UiContext,
 }
 
@@ -85,6 +89,11 @@ impl Workspace {
             audio: engine.sequence_audio(),
             pictures: engine.pictures().waiting(),
             images: Vec::new(),
+            // PixelFlow's own are part of the program: describing them reads nothing.
+            shaders: pf_render::built_in_shaders()
+                .iter()
+                .map(|file| engine.shaders().describe(file))
+                .collect(),
             show: engine.show().clone(),
             revision: engine.revision(),
             show_generation: engine.show_generation(),
@@ -158,18 +167,66 @@ impl Draft {
 
     /// Tries a sequence edit on the draft's copy of the open sequence.
     pub fn edit_sequence(&mut self, edit: SequenceEdit) -> Result<(), EngineError> {
-        let doc = self.sequence.as_ref().ok_or(EngineError::NoSequence)?;
-        self.sequence = Some(edited_sequence(doc, std::slice::from_ref(&edit))?);
-        self.sequence_edits.push(edit);
-        Ok(())
+        self.edit_sequence_batch(vec![edit])
     }
 
     /// Tries several sequence edits at once (all or nothing), as one step of the draft.
     pub fn edit_sequence_batch(&mut self, edits: Vec<SequenceEdit>) -> Result<(), EngineError> {
         let doc = self.sequence.as_ref().ok_or(EngineError::NoSequence)?;
-        self.sequence = Some(edited_sequence(doc, &edits)?);
+        let edited = edited_sequence(doc, &edits)?;
+        if let Some(problem) = self.shader_problem(&edits, &edited) {
+            return Err(EngineError::InvalidEdit(problem));
+        }
+        self.sequence = Some(edited);
         self.sequence_edits.extend(edits);
         Ok(())
+    }
+
+    /// What is wrong with a Shader effect `edits` added or changed, as it stands in `edited`:
+    /// a shader that isn't one the show can use or can't be drawn, or inputs (and curves on
+    /// them) that aren't the shader's. The engine itself draws such an effect regardless,
+    /// leaving out what doesn't fit; the assistant is told, so it can put it right.
+    fn shader_problem(&self, edits: &[SequenceEdit], edited: &Sequence) -> Option<String> {
+        let touched: Vec<EffectId> = edits
+            .iter()
+            .filter_map(|edit| match edit {
+                SequenceEdit::AddEffect { effect, .. } | SequenceEdit::UpdateEffect { effect } => {
+                    Some(effect.id)
+                }
+                SequenceEdit::SetEffectParams { id, .. } => Some(*id),
+                _ => None,
+            })
+            .collect();
+        if touched.is_empty() {
+            return None;
+        }
+        edited
+            .effects()
+            .filter(|effect| touched.contains(&effect.id))
+            .find_map(|effect| {
+                let EffectParams::Shader(p) = &effect.params else {
+                    return None;
+                };
+                let at = pf_sequence::format_ms(effect.start_ms);
+                let Some(info) = self.base.shaders.iter().find(|s| s.file == p.file) else {
+                    return Some(format!(
+                        "The shader effect at {at} names \"{}\", which isn't a shader this show can use. list_shaders lists them.",
+                        p.file
+                    ));
+                };
+                if let Some(problem) = &info.problem {
+                    return Some(format!(
+                        "The shader effect at {at} uses {}, which can't be drawn ({problem}). Choose another: list_shaders lists them.",
+                        info.name
+                    ));
+                }
+                shader_input_problem(info, &p.inputs, &effect.curves).map(|problem| {
+                    format!(
+                        "The shader effect at {at} doesn't fit {}: {problem}. list_shaders gives its inputs.",
+                        info.name
+                    )
+                })
+            })
     }
 
     /// Notes that effects were cut at the timing track `id` (see [`Draft::lock_to_music`]).

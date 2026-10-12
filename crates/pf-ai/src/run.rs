@@ -234,6 +234,32 @@ fn run_query(query: Query, input: &Value, draft: &Draft) -> Outcome {
             }
             ok(to_json(&catalog))
         }
+        Query::Shaders => {
+            let shaders = &draft.base().shaders;
+            match input["file"].as_str() {
+                Some(file) => match shaders.iter().find(|s| s.file == file) {
+                    Some(shader) => ok(to_json(shader)),
+                    None => err("There's no shader by that file. list_shaders without a file lists them."),
+                },
+                // Briefly: how to use one, what each looks like, and what its inputs are called.
+                None => ok(json!({
+                    "guide": SHADER_GUIDE,
+                    "shaders": shaders
+                        .iter()
+                        .map(|s| match &s.problem {
+                            Some(problem) => json!({ "file": s.file, "name": s.name, "cantBeDrawn": problem }),
+                            None => json!({
+                                "file": s.file,
+                                "name": s.name,
+                                "looks": s.description,
+                                "inputs": s.inputs.iter().map(|i| i.name()).collect::<Vec<_>>(),
+                            }),
+                        })
+                        .collect::<Vec<_>>(),
+                })
+                .to_string()),
+            }
+        }
         Query::ShapeSettings => {
             let shape = input["type"].as_str().unwrap_or_default();
             match crate::tools::shape_settings(shape) {
@@ -351,6 +377,10 @@ fn prop_summary(show: &Show, prop: &pf_model::Prop) -> Value {
 
 /// The most pictures listed (the rest are counted).
 const MAX_PICTURES: usize = 30;
+
+/// How to use a shader effect well, said with the list of shaders (so it costs nothing until
+/// shaders are asked about, and isn't in every request).
+const SHADER_GUIDE: &str = "A shader effect (kind \"shader\") draws a flowing pattern the other effects don't have. settings: file (one below), inputs (an object by input name; leave one out to keep the shader's own value; list_shaders with a file gives each input's type, range, default, and choices: a number, true/false, a choice's value, a point [across, up], a color [r, g, b, a] each 0 to 1), speed (1 is the shader's own pace). A number input can change over the effect with a curve keyed \"inputs.<name>\" (a point's with \".x\" or \".y\"). Shaders need rows and columns to read: use them on matrices, mega trees, and whole-house groups, one at a time as a base look or over a section, with a fade in and out. On an outline, arch, or single string use prism, or another effect. The palette doesn't color a shader: its color inputs do. Those that are clear between their shapes (lava lamp, aurora, nebula) layer well over another effect. Use the show's own shader files when the user asks for them. You can't write or change shader files.";
 
 /// Adds the pictures in the show's images folder to a summary, as a Picture effect's `file`
 /// names them: nothing when there are none.

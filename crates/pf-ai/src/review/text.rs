@@ -25,6 +25,132 @@ fn width(letters: usize, size: u32) -> f32 {
     (letters as f32 * ADVANCE - 1.0).max(0.0) * size as f32 / FONT_HEIGHT as f32
 }
 
+/// The letters still `text` has, as reading counts them: every character but the line breaks.
+fn letters_in(text: &str) -> usize {
+    text.chars().filter(|c| *c != '\n').count()
+}
+
+/// How long still `text` must show to be read (ms): [`STILL_MS`], and [`STILL_MS_A_LETTER`]
+/// more for each letter. The one rule: the review checks it, and the tools that place words
+/// hold them this long.
+pub(crate) fn read_ms(text: &str) -> u64 {
+    STILL_MS + STILL_MS_A_LETTER * letters_in(text) as u64
+}
+
+/// The most letters a line holds across `columns` at a letter height of `size`.
+fn letters_across(size: u32, columns: u32) -> usize {
+    let mut n = 1;
+    while width(n + 1, size) <= columns as f32 {
+        n += 1;
+    }
+    n
+}
+
+/// A word cut into lines that fit `across` letters each, as evenly as can be ("LANT", "ERNS").
+fn cut(word: &str, across: usize) -> Vec<String> {
+    let letters: Vec<char> = word.chars().collect();
+    let lines = letters.len().div_ceil(across.max(1)).max(1);
+    let each = letters.len().div_ceil(lines);
+    letters.chunks(each.max(1)).map(|c| c.iter().collect()).collect()
+}
+
+/// `lines` with `word` after them: on the last line when it fits, else on lines of its own.
+/// `None` when that would be more lines than `most`.
+fn with_word(lines: &[String], word: &str, across: usize, most: usize) -> Option<Vec<String>> {
+    let mut out = lines.to_vec();
+    match out.last_mut() {
+        Some(last) if last.chars().count() + 1 + word.chars().count() <= across => {
+            last.push(' ');
+            last.push_str(word);
+        }
+        _ => out.extend(cut(word, across)),
+    }
+    (out.len() <= most).then_some(out)
+}
+
+/// A gap between two words this short is bridged: the first stays up until the next comes,
+/// rather than the grid blinking dark between them.
+const BRIDGE_MS: u64 = 250;
+
+/// The sung words `words` (each mark's start, end, and words, in order) as still text on a grid
+/// of `columns` by `rows` at a letter height of `size`, ending by `until`: each shown from when it
+/// is sung for as long as [`read_ms`] says it takes to read, two or three short words sharing the
+/// grid when one alone would be gone too soon, a word too wide for the grid cut over two lines,
+/// and a word that comes while the one before is still being read waiting for it. Each piece:
+/// its start, its end, and its text (capitals, lines split by \n).
+pub(crate) fn sung_words(
+    words: &[(u64, u64, String)],
+    until: u64,
+    size: u32,
+    columns: u32,
+    rows: u32,
+) -> Vec<(u64, u64, String)> {
+    let across = letters_across(size.max(1), columns);
+    let most = (rows / size.max(1)).max(1) as usize;
+    let said: Vec<String> = words
+        .iter()
+        .map(|(_, _, label)| {
+            label
+                .split_whitespace()
+                .map(|w| w.trim_matches(|c: char| !c.is_alphanumeric() && c != '\''))
+                .filter(|w| !w.is_empty())
+                .collect::<Vec<_>>()
+                .join(" ")
+                .to_uppercase()
+        })
+        .collect();
+    let mut out: Vec<(u64, u64, String)> = Vec::new();
+    let mut free_from = 0;
+    let mut i = 0;
+    while i < words.len() {
+        if said[i].is_empty() {
+            i += 1;
+            continue;
+        }
+        let start = words[i].0.max(free_from);
+        if start >= until {
+            break;
+        }
+        let mut lines: Vec<String> = Vec::new();
+        for word in said[i].split(' ') {
+            lines = with_word(&lines, word, across, usize::MAX).unwrap_or_default();
+        }
+        let mut next = i + 1;
+        // Short words share the grid until the words up can be read before the next is sung.
+        while next < words.len() {
+            let comes = words[next].0.min(until);
+            if comes >= start + read_ms(&lines.join("\n")) {
+                break;
+            }
+            let more = said[next]
+                .split(' ')
+                .try_fold(lines.clone(), |acc, word| with_word(&acc, word, across, most));
+            match more {
+                Some(more) => {
+                    lines = more;
+                    next += 1;
+                }
+                None => break,
+            }
+        }
+        let text = lines.join("\n");
+        let mut end = (start + read_ms(&text)).max(words[next - 1].1);
+        if let Some(comes) = words.get(next).map(|w| w.0)
+            && end < comes
+            && comes - end < BRIDGE_MS
+        {
+            end = comes;
+        }
+        let end = end.min(until);
+        if end > start {
+            out.push((start, end, text));
+        }
+        free_from = end;
+        i = next;
+    }
+    out
+}
+
 /// Why `text`'s words can't be read on a grid of `columns` by `rows`, if they can't.
 pub(super) fn problem(text: &TextParams, effect: &Effect, columns: u32, rows: u32) -> Option<String> {
     // A countdown writes its own digits.
@@ -94,7 +220,7 @@ pub(super) fn problem(text: &TextParams, effect: &Effect, columns: u32, rows: u3
         ));
     }
     if text.movement == TextMovement::None {
-        let needs = STILL_MS + STILL_MS_A_LETTER * letters as u64;
+        let needs = read_ms(&text.text);
         if effect.duration_ms() < needs {
             return Some(format!(
                 "it shows for {} ms; {letters} letters want about {needs} ms to be read.",
@@ -197,6 +323,72 @@ mod tests {
         assert_eq!(readable(&params, &effect, 40, 20), None);
         let (params, effect) = text("JOY\nJOY", |p| p.size = 5, 4_000);
         assert_eq!(readable(&params, &effect, 40, 20), None);
+    }
+
+    /// The stage's chorus lines, as its words track times them: six words over 3.5 s, and five.
+    fn chorus_words() -> Vec<(u64, u64, String)> {
+        let mut out = Vec::new();
+        for (start, line) in [
+            (24_000, "Light it up, light it up"),
+            (32_000, "Lanterns high above the town"),
+        ] {
+            let sung: Vec<&str> = line.split_whitespace().collect();
+            let each = 3_500 / sung.len() as u64;
+            for (i, word) in sung.iter().enumerate() {
+                let from = start + i as u64 * each;
+                out.push((from, from + each - 60, word.to_string()));
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn sung_words_are_held_long_enough_to_read_by_the_reviews_own_rule() {
+        let words = chorus_words();
+        let shown = sung_words(&words, 40_000, 8, 40, 20);
+        let texts: Vec<&str> = shown.iter().map(|s| s.2.as_str()).collect();
+        // "LIGHT" alone would be gone in 583 ms (600 wanted): "IT" joins it, on a line of its
+        // own (eight letters across don't fit 40 columns). "LANTERNS" is too wide for one line,
+        // so it's cut over two, and "HIGH" waits the 80 ms it takes to read.
+        assert_eq!(
+            texts,
+            [
+                "LIGHT\nIT",
+                "UP",
+                "LIGHT\nIT",
+                "UP",
+                "LANT\nERNS",
+                "HIGH",
+                "ABOVE",
+                "THE",
+                "TOWN"
+            ]
+        );
+        for (start, end, words) in &shown {
+            let (params, effect) = text(words, |_| {}, end - start);
+            assert_eq!(problem(&params, &effect, 40, 20), None, "{words} at {start}");
+        }
+        // Nothing overlaps, each starts as (or just after) it is sung, and a word sung a
+        // moment after the last is up straight away: no blink between them.
+        for pair in shown.windows(2) {
+            assert!(pair[0].1 <= pair[1].0, "{pair:?}");
+        }
+        assert_eq!((shown[0].0, shown[0].1), (24_000, 25_166));
+        assert_eq!(shown[5].0, 32_780);
+        // The last word of a line isn't held into the silence after it.
+        assert_eq!(shown[3].1, 27_438);
+        // And none reaches past the end given.
+        let cut_short = sung_words(&words, 33_000, 8, 40, 20);
+        assert!(cut_short.iter().all(|s| s.1 <= 33_000), "{cut_short:?}");
+        // On a wider grid "LIGHT IT" fits one line.
+        assert_eq!(sung_words(&words, 40_000, 8, 60, 20)[0].2, "LIGHT IT");
+    }
+
+    #[test]
+    fn the_rule_counts_letters_as_the_review_does() {
+        assert_eq!(read_ms("JOY"), 480);
+        assert_eq!(read_ms("LANT\nERNS"), 780);
+        assert_eq!(read_ms("LIGHT IT"), 780);
     }
 
     fn text(words: &str, change: impl Fn(&mut TextParams), ms: u64) -> (TextParams, Effect) {

@@ -14,7 +14,7 @@ The words in a blocky font, placed in the middle of the prop's grid, one line un
 
 ## Settings
 
-- `text`: what it says. Always set it: left out, it says Hello. A backslash and n (\n) starts a new line. Capitals read best: small letters are two rows shorter.
+- `text`: what it says. Always set it: left out, it says Hello, except cut at a lyrics track, where each effect says the words sung at its marks. A backslash and n (\n) starts a new line. Capitals read best: small letters are two rows shorter.
 - `size`: the height of a line in rows; capitals fill seven eighths of it (7 rows at 8, 14 at 16). 8 is the font's own size; 16 and 24 are clean doubles and triples; 12 and 20 are fine; 10 is a little uneven. Below 8 the letters lose dots and cannot be read.
 - `movement`: `none` holds it still. `left` brings it in from the right edge, first letter first, and across: the one for reading. `right` comes from the left with the last letter leading, so keep it to one short word. `up` rises from below and `down` drops from above. `upLeft`, `downLeft`, `upRight`, and `downRight` cross corner to corner. `wavy` is `left` bobbing up and down. `leftRight` crosses to the left and comes back, and `upDown` rises and comes back down. `vector` slides from the start position to the end position over the whole effect, whatever the `speed`.
 - `speed`: columns (or rows) travelled, 2.5 a second for each 1 of speed. One pass takes (prop columns + text columns) divided by (2.5 times `speed`) seconds: five letters at `size` 8 on 40 columns at 10 is 2.8 seconds. For reading keep `speed` near `size` (8 to 12 at 8, 16 to 20 at 16), about three to four letters a second. At twice that a word is a glance; at 40 it crosses a 40-column matrix in under a second and is a streak. `up` and `down` have only the rows to cross, so use 3 to 5. `leftRight` moves four times as fast as `left` and runs well off the prop at each end, and `upDown` moves twice as fast as `up`, so divide. At 0 a moving text is parked at the edge. To cross exactly once, work the speed out from the effect's length.
@@ -27,7 +27,8 @@ The words in a blocky font, placed in the middle of the prop's grid, one line un
 ## When to use it
 
 - A greeting or a title on the matrix at the start or the end; one word landed on a downbeat in a chorus; a countdown before the show.
-- A held word wants at least a second on screen. One word at a time, each on its own beat, reads better than a sentence scrolling under a busy chorus.
+- Still words need time to be read: 300 ms and 60 ms more for each letter (600 ms for LIGHT, 780 for LANTERNS), and a second is better. `review_draft` holds still words to that rule. One word at a time, each on its own beat, reads better than a sentence scrolling under a busy chorus.
+- Words as they are sung: one `place_effects` for the stretch, a `text` effect with no `text`, `movement` `none`, on `track` "Lyrics (words)". Each effect says the words sung then and stays up as long as they take to read: short words share the grid (on lines of their own when they don't fit across), a word too wide for it is cut over two lines, and a word sung while the one before is still being read waits for it. Placing each sung word by hand (`match`) leaves most of them up for less time than they take to read.
 - Give it a background: a dim `on` or `colorWash` on the layer below. For two lines in two colors, use two layers, one with `startY` 25 and one with -25.
 - Don't blur it, don't put it on outlines, arches, or a group, and don't ask a 40-column matrix to hold a sentence still: scroll it. `review_draft` says whether placed words can be read.
 - Words punched on every beat are flashes: keep a full matrix to two or three changes a second.

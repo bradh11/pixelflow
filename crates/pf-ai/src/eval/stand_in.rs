@@ -239,24 +239,21 @@ fn dancers(on: &Rows<'_>) -> Vec<Turn> {
 }
 
 fn sing_along(on: &Rows<'_>) -> Vec<Turn> {
-    // The chorus lines: the bar each starts on, and its words.
-    let lines = [
-        (24_000, "LIGHT IT UP"),
-        (32_000, "LANTERNS HIGH"),
-        (56_000, "LIGHT IT UP"),
-        (64_000, "LANTERNS HIGH"),
-    ];
     let mut placed: Vec<Call> = vec![(
         "stage_cue",
-        json!({ "cues": [{ "cue": "sing", "at": 8_000, "until": 72_000, "targets": ["Singing Face"] }] }),
+        json!({ "cues": [{ "cue": "sing", "at": 8_000, "until": 92_000, "targets": ["Singing Face"] }] }),
     )];
-    placed.extend(lines.iter().map(|(at, words)| {
-        on.place(
+    // Each chorus's words as they are sung: no text of their own, so each says the sung words,
+    // held long enough to read.
+    placed.extend(CHORUSES.iter().map(|&(from, to)| {
+        let (name, mut input) = on.place(
             &["Matrix"],
-            (*at, at + 4_000),
+            (from, to),
             0,
-            json!({ "kind": "text", "settings": { "text": words, "movement": "left", "speed": 12 }, "colors": [WHITE] }),
-        )
+            json!({ "kind": "text", "settings": { "movement": "none" }, "colors": [WHITE] }),
+        );
+        input["track"] = json!("Lyrics (words)");
+        (name, input)
     }));
     vec![
         calls(
@@ -269,9 +266,9 @@ fn sing_along(on: &Rows<'_>) -> Vec<Turn> {
         calls("", &placed),
         calls("", &[("review_draft", json!({}))]),
         propose(
-            "The singing face sings the words, and each chorus line scrolls across the matrix as it is sung.",
+            "The singing face sings the words, and each chorus's words come up on the matrix as they are sung.",
         ),
-        says("The face sings and the chorus words cross the matrix."),
+        says("The face sings and the chorus words show on the matrix."),
     ]
 }
 

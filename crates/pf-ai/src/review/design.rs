@@ -83,6 +83,14 @@ enum Canvas {
     Other,
 }
 
+/// The columns and rows of `prop`'s grid, when it has one words can stand on.
+pub(super) fn grid(prop: &Prop) -> Option<(u32, u32)> {
+    match canvas(prop) {
+        Canvas::Grid { columns, rows } => Some((columns, rows)),
+        _ => None,
+    }
+}
+
 fn canvas(prop: &Prop) -> Canvas {
     let ShapeSource::Generator(shape) = &prop.shape else {
         return Canvas::Other;

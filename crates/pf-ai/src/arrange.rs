@@ -3,13 +3,21 @@
 //! marks (all of them, or those whose label matches: a sung word or phrase) and spread across
 //! the rows; `repeat_effects` copies a stretch of effects to other times. Each is one batch of [`SequenceEdit`]s on the draft: all of it, or (with the reason)
 //! none of it.
+//!
+//! Still words placed on a track are held for as long as they take to read, by the rule the
+//! review reads them by; given no text of their own, they say the words sung at each mark,
+//! short ones grouped so each can be read.
 
 use crate::diff::target_name;
 use crate::draft::Draft;
 use crate::song::find_track;
 use pf_engine::SequenceEdit;
-use pf_sequence::{Effect, EffectId, Mark, Row, RowId, TimingKind, TimingTrack, format_ms};
+use pf_sequence::{
+    Effect, EffectId, EffectKind, EffectParams, Mark, Row, RowId, TextCountdown, TextMovement, TimingKind,
+    TimingTrack, format_ms,
+};
 use serde_json::Value;
+use std::collections::BTreeSet;
 
 /// Effects one call may add, at most.
 pub const MAX_PLACED: usize = 2_000;
@@ -347,17 +355,24 @@ pub fn place(draft: &mut Draft, input: &Value) -> Result<String, String> {
         Value::String(text) => Some(text.as_str()),
         _ => return Err("match must be text: a word, a phrase, or a pattern.".into()),
     };
+    // Words cut at a track with no text of their own say the words of the marks they're cut at.
+    let says_marks = effect.kind() == EffectKind::Text
+        && input["track"].is_string()
+        && input["effect"]["settings"]["text"].is_null();
     let mut cut_at = None;
-    let slots: Vec<(u64, u64)> = match input["track"].as_str() {
+    // Where the next mark after each slot starts: still words may stay up until then.
+    let mut next_mark: Vec<Option<u64>> = Vec::new();
+    // Each slot: when, and the words of the marks it covers.
+    let slots: Vec<Slot> = match input["track"].as_str() {
         None if pattern.is_some() => {
             return Err("match needs a track whose marks to match, like \"Lyrics\".".into());
         }
-        None => vec![(from, to)],
+        None => vec![(from, to, String::new())],
         Some(key) => {
             let track = find_track(&doc.timing_tracks, key).ok_or_else(|| {
                 format!("There's no timing track \"{key}\". get_open_sequence lists them; add_song_timing makes Beats, Bars, Sections, and syllables.")
             })?;
-            let track = cut_track(&doc.timing_tracks, track, pattern.is_some());
+            let track = cut_track(&doc.timing_tracks, track, pattern.is_some() || says_marks);
             cut_at = Some(track.id);
             let each = input["marksEach"].as_u64().unwrap_or(1).clamp(1, 10_000) as usize;
             fn starting_in(t: &TimingTrack, from: u64, to: u64) -> Vec<&Mark> {
@@ -368,34 +383,48 @@ pub fn place(draft: &mut Draft, input: &Value) -> Result<String, String> {
             }
             let within = |t| starting_in(t, from, to);
             let marks = within(track);
-            let matched = |marks: &[&Mark], pattern: &str| -> Result<Vec<(u64, u64)>, String> {
+            let matched = |marks: &[&Mark], pattern: &str| -> Result<Vec<Slot>, String> {
                 Ok(matching(marks, pattern)?
                     .into_iter()
-                    .map(|(first, last)| (marks[first].start_ms, marks[last].end_ms))
+                    .map(|(first, last)| {
+                        (
+                            marks[first].start_ms,
+                            marks[last].end_ms,
+                            words_of(&marks[first..=last]),
+                        )
+                    })
                     .collect())
             };
             let words = crate::lyrics::tracks::is_syllables(track)
                 .then(|| syllables_words(&doc.timing_tracks, track))
                 .flatten();
-            let spans: Vec<(u64, u64)> = match (pattern, words) {
+            let spans: Vec<Slot> = match (pattern, words) {
                 // Words matched on the words track, each of their syllables a mark.
                 (Some(pattern), Some(words)) => {
                     let sung = matched(&within(words), pattern)?;
                     marks
                         .iter()
-                        .filter(|m| sung.iter().any(|&(s, e)| m.start_ms >= s && m.start_ms < e))
-                        .map(|m| (m.start_ms, m.end_ms))
+                        .filter(|m| sung.iter().any(|(s, e, _)| m.start_ms >= *s && m.start_ms < *e))
+                        .map(|m| (m.start_ms, m.end_ms, words_of(&[m])))
                         .collect()
                 }
                 (Some(pattern), None) => matched(&marks, pattern)?,
-                (None, _) => marks.iter().map(|m| (m.start_ms, m.end_ms)).collect(),
+                (None, _) => marks
+                    .iter()
+                    .map(|m| (m.start_ms, m.end_ms, words_of(&[m])))
+                    .collect(),
             };
-            let slots: Vec<(u64, u64)> = spans
+            let slots: Vec<Slot> = spans
                 .chunks(each)
                 .filter_map(|chunk| {
                     let start = chunk.first()?.0;
                     let end = chunk.last()?.1.min(to);
-                    (end > start).then_some((start, end))
+                    let words: Vec<&str> = chunk
+                        .iter()
+                        .map(|s| s.2.as_str())
+                        .filter(|w| !w.is_empty())
+                        .collect();
+                    (end > start).then(|| (start, end, words.join(" ")))
                 })
                 .collect();
             if slots.is_empty() {
@@ -407,20 +436,47 @@ pub fn place(draft: &mut Draft, input: &Value) -> Result<String, String> {
                     format_ms(to)
                 ));
             }
+            next_mark = slots
+                .iter()
+                .map(|s| track.marks.iter().map(|m| m.start_ms).filter(|&t| t >= s.1).min())
+                .collect();
             slots
         }
+    };
+    let still = match &effect.params {
+        EffectParams::Text(text) => {
+            text.movement == TextMovement::None && text.countdown == TextCountdown::None
+        }
+        _ => false,
     };
     let spread = Spread::parse(input["spread"].as_str())?;
     let layer = input["layer"].as_u64().unwrap_or(0) as usize;
     let mut plan = Plan::new(draft, input["replace"].as_bool().unwrap_or(false));
     let mut lit = 0;
+    // Still words up for less time than their letters take to read: when, what, how long.
+    let mut brief: BTreeSet<(u64, String, u64)> = BTreeSet::new();
     for (i, row) in rows.iter().enumerate() {
+        let pieces = if still && cut_at.is_some() {
+            still_words(draft.show(), row, &effect, says_marks, &slots, &next_mark, to)
+        } else {
+            slots.clone()
+        };
         let mut any = false;
-        for (j, &(start, end)) in slots.iter().enumerate() {
-            if spread.gets(i, rows.len(), j) {
-                plan.add(row, layer, placed(&effect, start, end), &[])?;
-                any = true;
+        for (j, (start, end, words)) in pieces.into_iter().enumerate() {
+            if !spread.gets(i, rows.len(), j) {
+                continue;
             }
+            let mut one = placed(&effect, start, end);
+            if let EffectParams::Text(text) = &mut one.params {
+                if says_marks {
+                    text.text = words.to_uppercase();
+                }
+                if still && crate::review::read_ms(&text.text) > end - start {
+                    brief.insert((start, text.text.replace('\n', ""), end - start));
+                }
+            }
+            plan.add(row, layer, one, &[])?;
+            any = true;
         }
         lit += usize::from(any);
     }
@@ -438,13 +494,96 @@ pub fn place(draft: &mut Draft, input: &Value) -> Result<String, String> {
         String::new()
     };
     let label = effect.kind().label();
-    Ok(format!(
+    let mut out = format!(
         "Placed {} on {} from {} to {}{replaced} (in your draft).",
         plural(count, &format!("{label} effect"), &format!("{label} effects")),
         plural(lit, "row", "rows"),
         format_ms(from),
         format_ms(to)
-    ))
+    );
+    if says_marks {
+        out.push_str(if still {
+            " Each says the words sung then, up for as long as they take to read (300 ms and 60 ms a letter): short words share the grid, and a word too wide for it is cut over two lines."
+        } else {
+            " Each says the words of its mark."
+        });
+    }
+    if let Some((_, text, ms)) = brief.first() {
+        let wanted = crate::review::read_ms(text);
+        out.push_str(&format!(
+            " {} up for less time than it takes to read (\"{text}\": {ms} ms, {wanted} wanted, 300 ms and 60 ms a letter). Leave out text to have each effect say the words sung then, grouped and held so each can be read; or show fewer words for longer.",
+            plural(brief.len(), "of these is", "of these are")
+        ));
+    }
+    Ok(out)
+}
+
+/// A slot effects are placed in: its start, its end, and the words of the marks it covers.
+type Slot = (u64, u64, String);
+
+/// The words of `marks`, in a line.
+fn words_of(marks: &[&Mark]) -> String {
+    marks
+        .iter()
+        .map(|m| m.label.trim())
+        .filter(|l| !l.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// A gap this short between still words and the next mark is bridged rather than left dark.
+const BRIDGE_MS: u64 = 250;
+
+/// The still words `row` shows at `slots`: with `says_marks`, the sung words grouped and held so
+/// each can be read on the row's grid, by the rule the review reads them by; otherwise each
+/// slot, held for as long as its words take to read when there's time before the next mark
+/// (`next_mark`, and `to`). A short gap before the next mark is bridged.
+fn still_words(
+    show: &pf_model::Show,
+    row: &Row,
+    effect: &Effect,
+    says_marks: bool,
+    slots: &[Slot],
+    next_mark: &[Option<u64>],
+    to: u64,
+) -> Vec<Slot> {
+    let EffectParams::Text(text) = &effect.params else {
+        return slots.to_vec();
+    };
+    let grid = match row.target {
+        pf_sequence::Target::Prop(id) => show
+            .props
+            .iter()
+            .find(|p| p.id == id)
+            .and_then(crate::review::text_grid),
+        _ => None,
+    };
+    if says_marks && let Some((columns, rows)) = grid {
+        return crate::review::sung_words(slots, to, text.size, columns, rows);
+    }
+    slots
+        .iter()
+        .enumerate()
+        .map(|(k, (start, end, words))| {
+            let shown = if says_marks {
+                words.to_uppercase()
+            } else {
+                text.text.clone()
+            };
+            let room = next_mark
+                .get(k)
+                .copied()
+                .flatten()
+                .unwrap_or(to)
+                .min(to)
+                .max(*end);
+            let mut stop = (*end).max(start + crate::review::read_ms(&shown)).min(room);
+            if room - stop < BRIDGE_MS {
+                stop = room;
+            }
+            (*start, stop, words.clone())
+        })
+        .collect()
 }
 
 /// `repeat_effects`: copies the effects that start in a time range to other start times, on the

@@ -29,6 +29,13 @@
 mod design;
 mod text;
 
+pub(crate) use text::{read_ms, sung_words};
+
+/// The columns and rows words on `prop` are laid out on, when it is a grid (a matrix, a tree).
+pub(crate) fn text_grid(prop: &pf_model::Prop) -> Option<(u32, u32)> {
+    design::grid(prop)
+}
+
 use crate::cues::{Role, role_of, suggested_cue};
 use crate::provider::Cancel;
 use pf_analysis::{Analysis, Moment, MomentKind};

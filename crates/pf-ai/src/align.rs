@@ -21,14 +21,17 @@
 //! not pulled onto the beat), and pulls nothing else.
 //!
 //! **Rules**: only what the draft added or moved is touched (an effect's edge that is as the user
-//! had it stays); an effect never ends up shorter than a frame (or than it was, if shorter), and
-//! never outside the sequence; nothing comes to overlap on a layer that didn't overlap before;
+//! had it stays); an effect never ends up shorter than a frame (or than it was, if shorter), still
+//! words never shorter than they take to read (as the review reads them; or than they were), and
+//! nothing ends up outside the sequence; nothing comes to overlap on a layer that didn't overlap before;
 //! marks never overlap. An edge whose move would break a rule stays where it is. Running the pass
 //! again changes nothing.
 
 use pf_analysis::{Analysis, MomentKind};
 use pf_engine::SequenceEdit;
-use pf_sequence::{EffectId, Mark, Sequence, TimingKind, TimingTrack};
+use pf_sequence::{
+    EffectId, EffectParams, Mark, Sequence, TextCountdown, TextMovement, TimingKind, TimingTrack,
+};
 use std::collections::{HashMap, HashSet};
 
 /// What an anchor is, most important first.
@@ -332,13 +335,13 @@ struct Spans {
     /// Spans that may share time only if they did before (effects on a layer), or never (marks).
     may_keep_overlaps: bool,
     end_ms: u64,
-    frame_ms: u64,
+    /// The shortest each span may become.
+    least: Vec<u64>,
 }
 
 impl Spans {
     fn fits(&self, i: usize, (start, end): (u64, u64)) -> bool {
-        let (was_start, was_end) = self.was[i];
-        let shortest = self.frame_ms.min(was_end - was_start).max(1);
+        let shortest = self.least[i].max(1);
         if end <= start || end - start < shortest || end > self.end_ms {
             return false;
         }
@@ -425,13 +428,30 @@ pub fn lock(base: Option<&Sequence>, draft: &Sequence, anchors: &Anchors, as_mad
             if !free.iter().any(|&(s, e)| s || e) {
                 continue;
             }
+            // A frame, or what it was if shorter; still words, as long as they take to read.
+            let least = layer
+                .effects
+                .iter()
+                .map(|e| {
+                    let reading = match &e.params {
+                        EffectParams::Text(text)
+                            if text.movement == TextMovement::None
+                                && text.countdown == TextCountdown::None =>
+                        {
+                            crate::review::read_ms(&text.text)
+                        }
+                        _ => 0,
+                    };
+                    frame_ms.max(reading).min(e.duration_ms())
+                })
+                .collect();
             let mut spans = Spans {
                 now: was.clone(),
                 was,
                 free,
                 may_keep_overlaps: true,
                 end_ms: draft.duration_ms,
-                frame_ms,
+                least,
             };
             locked.effect_edges += spans.lock(anchors);
             for (effect, (&now, &was)) in layer.effects.iter().zip(spans.now.iter().zip(&spans.was)) {
@@ -470,13 +490,14 @@ pub fn lock(base: Option<&Sequence>, draft: &Sequence, anchors: &Anchors, as_mad
             continue;
         }
         let was: Vec<(u64, u64)> = track.marks.iter().map(|m| (m.start_ms, m.end_ms)).collect();
+        let least = vec![1; was.len()];
         let mut spans = Spans {
             now: was.clone(),
             was,
             free,
             may_keep_overlaps: false,
             end_ms: draft.duration_ms.max(track.marks.last().map_or(0, |m| m.end_ms)),
-            frame_ms: 1,
+            least,
         };
         let moved = spans.lock(anchors);
         if moved == 0 {
@@ -562,6 +583,35 @@ mod tests {
             a.candidates(10_240),
             [(10_300, Anchor::Accent), (10_000, Anchor::Bar)]
         );
+    }
+
+    #[test]
+    fn still_words_are_never_locked_shorter_than_they_take_to_read() {
+        let still = |text: &str, start, end| {
+            let params = pf_sequence::TextParams {
+                text: text.to_string(),
+                ..Default::default()
+            };
+            Effect::new(EffectKind::Text, start, end).with_params(pf_sequence::EffectParams::Text(params))
+        };
+        let mut doc = Sequence::new("Song", 32_000);
+        let mut row = Row::new(Target::Group(pf_model::GroupId::new()));
+        // "LIGHT" wants 600 ms and has 523: the beat at 24.5 s would cut it to 500. "JOY" (480
+        // wanted) has 700 and may be cut to the beat, as long as it keeps its 480.
+        row.layers[0].effects = vec![still("LIGHT", 24_000, 24_523), still("JOY", 26_000, 26_560)];
+        // Moving words, and any other effect, lock as before.
+        let mut moving = still("LIGHT", 28_000, 28_523);
+        if let pf_sequence::EffectParams::Text(text) = &mut moving.params {
+            text.movement = pf_sequence::TextMovement::Left;
+        }
+        row.layers.push(pf_sequence::Layer {
+            effects: vec![moving],
+        });
+        doc.rows.push(row);
+        let locked = lock(None, &doc, &anchors(), &[]);
+        let after = applied(&doc, &locked);
+        assert_eq!(times(&after, 0), [(24_000, 24_523), (26_000, 26_500)]);
+        assert_eq!(times(&after, 1), [(28_000, 28_500)]);
     }
 
     #[test]

@@ -106,6 +106,88 @@ fn bars_on_the_arches(s: &mut Setup) {
     assert!(answer.starts_with("Placed 16 Bars effects on 4 rows"), "{answer}");
 }
 
+/// The still words on the row with id `row`: start, end, and what each says.
+fn words_on(doc: &Sequence, row: &str) -> Vec<(u64, u64, String)> {
+    on_row(doc, row)
+        .into_iter()
+        .flatten()
+        .filter_map(|e| match &e.params {
+            EffectParams::Text(text) => Some((e.start_ms, e.end_ms, text.text.clone())),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn words_cut_at_the_sung_words_say_them_for_as_long_as_they_take_to_read() {
+    let mut s = setup();
+    // No text of their own, on the words track, through the last chorus (its lines start at
+    // 80 s and 88 s): one call puts every word up, readable.
+    let answer = done(
+        &mut s.draft,
+        "place_effects",
+        json!({ "rowIds": [s.matrix], "fromMs": 80_000, "toMs": 92_000, "track": "Lyrics (words)",
+                "effect": { "kind": "text", "colors": ["#ffffff"] } }),
+    );
+    assert!(answer.contains("Each says the words sung then"), "{answer}");
+    let shown = words_on(s.draft.sequence().unwrap(), &s.matrix);
+    let texts: Vec<&str> = shown.iter().map(|w| w.2.as_str()).collect();
+    assert_eq!(
+        texts,
+        [
+            "LIGHT\nIT",
+            "UP",
+            "LIGHT\nIT",
+            "UP",
+            "LANT\nERNS",
+            "HIGH",
+            "ABOVE",
+            "THE",
+            "TOWN"
+        ]
+    );
+    // The review finds nothing wrong with them: the tool and the review keep the same rule.
+    let (review, _) = call(&mut s.draft, "review_draft", json!({}));
+    assert!(!review.contains("can't be read"), "{review}");
+    assert!(review.contains("\"text\":100"), "{review}");
+
+    // Each word placed by hand with words of its own (as a model did): still words are held
+    // into the gap before the next word, and the answer says which are still too brief and how
+    // to do better.
+    let mut s = setup();
+    let answer = done(
+        &mut s.draft,
+        "place_effects",
+        json!({ "rowIds": [s.matrix], "fromMs": 24_000, "toMs": 40_000, "track": "Lyrics (words)",
+                "match": "light", "effect": { "kind": "text", "settings": { "text": "LIGHT" } } }),
+    );
+    let shown = words_on(s.draft.sequence().unwrap(), &s.matrix);
+    // Sung for 523 ms with 60 ms before the next word: up for 583 ms (600 wanted).
+    assert_eq!(
+        shown.iter().map(|w| (w.0, w.1)).collect::<Vec<_>>(),
+        [(24_000, 24_583), (25_749, 26_332)]
+    );
+    assert!(
+        answer
+            .contains("2 of these are up for less time than it takes to read (\"LIGHT\": 583 ms, 600 wanted")
+            && answer.contains("Leave out text"),
+        "{answer}"
+    );
+    // A word with time to spare is held its full time to read, and no longer.
+    let mut s = setup();
+    done(
+        &mut s.draft,
+        "place_effects",
+        json!({ "rowIds": [s.matrix], "fromMs": 24_000, "toMs": 28_000, "track": "Lyrics (words)",
+                "match": "up", "effect": { "kind": "text", "settings": { "text": "UP" } } }),
+    );
+    let shown = words_on(s.draft.sequence().unwrap(), &s.matrix);
+    assert_eq!(
+        shown.iter().map(|w| (w.0, w.1)).collect::<Vec<_>>(),
+        [(25_166, 25_749), (26_915, 27_438)]
+    );
+}
+
 #[test]
 fn place_effects_takes_everything_an_effect_has_and_tracks_by_name() {
     let mut s = setup();

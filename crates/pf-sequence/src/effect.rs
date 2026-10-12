@@ -3271,17 +3271,17 @@ effect_params! {
         /// What the shader's own inputs are set to, by name. One left out is as its file has it.
         inputs: ShaderInputs = ShaderInputs::default() => "inputs", "Inputs", shader_inputs;
         /// Times the shader's own pace: 0 holds it still, below 0 runs it backwards.
-        speed: f32 = 1.0 => "speed", "Speed", number(-10.0, 10.0, 0.05, "x");
+        speed: f32 = 1.0 => "speed", "Time speed", number(-10.0, 10.0, 0.05, "x");
         /// Seconds the shader is already into when the effect starts.
         lead_in: f32 = 0.0 => "leadIn", "Start ahead", number(0.0, 600.0, 0.05, "s"), more;
         /// xLights' Offset X, kept from an import. PixelFlow doesn't apply it.
         // What xLights does with its three settings below isn't known from any sequence seen
         // (all leave them at 0), so they are carried, not guessed at.
-        offset_x: f32 = 0.0 => "offsetX", "xLights offset X", number(-1000.0, 1000.0, 1.0), more;
+        offset_x: f32 = 0.0 => "offsetX", "xLights offset X (not applied)", number(-1000.0, 1000.0, 1.0), more;
         /// xLights' Offset Y, kept from an import. PixelFlow doesn't apply it.
-        offset_y: f32 = 0.0 => "offsetY", "xLights offset Y", number(-1000.0, 1000.0, 1.0), more;
+        offset_y: f32 = 0.0 => "offsetY", "xLights offset Y (not applied)", number(-1000.0, 1000.0, 1.0), more;
         /// xLights' Zoom, kept from an import. PixelFlow doesn't apply it.
-        zoom: f32 = 0.0 => "zoom", "xLights zoom", number(-1000.0, 1000.0, 1.0), more;
+        zoom: f32 = 0.0 => "zoom", "xLights zoom (not applied)", number(-1000.0, 1000.0, 1.0), more;
     }
 }
 

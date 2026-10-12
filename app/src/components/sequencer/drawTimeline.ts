@@ -60,6 +60,7 @@ const HUES: Record<EffectKind, number> = {
   shockwave: 235,
   fill: 130,
   fireworks: 320,
+  shader: 265,
 };
 
 interface Theme {

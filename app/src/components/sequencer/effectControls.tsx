@@ -40,11 +40,12 @@ export const BLENDS: { value: Blend; label: string; help: string; more?: true }[
   { value: "leftHalf", label: "Left half only", help: "Shows on the left half; the layers below on the right half (xLights: Left-Right).", more: true },
 ];
 
-/** Whether an effect's palette colors show in it: every effect's do but Off's, Fire's, and a
- * Picture's that isn't tinted (it has its own colors). */
+/** Whether an effect's palette colors show in it: every effect's do but Off's, Fire's, a
+ * Shader's (its colors are its shader's own inputs), and a Picture's that isn't tinted (it has
+ * its own colors). */
 export function usesColors(effect: Effect): boolean {
   const p = effect.params;
-  return p.kind !== "off" && p.kind !== "fire" && !(p.kind === "picture" && !p.tint);
+  return p.kind !== "off" && p.kind !== "fire" && p.kind !== "shader" && !(p.kind === "picture" && !p.tint);
 }
 
 /** The blends as options for a list, the less common ones grouped apart. */
@@ -408,6 +409,8 @@ export function SettingControl({
   if (setting.type === "image") {
     return <ImageSetting setting={setting} value={typeof value === "string" ? value : setting.default} onChange={onChange} mixed={mixed} />;
   }
+  // A shader and its inputs are shown together, for one effect at a time (see ShaderSettings).
+  if (setting.type === "shaderFile" || setting.type === "shaderInputs") return null;
   if (setting.type === "bool") {
     return (
       <label className="flex items-center gap-2 text-sm" title={setting.description}>

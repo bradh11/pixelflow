@@ -203,6 +203,16 @@ function shade(effect: Effect, ms: number, px: Px, seed: number, tracks: TimingT
       const along = p.direction === "down" || p.direction === "left" ? 1 - from : from;
       return along <= num(p, "position", 100) / 100 ? [p.colorByTime ? ramp(t) : ramp(along), 1] : [[0, 0, 0], 0];
     }
+    case "shader": {
+      // A browser can't run a shader file: the engine's own machine does that (pf-shader), and
+      // nothing here stands in for it. What shows instead is a plain mark that a shader is
+      // there and playing: slow diagonal bands in two violets, the same for every shader, at
+      // the effect's speed. An effect with no shader chosen draws nothing, as in the engine.
+      if (typeof p.file !== "string" || p.file.trim() === "") return [[0, 0, 0], 0];
+      const band = frac((px.u * px.aspect + px.v) * 1.5 - el * 0.25 * num(p, "speed", 1));
+      const light = 0.35 + 0.65 * (0.5 + 0.5 * Math.cos(band * 2 * Math.PI));
+      return [[150 * light, 90 * light, 255 * light], 1];
+    }
     case "fireworks": {
       // Bursts of sparks flying out, slowing, falling, and fading: one in each stretch of time
       // (the first as the effect starts), or one at each mark of its timing track. Sizes are

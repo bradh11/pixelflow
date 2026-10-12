@@ -422,6 +422,48 @@ fn sequence_file_replies() {
         "string[]",
         &shell.ok("list_pictures", json!({})),
     );
+    // The shaders a Shader effect can use: PixelFlow's own, then the files in the show's shaders
+    // folder, one of which can't be run.
+    std::fs::create_dir_all(folder.join("shaders")).unwrap();
+    std::fs::write(
+        folder.join("shaders").join("rings.fs"),
+        r#"/*{ "DESCRIPTION": "Rings from a point.", "CREDIT": "A test", "INPUTS": [
+            { "NAME": "rate", "LABEL": "Rate", "TYPE": "float", "MIN": 0.0, "MAX": 4.0, "DEFAULT": 1.0 },
+            { "NAME": "flip", "TYPE": "bool", "DEFAULT": true },
+            { "NAME": "mode", "TYPE": "long", "VALUES": [0, 2], "LABELS": ["Soft", "Hard"], "DEFAULT": 2 },
+            { "NAME": "at", "TYPE": "point2D", "DEFAULT": [0.5, 0.5] },
+            { "NAME": "tint", "TYPE": "color", "DEFAULT": [1.0, 0.5, 0.0, 1.0] } ] }*/
+        void main() { gl_FragColor = vec4(rate, at, flip ? 1.0 : 0.0) * tint * float(mode); }"#,
+    )
+    .unwrap();
+    std::fs::write(
+        folder.join("shaders").join("broken.fs"),
+        "void main() {\n  nothing();\n}",
+    )
+    .unwrap();
+    let shaders = shell.ok("list_shaders", json!({}));
+    let listed = shaders.as_array().unwrap();
+    assert_eq!(listed[0]["file"], "pixelflow:aurora");
+    assert_eq!(listed[listed.len() - 1]["file"], "shaders/rings.fs");
+    assert_eq!(listed[listed.len() - 1]["inputs"].as_array().unwrap().len(), 5);
+    fixtures.reply(
+        "the shaders an effect can use",
+        "sequencer.ShaderInfo[]",
+        &shaders,
+    );
+    let broken = shell.ok("shader_info", json!({ "file": "shaders/broken.fs" }));
+    assert_eq!(broken["line"], 2);
+    fixtures.reply("a shader file that can't be run", "sequencer.ShaderInfo", &broken);
+    fixtures.reply(
+        "a shader file that isn't there",
+        "sequencer.ShaderInfo",
+        &shell.ok("shader_info", json!({ "file": "shaders/gone.fs" })),
+    );
+    fixtures.reply(
+        "a Shader effect that wasn't stopped",
+        "string | null",
+        &shell.ok("shader_stopped", json!({ "effect": effect_id(1) })),
+    );
     // Nothing found: the same reply without an edit (built; a search that finds none of several
     // missing pictures gives it).
     let still = pictures::PicturesRelinked {

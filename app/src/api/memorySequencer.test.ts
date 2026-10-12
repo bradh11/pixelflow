@@ -124,7 +124,7 @@ describe("MemorySequencer", () => {
   it("serves the engine's effect catalog and builds default settings from it", async () => {
     const seq = new MemorySequencer();
     const catalog = await seq.effectCatalog();
-    expect(catalog.map((e) => e.kind)).toHaveLength(40);
+    expect(catalog.map((e) => e.kind)).toHaveLength(41);
     const chase = catalog.find((e) => e.kind === "chase")!;
     expect(chase.settings.find((s) => s.key === "speed")).toMatchObject({ type: "number", min: 0, max: 50, default: 1 });
     expect(defaultParams(chase)).toEqual({

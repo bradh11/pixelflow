@@ -6,7 +6,7 @@ import { tauriAssistant } from "./api/assistant";
 import { openBrowserPreview, openerEngine, rememberBrowserPlace, shareEngine } from "./api/browserPreview";
 import { FakeAssistant } from "./api/memoryAssistant";
 import { useAssistant } from "./state/assistant";
-import { DEMO_PHOTO, DEMO_PICTURE, DEMO_SHOW_PATH, demoDevices, demoFppFileDetails, demoFppFiles, demoFppSchedules, demoFppSoftware, demoHousePhoto, demoMissingFiles, demoPicture, demoPlayers, demoRecentShows, demoShow, demoShowDevices } from "./api/demo";
+import { DEMO_PHOTO, DEMO_PICTURE, DEMO_SHOW_PATH, DEMO_STOPPED_SHADER, addDemoShaderEffects, demoShaders, demoDevices, demoFppFileDetails, demoFppFiles, demoFppSchedules, demoFppSoftware, demoHousePhoto, demoMissingFiles, demoPicture, demoPlayers, demoRecentShows, demoShow, demoShowDevices } from "./api/demo";
 import { DEMO_MUSIC, DEMO_SEQUENCE_PATH, demoSequence } from "./api/demoSequence";
 import { MemoryBackend } from "./api/memory";
 import { MemorySequencer } from "./api/memorySequencer";
@@ -93,7 +93,14 @@ if (inTauri()) {
   if (demo) {
     // A sample sequence, open on the Sequence screen.
     backend.nextAudioPath = DEMO_MUSIC;
-    sequencer.files.set(DEMO_SEQUENCE_PATH, demoSequence(backend.show, backend.sequenceDurationMs, { singing: true }));
+    const sample = demoSequence(backend.show, backend.sequenceDurationMs, { singing: true });
+    // Shader files in the show's shaders folder (one that draws, and one of each way a file can
+    // fail to), an effect on each, and the first of them for the dialog to hand back.
+    for (const shader of demoShaders()) sequencer.shaders.set(shader.file, shader);
+    sequencer.nextShader = demoShaders()[0];
+    sequencer.stoppedShaders.set(...DEMO_STOPPED_SHADER);
+    addDemoShaderEffects(sample, backend.show);
+    sequencer.files.set(DEMO_SEQUENCE_PATH, sample);
     sequencer.nextOpenPath = DEMO_SEQUENCE_PATH;
     sequencer.nextSavePath = DEMO_SEQUENCE_PATH;
     // A vendor's sequence to import and map onto the demo house.

@@ -561,6 +561,92 @@ describe("sequence screen", () => {
     expect(EFFECT_ICONS.fireworks).toBeDefined();
   });
 
+  it("builds a shader's settings from the inputs its file declares, and says why a shader can't be drawn", async () => {
+    const { seq, user } = await openScreen();
+    const none = { builtIn: false, description: "", credit: "", inputs: [], problem: null, line: null };
+    // Two shader files in the show's folder (one with a mistake on a line), and one the dialog hands back.
+    seq.shaders.set("shaders/Wavy Lines.fs", {
+      ...none,
+      file: "shaders/Wavy Lines.fs",
+      name: "Wavy Lines",
+      description: "Lines that bend as they drift.",
+      credit: "Someone",
+      inputs: [
+        { type: "number", name: "lines", label: "Lines", min: 1, max: 20, default: 6 },
+        { type: "choice", name: "style", label: "Style", default: 0, options: [{ value: 0, label: "Smooth" }, { value: 2, label: "Dotted" }] },
+        { type: "bool", name: "mirror", label: "Mirror", default: false },
+        { type: "point", name: "middle", label: "Middle", min: [0, 0], max: [1, 1], default: [0.5, 0.5] },
+        { type: "color", name: "ink", label: "Line color", default: [1, 0, 0, 1] },
+      ],
+    });
+    seq.shaders.set("shaders/Broken.fs", { ...none, file: "shaders/Broken.fs", name: "Broken", problem: "line 14: there is no `ringWidht`", line: 14 });
+    seq.nextShader = { ...none, file: "shaders/Picked.fs", name: "Picked", problem: "it brings picture files of its own (IMPORTED), which isn't supported yet" };
+    fireEvent.pointerDown(timeline(), { clientX: x(1000), clientY: LANE.archTop, button: 0, pointerId: 1 });
+    fireEvent.pointerUp(timeline(), { clientX: x(1000), clientY: LANE.archTop, pointerId: 1 });
+    const id = useSequencer.getState().selection[0];
+    const effect = () => seq.doc!.rows.flatMap((r) => r.layers.flatMap((l) => l.effects)).find((e) => e.id === id)!;
+    await act(() => useSequencer.getState().edit([{ type: "updateEffect", effect: { ...effect(), params: { kind: "shader", file: "pixelflow:aurora" } } }]));
+    const panel = screen.getByRole("complementary", { name: "Effect settings" });
+    // One of PixelFlow's own: what it says of itself, and a control for each input it declares,
+    // at the file's own values, beside the effect's own speed.
+    const chooser = within(panel).getByRole("combobox", { name: "Shader" });
+    expect(chooser).toHaveValue("pixelflow:aurora");
+    expect(await within(panel).findByText(/Curtains of light that sway and drift/)).toBeInTheDocument();
+    const inputs = within(panel).getByRole("group", { name: "Aurora's inputs" });
+    expect(within(inputs).getByRole("slider", { name: "Speed" })).toHaveValue("1");
+    expect(within(inputs).getByRole("slider", { name: "Curtains" })).toHaveValue("3");
+    expect(within(inputs).getByLabelText("Low color")).toHaveValue("#1aff73");
+    expect(within(panel).getByRole("slider", { name: "Time speed" })).toHaveValue("1");
+    // Every shader the effect can use is in the list: PixelFlow's own, then the show's files.
+    const names = within(chooser).getAllByRole("option").map((o) => o.textContent);
+    expect(names.slice(0, 2)).toEqual(["Aurora", "Prism"]);
+    expect(names.slice(-2)).toEqual(["Broken (can't be drawn)", "Wavy Lines"]);
+    // An input that is changed is kept by name; back at the file's own value, it's left out again.
+    fireEvent.change(within(inputs).getByRole("spinbutton", { name: "Curtains value" }), { target: { value: "5" } });
+    fireEvent.blur(within(inputs).getByRole("spinbutton", { name: "Curtains value" }));
+    await waitFor(() => expect(effect().params).toMatchObject({ kind: "shader", inputs: { curtains: 5 } }));
+    // It can change over the effect, like any number setting: the curve is keyed by the input.
+    await user.click(within(inputs).getByRole("button", { name: "Change Curtains over the effect" }));
+    await waitFor(() => expect(Object.keys(effect().curves ?? {})).toEqual(["inputs.curtains"]));
+    // Another shader: the inputs and their curves were the old one's, and go; the new one's show.
+    await user.selectOptions(chooser, "shaders/Wavy Lines.fs");
+    await waitFor(() => expect(effect().params).toEqual({ kind: "shader", file: "shaders/Wavy Lines.fs", inputs: {} }));
+    expect(effect().curves ?? {}).toEqual({});
+    const wavy = await within(panel).findByRole("group", { name: "Wavy Lines's inputs" });
+    expect(within(wavy).getByRole("slider", { name: "Lines" })).toHaveValue("6");
+    await user.selectOptions(within(wavy).getByRole("combobox", { name: "Style" }), "2");
+    await user.click(within(wavy).getByRole("checkbox", { name: "Mirror" }));
+    fireEvent.change(within(wavy).getByRole("spinbutton", { name: "Middle: up value" }), { target: { value: "0.25" } });
+    fireEvent.blur(within(wavy).getByRole("spinbutton", { name: "Middle: up value" }));
+    await waitFor(() => expect(effect().params).toMatchObject({ inputs: { style: 2, mirror: true, middle: [0.5, 0.25] } }));
+    await user.click(within(wavy).getByRole("checkbox", { name: "Mirror" }));
+    await waitFor(() => expect((effect().params as { inputs: object }).inputs).toEqual({ style: 2, middle: [0.5, 0.25] }));
+    // A file with a mistake: no inputs, and the reason with its line.
+    await user.selectOptions(chooser, "shaders/Broken.fs");
+    const alert = await within(panel).findByRole("alert");
+    expect(alert).toHaveTextContent("Broken can't be drawn, so the effect shows nothing. line 14: there is no `ringWidht`");
+    expect(within(panel).queryByRole("group", { name: /inputs$/ })).not.toBeInTheDocument();
+    // A file added from the disk becomes the effect's shader; one that needs what a shader
+    // isn't given yet says what.
+    await user.click(within(panel).getByRole("button", { name: "Add a shader file" }));
+    await waitFor(() => expect(effect().params).toMatchObject({ file: "shaders/Picked.fs" }));
+    expect(seq.calls).toContain("pickShader");
+    expect(await within(panel).findByRole("alert")).toHaveTextContent("It brings picture files of its own (IMPORTED), which isn't supported yet.");
+    // A shader stopped for doing too much says so once the frame has been drawn.
+    seq.stoppedShaders.set("shaders/Wavy Lines.fs", "Stopped at 0:01.000: it does more work than a shader may in one frame, so it draws nothing there.");
+    await user.selectOptions(chooser, "shaders/Wavy Lines.fs");
+    expect(await within(panel).findByText(/^Stopped at 0:01.000/)).toBeInTheDocument();
+    // A shader has no use for the palette, and xLights' offset and zoom show only on an effect an
+    // import brought one with: there is nothing to set there.
+    expect(within(panel).queryByRole("heading", { name: "Colors" })).not.toBeInTheDocument();
+    expect(within(panel).queryByRole("slider", { name: /xLights/ })).not.toBeInTheDocument();
+    await act(() => useSequencer.getState().edit([{ type: "updateEffect", effect: { ...effect(), params: { ...effect().params, zoom: 20 } as Effect["params"] } }]));
+    await user.click(within(panel).getByRole("button", { name: "More settings" }));
+    expect(within(panel).getByRole("slider", { name: "xLights zoom (not applied)" })).toHaveValue("20");
+    expect(within(panel).queryByRole("slider", { name: /xLights offset/ })).not.toBeInTheDocument();
+    expect(EFFECT_ICONS.shader).toBeDefined();
+  });
+
   it("shows a picture's file, fit, and movement up front, and chooses a picture through the app's dialog", async () => {
     const { backend, seq, user } = await openScreen();
     // One picture already in the show's images folder, and another the dialog will hand back.

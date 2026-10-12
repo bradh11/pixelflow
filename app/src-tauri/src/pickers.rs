@@ -74,6 +74,8 @@ pub(crate) enum PickKind {
     HouseModel,
     /// A picture or GIF for a Picture effect.
     Picture,
+    /// A shader file for a Shader effect.
+    Shader,
     /// A folder to save a sequence downloaded from an FPP in (the show isn't saved yet).
     DownloadFolder,
 }
@@ -236,6 +238,13 @@ impl PickKind {
                 "Choose a picture or GIF",
                 &[("Picture", &pf_engine::PICTURE_EXTENSIONS)],
                 "picture",
+                Near::Show,
+            ),
+            Self::Shader => (
+                Open,
+                "Choose a shader file",
+                &[("Shader file", &pf_engine::SHADER_EXTENSIONS)],
+                "shader",
                 Near::Show,
             ),
             Self::DownloadFolder => (

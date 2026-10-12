@@ -1307,6 +1307,14 @@
     { "api": "sequencer.pickPicture", "command": "pick_picture", "args": {} },
     { "api": "sequencer.readPicture", "command": "read_picture", "args": { "file": "images/star.gif" } },
     { "api": "sequencer.listPictures", "command": "list_pictures", "args": {} },
+    { "api": "sequencer.listShaders", "command": "list_shaders", "args": {} },
+    { "api": "sequencer.shaderInfo", "command": "shader_info", "args": { "file": "shaders/rings.fs" } },
+    { "api": "sequencer.pickShader", "command": "pick_shader", "args": {} },
+    {
+      "api": "sequencer.shaderStopped",
+      "command": "shader_stopped",
+      "args": { "effect": "55555555-0000-4000-8000-000000000001" }
+    },
     { "api": "sequencer.checkSequencePictures", "command": "check_sequence_pictures", "args": {} },
     { "api": "sequencer.findSequencePictures", "command": "find_sequence_pictures", "args": {} },
     {

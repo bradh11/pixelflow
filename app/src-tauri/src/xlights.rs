@@ -69,8 +69,9 @@ pub(crate) struct XlightsSequenceImported {
 /// where the mapping says, and the mapping is remembered under `key` for next time. A zip's
 /// music is copied into the show's `music` folder, or, while the show isn't saved, that of
 /// `music_folder`, a folder the user picked in the shell's dialog. The pictures its Pictures
-/// effects were found to use are copied into the show's `images` folder (while the show isn't
-/// saved, they're used where they are, and a note says so).
+/// effects were found to use are copied into the show's `images` folder, and the shader files
+/// its Shader effects were found to use into the show's `shaders` folder (while the show isn't
+/// saved, they're used where they are); a note says which.
 #[tauri::command]
 pub(crate) async fn import_xlights_sequence(
     state: State<'_, AppState>,
@@ -80,9 +81,14 @@ pub(crate) async fn import_xlights_sequence(
     key: Option<String>,
     music_folder: Option<PathArg>,
 ) -> Reply<XlightsSequenceImported> {
-    let (show, pictures) = {
+    let (show, pictures, shader_files, shaders) = {
         let engine = state.engine();
-        (engine.show().clone(), engine.picture_files())
+        (
+            engine.show().clone(),
+            engine.picture_files(),
+            engine.shader_files(),
+            engine.shaders(),
+        )
     };
     let music = crate::vendor::music_folder(&state, music_folder.as_deref());
     let remember = mapping.clone().zip(key);
@@ -103,8 +109,15 @@ pub(crate) async fn import_xlights_sequence(
                 .map_err(|e| e.to_string())?
             }
         };
-        // The pictures the import found on this computer become the show's own.
-        let notes = pictures.adopt_all(&mut imported.sequence);
+        // The pictures the import found on this computer become the show's own, and so do
+        // the shader files: each is read afresh, in case one of its name was tried before.
+        let mut notes = shader_files.adopt_all(&mut imported.sequence);
+        for effect in imported.sequence.effects() {
+            if let pf_sequence::EffectParams::Shader(p) = &effect.params {
+                shaders.forget(&p.file);
+            }
+        }
+        notes.extend(pictures.adopt_all(&mut imported.sequence));
         imported.notes.splice(0..0, notes);
         Ok::<_, String>(imported)
     })

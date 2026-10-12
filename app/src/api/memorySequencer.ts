@@ -4,6 +4,7 @@
 // (effectCatalog.json, kept identical to the Rust table by a test in the desktop shell). It doesn't
 // render, play, or check the sequence against the show.
 
+import builtInShadersJson from "./builtInShaders.json";
 import catalogJson from "./effectCatalog.json";
 import type { MemoryBackend } from "./memory";
 import { renderSequenceFrame } from "./memoryRender";
@@ -15,6 +16,7 @@ import type {
   PlaybackStatus,
   SequenceImportSummary,
   ShowSnapshot,
+  Uuid,
   VendorImportOptions,
   VendorInspection,
   VendorMapping,
@@ -52,6 +54,7 @@ import type {
   PicturesChecked,
   PicturesRelinked,
   SequencerApi,
+  ShaderInfo,
 } from "./sequencer";
 import * as marks from "./timingMarks";
 import type { VideoProgress, VideoRequest } from "./video";
@@ -114,6 +117,13 @@ const EFFECT_WIDE_CURVES: Record<string, { min: number; max: number }> = {
   brightness: { min: 0, max: 4 },
 };
 
+/** A curve's key for one number of a shader's inputs: `inputs.<name>`, and `.x` or `.y` of a point. */
+const SHADER_INPUT_CURVE = /^inputs\.[A-Za-z_][A-Za-z0-9_]{0,99}(\.[xy])?$/;
+const SHADER_INPUT_RANGE = { min: -1e9, max: 1e9 };
+
+/** PixelFlow's own shaders as the engine describes them (kept identical by a test in the desktop shell). */
+export const BUILT_IN_SHADERS = builtInShadersJson as unknown as ShaderInfo[];
+
 /** Characters in a name or label (the engine's MAX_TEXT_LEN). */
 const MAX_TEXT_LEN = 4096;
 
@@ -151,11 +161,16 @@ export function settingProblem(doc: Sequence): string | null {
         }
         for (const [key, curve] of Object.entries(effect.curves ?? {})) {
           const setting = info.settings.find((s) => s.key === key);
-          const range = EFFECT_WIDE_CURVES[key] ?? (setting?.type === "number" || setting?.type === "int" ? setting : null);
+          // One number of a shader's inputs can change too; its range is the shader file's to
+          // give, so here it's as wide as any input's can be (as the engine has it).
+          const input = SHADER_INPUT_CURVE.test(key) && info.settings.some((s) => s.key === "inputs" && s.type === "shaderInputs");
+          const range =
+            EFFECT_WIDE_CURVES[key] ?? (input ? SHADER_INPUT_RANGE : setting?.type === "number" || setting?.type === "int" ? setting : null);
           if (!range) return `The ${info.label} effect at ${formatMs(effect.startMs)} has a setting PixelFlow can't use: '${key}' can't change over the effect.`;
           for (const v of [curve.from, curve.to]) {
             if (!Number.isFinite(v) || v < range.min || v > range.max) {
-              return `The ${info.label} effect at ${formatMs(effect.startMs)} has a setting PixelFlow can't use: ${setting?.label ?? key}'s curve goes to ${v}; use ${range.min} to ${range.max}.`;
+              const label = setting?.label ?? (input ? key.split(".")[1] : key);
+              return `The ${info.label} effect at ${formatMs(effect.startMs)} has a setting PixelFlow can't use: ${label}'s curve goes to ${v}; use ${range.min} to ${range.max}.`;
             }
           }
         }
@@ -455,7 +470,7 @@ export function diffSequences(before: Sequence, after: Sequence): SequenceChange
 }
 
 function newSequence(name: string, durationMs: number): Sequence {
-  return { schemaVersion: 12, name, audio: null, durationMs, frameMs: 25, timingTracks: [], rows: [] };
+  return { schemaVersion: 13, name, audio: null, durationMs, frameMs: 25, timingTracks: [], rows: [] };
 }
 
 /** Find lyrics' steps that read the whole song, and so report how far they've got. */
@@ -545,6 +560,17 @@ export class MemorySequencer implements SequencerApi {
   nextPicturePath: string | null = null;
   /** Where a search of the show's folder finds a missing picture, by the path its effect had. */
   findablePictures = new Map<string, string>();
+
+  /**
+   * Shader files "in the show's shaders folder", by what an effect stores (`shaders/<name>`),
+   * each as the engine would describe it. Nothing here can run a shader, so a test or the demo
+   * says what a file is, and what's wrong with it if anything is.
+   */
+  shaders = new Map<string, ShaderInfo>();
+  /** The file the "choose a shader file" dialog returns, as the engine would describe it. */
+  nextShader: ShaderInfo | null = null;
+  /** Shaders whose effects were "stopped" for doing too much, by file, with what the engine says. */
+  stoppedShaders = new Map<string, string>();
 
   /** With a memory backend, frames are drawn (roughly) from its show and playback runs on its clock. */
   constructor(readonly backend: MemoryBackend | null = null) {}
@@ -1358,6 +1384,36 @@ export class MemorySequencer implements SequencerApi {
   onPicturesArrived(_handler: () => void) {
     // Nothing is read in the background here: pictures are there or they aren't.
     return () => {};
+  }
+
+  async listShaders(): Promise<ShaderInfo[]> {
+    const own = [...this.shaders.values()].sort((a, b) => a.file.toLowerCase().localeCompare(b.file.toLowerCase()));
+    return [...BUILT_IN_SHADERS, ...own];
+  }
+
+  async shaderInfo(file: string): Promise<ShaderInfo> {
+    const known = BUILT_IN_SHADERS.find((s) => s.file === file) ?? this.shaders.get(file);
+    if (known) return known;
+    const name = fileName(file).replace(/\.[^.]{1,5}$/, "");
+    const problem = file.trim() === "" ? "no shader is chosen" : file.startsWith("pixelflow:") ? "this PixelFlow has no shader of its own by that name" : "it isn't there";
+    return { file, name, builtIn: file.startsWith("pixelflow:"), description: "", credit: "", inputs: [], problem, line: null };
+  }
+
+  async pickShader(): Promise<ShaderInfo | null> {
+    this.calls.push("pickShader");
+    if (!this.nextShader) return null;
+    this.shaders.set(this.nextShader.file, this.nextShader);
+    return this.nextShader;
+  }
+
+  async shaderStopped(effect: Uuid): Promise<string | null> {
+    for (const row of this.doc?.rows ?? []) {
+      for (const layer of row.layers) {
+        const found = layer.effects.find((e) => e.id === effect);
+        if (found?.params.kind === "shader") return this.stoppedShaders.get(found.params.file ?? "") ?? null;
+      }
+    }
+    return null;
   }
 
   async pickSequenceDocPath() {

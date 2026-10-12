@@ -26,6 +26,7 @@ mod probes;
 mod progress;
 mod recent;
 mod sequencer;
+mod shaders;
 mod sync;
 #[cfg(test)]
 mod testing;
@@ -297,8 +298,10 @@ pub fn run() {
             // Songs' audio tracks (what effects that follow the music read), worked out once.
             engine.set_audio_cache_dir(app.path().app_cache_dir().ok().map(|d| d.join("audio")));
             engine.set_audio_progress(Some(Arc::new(progress::audio_track_reporter(app.handle()))));
-            // A picture read for a preview shows as soon as it's there.
+            // A picture read for a preview shows as soon as it's there, and so does a shader
+            // file.
             pictures::report_arrivals(app.handle(), &engine);
+            shaders::report_arrivals(app.handle(), &engine);
             app.manage(AppState {
                 engine: Mutex::new(engine),
                 devices: DeviceAccess::network().with_setup_dir(setups_dir),
@@ -2268,6 +2271,56 @@ mod tests {
         assert_eq!(
             saved, text,
             "app/src/api/effectCatalog.json is out of date: run `PIXELFLOW_UPDATE_CATALOG=1 cargo test`"
+        );
+    }
+
+    #[test]
+    fn pixelflows_own_shaders_are_listed_and_match_the_ui_copy() {
+        let (_app, webview, _dir) = app();
+        // With no show saved there are no files to list: PixelFlow's own, each with what its
+        // header says and no problem.
+        let listed = call(&webview, "list_shaders", json!({})).unwrap();
+        let shaders = listed.as_array().unwrap();
+        assert!(shaders.len() >= 6);
+        for shader in shaders {
+            assert_eq!(shader["builtIn"], true, "{shader}");
+            assert_eq!(shader["problem"], Value::Null, "{shader}");
+            assert!(!shader["inputs"].as_array().unwrap().is_empty(), "{shader}");
+        }
+        let default = pf_sequence::DEFAULT_SHADER;
+        assert_eq!(shaders[0]["file"], default, "a new Shader effect draws the first");
+        assert_eq!(
+            call(&webview, "shader_info", json!({ "file": default })).unwrap(),
+            shaders[0]
+        );
+        // The browser stand-in (app/src/api/builtInShaders.json) can't run a shader, but shows
+        // the same settings for one: a copy of this list, which must not drift. Run with
+        // PIXELFLOW_UPDATE_CATALOG=1 to rewrite it.
+        let copy = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("src")
+            .join("api")
+            .join("builtInShaders.json");
+        let text = serde_json::to_string_pretty(&listed).unwrap() + "\n";
+        if std::env::var_os("PIXELFLOW_UPDATE_CATALOG").is_some() {
+            std::fs::write(&copy, &text).unwrap();
+        }
+        let saved = std::fs::read_to_string(&copy).unwrap_or_default();
+        assert_eq!(
+            saved, text,
+            "app/src/api/builtInShaders.json is out of date: run `PIXELFLOW_UPDATE_CATALOG=1 cargo test`"
+        );
+        // A file that isn't one of the show's is described by why it can't be used.
+        let gone = call(&webview, "shader_info", json!({ "file": "shaders/gone.fs" })).unwrap();
+        assert!(
+            gone["problem"].as_str().unwrap().contains("isn't saved"),
+            "{gone}"
+        );
+        // Nothing has been stopped, and nothing is said of an effect that isn't there.
+        let id = pf_sequence::EffectId::new();
+        assert_eq!(
+            call(&webview, "shader_stopped", json!({ "effect": id })).unwrap(),
+            Value::Null
         );
     }
 

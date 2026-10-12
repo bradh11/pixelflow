@@ -431,6 +431,10 @@ async function callTheSequencer(sequencer: SequencerApi) {
   await sequencer.pickPicture();
   await sequencer.readPicture("images/star.gif");
   await sequencer.listPictures();
+  await sequencer.listShaders();
+  await sequencer.shaderInfo("shaders/rings.fs");
+  await sequencer.pickShader();
+  await sequencer.shaderStopped(EFFECT);
   await sequencer.checkSequencePictures();
   await sequencer.findSequencePictures();
   await sequencer.locateSequencePicture("C:\\xLights\\Images\\star.gif");

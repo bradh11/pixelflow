@@ -38,7 +38,7 @@ Every effect gets one of four, and so does every line of an import's report:
 |---|---|---|
 | **Matches** | A viewer wouldn't tell the two apart at show distance. | "comes across the same" |
 | **Close** | The same idea, with differences a viewer could notice. | "looks close: slower than in xLights" |
-| **Different** | It reads as a different look. | "looks different: shown as twinkles" |
+| **Different** | It reads as a different look. | "looks different: shown as falling meteors" |
 | **No equivalent** | PixelFlow has no effect for it yet; a dim stand-in is shown. | "no PixelFlow effect yet" |
 
 ## The look score
@@ -89,7 +89,7 @@ what the pictures showed. Some of what settled them:
 | A tendril wandering two outline props: the same colors, less of it lit, pulsing at other moments | error 52 | 63 | Close |
 | A wash on a group of outline props, one of them in another color | error 40 | 57 | Close |
 | Fire over a group of outline props where xLights lights one of them blue and little else | error 98 | 47 | Different |
-| Fireworks drawn as steady twinkles, where xLights is dark between bursts | error 26 | 22 | Different |
+| Fireworks drawn as steady twinkles (before it had an effect of its own), where xLights is dark between bursts | error 26 | 22 | Different |
 | Snow on a tree that PixelFlow also washes blue and the reference leaves dark (the file turned out to be unfinished there) | error 94 | 5 | Different |
 | A shader shown as a dim fill | error 57–108 | 13–40 | No equivalent |
 
@@ -206,6 +206,13 @@ the look score on made-up pairs of renders (`crates/pf-fidelity/src/look.rs`).
   speed or a rhythm from; the score allows for it, and says less.
 - **Random effects move the numbers.** Each import seeds them anew: a share of a sequence that
   sits near a line can fall on either side from run to run.
+- **Bursts at random moments read as out of step.** Color is compared second by second and
+  rhythm step by step, so light that comes in short bursts has to come at the same moments to
+  count as the same light. Fireworks goes off at random moments in both programs. PixelFlow's
+  bursts can be as many, as big, as bright, and as short-lived as xLights' and still score
+  next to nothing for color and rhythm, as would any render whose bursts fall at other
+  moments. With those two at 0 the look cannot pass 45.5, whatever the rest says. For such an
+  effect read coverage, brightness, pattern, and motion, and look at the frames.
 - **Only what has channels in both files is measured.** A reference with fewer channels, or a
   sparse one, leaves props out; `coverage` names them.
 - **A reference can be unrendered, or stale.** xLights saves a file with whatever it has rendered
@@ -237,7 +244,7 @@ has no effects. Of the rest, 242 effects could be judged (75% of the effect-time
 | C | 100% | – | – | – | 98 | 98 |
 | D | 100% | – | – | – | 100 | 100 |
 | E | 100% | – | – | – | 94 | 93 |
-| G | 53% | – | 17% | 30% | 65 | 71 |
+| G | 53% | – | 17% | 30% | 69 | 72 |
 | All | 91% | 2% | 5% | 2% | 93 | 93 |
 
 That is one run of five. The shares move with the random effects, which each import seeds anew.
@@ -249,7 +256,8 @@ of ten others, which alone takes A from 94% to 76%. Hold a change against severa
 and after, effect by effect.
 
 The first scorecards of this corpus (A at 87%, 4%, and 8%; D as seen at 91) are what the first
-two findings below changed.
+two findings below changed. G's look was 65, and 71 as seen, before Fireworks had an effect of
+its own (see "Fireworks, measured and given an effect of its own").
 
 **A reference that wasn't finished.** Most of what looked different in sequence A was the file,
 not the import. xLights saved it part-way through rendering: seventeen of its props go dark in
@@ -350,9 +358,52 @@ them; PixelFlow's flash one at a time (one in a hundred). As many pixels flash o
 Fan, Color Wash, Spirals, Plasma, Bars, and Butterfly. By look, Spirals, Plasma, Bars, and
 Butterfly have nothing to fix: every instance matches (their error is a pattern a pixel over, or
 a plasma's blobs in other places). The cellular automaton, the twinkles, and the fire that pixel
-error called the worst of the random effects match too. Going the other way, Fireworks has a
-small pixel error, because both renders are mostly dark, and is the plainest difference there
-is: PixelFlow twinkles steadily where xLights is dark between bursts.
+error called the worst of the random effects match too. Going the other way, Fireworks had a
+small pixel error, because both renders are mostly dark, and was the plainest difference there
+was: PixelFlow twinkled steadily where xLights is dark between bursts.
+
+**Fireworks, measured and given an effect of its own.** The corpus has one Fireworks: 52
+seconds in sequence G on a group of outline props, 611 pixels on a grid of 139 by 257 cells,
+with xLights' usual settings (16 explosions, 50 particles, velocity 2, particle fade 50, gravity
+and hold color on, at random places) and 25 ms frames. Its frames show what a burst is:
+
+- A burst is at one place, somewhere on the grid, and bursts go off at moments with no pattern
+  to them. Six could be told apart in the 52 seconds; the rest crossed too few pixels to tell.
+- A spark is one cell of the grid, lit whole. On this group one cell in sixty has a pixel, so
+  over the 25 seconds the effect has the pixels to itself xLights lights one pixel in ten
+  thousand: the props are dark but for a few specks where a burst's sparks cross an outline.
+- Every spark of a burst is the same brightness, and loses a twenty-fifth of full brightness a
+  frame: `trunc(255 × (1 − k / 25))` on frame `k`, gone after 25 frames.
+- Sparks fly straight out, each way as likely as any other, at up to 2 cells a frame (the
+  fastest seen crossed 12 cells in 6 frames), with slower ones down to a quarter of that or
+  less: a disc that fills as it grows, 50 cells in radius when it fades out.
+- With gravity on the sparks were still on straight lines after 20 frames, to within what the
+  few crossings can show: a drop of no more than about a tenth of how far they fly.
+- A burst is one palette color (white, then magenta, of white, red, and magenta).
+
+PixelFlow's Fireworks draws that from its own settings: bursts a second, sparks, a burst size,
+a glow time, a fall, one color a burst, and sparks one cell wide that light whole pixels. An
+import sets them in cells and seconds from xLights' numbers (`fireworks` in
+`pf_xlights::sequence::effects`). How a burst is drawn is PixelFlow's own: no spark is kept
+from frame to frame, and a pixel finds the few sparks that could reach it from its direction
+from the burst.
+
+Over four runs before and six after, the look went from 22 to between 38 and 45.5, the most
+it can be. Coverage, brightness, and motion went from 0.01, 0.01, and 0.02 to 1.00, 1.00, and
+0.99. Pattern went from 0.98 or more to between 0.37 and 0.99, by where a run's few bursts
+happen to cross a pixel. Color stays near 0 (0.02 before, 0.00 to 0.03 after), and rhythm fell
+from 1.00 to 0.00: both renders burst at random moments, and not the same ones, which is the
+limit above. Where other rows cover the same pixels the picture went from 68 to 97; sequence
+G's look went from 65.5 to between 68 and 69, and as seen from 71.5 to 72.3. One other effect
+in the sequence moved by more than it does from run to run: a Shader's dim stand-in, from 39.8
+to 37.6 in every run. The import says "bursts go off at other random moments than xLights'" of
+a Fireworks that isn't on a timing track and expects it to look close; the score, for the
+reason above, still says different.
+
+Not measured, because no sequence in the corpus has them: a particle fade other than 50 (taken
+as half as many frames of glow, and noted), frames other than 25 ms (taken as xLights counting
+in frames), colors that change (hold color off), a firework that moves, firing with the music,
+and firing from a timing track.
 
 **What to improve, by look:**
 
@@ -366,10 +417,12 @@ is: PixelFlow twinkles steadily where xLights is dark between bursts.
   is still shown as soft twinkles.
 - *Decisions to make.* Whether the music an effect follows is the left channel, as in xLights,
   or both, and whether sparkles flash on an effect that is see-through. Each is a change to
-  PixelFlow's own behavior, tried and measured above.
-- *What PixelFlow can't show yet.* Shader (ten effects, the largest item by far), Fireworks,
-  and Text in the sequence's own font. A Tendril that wanders at random shows less of itself
-  and pulses at other moments. A Wave has no square shape.
+  PixelFlow's own behavior, tried and measured above. And what an imported Fireworks is called:
+  the importer expects close, and the score cannot say better than different of bursts at other
+  moments (see Limits).
+- *What PixelFlow can't show yet.* Shader (ten effects, the largest item by far) and Text in
+  the sequence's own font. A Tendril that wanders at random shows less of itself and pulses at
+  other moments. A Wave has no square shape. A Fireworks that moves stays where it goes off.
 
 How rows are laid over one another was not changed: where the references are whole, rows that
 blend as the sequence says match them, a group's row over its props' own rows included.

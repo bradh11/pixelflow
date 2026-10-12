@@ -209,9 +209,9 @@ const fn noted(effect: &'static str, text: &'static str, verdict: Verdict) -> Ro
 /// xLights moves, or light on another part of the prop reads as a different look; a shape, a
 /// direction, or a speed that is off is the same idea with a noticeable difference.
 pub const TABLE: &[Row] = &[
-    // Measured: drawn as the nearest PixelFlow effect, which lights the prop steadily where
-    // xLights bursts and goes dark. Its three fellows are stand-ins of the same kind.
-    always("Fireworks", Verdict::Different, ""),
+    // Judged: each is drawn as the nearest PixelFlow effect with its usual settings, a stand-in.
+    // Fireworks was a fourth, and measured: it lit the prop steadily where xLights bursts and
+    // goes dark. It has an effect of its own now.
     always("Snowstorm", Verdict::Different, ""),
     always("Galaxy", Verdict::Different, ""),
     always("Curtain", Verdict::Different, ""),
@@ -396,8 +396,18 @@ mod tests {
 
     #[test]
     fn the_table_gives_stand_ins_and_missing_looks_their_verdicts() {
-        let (verdict, why) = expected("Fireworks", &noting("shown as twinkles"));
+        let (verdict, why) = expected("Snowstorm", &noting("shown as falling meteors"));
         assert_eq!((verdict, why.is_empty()), (Verdict::Different, true));
+        // Fireworks has an effect of its own: as any effect, the same unless something is noted.
+        assert_eq!(expected("Fireworks", &Fidelity::Exact).0, Verdict::Matches);
+        assert_eq!(
+            expected(
+                "Fireworks",
+                &noting("bursts go off at other random moments than xLights'")
+            )
+            .0,
+            Verdict::Close
+        );
         assert_eq!(expected("Twinkle", &Fidelity::Exact).0, Verdict::Matches);
         assert_eq!(
             expected("Twinkle", &noting("strobing twinkles shown as soft twinkles")).0,

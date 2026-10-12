@@ -59,6 +59,7 @@ const HUES: Record<EffectKind, number> = {
   picture: 215,
   shockwave: 235,
   fill: 130,
+  fireworks: 320,
 };
 
 interface Theme {

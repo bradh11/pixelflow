@@ -449,7 +449,7 @@ on its prop and another on its group is drawn twice.
 
 A third sequence, **varied**, is never timed. It exists to check that the renderer draws the same
 frames however it goes about it ([the same frames](#the-same-frames-on-any-number-of-threads)),
-so nothing about it is likely and everything is in it: every kind of effect (39), every blend,
+so nothing about it is likely and everything is in it: every kind of effect (40), every blend,
 every render style and buffer transform, on a few props of each kind, a submodel, a prop with a
 singing face, and every group; fades, sparkles, blur (set, and changing over the effect), color
 adjustments, and curves; the effects that carry on from frame to frame, one of them twice under
@@ -693,6 +693,18 @@ timed apart over a buffer of 500 by 400 pixels as the effect's own work for a pi
 the smooth wheel these rows draw), takes 4.7 ns a pixel with thin arms, 7 with thin arms twisted
 a full turn, 17 with six shaded arms 30 degrees wide and twisted, and 28 at worst, with twelve
 touching arms, twisted, that reach past the buffer.
+
+Fireworks was added after these tables, and neither timed sequence has one. Timed the same way,
+each figure the middle one of three runs, with five of the tables' kinds timed beside it (Twinkle
+2.61 ms, Meteors 1.77, Pinwheel 1.44, Ripple 0.72, and On 0.70 on every prop), a Fireworks as
+it is first added takes 3.18 ms a frame on every prop (15.9 ns a pixel) and 1.47 ms on the
+whole-house group (7.3 ns), and allocates nothing. Set up as an import sets it up, with sparks
+one cell wide that light whole pixels, it takes 2.36 ms (11.8 ns); with blur 2, 5.97 ms (29.9
+ns); and with as many bursts alight as it draws at once (20 a second that glow for 10 seconds,
+of which it draws the newest 12), 4.14 ms (20.7 ns). What it costs follows how much of the
+buffer its bursts reach and how many sparks a pixel there has to look at: 5 bursts a second of
+200 sparks with full tails, glowing for 3 seconds and as big as the prop, take 21.1 ms a frame
+(105 ns a pixel).
 
 #### Each kind alone
 
@@ -1191,7 +1203,7 @@ or stalls; a real sound card's delay is still set by ear, with the sequence's of
 ## Caveats
 
 - **Synthetic content.** The shows and sequences are plausible, not real. A real sequence may
-  lean on effects these use lightly, or on the 21 kinds they don't use at all. `--mode effects`
+  lean on effects these use lightly, or on the 24 kinds they don't use at all. `--mode effects`
   says what each of the sixteen costs; it says nothing about the others.
 - **Loopback is not a network.** There is no network card, switch, or controller, and nothing
   that drops, delays, or reorders packets the way a real network does. The cost of sending is the

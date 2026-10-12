@@ -4237,5 +4237,190 @@
         "type": "bool"
       }
     ]
+  },
+  {
+    "description": "Bursts of sparks that fly out, fall, and fade: at random, on a timing track, or with the music.",
+    "kind": "fireworks",
+    "label": "Fireworks",
+    "settings": [
+      {
+        "default": 1.0,
+        "description": "Bursts a second, going off at random moments (the first as the effect starts).",
+        "key": "rate",
+        "label": "Bursts",
+        "max": 20.0,
+        "min": 0.01,
+        "step": 0.01,
+        "type": "number",
+        "unit": "per second"
+      },
+      {
+        "default": 50,
+        "description": "Sparks in each burst.",
+        "key": "sparks",
+        "label": "Sparks",
+        "max": 200,
+        "min": 1,
+        "step": 1,
+        "type": "int"
+      },
+      {
+        "default": 60.0,
+        "description": "How far the sparks fly before they have faded away: 100 reaches from the middle of the prop to the ends of its longer side.",
+        "key": "size",
+        "label": "Burst size",
+        "max": 500.0,
+        "min": 1.0,
+        "step": 1.0,
+        "type": "number"
+      },
+      {
+        "default": 1.5,
+        "description": "How long a burst's sparks glow before they have faded away.",
+        "key": "life",
+        "label": "Glow time",
+        "max": 10.0,
+        "min": 0.05,
+        "step": 0.05,
+        "type": "number",
+        "unit": "seconds"
+      },
+      {
+        "default": 0.3,
+        "description": "The tail each spark draws behind it, as a share of how far it has flown (0: a dot).",
+        "key": "trail",
+        "label": "Tails",
+        "max": 1.0,
+        "min": 0.0,
+        "step": 0.01,
+        "type": "number"
+      },
+      {
+        "default": 0.3,
+        "description": "How far the sparks drop as they fade, as a share of the burst's size (0: they don't).",
+        "key": "fall",
+        "label": "Fall",
+        "max": 2.0,
+        "min": 0.0,
+        "step": 0.01,
+        "type": "number"
+      },
+      {
+        "default": "burst",
+        "description": "One palette color for each burst, one for each spark, or the palette from its first color to its last as the sparks fade.",
+        "key": "colors",
+        "label": "Colors",
+        "options": [
+          {
+            "label": "One color a burst",
+            "value": "burst"
+          },
+          {
+            "label": "A color for each spark",
+            "value": "spark"
+          },
+          {
+            "label": "Through the palette as they fade",
+            "value": "fade"
+          }
+        ],
+        "type": "choice"
+      },
+      {
+        "default": null,
+        "description": "A burst at each mark of this timing track, instead of at random moments.",
+        "key": "timingTrack",
+        "label": "Burst on marks of",
+        "type": "timingTrack"
+      },
+      {
+        "default": false,
+        "description": "A burst when the music gets louder than the trigger level (and twice a second while it stays louder), instead of at random moments.",
+        "key": "fireOnMusic",
+        "label": "Burst with the music",
+        "type": "bool"
+      },
+      {
+        "default": true,
+        "description": "Each burst somewhere new at random, instead of at the center below.",
+        "key": "randomLocation",
+        "label": "Random places",
+        "type": "bool"
+      },
+      {
+        "default": 50.0,
+        "description": "How loud the music must get to set off a burst.",
+        "key": "triggerLevel",
+        "label": "Music trigger level",
+        "max": 100.0,
+        "min": 0.0,
+        "more": true,
+        "step": 1.0,
+        "type": "number",
+        "unit": "%"
+      },
+      {
+        "default": 50.0,
+        "description": "Where the bursts go off without random places, from the left (0) to the right (100).",
+        "key": "centerX",
+        "label": "Center across",
+        "max": 100.0,
+        "min": 0.0,
+        "more": true,
+        "step": 1.0,
+        "type": "number",
+        "unit": "%"
+      },
+      {
+        "default": 50.0,
+        "description": "Where the bursts go off without random places, from the bottom (0) to the top (100).",
+        "key": "centerY",
+        "label": "Center up",
+        "max": 100.0,
+        "min": 0.0,
+        "more": true,
+        "step": 1.0,
+        "type": "number",
+        "unit": "%"
+      },
+      {
+        "default": 2.0,
+        "description": "How wide each spark is, as a percent of the prop's longer side. A spark is never smaller than one pixel.",
+        "key": "sparkSize",
+        "label": "Spark size",
+        "max": 25.0,
+        "min": 0.0,
+        "more": true,
+        "step": 0.1,
+        "type": "number"
+      },
+      {
+        "default": 0.6,
+        "description": "How much the sparks slow down as they fly: 0 keeps them at one speed, 1 brings them to a stop as they fade out.",
+        "key": "slowing",
+        "label": "Slowing",
+        "max": 1.0,
+        "min": 0.0,
+        "more": true,
+        "step": 0.01,
+        "type": "number"
+      },
+      {
+        "default": true,
+        "description": "Sparks glide from pixel to pixel, their light shared between the pixels they are over. Otherwise each lights whole pixels and hops from one to the next, as xLights' sparks do.",
+        "key": "soft",
+        "label": "Soft sparks",
+        "more": true,
+        "type": "bool"
+      },
+      {
+        "default": true,
+        "description": "Burst size and spark size are percent of the prop's longer side. Otherwise they count cells of the prop's grid, as an imported xLights sequence's do.",
+        "key": "scale",
+        "label": "Sizes in percent of the prop",
+        "more": true,
+        "type": "bool"
+      }
+    ]
   }
 ]

@@ -29,6 +29,7 @@ pub mod faces;
 mod fan;
 mod fill;
 mod fire;
+mod fireworks;
 mod garlands;
 mod geometry;
 mod impact;
@@ -60,8 +61,8 @@ pub use audio::{Audio, AudioFill, AudioSource, AudioTrack, RenderContext, follow
 pub use color::{Colors, Rgba};
 pub use effects::{
     Butterfly, Canvas, Chase, Circles, ColorShift, DEFAULT_FRAME_MS, Dancer, EffectTime, Faces, Fan,
-    Garlands, Impact, Life, Lightning, Lines, MAX_METEORS, Morph, Picture, Pinwheel, Plasma, Pulse, Shade,
-    Shader, Shape, Sing, Snowflakes, Tendril, Text, VuMeter, Wipe, shade_pixel,
+    Fireworks, Garlands, Impact, Life, Lightning, Lines, MAX_METEORS, Morph, Picture, Pinwheel, Plasma,
+    Pulse, Shade, Shader, Shape, Sing, Snowflakes, Tendril, Text, VuMeter, Wipe, shade_pixel,
 };
 pub use geometry::{Members, Pixel, PixelBuffer, SceneGeometry};
 pub use picture::{Pictures, ReadPicture};

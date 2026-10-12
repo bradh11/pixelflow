@@ -12,6 +12,7 @@ import type { Show } from "../../api/types";
 import { channelsPerPixel, nodeCount } from "../../lib/shows";
 import { useSequencer } from "../../state/sequencer";
 import { useApp } from "../../state/store";
+import { EFFECT_ICONS } from "./EffectPalette";
 
 beforeEach(() => {
   vi.spyOn(Element.prototype, "getBoundingClientRect").mockReturnValue({
@@ -182,5 +183,28 @@ describe("the in-browser stand-in renderer", () => {
       expect(frames.some((f) => f.some((b) => b > 0)), params.kind).toBe(true);
       expect(frames.some((f, i) => i > 0 && f.some((b, k) => b !== frames[0][k])), params.kind).toBe(true);
     }
+  });
+
+  it("draws fireworks as bursts with dark between them, on a matrix and along an arch", () => {
+    const show = demoShow();
+    const doc = demoSequence(show, 60_000);
+    const hits: TimingTrack = { id: crypto.randomUUID(), name: "Hits", kind: "custom", marks: [1000, 3000].map((ms) => ({ startMs: ms, endMs: ms + 50, label: "" })) };
+    for (const name of ["Window Matrix", "Garage Arch"]) {
+      const lit = (params: EffectParams, ms: number) => {
+        const row = newRow({ prop: show.props.find((p) => p.name === name)!.id });
+        row.layers[0].effects.push({ ...newEffect("fireworks", 0, 10_000, ["#ff0000", "#0000ff"]), params });
+        return renderSequenceFrame({ ...doc, timingTracks: [hits], rows: [row] }, show, ms).filter((b) => b > 0).length;
+      };
+      // One burst as the effect starts, gone when its glow time is up; the next is 5 to 10 seconds off.
+      const sparse: EffectParams = { kind: "fireworks", rate: 0.2, life: 1, randomLocation: false };
+      expect(lit(sparse, 300), name).toBeGreaterThan(0);
+      expect(lit(sparse, 600), name).toBeGreaterThan(0);
+      for (const ms of [1000, 2500, 4900]) expect(lit(sparse, ms), `${name} at ${ms}`).toBe(0);
+      // On a timing track: nothing until its first mark, then a burst at each.
+      const marked: EffectParams = { ...sparse, timingTrack: hits.id };
+      for (const ms of [0, 900, 2100, 2900]) expect(lit(marked, ms), `${name} at ${ms}`).toBe(0);
+      for (const ms of [1300, 3300]) expect(lit(marked, ms), `${name} at ${ms}`).toBeGreaterThan(0);
+    }
+    expect(EFFECT_ICONS.fireworks).toBeDefined();
   });
 });

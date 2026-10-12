@@ -31,6 +31,7 @@ type Migration = fn(Value) -> Result<Value, SequenceError>;
 /// `MIGRATIONS[i]` upgrades a document from schema version `i + 1` to `i + 2`.
 const MIGRATIONS: &[Migration] = &[
     v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8, v8_to_v9, v9_to_v10, v10_to_v11,
+    v11_to_v12,
 ];
 
 /// Version 2 only adds submodel targets, so version 1 documents are already valid.
@@ -93,6 +94,11 @@ fn v9_to_v10(doc: Value) -> Result<Value, SequenceError> {
 /// Picture's `resize`, PixelFlow's own) and effect kinds (Shockwave, Fill), so version 10
 /// documents are already valid.
 fn v10_to_v11(doc: Value) -> Result<Value, SequenceError> {
+    Ok(doc)
+}
+
+/// Version 12 only adds an effect kind (Fireworks), so version 11 documents are already valid.
+fn v11_to_v12(doc: Value) -> Result<Value, SequenceError> {
     Ok(doc)
 }
 
@@ -322,7 +328,7 @@ mod tests {
             .effects
             .push(crate::Effect::new(crate::EffectKind::Dancer, 500, 1000).with_params(dancer));
         let saved = sequence_to_json(&seq).unwrap();
-        assert!(saved.contains(r#""schemaVersion": 11"#), "{saved}");
+        assert!(saved.contains(r#""schemaVersion": 12"#), "{saved}");
         assert_eq!(sequence_from_json(&saved).unwrap(), seq);
     }
 
@@ -360,7 +366,7 @@ mod tests {
             .effects
             .push(crate::Effect::new(crate::EffectKind::Picture, 500, 1000).with_params(picture));
         let saved = sequence_to_json(&seq).unwrap();
-        assert!(saved.contains(r#""schemaVersion": 11"#), "{saved}");
+        assert!(saved.contains(r#""schemaVersion": 12"#), "{saved}");
         assert!(saved.contains(r#""file": "images/santa dancing.gif""#), "{saved}");
         assert_eq!(sequence_from_json(&saved).unwrap(), seq);
         // A new picture has no file yet and plays at its own speed; settings out of range are
@@ -443,7 +449,7 @@ mod tests {
             .effects
             .push(crate::Effect::new(crate::EffectKind::Fire, 500, 1000).with_params(flicker));
         let saved = sequence_to_json(&seq).unwrap();
-        assert!(saved.contains(r#""schemaVersion": 11"#), "{saved}");
+        assert!(saved.contains(r#""schemaVersion": 12"#), "{saved}");
         assert!(saved.contains(r#""style": "flicker""#), "{saved}");
         let again = sequence_from_json(&saved).unwrap();
         // Out-of-range settings are pulled back in on open.
@@ -453,6 +459,79 @@ mod tests {
         assert_eq!(
             (p.style, p.location, p.growth_cycles, p.grow_with_music),
             (crate::FireStyle::Flicker, crate::FireLocation::Left, 20.0, true)
+        );
+    }
+
+    #[test]
+    fn version_11_files_open_as_the_current_version_and_fireworks_round_trip() {
+        let text = r#"{ "schemaVersion": 11, "name": "x", "durationMs": 1000, "rows": [
+            { "id": "11111111-0000-4000-8000-000000000001",
+              "target": { "prop": "22222222-0000-4000-8000-000000000001" },
+              "layers": [ { "effects": [ { "id": "33333333-0000-4000-8000-000000000001",
+                  "startMs": 0, "endMs": 500, "params": { "kind": "shockwave", "cycles": 2 } } ] } ] } ] }"#;
+        let mut seq = sequence_from_json(text).unwrap();
+        assert_eq!(seq.schema_version, CURRENT_SCHEMA_VERSION);
+        assert_eq!(
+            seq.rows[0].layers[0].effects[0].params,
+            EffectParams::Shockwave(crate::ShockwaveParams {
+                cycles: 2,
+                ..Default::default()
+            })
+        );
+        // Fireworks with a few settings: the rest take their defaults, and it saves and opens again.
+        let fireworks: EffectParams = serde_json::from_str(
+            r#"{ "kind": "fireworks", "rate": 2.5, "colors": "spark", "fireOnMusic": true, "scale": false }"#,
+        )
+        .unwrap();
+        assert_eq!(
+            fireworks,
+            EffectParams::Fireworks(crate::FireworksParams {
+                rate: 2.5,
+                colors: crate::FireworksColors::Spark,
+                fire_on_music: true,
+                scale: false,
+                ..Default::default()
+            })
+        );
+        seq.rows[0].layers[0]
+            .effects
+            .push(crate::Effect::new(crate::EffectKind::Fireworks, 500, 1000).with_params(fireworks));
+        let saved = sequence_to_json(&seq).unwrap();
+        assert!(saved.contains(r#""schemaVersion": 12"#), "{saved}");
+        assert_eq!(sequence_from_json(&saved).unwrap(), seq);
+        // A new one bursts at random moments and places, with soft sparks, in percent of the prop.
+        let EffectParams::Fireworks(new) = EffectParams::default_for(crate::EffectKind::Fireworks) else {
+            unreachable!()
+        };
+        assert_eq!(
+            (
+                new.timing_track,
+                new.fire_on_music,
+                new.random_location,
+                new.soft,
+                new.scale
+            ),
+            (None, false, true, true, true)
+        );
+        // Settings out of range are pulled back in on open.
+        let mut odd = EffectParams::Fireworks(crate::FireworksParams {
+            rate: f32::NAN,
+            sparks: 0,
+            size: f32::INFINITY,
+            life: -1.0,
+            ..Default::default()
+        });
+        assert!(odd.setting_problem().is_some());
+        odd.sanitize();
+        assert_eq!(
+            odd,
+            EffectParams::Fireworks(crate::FireworksParams {
+                rate: 1.0,
+                sparks: 1,
+                size: 500.0,
+                life: 0.05,
+                ..Default::default()
+            })
         );
     }
 
@@ -559,7 +638,7 @@ mod tests {
             sequence_from_json(r#"{ "schemaVersion": "1", "name": "x" }"#),
             Err(SequenceError::InvalidSchemaVersion(_))
         ));
-        let err = sequence_from_json(r#"{ "schemaVersion": 12, "name": "x" }"#).unwrap_err();
+        let err = sequence_from_json(r#"{ "schemaVersion": 13, "name": "x" }"#).unwrap_err();
         assert!(err.to_string().contains("update PixelFlow"), "{err}");
         assert!(matches!(sequence_from_json("[1, 2"), Err(SequenceError::Json(_))));
     }

@@ -35,7 +35,12 @@ interface Px {
   n: number;
   /** How wide the target is next to its height. */
   aspect: number;
+  /** The target is a string of lights with no area to it (a line, an arch, an outline). */
+  line: boolean;
 }
+
+/** The shapes that are one string of lights with nothing inside it. */
+const STRINGS = new Set(["line", "arch", "circle", "polyLine", "windowFrame", "wreath", "star", "candyCanes"]);
 
 function num(params: Record<string, unknown>, key: string, fallback: number): number {
   const v = params[key];
@@ -197,6 +202,61 @@ function shade(effect: Effect, ms: number, px: Px, seed: number, tracks: TimingT
       const from = sideways ? px.u : px.v;
       const along = p.direction === "down" || p.direction === "left" ? 1 - from : from;
       return along <= num(p, "position", 100) / 100 ? [p.colorByTime ? ramp(t) : ramp(along), 1] : [[0, 0, 0], 0];
+    }
+    case "fireworks": {
+      // Bursts of sparks flying out, slowing, falling, and fading: one in each stretch of time
+      // (the first as the effect starts), or one at each mark of its timing track. Sizes are
+      // read as percent of the prop; there is no music here to set any off.
+      const life = Math.max(0.05, num(p, "life", 1.5));
+      const bursts: [number, number][] = [];
+      if (p.timingTrack) {
+        for (const mark of tracks.find((tr) => tr.id === p.timingTrack)?.marks ?? []) {
+          const age = (ms - mark.startMs) / 1000;
+          if (mark.startMs >= effect.startMs && age >= 0 && age < life) bursts.push([mark.startMs, age]);
+        }
+      } else if (!p.fireOnMusic) {
+        const stretch = 1 / Math.max(0.01, num(p, "rate", 1));
+        for (let k = Math.floor(el / stretch); k >= 0 && el - (k + 1) * stretch < life; k--) {
+          const age = el - (k + (k === 0 ? 0 : hash(k, seed))) * stretch;
+          if (age >= 0 && age < life) bursts.push([k, age]);
+        }
+      }
+      // The target with its longer side 1, and a spark's half width on it.
+      const [wide, tall] = px.aspect >= 1 ? [1, 1 / px.aspect] : [px.aspect, 1];
+      const size = num(p, "size", 60) / 200;
+      const half = Math.max(0.012, num(p, "sparkSize", 2) / 200);
+      const sparks = Math.max(1, Math.round(num(p, "sparks", 50)));
+      const each = px.line ? Math.ceil(sparks / 2) : sparks;
+      const trail = num(p, "trail", 0.3);
+      let shown: [Rgb, number] = [[0, 0, 0], 0];
+      for (const [key, age] of bursts.slice(0, 12)) {
+        const a = age / life;
+        const reach = size * a * (1 + num(p, "slowing", 0.6) * (1 - a));
+        const placed = p.randomLocation === false;
+        const [cx, cy] = placed ? [num(p, "centerX", 50) / 100, num(p, "centerY", 50) / 100] : [hash(key, seed + 1), hash(key, seed + 2)];
+        const fell = num(p, "fall", 0.3) * size * a * a;
+        // On a string the sparks fly both ways along its lights; elsewhere, all round the burst.
+        const [dx, dy] = px.line ? [px.i / Math.max(1, px.n - 1) - cx, 0] : [(px.u - cx) * wide, (px.v - cy) * tall + fell];
+        const r = Math.hypot(dx, dy);
+        if (r > reach + half) continue;
+        // The sparks whose share of the circle (or, on a line, of the speeds) the pixel is in or next to.
+        const own = px.line ? (r / Math.max(reach, 1e-6)) * each : (Math.atan2(dy, dx) / (2 * Math.PI) + 1) * each;
+        for (const other of [-1, 0, 1]) {
+          const share = Math.floor(own) + other;
+          const id = px.line ? (share < 0 || share >= each ? -1 : 2 * share + (dx < 0 ? 1 : 0)) : ((share % each) + each) % each;
+          if (id < 0) continue;
+          const drawn = hash(id, key + seed);
+          const flown = reach * (px.line ? (share + drawn) / each : Math.sqrt(0.02 + 0.98 * hash(id + 7, key + seed)));
+          const angle = px.line ? 0 : ((own - share - drawn) / each) * 2 * Math.PI;
+          const [beside, ahead] = [r * Math.sin(angle), r * Math.cos(angle) - flown];
+          const tail = trail * flown;
+          const cover = Math.hypot(beside, ahead) < half ? 1 : ahead < 0 && -ahead < tail && Math.abs(beside) < half ? 1 + ahead / tail : 0;
+          if (cover * (1 - a) <= shown[1]) continue;
+          const color = p.colors === "fade" ? ramp(a) : get(hash(p.colors === "spark" ? id : 0, key + seed + 3) * colors.length);
+          shown = [color, cover * (1 - a)];
+        }
+      }
+      return shown;
     }
     case "shape": {
       // Rings growing from random places, each fading over its life.
@@ -543,6 +603,7 @@ export function renderSequenceFrame(doc: Sequence, show: Show, ms: number): Uint
           i: index - 1,
           n: total,
           aspect: maxX > minX && maxY > minY ? (maxX - minX) / (maxY - minY) : 1,
+          line: !(maxX > minX && maxY > minY) || (props.length === 1 && p.prop.shape.source === "generator" && STRINGS.has(p.prop.shape.type)),
         };
         let [r, g, b, a] = [0, 0, 0, 0];
         active.forEach((effect, layer) => {

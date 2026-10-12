@@ -809,6 +809,87 @@ fn dancers_are_looked_up_and_placed_like_any_effect() {
     }
 }
 
+#[test]
+fn fireworks_are_looked_up_and_placed_like_any_effect() {
+    let s = setup(Some("/music/song.mp3"));
+    let row = s.rows[0].clone();
+    let fireworks = |settings: Value| {
+        (
+            "place_effects",
+            json!({ "rowIds": [row], "fromMs": 8000, "toMs": 24000, "effect": { "kind": "fireworks", "settings": settings } }),
+        )
+    };
+    let provider = ScriptedProvider::new(vec![
+        calls("", &[("list_effect_kinds", json!({ "kind": "fireworks" }))]),
+        calls(
+            "",
+            &[
+                fireworks(json!({ "rate": 2, "colors": "spark", "trail": 0.5 })),
+                fireworks(json!({ "sparkles": 9 })),
+            ],
+        ),
+        says("Fireworks through the loud part."),
+    ]);
+    let (mut session, _) = session();
+    let (reply, _) = ask(
+        &mut session,
+        &provider,
+        &s.engine,
+        "Fireworks on A through the loud part",
+    );
+    reply.unwrap();
+    // The lookup gives every setting with its choices, in a few short lines' worth.
+    let (listed, is_error) = results_in(&provider, 1).remove(0);
+    assert!(!is_error, "{listed}");
+    assert!(listed.len() < 4_000, "{} bytes", listed.len());
+    let catalog: Value = serde_json::from_str(&listed).unwrap();
+    assert_eq!(catalog.as_array().map(Vec::len), Some(1));
+    assert_eq!(catalog[0]["kind"], "fireworks");
+    let keys: Vec<&str> = catalog[0]["settings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|setting| setting["key"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        keys,
+        [
+            "rate",
+            "sparks",
+            "size",
+            "life",
+            "trail",
+            "fall",
+            "colors",
+            "timingTrack",
+            "fireOnMusic",
+            "randomLocation",
+            "triggerLevel",
+            "centerX",
+            "centerY",
+            "sparkSize",
+            "slowing",
+            "soft",
+            "scale"
+        ]
+    );
+    // Placed with the settings given, the rest at their defaults; a setting it doesn't have
+    // is refused.
+    let results = results_in(&provider, 2);
+    assert!(!results[0].1, "{results:?}");
+    assert!(results[1].1 && results[1].0.contains("sparkles"), "{results:?}");
+    let doc = session.draft().unwrap().sequence().unwrap();
+    assert_eq!(placed(&session, &row, 0), [(8000, 24000)]);
+    let placed = doc.rows.iter().find(|r| r.id.to_string() == row).unwrap();
+    let effect = &placed.layers[0].effects[0];
+    assert_eq!(effect.kind(), EffectKind::Fireworks);
+    let settings = serde_json::to_value(&effect.params).unwrap();
+    assert_eq!(
+        (&settings["rate"], &settings["colors"], &settings["sparks"]),
+        (&json!(2.0), &json!("spark"), &json!(50))
+    );
+}
+
 /// An OpenAI Responses stream with one function call (then nothing else).
 fn openai_call(name: &str, input: &Value) -> String {
     let item = json!({ "id": "fc_1", "type": "function_call", "status": "completed", "call_id": "call_1", "name": name, "arguments": input.to_string() });

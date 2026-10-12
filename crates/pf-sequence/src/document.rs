@@ -23,8 +23,8 @@ use serde::{Deserialize, Serialize};
 /// flickering flames (`location`, `style`, `hueShift`, `growthCycles`, `growWithMusic`), the
 /// Shockwave and Fill effects, every effect has color adjustments (`hueAdjust`,
 /// `saturationAdjust`, `valueAdjust`, `brightness`, `contrast`), and a Picture can be resized as
-/// an older xLights resized it (`resize`).
-pub const CURRENT_SCHEMA_VERSION: u32 = 11;
+/// an older xLights resized it (`resize`); 12 = the Fireworks effect.
+pub const CURRENT_SCHEMA_VERSION: u32 = 12;
 
 fn default_frame_ms() -> u32 {
     25

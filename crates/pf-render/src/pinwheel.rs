@@ -164,16 +164,15 @@ impl Layout {
 }
 
 pub struct Pinwheel {
-    /// The pixel position the center settings name, across and up the target (0–1).
+    /// Where the center is, as a pixel position across and up the target. The settings place it
+    /// by the target's whole extent, from its left (bottom) edge at -100 to its right (top) edge
+    /// at 100, and a target of `n` cells is `n` cells from edge to edge; pixel positions run from
+    /// 0 in the middle of its first cell to 1 in the middle of its last, `n - 1` cells. The two
+    /// agree in the middle of the target and part evenly either way: with the center on an edge
+    /// it is half a cell beyond the last pixel's own place, a little outside 0 to 1. A target
+    /// one cell across (or one high) has no extent that way for a setting to move the center
+    /// over: its pixels are a line through the center whatever that setting says.
     center: [f32; 2],
-    /// How many cells beyond that position the center is. The settings place the center by the
-    /// target's whole extent, from its left (bottom) edge at -100 to its right (top) edge at
-    /// 100, and a target of `n` cells is `n` cells from edge to edge; pixel positions run from
-    /// the middle of its first cell to the middle of its last, `n - 1` cells. The two agree in
-    /// the middle of the target and part evenly either way, to half a cell at its edges. A
-    /// target one cell across (or one high) has no extent that way for a setting to move the
-    /// center over: its pixels are a line through the center whatever that setting says.
-    beyond: [f32; 2],
     /// What a full step across or up the target is in cells: its columns and rows, less one.
     cells: [f32; 2],
     /// Where the arms end, in cells from the center.
@@ -247,15 +246,21 @@ impl Pinwheel {
             *slot = colors.get(arm + 1);
         }
 
-        // How far the center is from the middle, as a share of the target's extent.
-        let moved = [p.center_x / 200.0, p.center_y / 200.0];
+        // The center as a pixel position along a side of `cells` cells: the setting's share of
+        // the side's whole extent, less the half cell from its edge to its first pixel, counted
+        // in the steps between its pixels. A side of one cell has no steps, and the setting does
+        // nothing there.
+        let center = |setting: f32, cells: u32| {
+            let share = 0.5 + f64::from(setting) / 200.0;
+            if cells > 1 {
+                ((share * f64::from(cells) - 0.5) / f64::from(cells - 1)) as f32
+            } else {
+                0.5
+            }
+        };
 
         Self {
-            center: [0.5 + moved[0], 0.5 + moved[1]],
-            beyond: [
-                if columns > 1 { moved[0] } else { 0.0 },
-                if rows > 1 { moved[1] } else { 0.0 },
-            ],
+            center: [center(p.center_x, columns), center(p.center_y, rows)],
             cells: [(columns - 1) as f32, (rows - 1) as f32],
             length: reach,
             reach_squared: if reach > 0.0 {
@@ -439,7 +444,7 @@ impl Rays {
     /// How much of the wheel shows at a pixel, and whether more of that is the arm on the
     /// pixel's other side.
     #[inline]
-    fn shown(&self, wheel: &Pinwheel, spot: &Spot) -> (f32, bool) {
+    fn shown(&self, wheel: &Pinwheel, spot: Spot) -> (f32, bool) {
         if self.clear(spot.f, spot.r) {
             return (0.0, false);
         }
@@ -481,9 +486,12 @@ impl Rays {
         }
     }
 
-    /// [`Self::shown`], worked out in full.
-    #[inline]
-    fn covered(&self, wheel: &Pinwheel, spot: &Spot) -> (f32, bool) {
+    /// [`Self::shown`], worked out in full. Kept out of line, and handed the pixel's spot by
+    /// value: it is several times the size of everything else a pixel is put through, and built
+    /// into the loop over a target's pixels, reaching into the loop's own copy of the spot, it
+    /// slowed the smooth style, which never comes here, by 4%.
+    #[inline(never)]
+    fn covered(&self, wheel: &Pinwheel, spot: Spot) -> (f32, bool) {
         let r = spot.r;
         // The nearest arm's center line and its neighbor's, in degrees counterclockwise of the
         // pixel.
@@ -557,7 +565,7 @@ impl Rays {
     /// degrees counterclockwise of the pixel at the pixel's own distance. The pixel is `beside`
     /// degrees counterclockwise of its own nearest ray.
     #[inline]
-    fn marks(&self, wheel: &Pinwheel, center: f32, beside: f32, spot: &Spot, shaded: f32) -> f32 {
+    fn marks(&self, wheel: &Pinwheel, center: f32, beside: f32, spot: Spot, shaded: f32) -> f32 {
         let r = spot.r;
         // The pixel's direction as a step of one cell: out from the center, and (turned a
         // quarter turn) round it.
@@ -661,6 +669,7 @@ fn place(at: f32) -> f32 {
 }
 
 /// Where a pixel is on the wheel.
+#[derive(Clone, Copy)]
 struct Spot {
     /// Cells across and up from the center, and its distance from it.
     x: f32,
@@ -679,8 +688,8 @@ impl Pinwheel {
     #[inline]
     fn spot(&self, px: &Pixel) -> Option<Spot> {
         // Where the pixel is from the center, in cells.
-        let x = (place(px.u) - self.center[0]) * self.cells[0] - self.beyond[0];
-        let y = (place(px.v) - self.center[1]) * self.cells[1] - self.beyond[1];
+        let x = (place(px.u) - self.center[0]) * self.cells[0];
+        let y = (place(px.v) - self.center[1]) * self.cells[1];
         let squared = x * x + y * y;
         if squared >= self.reach_squared {
             return None;
@@ -738,7 +747,7 @@ impl Shade for Pinwheel {
         // pixel's other side than the nearest one: the arm showing more gives the color.
         let (shown, neighbor) = match &self.drawn {
             Drawn::Wedges(wedges) => wedges.shown(self, spot.f, spot.r),
-            Drawn::Rays(rays) => rays.shown(self, &spot),
+            Drawn::Rays(rays) => rays.shown(self, spot),
         };
         let alpha = unit(shown);
         if alpha <= 0.0 {
@@ -762,7 +771,7 @@ mod tests {
     fn both_ways(wheel: &Pinwheel, spot: &Spot) -> (bool, (f32, bool)) {
         match &wheel.drawn {
             Drawn::Wedges(w) => (w.clear(wheel, spot.f, spot.r), w.covered(wheel, spot.f, spot.r)),
-            Drawn::Rays(rays) => (rays.clear(spot.f, spot.r), rays.covered(wheel, spot)),
+            Drawn::Rays(rays) => (rays.clear(spot.f, spot.r), rays.covered(wheel, *spot)),
         }
     }
 
@@ -808,7 +817,7 @@ mod tests {
         }
         let shown = match &wheel.drawn {
             Drawn::Wedges(w) => w.shown(wheel, spot.f, spot.r),
-            Drawn::Rays(rays) => rays.shown(wheel, &spot),
+            Drawn::Rays(rays) => rays.shown(wheel, spot),
         };
         assert_eq!(
             (shown.0.to_bits(), shown.1),

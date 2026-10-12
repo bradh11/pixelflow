@@ -27,6 +27,7 @@
 
 mod ast;
 mod built_in;
+mod file;
 mod isf;
 mod lex;
 mod lower;
@@ -35,6 +36,9 @@ mod parse;
 mod vm;
 
 pub use built_in::{BUILT_IN, BUILT_IN_PREFIX, BuiltIn, built_in, is_built_in_name};
+pub use file::{
+    MAX_SHADER_BYTES, SHADER_EXTENSIONS, has_shader_extension, read_shader_bytes, read_shader_file,
+};
 pub use isf::{Header, Input, InputKind, MAX_CHOICES, MAX_INPUTS};
 pub use lower::Program;
 pub use vm::{Machine, RunStats, Uniforms};

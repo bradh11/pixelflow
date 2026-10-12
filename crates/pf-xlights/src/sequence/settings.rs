@@ -31,6 +31,10 @@ const MAX_KEY_NAME: usize = 200;
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Settings {
     map: HashMap<String, String>,
+    /// For a Shader effect: its shader file, once the importer has found it on this computer.
+    /// The file says which of the settings are the shader's inputs and what each means, so
+    /// without it the effect can't be translated (see [`super::shaders`]).
+    pub shader: Option<std::sync::Arc<super::shaders::FoundShader>>,
 }
 
 /// Where an embedded `X_CONTROL_Name=` key starts inside `value` (not at its start), if any.
@@ -91,7 +95,7 @@ impl Settings {
                 map.entry(key.to_string()).or_insert(value);
             }
         }
-        Self { map }
+        Self { map, shader: None }
     }
 
     pub fn get(&self, key: &str) -> Option<&str> {

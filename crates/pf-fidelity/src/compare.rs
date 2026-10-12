@@ -241,7 +241,10 @@ impl Prepared {
                 }
             }
         };
-        let pictures = Pictures::new(|file| std::fs::read(file).map_err(|e| e.to_string()));
+        // Each picture and shader file where the import found it on this computer.
+        let pictures = Pictures::new(|file| std::fs::read(file).map_err(|e| e.to_string())).with_shaders(
+            pf_render::Shaders::new(|file| pf_shader::read_shader_file(Path::new(file))),
+        );
         let exported = export_fseq(
             show,
             &comparison.map,

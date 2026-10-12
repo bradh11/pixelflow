@@ -32,7 +32,8 @@ pub use layout::{XGroup, XLayout, parse_layout};
 pub use model::XmlModel;
 pub use networks::{OutputDefaults, XController, XOutput, parse_networks};
 pub use sequence::{
-    SequenceImport, SequenceImportSummary, build_sequence, build_sequence_mapped, import_sequence_file,
+    FoundShader, NearbyShaders, SequenceImport, SequenceImportSummary, build_sequence, build_sequence_mapped,
+    build_sequence_with_shaders, import_sequence_file,
 };
 pub use timing::{TimingFileImport, kind_for_name, parse_audacity, parse_xtiming, read_timing_file, xtiming};
 

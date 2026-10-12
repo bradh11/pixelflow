@@ -11,6 +11,7 @@ mod curves;
 mod effects;
 pub mod look;
 mod settings;
+mod shaders;
 mod whole;
 mod xsq;
 
@@ -32,6 +33,7 @@ use pf_sequence::{
     RowBlending, RowId, Sequence, Target, TimingKind, TimingTrack, TimingTrackId,
 };
 use serde::Serialize;
+pub use shaders::{FoundShader, NearbyShaders};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
@@ -320,6 +322,12 @@ struct Builder<'a> {
     /// The track a Shape effect fires on, by xLights timing track name: tracks with one layer
     /// (xLights fires shapes only on those).
     mark_tracks: HashMap<String, TimingTrackId>,
+    /// Where the sequence's shader files are looked for (nowhere: its Shader effects come across
+    /// as stand-ins).
+    shaders: Option<&'a NearbyShaders>,
+    /// The shader files that weren't found, and those that can't be run and why, by name.
+    shaders_missing: Vec<String>,
+    shaders_refused: Vec<(String, String)>,
 }
 
 impl<'a> Builder<'a> {
@@ -405,6 +413,32 @@ impl<'a> Builder<'a> {
         Some((start, end.min(self.duration_ms)))
     }
 
+    /// Finds the shader file a Shader effect's `settings` name and hands it to them, for the
+    /// effect to be translated with. One that isn't found, or can't be run, is kept for a note.
+    fn find_shader(&mut self, settings: &mut Settings) {
+        let Some(nearby) = self.shaders else {
+            return;
+        };
+        let written = settings.text("E_0FILEPICKERCTRL_IFS", "").trim().to_string();
+        let name = pf_model::file_name_of(&written);
+        if written.is_empty() {
+            return;
+        }
+        match nearby.find(&written) {
+            shaders::Lookup::Found(found) => settings.shader = Some(found),
+            shaders::Lookup::Refused(why) => {
+                if !self.shaders_refused.iter().any(|(n, _)| *n == name) {
+                    self.shaders_refused.push((name, why));
+                }
+            }
+            shaders::Lookup::Missing => {
+                if !self.shaders_missing.contains(&name) {
+                    self.shaders_missing.push(name);
+                }
+            }
+        }
+    }
+
     /// One effect, on a row whose props have the faces `faces` (by name, in show order) and
     /// whose own layout differs from xLights' as `layout` says; `lowest` on the row's bottom
     /// layer.
@@ -435,6 +469,9 @@ impl<'a> Builder<'a> {
             .ms(&x.end)
             .map_or(shown_ms, |end| end.saturating_sub(start_ms).max(shown_ms));
         let mut settings = self.settings_for(x);
+        if name == "Shader" {
+            self.find_shader(&mut settings);
+        }
         effects::adjust_for_version(name, &mut settings, &self.file.head.version);
         let palette = self.palette_for(x);
         let frame_ms = self.clock.frame_ms as u32;
@@ -764,7 +801,21 @@ fn by_name(layers: &[XsqSubmodelLayer]) -> Vec<(&str, Vec<&XsqSubmodelLayer>)> {
 /// Builds a PixelFlow sequence from a parsed `.xsq` file for `show` (rows target its props and
 /// groups by name). `fallback_name` names the sequence when the file has no song title.
 pub fn build_sequence(file: &XsqFile, show: &Show, fallback_name: &str) -> SequenceImport {
-    build(file, show, fallback_name, None)
+    build(file, show, fallback_name, None, None)
+}
+
+/// [`build_sequence`] (with a `mapping`, [`build_sequence_mapped`]) that looks for the shader
+/// files the sequence's Shader effects name in `shaders`, and translates each effect whose file
+/// is found and can be run. Without this a Shader effect comes across as a dim stand-in: its
+/// file says which of its settings are the shader's inputs.
+pub fn build_sequence_with_shaders(
+    file: &XsqFile,
+    show: &Show,
+    fallback_name: &str,
+    mapping: Option<&Mapping>,
+    shaders: &NearbyShaders,
+) -> SequenceImport {
+    build(file, show, fallback_name, mapping, Some(shaders))
 }
 
 /// [`build_sequence`] with each model, group, submodel, and strand's effects going where
@@ -777,10 +828,16 @@ pub fn build_sequence_mapped(
     fallback_name: &str,
     mapping: &Mapping,
 ) -> SequenceImport {
-    build(file, show, fallback_name, Some(mapping))
+    build(file, show, fallback_name, Some(mapping), None)
 }
 
-fn build(file: &XsqFile, show: &Show, fallback_name: &str, mapping: Option<&Mapping>) -> SequenceImport {
+fn build(
+    file: &XsqFile,
+    show: &Show,
+    fallback_name: &str,
+    mapping: Option<&Mapping>,
+    shaders: Option<&NearbyShaders>,
+) -> SequenceImport {
     let mut notes = file.notes.clone();
 
     let frame_ms = match leading_number(&file.head.timing) {
@@ -865,6 +922,9 @@ fn build(file: &XsqFile, show: &Show, fallback_name: &str, mapping: Option<&Mapp
         face_tracks: HashMap::new(),
         timing_tracks: HashSet::new(),
         mark_tracks: HashMap::new(),
+        shaders,
+        shaders_missing: Vec::new(),
+        shaders_refused: Vec::new(),
     };
 
     let mut sequence = Sequence::new(fallback_name, duration_ms);
@@ -1309,6 +1369,21 @@ fn build(file: &XsqFile, show: &Show, fallback_name: &str, mapping: Option<&Mapp
             if b.bad_refs == 1 { "it uses" } else { "they use" }
         ));
     }
+    if !b.shaders_missing.is_empty() {
+        let (what, it) = match b.shaders_missing.len() {
+            1 => ("a shader file", "it"),
+            _ => ("shader files", "them"),
+        };
+        b.notes.push(format!(
+            "Couldn't find {what} near the sequence ({}), so the Shader effects that use {it} are shown as a dim fill. Put {it} in a Shaders folder beside the sequence and import again.",
+            list(&b.shaders_missing)
+        ));
+    }
+    for (name, why) in &b.shaders_refused {
+        b.notes.push(format!(
+            "{name} can't be run ({why}), so the Shader effects that use it are shown as a dim fill."
+        ));
+    }
     if b.names_cut > 0 {
         b.notes.push(format!(
             "{} longer than {MAX_TEXT_LEN} characters {} shortened.",
@@ -1332,14 +1407,15 @@ fn build(file: &XsqFile, show: &Show, fallback_name: &str, mapping: Option<&Mapp
 /// Imports the `.xsq` file at `path` for `show`. `find_audio` locates its music from the
 /// sequence's path and the file it names (PixelFlow's `pf_audio::find_audio`); the sequence is
 /// named after its song, or the file when it has none. Its pictures are looked for near it (see
-/// [`find_pictures`]).
+/// [`find_pictures`]), and so are its shader files (see [`NearbyShaders`]).
 pub fn import_sequence_file(
     path: &Path,
     show: &Show,
     find_audio: impl Fn(&Path, Option<&str>) -> Option<PathBuf>,
 ) -> Result<SequenceImport, XlightsError> {
     let file = read_sequence_file(path)?;
-    let mut import = build_sequence(&file, show, &name_from_path(path));
+    let shaders = NearbyShaders::near(path);
+    let mut import = build(&file, show, &name_from_path(path), None, Some(&shaders));
     find_music(&mut import, &file, path, find_audio);
     find_pictures(&mut import, Some(path));
     Ok(import)
@@ -1347,7 +1423,7 @@ pub fn import_sequence_file(
 
 /// The folders an xLights sequence's pictures are looked for in: the sequence's own, then the
 /// ones above it up to the show folder (the one with the layout), or three up when none is.
-fn picture_folders(sequence: &Path) -> Vec<PathBuf> {
+pub(crate) fn picture_folders(sequence: &Path) -> Vec<PathBuf> {
     let mut folders = Vec::new();
     for folder in sequence.ancestors().skip(1).take(4) {
         if folder.as_os_str().is_empty() {

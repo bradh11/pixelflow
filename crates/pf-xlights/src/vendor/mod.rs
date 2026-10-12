@@ -507,9 +507,19 @@ pub fn import(
 ) -> Result<SequenceImport, XlightsError> {
     let (name, file) = package.read_sequence(sequence)?;
     let fallback = name_from_path(Path::new(file_name(&name)));
-    let mut import = build_sequence_mapped(&file, show, &fallback, mapping);
-    // Pictures are only looked for on disk: a zip's stay in it (and are named in a note).
+    // Pictures and shader files are only looked for on disk: a zip's stay in it (and are named
+    // in a note).
     let on_disk = package.file_path(&name);
+    let mut import = match &on_disk {
+        Some(path) => crate::sequence::build_sequence_with_shaders(
+            &file,
+            show,
+            &fallback,
+            Some(mapping),
+            &crate::sequence::NearbyShaders::near(path),
+        ),
+        None => build_sequence_mapped(&file, show, &fallback, mapping),
+    };
     crate::sequence::find_pictures(&mut import, on_disk.as_deref());
     if let Some(path) = on_disk {
         find_music(&mut import, &file, &path, find_audio);

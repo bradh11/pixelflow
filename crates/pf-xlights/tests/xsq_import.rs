@@ -1414,3 +1414,208 @@ fn every_imported_effect_is_listed_with_xlights_name_for_it_and_the_importers_la
             .any(|e| matches!(&e.fidelity, Fidelity::Approximate(why) if !why.is_empty()))
     );
 }
+
+/// A sequence in `folder` with one Shader effect for each of `effects` (its settings as xLights
+/// writes them), a second apart on the Window Matrix.
+fn shaders_xsq(folder: &Path, effects: &[String]) -> PathBuf {
+    let settings: String = effects
+        .iter()
+        .map(|settings| format!("    <Effect>{settings}</Effect>\n"))
+        .collect();
+    let placed: String = (0..effects.len())
+        .map(|i| {
+            format!(
+                "        <Effect ref=\"{i}\" name=\"Shader\" palette=\"0\" startTime=\"{}\" endTime=\"{}\"/>\n",
+                i * 1000,
+                (i + 1) * 1000
+            )
+        })
+        .collect();
+    let xml = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<xsequence BaseChannel="0" ChanCtrlBasic="0" ChanCtrlColor="0" FixedPointTiming="1" ModelBlending="true">
+  <head>
+    <version>2025.01</version>
+    <song>Shaders</song>
+    <sequenceTiming>25 ms</sequenceTiming>
+    <sequenceType>Animation</sequenceType>
+    <sequenceDuration>10.000</sequenceDuration>
+  </head>
+  <ColorPalettes>
+    <ColorPalette>C_BUTTON_Palette1=#00FF00,C_CHECKBOX_Palette1=1</ColorPalette>
+  </ColorPalettes>
+  <EffectDB>
+{settings}  </EffectDB>
+  <ElementEffects>
+    <Element type="model" name="Window Matrix">
+      <EffectLayer>
+{placed}      </EffectLayer>
+    </Element>
+  </ElementEffects>
+</xsequence>
+"#
+    );
+    std::fs::create_dir_all(folder).unwrap();
+    let path = folder.join("shaders.xsq");
+    std::fs::write(&path, xml).unwrap();
+    path
+}
+
+#[test]
+fn shader_effects_run_their_files_when_found_and_say_so_when_not() {
+    use pf_sequence::{ShaderParams, ShaderValue};
+    // A shader written for this test, with an input of each kind a sequence keeps a value for.
+    let rings = r#"/*{
+      "DESCRIPTION": "Rings, for a test.",
+      "INPUTS": [
+        { "NAME": "rate", "TYPE": "float", "MIN": 0.0, "MAX": 10.0, "DEFAULT": 1.0 },
+        { "NAME": "posX", "TYPE": "float", "MIN": 0.0, "MAX": 1.0, "DEFAULT": 0.5 },
+        { "NAME": "flip", "TYPE": "bool", "DEFAULT": false },
+        { "NAME": "mode", "TYPE": "long", "VALUES": [0, 3, 7], "LABELS": ["Plain", "Shader Defaults ", "Other"], "DEFAULT": 0 },
+        { "NAME": "at", "TYPE": "point2D", "DEFAULT": [0.5, 0.5] },
+        { "NAME": "tint", "TYPE": "color", "DEFAULT": [1.0, 0.5, 0.0, 1.0] },
+        { "NAME": "untouched", "TYPE": "float", "DEFAULT": 0.25 }
+      ]
+    }*/
+    void main() { gl_FragColor = vec4(rate, posX, at.x, flip ? 1.0 : 0.0) * tint; }"#;
+    let dir = tempfile::tempdir().unwrap();
+    let xlights = dir.path().join("xlights");
+    let write = |path: PathBuf, text: &str| {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, text).unwrap();
+        path
+    };
+    write(xlights.join("xlights_rgbeffects.xml"), "<xrgb/>");
+    let rings_at = write(xlights.join("Shaders").join("rings.fs"), rings);
+    write(
+        xlights.join("Shaders").join("broken.fs"),
+        "void main() {\n  gl_FragColor = nothing;\n}",
+    );
+    write(
+        xlights.join("Shaders").join("passes.fs"),
+        r#"/*{ "PASSES": [ { "TARGET": "last", "PERSISTENT": true }, {} ] }*/ void main() { gl_FragColor = vec4(1.0); }"#,
+    );
+    // Written, as xLights writes them, as paths on the computer the sequence was made on.
+    let on = |file: &str, rest: &str| {
+        format!(r"E_0FILEPICKERCTRL_IFS=C:\Users\someone\xLights\Shaders\{file},{rest}")
+    };
+    let own = "E_SLIDER_Shader_Speed=100,E_TEXTCTRL_Shader_LeadIn=0,E_TEXTCTRL_Shader_Offset_X=0,E_TEXTCTRL_Shader_Offset_Y=0,E_TEXTCTRL_Shader_Zoom=0";
+    let xsq = shaders_xsq(
+        &xlights.join("Sequences"),
+        &[
+            // Every kind of input, a speed, and a lead-in of four frames.
+            on(
+                "rings.fs",
+                "E_SLIDER_SHADERXYZZY_rate=250,E_SLIDER_SHADERXYZZY_posX=75,E_CHECKBOX_SHADERXYZZY_flip=1,\
+                 E_CHOICE_SHADERXYZZY_mode=Shader Defaults ,E_SLIDER_SHADERXYZZY_atX=25,E_SLIDER_SHADERXYZZY_atY=80,\
+                 E_SLIDER_Shader_Speed=50,E_TEXTCTRL_Shader_LeadIn=4,E_TEXTCTRL_Shader_Offset_X=0,\
+                 E_TEXTCTRL_Shader_Offset_Y=0,E_TEXTCTRL_Shader_Zoom=0",
+            ),
+            // As the file has it.
+            on("rings.fs", own),
+            // An offset and a zoom, which aren't applied; and an input on a value curve.
+            on(
+                "rings.fs",
+                "E_SLIDER_Shader_Speed=100,E_TEXTCTRL_Shader_Offset_X=20,E_TEXTCTRL_Shader_Zoom=-5",
+            ),
+            on(
+                "rings.fs",
+                "E_SLIDER_SHADERXYZZY_rate=300,E_VALUECURVE_SHADERXYZZY_rate=Active=TRUE|Id=ID_VALUECURVE_SHADERXYZZY_rate|Type=Ramp|Min=0.00|Max=1000.00|P1=0.00|P2=100.00|RV=TRUE|",
+            ),
+            // A file that isn't there, twice; one that doesn't compile; one that needs what
+            // isn't given yet.
+            on("gone.fs", own),
+            on("gone.fs", own),
+            on("broken.fs", own),
+            on("passes.fs", own),
+        ],
+    );
+    let i = import_sequence_file(&xsq, &show(), |_, _| None).unwrap();
+    assert_opens(&i);
+    let effects = &i.sequence.rows[0].layers[0].effects;
+    let shader = |n: usize| -> &ShaderParams {
+        match &effects[n].params {
+            EffectParams::Shader(p) => p,
+            other => panic!("{other:?}"),
+        }
+    };
+    // Found in the show's Shaders folder by its name, and named where it is on this computer.
+    let found = pf_model::path_to_text(&std::path::absolute(&rings_at).unwrap());
+    assert!((0..4).all(|n| shader(n).file == found), "{}", shader(0).file);
+    // A number is a hundredth of its slider, a switch its checkbox, a choice the number its
+    // label stands for, and a point two sliders. The color has no setting and isn't set; nor is
+    // an input the sequence doesn't mention.
+    let first = shader(0);
+    assert_eq!(first.inputs.get("rate"), Some(&ShaderValue::Number(2.5)));
+    assert_eq!(first.inputs.get("posX"), Some(&ShaderValue::Number(0.75)));
+    assert_eq!(first.inputs.get("flip"), Some(&ShaderValue::Bool(true)));
+    assert_eq!(first.inputs.get("mode"), Some(&ShaderValue::Number(3.0)));
+    assert_eq!(first.inputs.get("at"), Some(&ShaderValue::Point([0.25, 0.8])));
+    assert_eq!(first.inputs.0.len(), 5);
+    assert_eq!((first.speed, first.lead_in), (0.5, 0.1));
+    assert!(shader(1).inputs.is_empty());
+    assert_eq!((shader(1).speed, shader(1).lead_in), (1.0, 0.0));
+    // The offset and zoom are carried, and said not to be applied.
+    assert_eq!(
+        (shader(2).offset_x, shader(2).offset_y, shader(2).zoom),
+        (20.0, 0.0, -5.0)
+    );
+    // The input on a value curve keeps its slider's value, and no curve.
+    assert_eq!(shader(3).inputs.get("rate"), Some(&ShaderValue::Number(3.0)));
+    assert!(effects[3].curves.is_empty());
+    // How each is expected to look: the same with nothing noted, different where xLights does
+    // something PixelFlow doesn't, and no equivalent where the file couldn't be used.
+    let looks: Vec<Verdict> = i.effects.iter().map(|e| e.verdict).collect();
+    assert_eq!(
+        looks,
+        [
+            Verdict::Matches,
+            Verdict::Matches,
+            Verdict::Different,
+            Verdict::Different,
+            Verdict::NoEquivalent,
+            Verdict::NoEquivalent,
+            Verdict::NoEquivalent,
+            Verdict::NoEquivalent,
+        ]
+    );
+    assert_eq!(
+        (&i.effects[0].fidelity, &i.effects[1].fidelity),
+        (&Fidelity::Exact, &Fidelity::Exact)
+    );
+    assert_note(&i, "xLights' offset or zoom isn't applied");
+    assert_note(
+        &i,
+        "an input that changes over the effect in xLights (a value curve) stays at its slider's value",
+    );
+    // The ones that couldn't be used are the dim stand-in, each file named once with why.
+    for effect in &effects[4..8] {
+        assert!(
+            matches!(effect.params, EffectParams::On(_)),
+            "{:?}",
+            effect.params
+        );
+    }
+    assert_eq!(
+        (i.summary.placeholders, i.summary.exact, i.summary.approximate),
+        (4, 2, 2)
+    );
+    assert_note(
+        &i,
+        "Couldn't find a shader file near the sequence (gone.fs), so the Shader effects that use it are shown as a dim fill. Put it in a Shaders folder beside the sequence and import again.",
+    );
+    assert_note(
+        &i,
+        "broken.fs can't be run (line 2: there is no `nothing`), so the Shader effects that use it are shown as a dim fill.",
+    );
+    assert_note(
+        &i,
+        "passes.fs can't be run (it keeps its picture from one frame to the next",
+    );
+    // Without anywhere to look for the files (a sequence built from its text alone), every
+    // Shader effect is a stand-in, as before there was a Shader effect.
+    let text = std::fs::read_to_string(&xsq).unwrap();
+    let bare = build_sequence(&parse_xsq(&text).unwrap(), &show(), "Shaders");
+    assert_eq!(bare.summary.placeholders, 8);
+    assert!(bare.effects.iter().all(|e| e.verdict == Verdict::NoEquivalent));
+}

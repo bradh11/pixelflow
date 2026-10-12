@@ -16,18 +16,14 @@
 
 use crate::pictures::keep_copy;
 use pf_model::{file_name_of, is_full_path_text, path_from_text, path_to_text, relative_text, resolve_text};
+use pf_shader::{has_shader_extension, read_shader_bytes, read_shader_file};
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::io::Read;
 use std::path::{Component, Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 /// The folder next to the show file that shader files are copied into.
 pub const SHADERS_FOLDER: &str = "shaders";
-/// The kinds of file read as a shader, by extension (`.fs` is what the format's own files use).
-pub const SHADER_EXTENSIONS: [&str; 3] = ["fs", "frag", "glsl"];
-/// Larger files are refused rather than read (as `pf_shader` refuses a longer shader).
-pub const MAX_SHADER_BYTES: u64 = 256 * 1024;
 /// The most names listed from the shaders folder.
 const MAX_LISTED: usize = 500;
 
@@ -42,64 +38,6 @@ pub struct ShaderFiles {
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(PoisonError::into_inner)
-}
-
-fn has_shader_extension(path: &Path) -> bool {
-    path.extension()
-        .and_then(|e| e.to_str())
-        .is_some_and(|e| SHADER_EXTENSIONS.contains(&e.to_ascii_lowercase().as_str()))
-}
-
-/// The text in a file's bytes, if text is what they are: without the byte-order mark some
-/// editors start a file with, which isn't part of it.
-fn text_of(bytes: &[u8]) -> Option<&str> {
-    let text = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(bytes);
-    std::str::from_utf8(text).ok().filter(|text| !text.contains('\0'))
-}
-
-/// Reads a shader file: only a real file with a shader's extension, at most
-/// [`MAX_SHADER_BYTES`] of it, that is text. The error is why not, in a few words ("it isn't
-/// there").
-pub fn read_shader_file(path: &Path) -> Result<String, String> {
-    let bytes = read_shader_bytes(path)?;
-    Ok(text_of(&bytes).unwrap_or_default().to_string())
-}
-
-/// [`read_shader_file`], as the bytes the file holds.
-fn read_shader_bytes(path: &Path) -> Result<Vec<u8>, String> {
-    const NOT_A_SHADER: &str = "it isn't a shader file (.fs, .frag, or .glsl)";
-    if !has_shader_extension(path) {
-        return Err(NOT_A_SHADER.into());
-    }
-    let unreadable = |e: std::io::Error| match e.kind() {
-        std::io::ErrorKind::NotFound => "it isn't there".to_string(),
-        std::io::ErrorKind::PermissionDenied => "PixelFlow isn't allowed to read it".to_string(),
-        kind => format!("it couldn't be opened ({kind})"),
-    };
-    // A pipe or device named like a shader is never opened (opening one can wait for ever).
-    if !fs::metadata(path).map_err(unreadable)?.is_file() {
-        return Err(NOT_A_SHADER.into());
-    }
-    let file = fs::File::open(path).map_err(unreadable)?;
-    let too_large = || format!("it's larger than {} KB", MAX_SHADER_BYTES / 1024);
-    let metadata = file.metadata().map_err(unreadable)?;
-    if !metadata.is_file() {
-        return Err(NOT_A_SHADER.into());
-    }
-    if metadata.len() > MAX_SHADER_BYTES {
-        return Err(too_large());
-    }
-    let mut bytes = Vec::with_capacity(metadata.len() as usize);
-    file.take(MAX_SHADER_BYTES + 1)
-        .read_to_end(&mut bytes)
-        .map_err(unreadable)?;
-    if bytes.len() as u64 > MAX_SHADER_BYTES {
-        return Err(too_large());
-    }
-    match text_of(&bytes) {
-        Some(_) => Ok(bytes),
-        None => Err("it isn't a text file".into()),
-    }
 }
 
 impl ShaderFiles {
@@ -301,6 +239,7 @@ pub fn list_shaders(files: &ShaderFiles, shaders: &pf_render::Shaders) -> Vec<pf
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pf_shader::MAX_SHADER_BYTES;
 
     const SHADER: &str = "void main() { gl_FragColor = vec4(1.0); }";
 

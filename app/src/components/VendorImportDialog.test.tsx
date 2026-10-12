@@ -130,6 +130,9 @@ describe("mapping a vendor's sequence onto the show", () => {
     // Both arches layered on the garage arch; the music next to the show.
     const doc = useSequencer.getState().doc!;
     expect(doc.audio).toBe("/Shows/House/music/Holiday Mashup.mp3");
+    // What follows the music follows its left channel, as in xLights, and the report says so.
+    expect(doc.musicLevelSource).toBe("leftChannel");
+    expect(within(report).getByText(/follow its left channel, as they do in xLights/)).toBeInTheDocument();
     const arch = useApp.getState().snapshot!.show.props.find((p) => p.name === "Garage Arch")!;
     const archRow = doc.rows.find((r) => "prop" in r.target && r.target.prop === arch.id)!;
     expect(archRow.layers).toHaveLength(2);

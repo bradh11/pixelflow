@@ -1595,6 +1595,28 @@ fn goal_smooth_however_long_it_has_run() {
     }
 }
 
+/// No moment is too late: at the last millisecond a clock can count to, in a sequence of the
+/// shortest frames, the effect still answers every pixel with a sound color.
+#[test]
+fn goal_no_moment_is_too_late() {
+    for colors in COLORINGS {
+        for frame_ms in [1, 50] {
+            let time = EffectTime::within(0, u64::MAX, u64::MAX).with_frame_ms(frame_ms);
+            let p = PlasmaParams {
+                colors,
+                twist: 10,
+                density: 10,
+                speed: 100.0,
+            };
+            let shader = Shader::new(&EffectParams::Plasma(p), &time, Colors::new(&PALETTE), 0, RIG);
+            for (u, v) in g21() {
+                let sample = shader.shade(&pixel(u, v));
+                assert!(sound(&sample), "{colors:?}, {frame_ms} ms frames: {sample:?}");
+            }
+        }
+    }
+}
+
 /// No sine comes from the system's maths library, and everything else is whole numbers and sums
 /// that every machine rounds alike, so the same pixel gets the same bits on every machine: these
 /// were worked out on one.

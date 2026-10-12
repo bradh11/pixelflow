@@ -982,6 +982,7 @@ pub fn what_is_sent() -> String {
     let fixed = SYSTEM_PROMPT.len() + tools;
     let props: Vec<&str> = stage.show.props.iter().map(|p| p.name.as_str()).collect();
     let groups: Vec<&str> = stage.show.groups.iter().map(|g| g.name.as_str()).collect();
+    let lines = crate::stage::lyric_tracks().first().map_or(0, |t| t.marks.len());
     format!(
         "What a run sends the model's provider:\n\
          - the Assistant's instructions and its {} tool definitions, with every request ({} bytes, about {} tokens);\n\
@@ -989,7 +990,7 @@ pub fn what_is_sent() -> String {
          - whatever the model looks up with its tools: PixelFlow's own guides, and a made-up show and song that exist only in this harness:\n\
          \x20   props: {};\n\
          \x20   groups: {};\n\
-         \x20   a song called \"Paper Lanterns\" that was never recorded: its tempo, sections, and moments are written by hand, and so are its eight lines of words.\n\
+         \x20   a song called \"Paper Lanterns\" that was never recorded: its tempo, sections, and moments are written by hand, and so are its {} lines of words.\n\
          Nothing of yours is read or sent: no show, no sequence, no song, no lyrics, no file, no device.\n\
          The key is read from the {} environment variable only for a real run, and goes only to the provider, as the sign-in for each request.",
         specs.len(),
@@ -997,6 +998,7 @@ pub fn what_is_sent() -> String {
         (fixed as f64 / BYTES_PER_TOKEN).round(),
         props.join(", "),
         groups.join(", "),
+        lines,
         cli::KEY_VARIABLE,
     )
 }

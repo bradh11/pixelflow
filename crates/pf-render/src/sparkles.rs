@@ -10,8 +10,19 @@
 //! the pixel's place along the target, like its other random effects, so a frame depends only on
 //! the document. Sparkles go on after blur and before the effect is faded and mixed, as in
 //! xLights, and flash only where the effect is lit.
+//!
+//! Lit, that is, before the effect's own Transparency setting (an On's) makes it see-through:
+//! Transparency hides the effect, not its sparkles. In xLights' frames an On whose Transparency
+//! is at 100% is dark and still flashes its sparkles on as many pixels as it would at 0%, each
+//! at full strength, so a fully see-through On with sparkles is a layer of sparkles alone. That
+//! is the only thing found in those frames that sparkles look past. They dim with the effect's
+//! fade (through a two-second fade-in they rise with the effect, and show at their three full
+//! levels only once it is over); the faint parts of an effect (a fan's blades, a morph's tail)
+//! flash as often in those frames as they already do in PixelFlow's; and pixels an effect never
+//! reaches never flash. So an effect with a Transparency is drawn without it, and
+//! [`Sparkles::see_through`] takes the Transparency off the pixels that aren't flashing.
 
-use crate::color::{Rgba, lit};
+use crate::color::{Rgba, lit, unit};
 use crate::effects::hash;
 
 /// Mixed into the effect's seed so sparkles don't line up with the effect's own randomness.
@@ -24,6 +35,8 @@ pub(crate) struct Sparkles {
     frame: u64,
     cycle: u64,
     color: [f32; 3],
+    /// How much of the effect its own Transparency setting lets show where it isn't flashing.
+    cover: f32,
 }
 
 impl Sparkles {
@@ -36,7 +49,24 @@ impl Sparkles {
             frame,
             cycle: u64::from(208 - amount),
             color,
+            cover: 1.0,
         })
+    }
+
+    /// The same sparkles over an effect whose own Transparency setting is `transparency` (0,
+    /// none, to 1). [`Sparkles::apply`] is then given the effect's colors as they are without
+    /// that Transparency, and takes it off the ones that aren't flashing.
+    pub fn see_through(self, transparency: f32) -> Self {
+        Self {
+            cover: 1.0 - unit(transparency),
+            ..self
+        }
+    }
+
+    /// Whether the effect's own Transparency is left to these sparkles to take off (see
+    /// [`Sparkles::see_through`]).
+    pub fn takes_transparency(&self) -> bool {
+        self.cover < 1.0
     }
 
     /// The effect's color at the pixel `index` along the target, with its sparkle if it has one
@@ -44,16 +74,25 @@ impl Sparkles {
     #[inline]
     pub fn apply(&self, color: Rgba, index: u32) -> Rgba {
         if color.a <= 0.0 || !lit([color.r * color.a, color.g * color.a, color.b * color.a]) {
-            return color;
+            return self.covered(color);
         }
         let phase = hash(self.seed, u64::from(index), 0) % 10_000;
         let level = match (phase + self.frame) % self.cycle {
             4 => 1.0,
             3 | 5 => 0.75,
             2 | 6 => 0.53,
-            _ => return color,
+            _ => return self.covered(color),
         };
         Rgba::opaque(self.color.map(|c| c * level))
+    }
+
+    /// The effect's own color, showing as much as its Transparency lets it.
+    #[inline]
+    fn covered(&self, color: Rgba) -> Rgba {
+        Rgba {
+            a: color.a * self.cover,
+            ..color
+        }
     }
 }
 
@@ -115,5 +154,49 @@ mod tests {
         assert_ne!(pattern(&a), pattern(&other), "another effect sparkles elsewhere");
         let c = a.apply(RED, (0..2000).find(|&i| a.apply(RED, i) != RED).unwrap());
         assert_eq!((c.r, c.a), (0.0, 1.0), "in the sparkle color, fully covering");
+    }
+
+    #[test]
+    fn an_effects_own_transparency_hides_the_effect_and_not_its_sparkles() {
+        let solid = Sparkles::new(150, [0.0, 0.0, 1.0], 5, 12).unwrap();
+        assert!(!solid.takes_transparency());
+        let flashing =
+            |s: &Sparkles| -> Vec<u32> { (0..4000).filter(|&i| s.apply(RED, i).b > 0.0).collect() };
+        let want = flashing(&solid);
+        assert!(want.len() > 250, "{}", want.len());
+        for cover in [0.75, 0.25, 0.0] {
+            let sheer = solid.see_through(1.0 - cover);
+            assert!(sheer.takes_transparency());
+            // The same pixels flash, as brightly and as fully covering, however little shows.
+            assert_eq!(flashing(&sheer), want, "{cover}");
+            for i in 0..4000 {
+                let (through, whole) = (sheer.apply(RED, i), solid.apply(RED, i));
+                if want.contains(&i) {
+                    assert_eq!(through, whole, "{cover}: pixel {i}");
+                    assert_eq!(through.a, 1.0);
+                } else {
+                    // The rest is the effect, showing as much as its Transparency lets it.
+                    assert_eq!(through, Rgba::new(1.0, 0.0, 0.0, cover), "{cover}: pixel {i}");
+                }
+            }
+        }
+        // No Transparency, less than none, or nonsense is none; more than all of it is all.
+        for none in [0.0, -1.0, f32::NAN] {
+            assert_eq!(solid.see_through(none), solid);
+        }
+        assert_eq!(solid.see_through(7.0), solid.see_through(1.0));
+    }
+
+    #[test]
+    fn a_see_through_effect_sparkles_only_where_it_would_be_lit() {
+        // Where the effect draws nothing, is black, or has all but faded away on its own, its
+        // Transparency changes nothing: no sparkle, and no more showing than before.
+        let s = Sparkles::new(200, [1.0; 3], 1, 0).unwrap().see_through(0.5);
+        for i in 0..100 {
+            assert_eq!(s.apply(Rgba::CLEAR, i), Rgba::CLEAR);
+            assert_eq!(s.apply(Rgba::BLACK, i), Rgba::new(0.0, 0.0, 0.0, 0.5));
+            let faint = Rgba::new(1.0, 1.0, 1.0, 0.001);
+            assert_eq!(s.apply(faint, i), Rgba::new(1.0, 1.0, 1.0, 0.0005));
+        }
     }
 }

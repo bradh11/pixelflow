@@ -61,7 +61,7 @@ pub use onset::{FRAME, HOP, OnsetEnvelope, onset_envelope, pick_onsets};
 pub use sections::{Level, Section};
 pub use track::{
     AudioTrack, NOTES, RANGE_DB, SPECTRUM_BANDS, TILT_DB, TRACK_FORMAT, audio_track, audio_track_cancellable,
-    audio_track_file,
+    audio_track_file, audio_track_from_channels,
 };
 pub use vocal::{VOCAL_THRESHOLD, VocalActivity, vocal_activity, vocal_activity_file};
 pub use vocal_track::{

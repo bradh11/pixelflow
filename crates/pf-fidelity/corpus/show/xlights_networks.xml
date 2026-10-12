@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- PixelFlow's made-up fidelity corpus: one DDP controller at a documentation address
+     (192.0.2.0/24, where nothing answers). -->
+<Networks>
+  <Controller Id="1" Name="Main" Type="Ethernet" IP="192.0.2.40" Protocol="DDP" ActiveState="Active" AutoLayout="0" AutoSize="0" AutoUpload="0">
+    <network NetworkType="DDP" ComPort="192.0.2.40" BaudRate="1" MaxChannels="3273" KeepChannelNumbers="0" ChannelsPerPacket="1440"/>
+  </Controller>
+</Networks>

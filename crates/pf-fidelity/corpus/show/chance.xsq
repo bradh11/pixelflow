@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- PixelFlow's made-up fidelity corpus (crates/pf-fidelity/src/madeup.rs writes this file).
+     Chance: snow, fireworks, circles, shapes, fire, twinkles, and sparkles, which no two
+     renders draw alike. 20 seconds of 25 ms frames.
+     Render it in xLights on this show folder and save the .fseq beside it: see ../README.md. -->
+<xsequence BaseChannel="0" ChanCtrlBasic="0" ChanCtrlColor="0" FixedPointTiming="1" ModelBlending="true">
+  <head>
+    <version>2026.14</version>
+    <author>PixelFlow</author>
+    <song>Chance</song>
+    <sequenceTiming>25 ms</sequenceTiming>
+    <sequenceType>Animation</sequenceType>
+    <sequenceDuration>20.000</sequenceDuration>
+  </head>
+  <ColorPalettes>
+    <ColorPalette>C_BUTTON_Palette1=#FFFFFF,C_CHECKBOX_Palette1=1</ColorPalette>
+    <ColorPalette>C_BUTTON_Palette1=#FFFFFF,C_BUTTON_Palette2=#FF00FF,C_BUTTON_Palette3=#FF0000,C_CHECKBOX_Palette1=1,C_CHECKBOX_Palette2=1,C_CHECKBOX_Palette3=1</ColorPalette>
+    <ColorPalette>C_BUTTON_Palette1=#00FFFF,C_BUTTON_Palette2=#0000FF,C_BUTTON_Palette3=#FF00FF,C_CHECKBOX_Palette1=1,C_CHECKBOX_Palette2=1,C_CHECKBOX_Palette3=1</ColorPalette>
+    <ColorPalette>C_BUTTON_Palette1=#FF0000,C_BUTTON_Palette2=#FF8000,C_BUTTON_Palette3=#FFFF00,C_CHECKBOX_Palette1=1,C_CHECKBOX_Palette2=1,C_CHECKBOX_Palette3=1</ColorPalette>
+    <ColorPalette>C_BUTTON_Palette1=#FF0000,C_BUTTON_Palette2=#00FF00,C_CHECKBOX_Palette1=1,C_CHECKBOX_Palette2=1</ColorPalette>
+    <ColorPalette>C_BUTTON_Palette1=#0040FF,C_BUTTON_Palette2=#00FF40,C_CHECKBOX_Palette1=1,C_CHECKBOX_Palette2=1,C_SLIDER_SparkleFrequency=120</ColorPalette>
+    <ColorPalette>C_BUTTON_Palette1=#FFB000,C_CHECKBOX_Palette1=1</ColorPalette>
+  </ColorPalettes>
+  <EffectDB>
+    <Effect>E_CHOICE_Falling=Falling,E_SLIDER_Snowflakes_Count=12,E_SLIDER_Snowflakes_Speed=10,E_SLIDER_Snowflakes_Type=3</Effect>
+    <Effect>E_CHECKBOX_FIRETIMING=0,E_CHECKBOX_Fireworks_Gravity=1,E_CHECKBOX_Fireworks_HoldColour=1,E_CHECKBOX_Fireworks_UseMusic=0,E_SLIDER_Fireworks_Count=50,E_SLIDER_Fireworks_Explosions=30,E_SLIDER_Fireworks_Fade=50,E_SLIDER_Fireworks_Sensitivity=50,E_SLIDER_Fireworks_Velocity=2,E_SLIDER_Fireworks_XLocation=-1,E_SLIDER_Fireworks_XVelocity=0,E_SLIDER_Fireworks_YLocation=-1,E_SLIDER_Fireworks_YVelocity=0</Effect>
+    <Effect>E_CHECKBOX_Circles_Bounce=1,E_CHECKBOX_Circles_Collide=0,E_CHECKBOX_Circles_Linear_Fade=0,E_CHECKBOX_Circles_Plasma=0,E_CHECKBOX_Circles_Radial=0,E_CHECKBOX_Circles_Radial_3D=0,E_CHECKBOX_Circles_Random_m=0,E_SLIDER_Circles_Count=4,E_SLIDER_Circles_Size=4,E_SLIDER_Circles_Speed=10</Effect>
+    <Effect>E_CHECKBOX_Shape_FadeAway=1,E_CHECKBOX_Shape_HoldColour=1,E_CHECKBOX_Shape_RandomInitial=1,E_CHECKBOX_Shape_RandomLocation=1,E_CHECKBOX_Shapes_RandomMovement=0,E_CHOICE_Shape_ObjectToDraw=Star,E_SLIDER_Shape_Growth=10,E_SLIDER_Shape_Lifetime=5,E_SLIDER_Shape_StartSize=1,E_SLIDER_Shape_Thickness=2,E_TEXTCTRL_Shape_Count=6</Effect>
+    <Effect>E_CHECKBOX_Fire_GrowWithMusic=0,E_CHOICE_Fire_Location=Bottom,E_SLIDER_Fire_Height=60,E_SLIDER_Fire_HueShift=0,E_TEXTCTRL_Fire_GrowthCycles=0.0</Effect>
+    <Effect>E_CHECKBOX_Twinkle_ReRandom=0,E_CHECKBOX_Twinkle_Strobe=0,E_CHOICE_Twinkle_Style=New Render Method,E_SLIDER_Twinkle_Count=30,E_SLIDER_Twinkle_Steps=30</Effect>
+    <Effect>E_CHECKBOX_Twinkle_ReRandom=0,E_CHECKBOX_Twinkle_Strobe=0,E_CHOICE_Twinkle_Style=New Render Method,E_SLIDER_Twinkle_Count=20,E_SLIDER_Twinkle_Steps=40</Effect>
+    <Effect>E_CHECKBOX_On_Shimmer=0,E_TEXTCTRL_Eff_On_End=100,E_TEXTCTRL_Eff_On_Start=100,E_TEXTCTRL_On_Cycles=1.0</Effect>
+    <Effect>E_CHECKBOX_Twinkle_ReRandom=0,E_CHECKBOX_Twinkle_Strobe=0,E_CHOICE_Twinkle_Style=New Render Method,E_SLIDER_Twinkle_Count=40,E_SLIDER_Twinkle_Steps=20</Effect>
+  </EffectDB>
+  <DisplayElements>
+    <Element collapsed="0" type="model" name="Matrix" visible="1"/>
+    <Element collapsed="0" type="model" name="Tree" visible="1"/>
+    <Element collapsed="0" type="model" name="Outlines" visible="1"/>
+    <Element collapsed="0" type="model" name="Flake" visible="1"/>
+  </DisplayElements>
+  <ElementEffects>
+    <Element type="model" name="Matrix">
+      <EffectLayer>
+        <Effect ref="0" name="Snowflakes" palette="0" startTime="0" endTime="5000"/>
+        <Effect ref="1" name="Fireworks" palette="1" startTime="5000" endTime="12000"/>
+        <Effect ref="2" name="Circles" palette="2" startTime="12000" endTime="16000"/>
+        <Effect ref="3" name="Shape" palette="3" startTime="16000" endTime="20000"/>
+      </EffectLayer>
+    </Element>
+    <Element type="model" name="Tree">
+      <EffectLayer>
+        <Effect ref="4" name="Fire" palette="3" startTime="0" endTime="10000"/>
+        <Effect ref="5" name="Twinkle" palette="4" startTime="10000" endTime="20000"/>
+      </EffectLayer>
+    </Element>
+    <Element type="model" name="Outlines">
+      <EffectLayer>
+        <Effect ref="6" name="Twinkle" palette="0" startTime="0" endTime="10000"/>
+        <Effect ref="7" name="On" palette="5" startTime="10000" endTime="20000"/>
+      </EffectLayer>
+    </Element>
+    <Element type="model" name="Flake">
+      <EffectLayer>
+        <Effect ref="8" name="Twinkle" palette="6" startTime="0" endTime="20000"/>
+      </EffectLayer>
+    </Element>
+  </ElementEffects>
+  <lastView>0</lastView>
+</xsequence>

@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- PixelFlow's made-up fidelity corpus (crates/pf-fidelity/src/madeup.rs writes this file).
+     Washes and shapes: effects that keep time on every kind of prop, layers and blends,
+     fades, value curves, a group drawn per prop, and a submodel. 24 seconds of 50 ms frames.
+     Render it in xLights on this show folder and save the .fseq beside it: see ../README.md. -->
+<xsequence BaseChannel="0" ChanCtrlBasic="0" ChanCtrlColor="0" FixedPointTiming="1" ModelBlending="true">
+  <head>
+    <version>2026.14</version>
+    <author>PixelFlow</author>
+    <song>Washes and shapes</song>
+    <sequenceTiming>50 ms</sequenceTiming>
+    <sequenceType>Animation</sequenceType>
+    <sequenceDuration>24.000</sequenceDuration>
+  </head>
+  <ColorPalettes>
+    <ColorPalette>C_BUTTON_Palette1=#FF0000,C_BUTTON_Palette2=#FFFFFF,C_CHECKBOX_Palette1=1,C_CHECKBOX_Palette2=1</ColorPalette>
+    <ColorPalette>C_BUTTON_Palette1=#0040FF,C_BUTTON_Palette2=#00FF40,C_CHECKBOX_Palette1=1,C_CHECKBOX_Palette2=1</ColorPalette>
+    <ColorPalette>C_BUTTON_Palette1=#00FFFF,C_BUTTON_Palette2=#0000FF,C_BUTTON_Palette3=#FF00FF,C_CHECKBOX_Palette1=1,C_CHECKBOX_Palette2=1,C_CHECKBOX_Palette3=1</ColorPalette>
+    <ColorPalette>C_BUTTON_Palette1=#FF0000,C_BUTTON_Palette2=#FF8000,C_BUTTON_Palette3=#FFFF00,C_CHECKBOX_Palette1=1,C_CHECKBOX_Palette2=1,C_CHECKBOX_Palette3=1</ColorPalette>
+    <ColorPalette>C_BUTTON_Palette1=#FF0000,C_BUTTON_Palette2=#00FF00,C_CHECKBOX_Palette1=1,C_CHECKBOX_Palette2=1</ColorPalette>
+    <ColorPalette>C_BUTTON_Palette1=#FFFFFF,C_CHECKBOX_Palette1=1</ColorPalette>
+    <ColorPalette>C_BUTTON_Palette1=#8000FF,C_CHECKBOX_Palette1=1</ColorPalette>
+    <ColorPalette>C_BUTTON_Palette1=#FFB000,C_CHECKBOX_Palette1=1</ColorPalette>
+    <ColorPalette>C_BUTTON_Palette1=#FFB000,C_CHECKBOX_Palette1=1,C_SLIDER_SparkleFrequency=100</ColorPalette>
+  </ColorPalettes>
+  <EffectDB>
+    <Effect>E_CHECKBOX_Shockwave_Blend_Edges=1,E_CHECKBOX_Shockwave_Scale=1,E_SLIDER_Shockwave_Accel=0,E_SLIDER_Shockwave_CenterX=50,E_SLIDER_Shockwave_CenterY=50,E_SLIDER_Shockwave_Cycles=2,E_SLIDER_Shockwave_End_Radius=60,E_SLIDER_Shockwave_End_Width=8,E_SLIDER_Shockwave_Start_Radius=1,E_SLIDER_Shockwave_Start_Width=4</Effect>
+    <Effect>E_CHECKBOX_ColorWash_CircularPalette=0,E_CHECKBOX_ColorWash_HFade=0,E_CHECKBOX_ColorWash_Shimmer=0,E_CHECKBOX_ColorWash_VFade=0,E_TEXTCTRL_ColorWash_Cycles=1.0,T_TEXTCTRL_Fadein=1.00,T_TEXTCTRL_Fadeout=1.00</Effect>
+    <Effect>B_SLIDER_Blur=1,B_VALUECURVE_Blur=Active=TRUE|Type=Ramp|Min=1.00|Max=15.00|P1=1.00|P2=6.00|RV=TRUE|,E_CHOICE_Plasma_Color=Normal,E_SLIDER_Plasma_Line_Density=1,E_SLIDER_Plasma_Speed=10,E_SLIDER_Plasma_Style=2</Effect>
+    <Effect>E_CHECKBOX_Fan_Blend_Edges=1,E_CHECKBOX_Fan_Reverse=0,E_CHECKBOX_Fan_Scale=1,E_SLIDER_Fan_Accel=0,E_SLIDER_Fan_Blade_Angle=90,E_SLIDER_Fan_Blade_Width=50,E_SLIDER_Fan_CenterX=50,E_SLIDER_Fan_CenterY=50,E_SLIDER_Fan_Duration=80,E_SLIDER_Fan_Element_Width=100,E_SLIDER_Fan_End_Radius=50,E_SLIDER_Fan_Num_Blades=3,E_SLIDER_Fan_Num_Elements=1,E_SLIDER_Fan_Revolutions=720,E_SLIDER_Fan_Start_Angle=0,E_SLIDER_Fan_Start_Radius=1,E_VALUECURVE_Fan_Revolutions=Active=TRUE|Id=ID_VALUECURVE_Fan_Revolutions|Type=Ramp|Min=0.00|Max=3600.00|P1=360.00|P2=1080.00|RV=TRUE|</Effect>
+    <Effect>E_CHECKBOX_Pinwheel_Rotation=1,E_CHOICE_Pinwheel_3D=None,E_CHOICE_Pinwheel_Style=New Render Method,E_SLIDER_PinwheelXC=0,E_SLIDER_PinwheelYC=0,E_SLIDER_Pinwheel_ArmSize=100,E_SLIDER_Pinwheel_Arms=4,E_SLIDER_Pinwheel_Offset=0,E_SLIDER_Pinwheel_Speed=10,E_SLIDER_Pinwheel_Thickness=30,E_SLIDER_Pinwheel_Twist=0</Effect>
+    <Effect>E_CHECKBOX_Spirals_3D=0,E_CHECKBOX_Spirals_Blend=0,E_CHECKBOX_Spirals_Grow=0,E_CHECKBOX_Spirals_Shrink=0,E_SLIDER_Spirals_Count=2,E_SLIDER_Spirals_Rotation=20,E_SLIDER_Spirals_Thickness=50,E_TEXTCTRL_Spirals_Movement=2.0</Effect>
+    <Effect>E_CHECKBOX_Twinkle_ReRandom=0,E_CHECKBOX_Twinkle_Strobe=0,E_CHOICE_Twinkle_Style=New Render Method,E_SLIDER_Twinkle_Count=10,E_SLIDER_Twinkle_Steps=30,T_CHOICE_LayerMethod=Additive</Effect>
+    <Effect>E_CHECKBOX_On_Shimmer=0,E_TEXTCTRL_Eff_On_End=100,E_TEXTCTRL_Eff_On_Start=100,E_TEXTCTRL_On_Cycles=1.0,T_CHOICE_LayerMethod=Average</Effect>
+    <Effect>E_CHECKBOX_ColorWash_CircularPalette=0,E_CHECKBOX_ColorWash_HFade=0,E_CHECKBOX_ColorWash_Shimmer=0,E_CHECKBOX_ColorWash_VFade=0,E_TEXTCTRL_ColorWash_Cycles=2.0,T_CHOICE_LayerMethod=Max</Effect>
+    <Effect>E_CHECKBOX_Spirals_3D=0,E_CHECKBOX_Spirals_Blend=0,E_CHECKBOX_Spirals_Grow=0,E_CHECKBOX_Spirals_Shrink=0,E_SLIDER_Spirals_Count=1,E_SLIDER_Spirals_Rotation=20,E_SLIDER_Spirals_Thickness=40,E_TEXTCTRL_Spirals_Movement=1.5</Effect>
+    <Effect>E_CHOICE_Butterfly_Colors=Palette,E_CHOICE_Butterfly_Direction=Normal,E_SLIDER_Butterfly_Chunks=1,E_SLIDER_Butterfly_Skip=2,E_SLIDER_Butterfly_Speed=10,E_SLIDER_Butterfly_Style=1,E_VALUECURVE_Butterfly_Speed=Active=TRUE|Id=ID_VALUECURVE_Butterfly_Speed|Type=Ramp|Min=0.00|Max=100.00|P1=10.00|P2=30.00|RV=TRUE|</Effect>
+    <Effect>E_CHECKBOX_Morph_End_Link=0,E_CHECKBOX_Morph_Start_Link=0,E_CHECKBOX_ShowHeadAtStart=0,E_SLIDER_MorphAccel=0,E_SLIDER_MorphDuration=20,E_SLIDER_MorphEndLength=1,E_SLIDER_MorphStartLength=1,E_SLIDER_Morph_End_X1=0,E_SLIDER_Morph_End_X2=100,E_SLIDER_Morph_End_Y1=100,E_SLIDER_Morph_End_Y2=100,E_SLIDER_Morph_Repeat_Count=3,E_SLIDER_Morph_Repeat_Skip=4,E_SLIDER_Morph_Stagger=0,E_SLIDER_Morph_Start_X1=0,E_SLIDER_Morph_Start_X2=100,E_SLIDER_Morph_Start_Y1=0,E_SLIDER_Morph_Start_Y2=0</Effect>
+    <Effect>E_CHECKBOX_Bars_3D=0,E_CHECKBOX_Bars_Gradient=0,E_CHECKBOX_Bars_Highlight=0,E_CHOICE_Bars_Direction=up,E_SLIDER_Bars_BarCount=2,E_TEXTCTRL_Bars_Cycles=2.0</Effect>
+    <Effect>B_CHOICE_BufferStyle=Per Model Default,E_CHECKBOX_ColorWash_CircularPalette=0,E_CHECKBOX_ColorWash_HFade=0,E_CHECKBOX_ColorWash_Shimmer=0,E_CHECKBOX_ColorWash_VFade=0,E_TEXTCTRL_ColorWash_Cycles=1.0</Effect>
+    <Effect>E_CHECKBOX_Bars_3D=0,E_CHECKBOX_Bars_Gradient=0,E_CHECKBOX_Bars_Highlight=0,E_CHOICE_Bars_Direction=Left,E_SLIDER_Bars_BarCount=1,E_TEXTCTRL_Bars_Cycles=2.0</Effect>
+    <Effect>B_CHOICE_BufferStyle=Per Model Default,E_CHECKBOX_Fill_Offset_In_Pixels=1,E_CHECKBOX_Fill_Wrap=1,E_CHOICE_Fill_Direction=Up,E_SLIDER_Fill_Band_Size=0,E_SLIDER_Fill_Offset=0,E_SLIDER_Fill_Position=0,E_SLIDER_Fill_Skip_Size=0,E_VALUECURVE_Fill_Position=Active=TRUE|Id=ID_VALUECURVE_Fill_Position|Type=Ramp|Min=0.00|Max=100.00|P1=0.00|P2=100.00|RV=TRUE|</Effect>
+    <Effect>E_CHECKBOX_On_Shimmer=0,E_TEXTCTRL_Eff_On_End=0,E_TEXTCTRL_Eff_On_Start=100,E_TEXTCTRL_On_Cycles=1.0,T_TEXTCTRL_Fadein=0.50</Effect>
+    <Effect>E_CHECKBOX_On_Shimmer=0,E_TEXTCTRL_Eff_On_End=100,E_TEXTCTRL_Eff_On_Start=100,E_TEXTCTRL_On_Cycles=1.0</Effect>
+  </EffectDB>
+  <DisplayElements>
+    <Element collapsed="0" type="model" name="Matrix" visible="1"/>
+    <Element collapsed="0" type="model" name="Tree" visible="1"/>
+    <Element collapsed="0" type="model" name="Outlines" visible="1"/>
+    <Element collapsed="0" type="model" name="Arches" visible="1"/>
+    <Element collapsed="0" type="model" name="Flake" visible="1"/>
+  </DisplayElements>
+  <ElementEffects>
+    <Element type="model" name="Matrix">
+      <EffectLayer>
+        <Effect ref="0" name="Shockwave" palette="0" startTime="0" endTime="4000"/>
+        <Effect ref="1" name="Color Wash" palette="1" startTime="4000" endTime="8000"/>
+        <Effect ref="2" name="Plasma" palette="2" startTime="8000" endTime="12000"/>
+        <Effect ref="3" name="Fan" palette="3" startTime="12000" endTime="16000"/>
+        <Effect ref="4" name="Pinwheel" palette="4" startTime="16000" endTime="20000"/>
+        <Effect ref="5" name="Spirals" palette="4" startTime="20000" endTime="24000"/>
+      </EffectLayer>
+    </Element>
+    <Element type="model" name="Tree">
+      <EffectLayer>
+        <Effect ref="6" name="Twinkle" palette="5" startTime="0" endTime="6000"/>
+        <Effect ref="7" name="On" palette="6" startTime="12000" endTime="18000"/>
+        <Effect ref="8" name="Color Wash" palette="1" startTime="18000" endTime="24000"/>
+      </EffectLayer>
+      <EffectLayer>
+        <Effect ref="9" name="Spirals" palette="0" startTime="0" endTime="6000"/>
+        <Effect ref="10" name="Butterfly" palette="3" startTime="6000" endTime="12000"/>
+        <Effect ref="11" name="Morph" palette="2" startTime="12000" endTime="18000"/>
+        <Effect ref="12" name="Bars" palette="3" startTime="18000" endTime="24000"/>
+      </EffectLayer>
+    </Element>
+    <Element type="model" name="Outlines">
+      <EffectLayer>
+        <Effect ref="13" name="Color Wash" palette="4" startTime="0" endTime="6000"/>
+        <Effect ref="14" name="Bars" palette="2" startTime="6000" endTime="12000"/>
+        <Effect ref="15" name="Fill" palette="7" startTime="12000" endTime="18000"/>
+        <Effect ref="16" name="On" palette="0" startTime="18000" endTime="24000"/>
+      </EffectLayer>
+    </Element>
+    <Element type="model" name="Arches">
+      <EffectLayer/>
+      <SubModelEffectLayer name="Middle Arch">
+        <Effect ref="17" name="On" palette="6" startTime="0" endTime="12000"/>
+      </SubModelEffectLayer>
+    </Element>
+    <Element type="model" name="Flake">
+      <EffectLayer>
+        <Effect ref="17" name="On" palette="8" startTime="0" endTime="24000"/>
+      </EffectLayer>
+    </Element>
+  </ElementEffects>
+  <lastView>0</lastView>
+</xsequence>

@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- PixelFlow's made-up fidelity corpus (crates/pf-fidelity/src/madeup.rs writes this file).
+     Marks, words, and pictures: a timing track and shapes it sets off, text, a picture
+     standing and scrolling, and a shader file on a group and a tree. 20 seconds of 50 ms frames.
+     Render it in xLights on this show folder and save the .fseq beside it: see ../README.md. -->
+<xsequence BaseChannel="0" ChanCtrlBasic="0" ChanCtrlColor="0" FixedPointTiming="1" ModelBlending="true">
+  <head>
+    <version>2026.14</version>
+    <author>PixelFlow</author>
+    <song>Marks, words, and pictures</song>
+    <sequenceTiming>50 ms</sequenceTiming>
+    <sequenceType>Animation</sequenceType>
+    <sequenceDuration>20.000</sequenceDuration>
+  </head>
+  <ColorPalettes>
+    <ColorPalette>C_BUTTON_Palette1=#FF0000,C_BUTTON_Palette2=#FFFFFF,C_CHECKBOX_Palette1=1,C_CHECKBOX_Palette2=1</ColorPalette>
+    <ColorPalette>C_BUTTON_Palette1=#FFFFFF,C_CHECKBOX_Palette1=1</ColorPalette>
+    <ColorPalette>C_BUTTON_Palette1=#00FFFF,C_BUTTON_Palette2=#0000FF,C_BUTTON_Palette3=#FF00FF,C_CHECKBOX_Palette1=1,C_CHECKBOX_Palette2=1,C_CHECKBOX_Palette3=1</ColorPalette>
+    <ColorPalette>C_BUTTON_Palette1=#FF0000,C_BUTTON_Palette2=#00FF00,C_CHECKBOX_Palette1=1,C_CHECKBOX_Palette2=1</ColorPalette>
+    <ColorPalette>C_BUTTON_Palette1=#0040FF,C_BUTTON_Palette2=#00FF40,C_CHECKBOX_Palette1=1,C_CHECKBOX_Palette2=1</ColorPalette>
+    <ColorPalette>C_BUTTON_Palette1=#FF0000,C_BUTTON_Palette2=#FF8000,C_BUTTON_Palette3=#FFFF00,C_CHECKBOX_Palette1=1,C_CHECKBOX_Palette2=1,C_CHECKBOX_Palette3=1</ColorPalette>
+  </ColorPalettes>
+  <EffectDB>
+    <Effect>E_CHECKBOX_TextToCenter=0,E_CHOICE_Text_Count=none,E_CHOICE_Text_Dir=left,E_CHOICE_Text_Effect=normal,E_CHOICE_Text_Font=Use OS Fonts,E_FONTPICKER_Text_Font='Arial' 12,E_SLIDER_Text_XStart=0,E_SLIDER_Text_YStart=0,E_TEXTCTRL_Text=PIXELFLOW,E_TEXTCTRL_Text_Speed=10</Effect>
+    <Effect>E_CHECKBOX_LoopGIF=0,E_CHECKBOX_Pictures_PixelOffsets=0,E_CHECKBOX_Pictures_Shimmer=0,E_CHECKBOX_Pictures_TransparentBlack=0,E_CHECKBOX_Pictures_WrapX=0,E_CHECKBOX_SuppressGIFBackground=1,E_CHOICE_Pictures_Direction=none,E_CHOICE_Scaling=Scale To Fit,E_FILEPICKERCTRL_Pictures_Filename=pictures/corpus-picture.png,E_SLIDER_PicturesEndXC=0,E_SLIDER_PicturesEndYC=0,E_SLIDER_PicturesXC=0,E_SLIDER_PicturesYC=0,E_TEXTCTRL_Pictures_FrameRateAdj=1.0,E_TEXTCTRL_Pictures_Speed=1.0</Effect>
+    <Effect>E_CHECKBOX_Shape_FadeAway=1,E_CHECKBOX_Shape_HoldColour=1,E_CHECKBOX_Shape_RandomInitial=1,E_CHECKBOX_Shape_RandomLocation=1,E_CHECKBOX_Shapes_RandomMovement=0,E_CHOICE_Shape_ObjectToDraw=Circle,E_SLIDER_Shape_Growth=10,E_SLIDER_Shape_Lifetime=5,E_SLIDER_Shape_StartSize=1,E_SLIDER_Shape_Thickness=2,E_TEXTCTRL_Shape_Count=5,E_CHECKBOX_Shape_FireTiming=1,E_CHOICE_Shape_FireTimingTrack=Beats</Effect>
+    <Effect>E_CHECKBOX_LoopGIF=0,E_CHECKBOX_Pictures_PixelOffsets=0,E_CHECKBOX_Pictures_Shimmer=0,E_CHECKBOX_Pictures_TransparentBlack=0,E_CHECKBOX_Pictures_WrapX=0,E_CHECKBOX_SuppressGIFBackground=1,E_CHOICE_Pictures_Direction=left,E_CHOICE_Scaling=No Scaling,E_FILEPICKERCTRL_Pictures_Filename=pictures/corpus-picture.png,E_SLIDER_PicturesEndXC=0,E_SLIDER_PicturesEndYC=0,E_SLIDER_PicturesXC=0,E_SLIDER_PicturesYC=0,E_TEXTCTRL_Pictures_FrameRateAdj=1.0,E_TEXTCTRL_Pictures_Speed=4.0</Effect>
+    <Effect>E_CHECKBOX_Morph_End_Link=0,E_CHECKBOX_Morph_Start_Link=0,E_CHECKBOX_ShowHeadAtStart=0,E_SLIDER_MorphAccel=0,E_SLIDER_MorphDuration=40,E_SLIDER_MorphEndLength=10,E_SLIDER_MorphStartLength=10,E_SLIDER_Morph_End_X1=100,E_SLIDER_Morph_End_X2=100,E_SLIDER_Morph_End_Y1=0,E_SLIDER_Morph_End_Y2=100,E_SLIDER_Morph_Repeat_Count=0,E_SLIDER_Morph_Repeat_Skip=1,E_SLIDER_Morph_Stagger=0,E_SLIDER_Morph_Start_X1=0,E_SLIDER_Morph_Start_X2=0,E_SLIDER_Morph_Start_Y1=0,E_SLIDER_Morph_Start_Y2=100</Effect>
+    <Effect>E_0FILEPICKERCTRL_IFS=Shaders/prism.fs,E_CHOICE_SHADERXYZZY_path=Up,E_SLIDER_SHADERXYZZY_rainbows=150,E_SLIDER_SHADERXYZZY_speed=100,E_SLIDER_Shader_Speed=100,E_TEXTCTRL_Shader_LeadIn=0</Effect>
+    <Effect>E_0FILEPICKERCTRL_IFS=Shaders/prism.fs,E_CHOICE_SHADERXYZZY_path=Across,E_SLIDER_SHADERXYZZY_rainbows=150,E_SLIDER_SHADERXYZZY_speed=150,E_SLIDER_Shader_Speed=100,E_TEXTCTRL_Shader_LeadIn=0</Effect>
+    <Effect>E_CHECKBOX_Shockwave_Blend_Edges=1,E_CHECKBOX_Shockwave_Scale=1,E_SLIDER_Shockwave_Accel=0,E_SLIDER_Shockwave_CenterX=50,E_SLIDER_Shockwave_CenterY=50,E_SLIDER_Shockwave_Cycles=3,E_SLIDER_Shockwave_End_Radius=40,E_SLIDER_Shockwave_End_Width=8,E_SLIDER_Shockwave_Start_Radius=1,E_SLIDER_Shockwave_Start_Width=4,E_VALUECURVE_Shockwave_End_Radius=Active=TRUE|Id=ID_VALUECURVE_Shockwave_End_Radius|Type=Ramp|Min=0.00|Max=750.00|P1=20.00|P2=80.00|RV=TRUE|</Effect>
+    <Effect>E_CHECKBOX_ColorWash_CircularPalette=0,E_CHECKBOX_ColorWash_HFade=0,E_CHECKBOX_ColorWash_Shimmer=0,E_CHECKBOX_ColorWash_VFade=0,E_TEXTCTRL_ColorWash_Cycles=3.0</Effect>
+  </EffectDB>
+  <DisplayElements>
+    <Element collapsed="0" type="timing" name="Beats" visible="1" views="" active="1"/>
+    <Element collapsed="0" type="model" name="Matrix" visible="1"/>
+    <Element collapsed="0" type="model" name="Tree" visible="1"/>
+    <Element collapsed="0" type="model" name="Outlines" visible="1"/>
+    <Element collapsed="0" type="model" name="Flake" visible="1"/>
+  </DisplayElements>
+  <ElementEffects>
+    <Element type="timing" name="Beats">
+      <EffectLayer>
+        <Effect label="" startTime="0" endTime="500"/>
+        <Effect label="" startTime="500" endTime="1000"/>
+        <Effect label="" startTime="1000" endTime="1500"/>
+        <Effect label="" startTime="1500" endTime="2000"/>
+        <Effect label="" startTime="2000" endTime="2500"/>
+        <Effect label="" startTime="2500" endTime="3000"/>
+        <Effect label="" startTime="3000" endTime="3500"/>
+        <Effect label="" startTime="3500" endTime="4000"/>
+        <Effect label="" startTime="4000" endTime="4500"/>
+        <Effect label="" startTime="4500" endTime="5000"/>
+        <Effect label="" startTime="5000" endTime="5500"/>
+        <Effect label="" startTime="5500" endTime="6000"/>
+        <Effect label="" startTime="6000" endTime="6500"/>
+        <Effect label="" startTime="6500" endTime="7000"/>
+        <Effect label="" startTime="7000" endTime="7500"/>
+        <Effect label="" startTime="7500" endTime="8000"/>
+        <Effect label="" startTime="8000" endTime="8500"/>
+        <Effect label="" startTime="8500" endTime="9000"/>
+        <Effect label="" startTime="9000" endTime="9500"/>
+        <Effect label="" startTime="9500" endTime="10000"/>
+        <Effect label="" startTime="10000" endTime="10500"/>
+        <Effect label="" startTime="10500" endTime="11000"/>
+        <Effect label="" startTime="11000" endTime="11500"/>
+        <Effect label="" startTime="11500" endTime="12000"/>
+        <Effect label="" startTime="12000" endTime="12500"/>
+        <Effect label="" startTime="12500" endTime="13000"/>
+        <Effect label="" startTime="13000" endTime="13500"/>
+        <Effect label="" startTime="13500" endTime="14000"/>
+        <Effect label="" startTime="14000" endTime="14500"/>
+        <Effect label="" startTime="14500" endTime="15000"/>
+        <Effect label="" startTime="15000" endTime="15500"/>
+        <Effect label="" startTime="15500" endTime="16000"/>
+        <Effect label="" startTime="16000" endTime="16500"/>
+        <Effect label="" startTime="16500" endTime="17000"/>
+        <Effect label="" startTime="17000" endTime="17500"/>
+        <Effect label="" startTime="17500" endTime="18000"/>
+        <Effect label="" startTime="18000" endTime="18500"/>
+        <Effect label="" startTime="18500" endTime="19000"/>
+        <Effect label="" startTime="19000" endTime="19500"/>
+        <Effect label="" startTime="19500" endTime="20000"/>
+      </EffectLayer>
+    </Element>
+    <Element type="model" name="Matrix">
+      <EffectLayer>
+        <Effect ref="0" name="Text" palette="0" startTime="0" endTime="5000"/>
+        <Effect ref="1" name="Pictures" palette="1" startTime="5000" endTime="10000"/>
+        <Effect ref="2" name="Shape" palette="2" startTime="10000" endTime="15000"/>
+        <Effect ref="3" name="Pictures" palette="1" startTime="15000" endTime="20000"/>
+      </EffectLayer>
+    </Element>
+    <Element type="model" name="Tree">
+      <EffectLayer>
+        <Effect ref="4" name="Morph" palette="3" startTime="0" endTime="10000"/>
+        <Effect ref="5" name="Shader" palette="1" startTime="10000" endTime="20000"/>
+      </EffectLayer>
+    </Element>
+    <Element type="model" name="Outlines">
+      <EffectLayer>
+        <Effect ref="6" name="Shader" palette="1" startTime="0" endTime="10000"/>
+        <Effect ref="7" name="Shockwave" palette="4" startTime="10000" endTime="20000"/>
+      </EffectLayer>
+    </Element>
+    <Element type="model" name="Flake">
+      <EffectLayer>
+        <Effect ref="8" name="Color Wash" palette="5" startTime="0" endTime="20000"/>
+      </EffectLayer>
+    </Element>
+  </ElementEffects>
+  <lastView>0</lastView>
+</xsequence>

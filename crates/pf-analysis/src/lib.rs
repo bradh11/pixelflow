@@ -58,6 +58,8 @@ pub use events::{Event, EventKind};
 pub use layers::Layers;
 pub use moments::{Moment, MomentKind, ShoutCues, Suggest, moments_track};
 pub use onset::{FRAME, HOP, OnsetEnvelope, onset_envelope, pick_onsets};
+/// A sample of every channel, as [`audio_track_from_channels`] takes them.
+pub use pf_audio::ChannelSample;
 pub use sections::{Level, Section};
 pub use track::{
     AudioTrack, NOTES, RANGE_DB, SPECTRUM_BANDS, TILT_DB, TRACK_FORMAT, audio_track, audio_track_cancellable,

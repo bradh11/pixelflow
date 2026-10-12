@@ -4,11 +4,13 @@
 //! One pass over the song works out, for every frame (the sequence's frame time, 25 ms say):
 //! - **peak** and **trough**: the frame's highest and lowest sample, as a share of the song's
 //!   highest and lowest (xLights' `FrameData` `max` and `min`, which its Music value curves, music
-//!   sparkles, and VU Meter read). They are taken from whichever channel has them, so they
-//!   follow the louder channel: in xLights' frames this level is the left channel's alone, which
-//!   is the same on a song with as much on both sides and leaves a sound on the right unheard.
-//!   The channels mixed to one would read lower wherever they differ (a sound on one side at
-//!   half, two that mirror each other as silence). Everything below is worked out from the mix;
+//!   sparkles, and VU Meter read). The track holds them twice, and a sequence says which it
+//!   follows ([`MusicLevelSource`]): from whichever channel has them, so they follow the louder
+//!   channel and a sound on either side is heard; and from the left channel alone, against the
+//!   left channel's own highest and lowest, which is what xLights' frames show and leaves a
+//!   sound on the right unheard. The two are the same on music with one channel. The channels
+//!   mixed to one would read lower wherever they differ (a sound on one side at half, two that
+//!   mirror each other as silence). Everything below is worked out from the mix;
 //! - **level**: how loud the frame is (its root mean square), 1 at the song's loudest frame and 0
 //!   at [`RANGE_DB`] below it, so it follows loudness as it's heard (in dB);
 //! - **bands**: bass (below 250 Hz), low mids (to 1 kHz), high mids (to 4 kHz), and treble, and a
@@ -32,6 +34,7 @@ use crate::layers::{LayerExtractor, Layers};
 use crate::onset::{OnsetEnvelope, clean, onset_envelope, pick_onsets};
 use crate::{AnalysisError, MAX_ANALYSIS_MS, beat_grid, estimate_tempo};
 use pf_audio::{ChannelSample, MonoSamples, Progress, reported};
+use pf_sequence::MusicLevelSource;
 use realfft::num_complex::Complex;
 use realfft::{RealFftPlanner, RealToComplex};
 use std::path::Path;
@@ -59,7 +62,11 @@ const SPECTRUM_HIGH_HZ: f32 = 16_000.0;
 const FLOOR: f32 = 1e-10;
 /// The format of [`AudioTrack::to_bytes`] (change it when the features change, so cached tracks
 /// are worked out again). 2: peaks and troughs read the louder channel, not the channels' mix.
-pub const TRACK_FORMAT: u32 = 2;
+/// 3: the left channel's peaks and troughs are kept beside the louder channel's.
+pub const TRACK_FORMAT: u32 = 3;
+/// Bytes a frame takes in [`AudioTrack::to_bytes`]: seven numbers, the four bands, the flags,
+/// the spectrum, and the notes.
+const FRAME_BYTES: usize = 7 * 4 + 16 + 1 + SPECTRUM_BANDS + NOTES;
 const MAGIC: &[u8; 4] = b"PFAT";
 
 const NOTE_ON: u8 = 1;
@@ -72,6 +79,8 @@ pub struct AudioTrack {
     sample_rate: u32,
     peak: Vec<f32>,
     trough: Vec<f32>,
+    left_peak: Vec<f32>,
+    left_trough: Vec<f32>,
     level: Vec<f32>,
     bands: Vec<[f32; 4]>,
     onset: Vec<f32>,
@@ -120,15 +129,34 @@ impl AudioTrack {
     }
 
     /// The frame's highest sample, on whichever channel has it, as a share of the song's (xLights'
-    /// `max`), 0–1. This is how loud the music is to effects that follow it.
+    /// `max`), 0–1: [`AudioTrack::peak_from`] the louder channel.
     pub fn peak(&self, frame: u64) -> f32 {
-        Self::get(&self.peak, frame).unwrap_or(0.0)
+        self.peak_from(MusicLevelSource::LouderChannel, frame)
     }
 
     /// The frame's lowest sample, on whichever channel has it, as a share of the song's lowest
-    /// (xLights' `min`), 0–1.
+    /// (xLights' `min`), 0–1: [`AudioTrack::trough_from`] the louder channel.
     pub fn trough(&self, frame: u64) -> f32 {
-        Self::get(&self.trough, frame).unwrap_or(0.0)
+        self.trough_from(MusicLevelSource::LouderChannel, frame)
+    }
+
+    /// The frame's highest sample on `source`, as a share of the song's highest there, 0–1. This
+    /// is how loud the music is to effects that follow it.
+    pub fn peak_from(&self, source: MusicLevelSource, frame: u64) -> f32 {
+        let peaks = match source {
+            MusicLevelSource::LouderChannel => &self.peak,
+            MusicLevelSource::LeftChannel => &self.left_peak,
+        };
+        Self::get(peaks, frame).unwrap_or(0.0)
+    }
+
+    /// The frame's lowest sample on `source`, as a share of the song's lowest there, 0–1.
+    pub fn trough_from(&self, source: MusicLevelSource, frame: u64) -> f32 {
+        let troughs = match source {
+            MusicLevelSource::LouderChannel => &self.trough,
+            MusicLevelSource::LeftChannel => &self.left_trough,
+        };
+        Self::get(troughs, frame).unwrap_or(0.0)
     }
 
     /// How loud the frame is, 0–1 (in dB: 1 the song's loudest, 0 [`RANGE_DB`] below).
@@ -211,7 +239,7 @@ impl AudioTrack {
     /// The track as bytes, for a cache file.
     pub fn to_bytes(&self) -> Vec<u8> {
         let n = self.len();
-        let mut out = Vec::with_capacity(24 + n * (5 * 4 + 16 + 1 + SPECTRUM_BANDS + NOTES));
+        let mut out = Vec::with_capacity(24 + n * FRAME_BYTES);
         out.extend_from_slice(MAGIC);
         for v in [TRACK_FORMAT, self.frame_ms, self.sample_rate, n as u32] {
             out.extend_from_slice(&v.to_le_bytes());
@@ -219,6 +247,8 @@ impl AudioTrack {
         for list in [
             &self.peak,
             &self.trough,
+            &self.left_peak,
+            &self.left_trough,
             &self.level,
             &self.onset,
             &self.percussive,
@@ -254,8 +284,7 @@ impl AudioTrack {
         if format != TRACK_FORMAT || frame_ms == 0 {
             return None;
         }
-        let per_frame = 5 * 4 + 16 + 1 + SPECTRUM_BANDS + NOTES;
-        if rest.len() != n.checked_mul(per_frame)? {
+        if rest.len() != n.checked_mul(FRAME_BYTES)? {
             return None;
         }
         let mut take = |len: usize| {
@@ -272,6 +301,8 @@ impl AudioTrack {
         };
         let peak = floats(take(4 * n));
         let trough = floats(take(4 * n));
+        let left_peak = floats(take(4 * n));
+        let left_trough = floats(take(4 * n));
         let level = floats(take(4 * n));
         let onset = floats(take(4 * n));
         let percussive = floats(take(4 * n));
@@ -284,6 +315,8 @@ impl AudioTrack {
             sample_rate,
             peak,
             trough,
+            left_peak,
+            left_trough,
             level,
             bands,
             onset,
@@ -329,8 +362,12 @@ struct Extractor {
     count: u32,
     max: f32,
     min: f32,
+    left_max: f32,
+    left_min: f32,
     peak: Vec<f32>,
     trough: Vec<f32>,
+    left_peak: Vec<f32>,
+    left_trough: Vec<f32>,
     rms: Vec<f32>,
     /// The last [`RING`] samples.
     ring: Vec<f32>,
@@ -394,8 +431,12 @@ impl Extractor {
             count: 0,
             max: f32::MIN,
             min: f32::MAX,
+            left_max: f32::MIN,
+            left_min: f32::MAX,
             peak: Vec::new(),
             trough: Vec::new(),
+            left_peak: Vec::new(),
+            left_trough: Vec::new(),
             rms: Vec::new(),
             ring: vec![0.0; RING],
             hann: (0..WINDOW)
@@ -417,9 +458,9 @@ impl Extractor {
         }
     }
 
-    /// Takes the next sample: the channels' mix `s`, and the highest and lowest of the channels
-    /// there (each already cleaned up: finite and within -1..1).
-    fn push(&mut self, s: f32, high: f32, low: f32) {
+    /// Takes the next sample: the channels' mix `s`, the highest and lowest of the channels
+    /// there, and the left channel's (each already cleaned up: finite and within -1..1).
+    fn push(&mut self, s: f32, high: f32, low: f32, left: f32) {
         while self.n >= self.frame_end {
             self.close_frame();
         }
@@ -429,6 +470,8 @@ impl Extractor {
         self.count += 1;
         self.max = self.max.max(high);
         self.min = self.min.min(low);
+        self.left_max = self.left_max.max(left);
+        self.left_min = self.left_min.min(left);
         while self.middle(self.next) + (WINDOW / 2) as u64 <= self.n {
             self.window(self.next);
             self.next += 1;
@@ -441,12 +484,16 @@ impl Extractor {
 
     fn close_frame(&mut self) {
         let count = self.count.max(1);
-        self.peak.push(if self.count > 0 { self.max } else { 0.0 });
-        self.trough.push(if self.count > 0 { self.min } else { 0.0 });
+        let heard = |v: f32| if self.count > 0 { v } else { 0.0 };
+        self.peak.push(heard(self.max));
+        self.trough.push(heard(self.min));
+        self.left_peak.push(heard(self.left_max));
+        self.left_trough.push(heard(self.left_min));
         self.rms.push((self.sum_sq / f64::from(count)).sqrt() as f32);
         self.frame += 1;
         self.frame_end = frame_start(self.frame + 1, self.frame_ms, self.rate);
         (self.sum_sq, self.count, self.max, self.min) = (0.0, 0, f32::MIN, f32::MAX);
+        (self.left_max, self.left_min) = (f32::MIN, f32::MAX);
     }
 
     /// The sample in the middle of frame `i`.
@@ -561,11 +608,18 @@ fn assemble(x: Extractor, envelope: &OnsetEnvelope, layers: &Layers) -> AudioTra
     let frame_ms = x.frame_ms;
     let frame_for_ms = |t: u64| (t / u64::from(frame_ms)) as usize;
 
-    let highest = x.peak.iter().copied().fold(0.0f32, f32::max);
-    let lowest = x.trough.iter().copied().fold(0.0f32, f32::min);
+    // Each frame's highest as a share of the song's highest, and its lowest of the song's lowest.
     let share = |v: f32, of: f32| if of != 0.0 { (v / of).clamp(0.0, 1.0) } else { 0.0 };
-    let peak = x.peak.iter().map(|&v| share(v, highest)).collect();
-    let trough = x.trough.iter().map(|&v| share(v, lowest)).collect();
+    let shares = |peaks: &[f32], troughs: &[f32]| -> (Vec<f32>, Vec<f32>) {
+        let highest = peaks.iter().copied().fold(0.0f32, f32::max);
+        let lowest = troughs.iter().copied().fold(0.0f32, f32::min);
+        (
+            peaks.iter().map(|&v| share(v, highest)).collect(),
+            troughs.iter().map(|&v| share(v, lowest)).collect(),
+        )
+    };
+    let (peak, trough) = shares(&x.peak, &x.trough);
+    let (left_peak, left_trough) = shares(&x.left_peak, &x.left_trough);
 
     let rms_db: Vec<f32> = x.rms.iter().map(|&r| 20.0 * r.max(1e-5).log10()).collect();
     let top = rms_db.iter().copied().fold(-100.0f32, f32::max);
@@ -655,6 +709,8 @@ fn assemble(x: Extractor, envelope: &OnsetEnvelope, layers: &Layers) -> AudioTra
         sample_rate: x.rate,
         peak,
         trough,
+        left_peak,
+        left_trough,
         level,
         bands,
         onset,
@@ -689,9 +745,9 @@ pub fn audio_track_cancellable(
 }
 
 /// The audio track of music with more than one channel, each sample the channels' mix with the
-/// highest and lowest of them beside it: peaks and troughs follow the louder channel, and the
-/// rest is worked out from the mix. Checks `stop` every so often, as
-/// [`audio_track_cancellable`] does.
+/// highest and lowest of them and the left one's beside it: peaks and troughs are kept for the
+/// louder channel and for the left, and the rest is worked out from the mix. Checks `stop` every
+/// so often, as [`audio_track_cancellable`] does.
 pub fn audio_track_from_channels(
     samples: impl IntoIterator<Item = ChannelSample>,
     sample_rate: u32,
@@ -717,7 +773,7 @@ pub fn audio_track_from_channels(
     let envelope = onset_envelope(
         checked.map(|sample| {
             let s = clean(sample.mix);
-            extractor.push(s, clean(sample.high), clean(sample.low));
+            extractor.push(s, clean(sample.high), clean(sample.low), clean(sample.left));
             separator.push(s);
             sample.mix
         }),
@@ -859,6 +915,47 @@ mod tests {
     }
 
     #[test]
+    fn the_left_channels_level_is_kept_beside_the_louder_channels() {
+        const LOUDER: MusicLevelSource = MusicLevelSource::LouderChannel;
+        const LEFT: MusicLevelSource = MusicLevelSource::LeftChannel;
+        // A second each of the same tone: on both sides, on the left alone, on the right alone,
+        // on both but mirrored, then quieter on the right alone.
+        let (loud, none) = (tone(440.0, 0.8, 1.0), vec![0.0; RATE as usize]);
+        let mirrored: Vec<f32> = loud.iter().map(|s| -s).collect();
+        let quiet = tone(440.0, 0.4, 1.0);
+        let left = [&loud[..], &loud, &none, &loud, &none].concat();
+        let right = [&loud[..], &none, &loud, &mirrored, &quiet].concat();
+        let t = track_of(stereo(&left, &right), 50);
+        // The left channel hears nothing of what is on the right alone.
+        for (second, want) in [1.0, 1.0, 0.0, 1.0, 0.0].into_iter().enumerate() {
+            let frame = second as u64 * 20 + 10;
+            let (peak, trough) = (t.peak_from(LEFT, frame), t.trough_from(LEFT, frame));
+            assert!((peak - want).abs() < 0.01, "second {second}: {peak}");
+            assert!((trough - want).abs() < 0.01, "second {second}: {trough}");
+            // Asked for by name, the louder channel's level is the one read without a name.
+            assert_eq!(t.peak_from(LOUDER, frame), t.peak(frame));
+            assert_eq!(t.trough_from(LOUDER, frame), t.trough(frame));
+        }
+        assert_eq!(t.peak_from(LEFT, 10_000), 0.0, "past the end is silence");
+
+        // The left channel's level is a share of the left channel's own highest sample, as in
+        // xLights: here the left never passes 0.2 and the right reaches 0.8 once.
+        let left = tone(440.0, 0.2, 2.0);
+        let right = [tone(440.0, 0.8, 1.0), vec![0.0; RATE as usize]].concat();
+        let t = track_of(stereo(&left, &right), 50);
+        for frame in [10, 30] {
+            let peak = t.peak_from(LEFT, frame);
+            assert!((peak - 1.0).abs() < 0.01, "frame {frame}: {peak}");
+        }
+        assert!((t.peak(30) - 0.25).abs() < 0.01, "{}", t.peak(30));
+
+        // Both levels survive the round trip through bytes.
+        let read = AudioTrack::from_bytes(&t.to_bytes()).unwrap();
+        assert_eq!(read, t);
+        assert_ne!(read.peak_from(LEFT, 30), read.peak_from(LOUDER, 30));
+    }
+
+    #[test]
     fn only_the_peaks_read_the_channels_apart() {
         // Loudness, bands, spectrum, notes, onsets, drums, and beats are the mix's, as they
         // were: two channels that differ change the peaks and nothing else.
@@ -901,6 +998,12 @@ mod tests {
         let same_on_both = track_of(stereo(&samples, &samples), 25);
         assert_eq!(mono.to_bytes(), mixed.to_bytes());
         assert_eq!(same_on_both.to_bytes(), mixed.to_bytes());
+        // And its level is the same whichever channel a sequence follows.
+        let left = MusicLevelSource::LeftChannel;
+        for f in 0..mixed.len() as u64 {
+            assert_eq!(mixed.peak_from(left, f), mixed.peak(f), "frame {f}");
+            assert_eq!(mixed.trough_from(left, f), mixed.trough(f), "frame {f}");
+        }
     }
 
     #[test]
@@ -979,10 +1082,12 @@ mod tests {
         let mut other = bytes.clone();
         other[4] = 99;
         assert_eq!(AudioTrack::from_bytes(&other), None, "another format");
-        // A track kept from before peaks read the louder channel is worked out again.
-        assert_eq!(TRACK_FORMAT, 2);
-        other[4] = 1;
-        assert_eq!(AudioTrack::from_bytes(&other), None, "the format before");
+        // A track kept from before it held the left channel's level is worked out again.
+        assert_eq!(TRACK_FORMAT, 3);
+        for before in [1, 2] {
+            other[4] = before;
+            assert_eq!(AudioTrack::from_bytes(&other), None, "format {before}");
+        }
         assert_eq!(AudioTrack::from_bytes(b"nope"), None);
     }
 

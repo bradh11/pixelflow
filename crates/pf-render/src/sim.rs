@@ -17,7 +17,7 @@ use crate::lines::{Lines, Moving};
 use crate::snowflakes::{Fall, Snowflakes};
 use crate::tendril::{Tendril, Tendrils};
 use crate::vumeter::{Meter, VuMeter};
-use pf_sequence::{Effect, EffectParams, SnowflakesMotion, TimingTrackId};
+use pf_sequence::{Effect, EffectParams, MusicLevelSource, SnowflakesMotion, TimingTrackId};
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::{Mutex, MutexGuard, PoisonError};
@@ -147,13 +147,17 @@ pub(crate) fn run(
     Some(sim.shader(params, time, &cx, world))
 }
 
-/// What an effect's frame-by-frame state was worked out from besides the effect: the music, and
-/// the marks of the timing tracks it follows (its own or its curves'). State kept for other music
-/// or marks is worked out again.
-fn surroundings(effect: &Effect, world: &RenderContext) -> (usize, u64) {
-    let audio = world
-        .audio
-        .map_or(0, |a| std::ptr::from_ref::<AudioTrack>(a.track()) as usize);
+/// What an effect's frame-by-frame state was worked out from besides the effect: the music
+/// (and the channel its level is read from), and the marks of the timing tracks it follows (its
+/// own or its curves'). State kept for other music, another channel, or other marks is worked
+/// out again.
+fn surroundings(effect: &Effect, world: &RenderContext) -> (Music, u64) {
+    let audio = world.audio.map(|a| {
+        (
+            std::ptr::from_ref::<AudioTrack>(a.track()) as usize,
+            a.level_source(),
+        )
+    });
     let mut tracks: Vec<TimingTrackId> = effect.curves.values().filter_map(|c| c.timing_track).collect();
     if let EffectParams::VuMeter(p) = &effect.params
         && let Some(track) = p.timing_track
@@ -173,6 +177,10 @@ fn surroundings(effect: &Effect, world: &RenderContext) -> (usize, u64) {
     (audio, hasher.finish())
 }
 
+/// Which music a state was worked out with: the track (by where it is) and the channel its
+/// level was read from; `None` without music.
+type Music = Option<(usize, MusicLevelSource)>;
+
 /// One effect's state as the renderer keeps it: the effect it was worked out for, and how far.
 #[derive(Debug, Clone)]
 struct Kept {
@@ -180,7 +188,7 @@ struct Kept {
     canvas: Canvas,
     frame_ms: u32,
     /// The music and marks it was worked out with (see [`surroundings`]).
-    world: (usize, u64),
+    world: (Music, u64),
     /// Frames stepped so far (the next to step).
     stepped: u64,
     sim: Sim,

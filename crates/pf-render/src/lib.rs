@@ -32,6 +32,7 @@ mod fire;
 mod fireworks;
 mod garlands;
 mod geometry;
+mod glsl;
 mod impact;
 mod life;
 mod lightning;
@@ -62,9 +63,13 @@ pub use color::{Colors, Rgba};
 pub use effects::{
     Butterfly, Canvas, Chase, Circles, ColorShift, DEFAULT_FRAME_MS, Dancer, EffectTime, Faces, Fan,
     Fireworks, Garlands, Impact, Life, Lightning, Lines, MAX_METEORS, Morph, Picture, Pinwheel, Plasma,
-    Pulse, Shade, Shader, Shape, Sing, Snowflakes, Tendril, Text, VuMeter, Wipe, shade_pixel,
+    Pulse, RUN_PIXELS, Shade, Shader, Shape, Sing, Snowflakes, Tendril, Text, VuMeter, Wipe, shade_pixel,
 };
 pub use geometry::{Members, Pixel, PixelBuffer, SceneGeometry};
+pub use glsl::{
+    ReadShader, Refusal, ShaderChoice, ShaderInfo, ShaderInputInfo, Shaders, Stopped, built_in_shaders,
+    is_built_in_shader, shader_input_problem, shader_name,
+};
 pub use picture::{Pictures, ReadPicture};
 pub use pool::{RenderPool, default_threads};
 pub use render::{FrameTimes, Renderer};

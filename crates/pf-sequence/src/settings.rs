@@ -45,6 +45,11 @@ pub enum SettingRange {
     Text,
     /// A picture file, by path (blank: none chosen yet).
     Image,
+    /// A shader file, by path (blank: none chosen yet).
+    ShaderFile,
+    /// What a shader file's own inputs are set to, by the name the file gives each (see
+    /// [`crate::ShaderInputs`]). Which inputs there are, and their ranges, come from the file.
+    ShaderInputs,
     /// One of the sequence's timing tracks (or none).
     TimingTrack,
 }
@@ -83,6 +88,16 @@ pub(crate) trait SettingField: Sized {
     }
     /// A number setting's value; `None` for a setting that isn't a number.
     fn number(&self) -> Option<f32> {
+        None
+    }
+    /// Sets one number of a setting that holds several by name (`part`: what follows the
+    /// setting's key and a dot in a curve's key, as `rate` in `inputs.rate`); false for a
+    /// setting that holds no such number.
+    fn set_part(&mut self, _part: &str, _value: f32) -> bool {
+        false
+    }
+    /// One number of a setting that holds several by name, if it holds that one.
+    fn part(&self, _part: &str) -> Option<f32> {
         None
     }
 }
@@ -249,6 +264,12 @@ macro_rules! range {
     ($ty:ty, image) => {
         $crate::settings::SettingRange::Image
     };
+    ($ty:ty, shader_file) => {
+        $crate::settings::SettingRange::ShaderFile
+    };
+    ($ty:ty, shader_inputs) => {
+        $crate::settings::SettingRange::ShaderInputs
+    };
     ($ty:ty, timing_track) => {
         $crate::settings::SettingRange::TimingTrack
     };
@@ -320,25 +341,32 @@ macro_rules! effect_params {
                 )*
             }
 
-            /// Sets the number setting `key` (its JSON key) to `value`; false when the kind has no
-            /// number setting by that name.
+            /// Sets the number setting `key` (its JSON key, or `setting.part` for one number
+            /// of a setting that holds several) to `value`; false when the kind has no number
+            /// setting by that name.
             #[allow(unused_variables)]
             pub fn set_number(&mut self, key: &str, value: f32) -> bool {
                 $(
                     if key == $key {
                         return $crate::settings::SettingField::set_number(&mut self.$field, value);
                     }
+                    if let Some(part) = key.strip_prefix(concat!($key, ".")) {
+                        return $crate::settings::SettingField::set_part(&mut self.$field, part, value);
+                    }
                 )*
                 false
             }
 
-            /// The number setting `key` (its JSON key); `None` when the kind has no number
-            /// setting by that name.
+            /// The number setting `key` (as [`Self::set_number`] takes it); `None` when the kind
+            /// has no number setting by that name.
             #[allow(unused_variables)]
             pub fn number(&self, key: &str) -> Option<f32> {
                 $(
                     if key == $key {
                         return $crate::settings::SettingField::number(&self.$field);
+                    }
+                    if let Some(part) = key.strip_prefix(concat!($key, ".")) {
+                        return $crate::settings::SettingField::part(&self.$field, part);
                     }
                 )*
                 None
@@ -425,6 +453,14 @@ pub enum SettingValue {
     Image {
         default: String,
     },
+    /// A shader file, by path ("" = none chosen).
+    ShaderFile {
+        default: String,
+    },
+    /// A shader file's own inputs, by name (`{}` = each as its file has it).
+    ShaderInputs {
+        default: crate::ShaderInputs,
+    },
     /// A timing track of the sequence, by id (`null` = none).
     TimingTrack {
         default: Option<TimingTrackId>,
@@ -473,6 +509,12 @@ fn effect_info(kind: EffectKind) -> EffectInfo {
                 },
                 SettingRange::Image => SettingValue::Image {
                     default: default.as_str().expect("a file path default").to_string(),
+                },
+                SettingRange::ShaderFile => SettingValue::ShaderFile {
+                    default: default.as_str().expect("a file path default").to_string(),
+                },
+                SettingRange::ShaderInputs => SettingValue::ShaderInputs {
+                    default: serde_json::from_value(default.clone()).expect("a shader inputs default"),
                 },
                 SettingRange::TimingTrack => SettingValue::TimingTrack {
                     default: serde_json::from_value(default.clone()).expect("a timing track default"),
@@ -532,9 +574,13 @@ mod tests {
                         assert!(min < max && (min..=max).contains(&v), "{kind:?}.{}", spec.key);
                     }
                     SettingRange::Bool => assert!(value.is_boolean(), "{kind:?}.{}", spec.key),
-                    SettingRange::Face | SettingRange::Text | SettingRange::Image => {
+                    SettingRange::Face
+                    | SettingRange::Text
+                    | SettingRange::Image
+                    | SettingRange::ShaderFile => {
                         assert!(value.is_string(), "{kind:?}.{}", spec.key)
                     }
+                    SettingRange::ShaderInputs => assert!(value.is_object(), "{kind:?}.{}", spec.key),
                     SettingRange::TimingTrack => assert!(value.is_null(), "{kind:?}.{}", spec.key),
                     SettingRange::Choice(options) => {
                         assert!(

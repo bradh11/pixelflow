@@ -2342,8 +2342,10 @@ dependencies = [
  "pf-model",
  "pf-output",
  "pf-sequence",
+ "pf-shader",
  "rayon",
  "serde",
+ "serde_json",
  "tempfile",
  "thiserror 2.0.21",
 ]

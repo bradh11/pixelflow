@@ -289,10 +289,15 @@ mod tests {
             .map(|e| e.id)
             .collect();
         assert!(ids.iter().collect::<HashSet<_>>().len() < ids.len());
-        // Something is lit, and it's the same sequence every time.
-        let mut frame = vec![0u8; varied.map.frame_len];
-        varied.renderer().render_frame(seq, 60, &mut frame);
-        assert!(frame.iter().any(|&b| b > 0));
+        // Something is lit (in most frames: now and then the row drawn last, which covers the
+        // whole show, has an Off on top), and it's the same sequence every time.
+        let mut renderer = varied.renderer();
+        let lit = (0..8u64).filter(|second| {
+            let mut frame = vec![0u8; varied.map.frame_len];
+            renderer.render_frame(seq, second * 40 + 20, &mut frame);
+            frame.iter().any(|&b| b > 0)
+        });
+        assert!(lit.count() >= 4);
         assert_eq!(super::varied(3_000, 8, RowBlending::Replace).sequence, *seq);
     }
 }

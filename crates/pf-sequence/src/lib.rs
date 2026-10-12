@@ -12,6 +12,7 @@ mod ids;
 mod io;
 mod limits;
 mod settings;
+mod shader;
 mod timing;
 mod validate;
 
@@ -24,18 +25,18 @@ pub use document::{
 };
 pub use effect::{
     Axis, BarsMotion, BarsParams, Blend, ButterflyColors, ButterflyParams, ChaseOrder, ChaseParams,
-    CirclesLook, CirclesParams, ColorShiftParams, ColorWashParams, CurveRange, DancerBackground,
-    DancerCharacter, DancerMove, DancerParams, DancerSpeed, Direction, Effect, EffectKind, EffectParams,
-    FaceColorSource, FaceEyes, FacesParams, FadeDirection, FadeParams, FanParams, FillDirection, FillParams,
-    FireLocation, FireParams, FireStyle, FireworksColors, FireworksParams, GarlandShape, GarlandsDirection,
-    GarlandsParams, Gradient, HitColor, ImpactDecay, ImpactParams, LifeParams, LifeRules, LightningParams,
-    LinesParams, MeteorDirection, MeteorsParams, MorphParams, OffParams, OnParams, Palette, PictureFit,
-    PictureMovement, PictureParams, PictureResize, PictureTiming, PictureTurn, PinwheelParams,
-    PinwheelShading, PinwheelStyle, PlasmaColors, PlasmaParams, PulseParams, PulseShape, PulseSource,
-    RippleParams, ShapeObject, ShapeParams, ShiftEase, ShimmerParams, ShockwaveParams, SingMode, SingParams,
-    SnowflakeShape, SnowflakesMotion, SnowflakesParams, SpiralParams, StrobeParams, Sweep, TendrilMovement,
-    TendrilParams, TextCountdown, TextMovement, TextOrientation, TextParams, TwinkleParams, VuMeterParams,
-    VuMeterShape, VuMeterType, WaveParams, WipeMode, WipeParams,
+    CirclesLook, CirclesParams, ColorShiftParams, ColorWashParams, CurveRange, DEFAULT_SHADER,
+    DancerBackground, DancerCharacter, DancerMove, DancerParams, DancerSpeed, Direction, Effect, EffectKind,
+    EffectParams, FaceColorSource, FaceEyes, FacesParams, FadeDirection, FadeParams, FanParams,
+    FillDirection, FillParams, FireLocation, FireParams, FireStyle, FireworksColors, FireworksParams,
+    GarlandShape, GarlandsDirection, GarlandsParams, Gradient, HitColor, ImpactDecay, ImpactParams,
+    LifeParams, LifeRules, LightningParams, LinesParams, MeteorDirection, MeteorsParams, MorphParams,
+    OffParams, OnParams, Palette, PictureFit, PictureMovement, PictureParams, PictureResize, PictureTiming,
+    PictureTurn, PinwheelParams, PinwheelShading, PinwheelStyle, PlasmaColors, PlasmaParams, PulseParams,
+    PulseShape, PulseSource, RippleParams, ShaderParams, ShapeObject, ShapeParams, ShiftEase, ShimmerParams,
+    ShockwaveParams, SingMode, SingParams, SnowflakeShape, SnowflakesMotion, SnowflakesParams, SpiralParams,
+    StrobeParams, Sweep, TendrilMovement, TendrilParams, TextCountdown, TextMovement, TextOrientation,
+    TextParams, TwinkleParams, VuMeterParams, VuMeterShape, VuMeterType, WaveParams, WipeMode, WipeParams,
 };
 pub use ids::{EffectId, RowId, TimingTrackId};
 pub use io::{SequenceError, check_sequence, sequence_from_json, sequence_to_json};
@@ -47,6 +48,10 @@ pub use limits::{
 pub use pf_model::Rgb;
 pub use settings::{
     ChoiceOption, EffectInfo, SettingInfo, SettingRange, SettingSpec, SettingValue, effect_catalog,
+};
+pub use shader::{
+    MAX_SHADER_INPUT_NAME, MAX_SHADER_INPUTS, MAX_SHADER_NUMBER, ShaderInputs, ShaderValue,
+    is_shader_input_name,
 };
 pub use timing::{
     MAX_TIMING_FILE_BYTES, MIN_MARK_INTERVAL_MS, TidyReport, audacity_labels, check_mark, every_nth_mark,

@@ -1,7 +1,7 @@
 //! Effects: what lights up, when, and how it mixes with what's underneath.
 
 use crate::settings::{SettingRange, SettingSpec, choices, effect_params};
-use crate::{Curve, CurveInputs, CurveTime, EffectId, Rgb, TimingTrackId};
+use crate::{Curve, CurveInputs, CurveTime, EffectId, Rgb, ShaderInputs, TimingTrackId};
 use pf_model::{BufferTransform, RenderStyle};
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
@@ -365,6 +365,10 @@ impl Effect {
     /// The range of the number setting `key` a curve can change on an effect of `kind`: one of
     /// the kind's number settings, `sparkles`, `blur`, or a color adjustment but contrast.
     /// `None` for any other key.
+    ///
+    /// One number of a shader's inputs (`inputs.<name>`, and `.x` or `.y` of a point) can change
+    /// too. Its range is the shader file's to give, which isn't known here, so it's as wide as
+    /// any input's can be; the renderer brings the value inside the file's own.
     pub fn curve_range(kind: EffectKind, key: &str) -> Option<CurveRange> {
         let whole = |max: u32| CurveRange {
             min: 0.0,
@@ -380,6 +384,17 @@ impl Effect {
             return ADJUSTMENTS.iter().find(|a| a.key == key).map(|a| CurveRange {
                 min: a.min,
                 max: a.max,
+                whole: false,
+            });
+        }
+        if let Some((setting, part)) = key.split_once('.') {
+            let inputs = kind
+                .settings()
+                .iter()
+                .any(|s| s.key == setting && s.range == SettingRange::ShaderInputs);
+            return (inputs && crate::ShaderInputs::is_part(part)).then_some(CurveRange {
+                min: -crate::MAX_SHADER_NUMBER,
+                max: crate::MAX_SHADER_NUMBER,
                 whole: false,
             });
         }
@@ -543,11 +558,15 @@ impl Effect {
                     key if Self::ADJUSTMENT_CURVES.contains(&key) => {
                         ADJUSTMENTS.iter().find(|a| a.key == key).map_or("A", |a| a.label)
                     }
-                    _ => kind
-                        .settings()
-                        .iter()
-                        .find(|s| s.key == key)
-                        .map_or("A", |s| s.label),
+                    // One number of a setting that holds several goes by its own name.
+                    key => match key.split_once('.') {
+                        Some((_, part)) => part,
+                        None => kind
+                            .settings()
+                            .iter()
+                            .find(|s| s.key == key)
+                            .map_or("A", |s| s.label),
+                    },
                 };
                 return Some(format!("{label}'s curve {why}"));
             }
@@ -629,10 +648,11 @@ pub enum EffectKind {
     Shockwave,
     Fill,
     Fireworks,
+    Shader,
 }
 
 impl EffectKind {
-    pub const ALL: [EffectKind; 40] = [
+    pub const ALL: [EffectKind; 41] = [
         EffectKind::On,
         EffectKind::Off,
         EffectKind::ColorWash,
@@ -673,6 +693,7 @@ impl EffectKind {
         EffectKind::Shockwave,
         EffectKind::Fill,
         EffectKind::Fireworks,
+        EffectKind::Shader,
     ];
 
     /// The name people see.
@@ -718,6 +739,7 @@ impl EffectKind {
             EffectKind::Shockwave => "Shockwave",
             EffectKind::Fill => "Fill",
             EffectKind::Fireworks => "Fireworks",
+            EffectKind::Shader => "Shader",
         }
     }
 
@@ -784,6 +806,9 @@ impl EffectKind {
             EffectKind::Fireworks => {
                 "Bursts of sparks that fly out, fall, and fade: at random, on a timing track, or with the music."
             }
+            EffectKind::Shader => {
+                "A shader file's moving pattern drawn over the prop: one of PixelFlow's own, or your own file."
+            }
         }
     }
 
@@ -830,6 +855,7 @@ impl EffectKind {
             EffectKind::Shockwave => ShockwaveParams::SETTINGS,
             EffectKind::Fill => FillParams::SETTINGS,
             EffectKind::Fireworks => FireworksParams::SETTINGS,
+            EffectKind::Shader => ShaderParams::SETTINGS,
         }
     }
 }
@@ -880,6 +906,7 @@ pub enum EffectParams {
     Shockwave(ShockwaveParams),
     Fill(FillParams),
     Fireworks(FireworksParams),
+    Shader(ShaderParams),
 }
 
 impl EffectParams {
@@ -925,6 +952,7 @@ impl EffectParams {
             EffectParams::Shockwave(_) => EffectKind::Shockwave,
             EffectParams::Fill(_) => EffectKind::Fill,
             EffectParams::Fireworks(_) => EffectKind::Fireworks,
+            EffectParams::Shader(_) => EffectKind::Shader,
         }
     }
 
@@ -971,6 +999,7 @@ impl EffectParams {
             EffectKind::Shockwave => EffectParams::Shockwave(ShockwaveParams::default()),
             EffectKind::Fill => EffectParams::Fill(FillParams::default()),
             EffectKind::Fireworks => EffectParams::Fireworks(FireworksParams::default()),
+            EffectKind::Shader => EffectParams::Shader(ShaderParams::default()),
         }
     }
 
@@ -1018,6 +1047,7 @@ impl EffectParams {
             EffectParams::Shockwave(p) => p.sanitize(),
             EffectParams::Fill(p) => p.sanitize(),
             EffectParams::Fireworks(p) => p.sanitize(),
+            EffectParams::Shader(p) => p.sanitize(),
         }
     }
 
@@ -1071,6 +1101,7 @@ impl EffectParams {
             EffectParams::Shockwave(p) => p.number(key),
             EffectParams::Fill(p) => p.number(key),
             EffectParams::Fireworks(p) => p.number(key),
+            EffectParams::Shader(p) => p.number(key),
         }
     }
 
@@ -1118,6 +1149,7 @@ impl EffectParams {
             EffectParams::Shockwave(p) => p.set_number(key, value),
             EffectParams::Fill(p) => p.set_number(key, value),
             EffectParams::Fireworks(p) => p.set_number(key, value),
+            EffectParams::Shader(p) => p.set_number(key, value),
         }
     }
 
@@ -1164,6 +1196,7 @@ impl EffectParams {
             EffectParams::Shockwave(p) => p.setting_problem(),
             EffectParams::Fill(p) => p.setting_problem(),
             EffectParams::Fireworks(p) => p.setting_problem(),
+            EffectParams::Shader(p) => p.setting_problem(),
         };
         found.map(|(spec, why)| format!("{} {why}", spec.label))
     }
@@ -3199,6 +3232,37 @@ effect_params! {
         tint: bool = false => "tint", "Tint with the palette", toggle, more;
         /// Resized as an older xLights resized it, for a sequence imported from that version.
         resize: PictureResize = PictureResize::Own => "resize", "Resized", choice, more;
+    }
+}
+
+/// The shader a new Shader effect draws: one of PixelFlow's own, so there is something to see
+/// before a file is chosen (see `pf_shader::built_in`).
+pub const DEFAULT_SHADER: &str = "pixelflow:aurora";
+
+effect_params! {
+    /// A shader file run over the prop's grid: a small program that works out each pixel's color
+    /// from where it is and the time. Clear where the shader leaves a pixel clear.
+    // The file is GLSL with a header naming its inputs (the Interactive Shader Format), run by
+    // `pf_shader`; `pixelflow:<name>` is one of the shaders that come with PixelFlow, anything
+    // else a file in the show's shaders folder. The inputs the file declares are the effect's
+    // settings as much as the ones here, kept by name in `inputs` (see `crate::shader`).
+    pub struct ShaderParams {
+        /// The shader: `pixelflow:<name>` for one of PixelFlow's own, or a file in the show's shaders folder.
+        file: String = DEFAULT_SHADER.to_string() => "file", "Shader", shader_file;
+        /// What the shader's own inputs are set to, by name. One left out is as its file has it.
+        inputs: ShaderInputs = ShaderInputs::default() => "inputs", "Inputs", shader_inputs;
+        /// Times the shader's own pace: 0 holds it still, below 0 runs it backwards.
+        speed: f32 = 1.0 => "speed", "Speed", number(-10.0, 10.0, 0.05, "x");
+        /// Seconds the shader is already into when the effect starts.
+        lead_in: f32 = 0.0 => "leadIn", "Start ahead", number(0.0, 600.0, 0.05, "s"), more;
+        /// xLights' Offset X, kept from an import. PixelFlow doesn't apply it.
+        // What xLights does with its three settings below isn't known from any sequence seen
+        // (all leave them at 0), so they are carried, not guessed at.
+        offset_x: f32 = 0.0 => "offsetX", "xLights offset X", number(-1000.0, 1000.0, 1.0), more;
+        /// xLights' Offset Y, kept from an import. PixelFlow doesn't apply it.
+        offset_y: f32 = 0.0 => "offsetY", "xLights offset Y", number(-1000.0, 1000.0, 1.0), more;
+        /// xLights' Zoom, kept from an import. PixelFlow doesn't apply it.
+        zoom: f32 = 0.0 => "zoom", "xLights zoom", number(-1000.0, 1000.0, 1.0), more;
     }
 }
 

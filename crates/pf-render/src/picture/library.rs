@@ -15,9 +15,14 @@
 //!
 //! While a preview waits for frames it has asked for (after the fit, the scale, or the look
 //! changed), it draws the frames it has of the same file, so the picture doesn't blink out.
+//!
+//! A show's shader files travel with its pictures ([`Pictures::with_shaders`]): whatever is
+//! handed a show's pictures to draw with (a preview, playback, an export of any kind) has its
+//! shader files too, read the same way, and none can be given the one without the other.
 
 use super::decode::{Decoded, Look, MAX_LEVEL, decode};
 use super::resample::{Bitmap, Resize, resize, turned};
+use crate::glsl::Shaders;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -262,6 +267,8 @@ pub struct Pictures {
     /// Whether a frame waits for a picture it hasn't got (exports) rather than drawing without it
     /// while it's read (previews).
     wait: bool,
+    /// The show's shader files, which go wherever its pictures go.
+    shaders: Shaders,
 }
 
 impl std::fmt::Debug for Pictures {
@@ -316,21 +323,38 @@ impl Pictures {
                 ahead: AtomicBool::new(false),
             })),
             wait: false,
+            shaders: Shaders::none(),
         }
     }
 
-    /// The same pictures for a renderer that waits for each one it draws (an export, which must
-    /// not leave any out).
+    /// The same pictures, with `shaders` as the shader files that go with them.
+    pub fn with_shaders(self, shaders: Shaders) -> Self {
+        Self { shaders, ..self }
+    }
+
+    /// The shader files that go with these pictures, read as these are: waited for when these
+    /// are (or when they were made to be).
+    pub fn shaders(&self) -> Shaders {
+        match self.wait {
+            true => self.shaders.waiting(),
+            false => self.shaders.clone(),
+        }
+    }
+
+    /// The same pictures (and shader files) for a renderer that waits for each one it draws (an
+    /// export, which must not leave any out).
     pub fn waiting(&self) -> Self {
         Self {
             library: self.library.clone(),
             wait: true,
+            shaders: self.shaders.clone(),
         }
     }
 
-    /// Whether the two are the same library, read the same way.
+    /// Whether the two are the same library, read the same way, with the same shader files.
     pub fn same(&self, other: &Pictures) -> bool {
         self.wait == other.wait
+            && self.shaders.same(&other.shaders)
             && match (&self.library, &other.library) {
                 (None, None) => true,
                 (Some(a), Some(b)) => Arc::ptr_eq(a, b),

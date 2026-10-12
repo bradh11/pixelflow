@@ -11,6 +11,7 @@
 //! from the [`RenderContext`] the renderer passes along (see `Shader::in_context`).
 
 use crate::geometry::Members;
+use crate::glsl::Shaders;
 use crate::picture::Pictures;
 use pf_sequence::{
     CurveInputs, Effect, EffectParams, FireStyle, Mark, PulseSource, Sequence, TendrilMovement, TimingTrack,
@@ -212,7 +213,7 @@ impl<'a> Audio<'a> {
 }
 
 /// What effects read besides their own settings while a frame is drawn: the music (when it's
-/// there), the sequence's timing tracks, and the show's pictures.
+/// there), the sequence's timing tracks, and the show's pictures and shader files.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct RenderContext<'a> {
     pub audio: Option<Audio<'a>>,
@@ -223,6 +224,11 @@ pub struct RenderContext<'a> {
     pub members: Option<&'a Arc<Members>>,
     /// The pictures Picture effects draw (none: they draw nothing).
     pub pictures: Option<&'a Pictures>,
+    /// The shader files Shader effects draw (none: only PixelFlow's own shaders are drawn).
+    pub shaders: Option<&'a Shaders>,
+    /// The pixels every Shader effect in the frame draws on, added up: what a frame's allowance
+    /// of shader work is shared among (0: not known, as for an effect drawn on its own).
+    pub shader_pixels: usize,
 }
 
 impl<'a> RenderContext<'a> {
@@ -233,6 +239,18 @@ impl<'a> RenderContext<'a> {
             frame_ms,
             members: None,
             pictures: None,
+            shaders: None,
+            shader_pixels: 0,
+        }
+    }
+
+    /// The same context drawing shader files from `shaders`, in a frame whose Shader effects
+    /// draw on `pixels` pixels in all.
+    pub fn with_shaders(self, shaders: &'a Shaders, pixels: usize) -> Self {
+        Self {
+            shaders: Some(shaders),
+            shader_pixels: pixels,
+            ..self
         }
     }
 

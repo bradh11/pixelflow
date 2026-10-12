@@ -23,6 +23,9 @@
 //!   known: an effect against itself from another seed, and with one setting wrong.
 //! - [`corpus`] runs a list of sequences from a manifest; [`report`] writes the summaries;
 //!   [`strips`] draws frames side by side for looking into a difference.
+//! - [`madeup`] writes the corpus kept in the repository (made-up props and sequences), which
+//!   CI checks two ways: [`fingerprint`] holds PixelFlow's own render of it to what it drew
+//!   before, and [`regress`] holds its looks next to xLights' renders to a baseline.
 //!
 //! `docs/fidelity.md` has the method and its limits.
 
@@ -30,10 +33,13 @@ pub mod calibrate;
 pub mod chance;
 pub mod compare;
 pub mod corpus;
+pub mod fingerprint;
 pub mod labels;
 pub mod layout;
 pub mod look;
+pub mod madeup;
 pub mod metrics;
+pub mod regress;
 pub mod report;
 pub mod scorecard;
 pub mod strips;

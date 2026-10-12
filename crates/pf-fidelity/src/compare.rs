@@ -15,7 +15,7 @@ use crate::scorecard::{
 };
 use crate::{FidelityError, TOOL};
 use pf_model::{PropId, Show};
-use pf_render::export::{ExportError, export_fseq, export_layout};
+use pf_render::export::{ExportError, ExportSummary, export_fseq, export_layout};
 use pf_render::{AudioSource, Pictures, SceneGeometry};
 use pf_sequence::{Effect, EffectParams, Sequence, Target, TendrilMovement};
 use pf_xlights::sequence::{Fidelity, SequenceImport, Verdict};
@@ -86,6 +86,148 @@ pub struct Options {
     /// How many more renders from other seeds to hold such effects against ([`OTHER_SEEDS`]
     /// when `None`).
     pub seeds: Option<u32>,
+    /// Gives the imported effects ids made from this number and their places in the sequence,
+    /// in place of the ones the import makes up afresh each time ([`fix_ids`]). An effect draws
+    /// its chance from its id, so the same number gives the same renders, and the same
+    /// scorecard, every time: what a check that must not move from run to run needs. `None`
+    /// keeps the import's own.
+    pub ids: Option<u64>,
+}
+
+/// Gives every effect of an imported sequence an id made from `set` and the effect's place in
+/// the sequence, in place of the one the import made up, here and in the import's list of what
+/// became of each effect. An effect draws its chance from its id, so the same `set` gives the
+/// same renders every time, on any computer; another `set` is another draw of every chance.
+pub fn fix_ids(import: &mut SequenceImport, set: u64) {
+    let mut fixed = HashMap::new();
+    let effects = import
+        .sequence
+        .rows
+        .iter_mut()
+        .flat_map(|r| &mut r.layers)
+        .flat_map(|l| &mut l.effects);
+    for (place, effect) in (0u64..).zip(effects) {
+        let id = chance::id_of(
+            chance::mixed(set.wrapping_mul(0xA24B_AED4_963E_E407) ^ place),
+            chance::mixed(place.rotate_left(29) ^ set),
+        );
+        fixed.insert(effect.id, id);
+        effect.id = id;
+    }
+    for effect in &mut import.effects {
+        if let Some(&id) = fixed.get(&effect.id) {
+            effect.id = id;
+        }
+    }
+}
+
+/// Every picture and shader file where the import found it on this computer.
+fn pictures() -> Pictures {
+    Pictures::new(|file| std::fs::read(file).map_err(|e| e.to_string())).with_shaders(
+        pf_render::Shaders::new(|file| pf_shader::read_shader_file(Path::new(file))),
+    )
+}
+
+/// A sequence rendered through PixelFlow's `.fseq` export, into memory.
+type Exported = (pf_fseq::Sequence<Cursor<Vec<u8>>>, ExportSummary);
+
+/// Renders `seq` on the comparison show through the real `.fseq` export, into memory.
+fn export(
+    comparison: &ComparisonShow,
+    seq: &Sequence,
+    audio: &AudioSource,
+    pictures: &Pictures,
+) -> Result<Exported, FidelityError> {
+    let exported = export_fseq(
+        &comparison.show,
+        &comparison.map,
+        seq,
+        audio,
+        pictures,
+        Cursor::new(Vec::new()),
+        0,
+        |_, _| true,
+    );
+    let (bytes, summary) = match exported {
+        Ok((out, summary)) => (out.into_inner(), summary),
+        Err(ExportError::NoChannels) => return Err(FidelityError::NoChannels),
+        Err(e) => return Err(FidelityError::Render(e.to_string())),
+    };
+    let frames = pf_fseq::Sequence::from_reader(Cursor::new(bytes))
+        .map_err(|e| FidelityError::Render(e.to_string()))?;
+    Ok((frames, summary))
+}
+
+/// The `.fseq` PixelFlow alone renders for the sequence `xsq` on the show folder `show`, in the
+/// channel space xLights renders the layout in, with its effects' ids from `ids` ([`fix_ids`]).
+/// It stands in for xLights' reference where the answer is known: the pipeline's own tests.
+pub fn render_fseq(show: &Path, xsq: &Path, ids: u64) -> Result<Vec<u8>, FidelityError> {
+    let comparison = comparison_show(show)?;
+    let mut import =
+        pf_xlights::import_sequence_file(xsq, &comparison.show, |_: &Path, _: Option<&str>| None)?;
+    fix_ids(&mut import, ids);
+    let exported = export_fseq(
+        &comparison.show,
+        &comparison.map,
+        &import.sequence,
+        &AudioSource::none(),
+        &pictures(),
+        Cursor::new(Vec::new()),
+        0,
+        |_, _| true,
+    );
+    match exported {
+        Ok((out, _)) => Ok(out.into_inner()),
+        Err(ExportError::NoChannels) => Err(FidelityError::NoChannels),
+        Err(e) => Err(FidelityError::Render(e.to_string())),
+    }
+}
+
+/// A sequence as PixelFlow alone renders it, on the layout as it is compared: no reference is
+/// needed. What the PixelFlow-only check of the corpus fingerprints (`crate::fingerprint`).
+pub struct Alone {
+    /// The frames, in the channel space xLights renders the layout in.
+    pub frames: pf_fseq::Sequence<Cursor<Vec<u8>>>,
+    pub frame_ms: u32,
+    pub frame_count: u32,
+    /// Every prop, in the layout's order, with its pixels' channels.
+    pub props: Vec<AloneProp>,
+}
+
+/// One prop of a render alone.
+pub struct AloneProp {
+    pub name: String,
+    /// For each of its pixels in its own order, where its red, green, and blue are among the
+    /// frame's channels (counting from 0); `None` for a pixel with no channels.
+    pub pixels: Vec<Option<[usize; 3]>>,
+}
+
+/// Imports the sequence `xsq` on the show folder `show` and renders it with PixelFlow alone,
+/// each effect given its id from `ids` ([`fix_ids`]) so that the frames are the same on every
+/// run. The music isn't read: an effect that follows it is drawn as it is without music.
+pub fn render_alone(show: &Path, xsq: &Path, ids: u64) -> Result<Alone, FidelityError> {
+    let comparison = comparison_show(show)?;
+    let mut import =
+        pf_xlights::import_sequence_file(xsq, &comparison.show, |_: &Path, _: Option<&str>| None)?;
+    fix_ids(&mut import, ids);
+    let (frames, summary) = export(&comparison, &import.sequence, &AudioSource::none(), &pictures())?;
+    let (slots, entries) = lay_out(&comparison, summary.channels, |_, _| true);
+    let props = entries
+        .iter()
+        .map(|entry| AloneProp {
+            name: entry.name.clone(),
+            pixels: slots[entry.first..entry.first + entry.pixels]
+                .iter()
+                .map(|slot| slot.map(|s| s.at.map(|c| s.channel as usize + usize::from(c))))
+                .collect(),
+        })
+        .collect();
+    Ok(Alone {
+        frames,
+        frame_ms: summary.frame_ms,
+        frame_count: summary.frames,
+        props,
+    })
 }
 
 /// Where a pixel's channels are in both files.
@@ -251,7 +393,10 @@ impl Prepared {
                 pf_audio::find_audio(sequence, media)
             }
         };
-        let import = pf_xlights::import_sequence_file(request.xsq, show, find_music)?;
+        let mut import = pf_xlights::import_sequence_file(request.xsq, show, find_music)?;
+        if let Some(set) = options.ids {
+            fix_ids(&mut import, set);
+        }
         let seq = &import.sequence;
         let (music, audio) = match &seq.audio {
             None if import.media_file.is_some() => (Music::Missing, AudioSource::none()),
@@ -266,30 +411,8 @@ impl Prepared {
                 }
             }
         };
-        // Each picture and shader file where the import found it on this computer.
-        let pictures = Pictures::new(|file| std::fs::read(file).map_err(|e| e.to_string())).with_shaders(
-            pf_render::Shaders::new(|file| pf_shader::read_shader_file(Path::new(file))),
-        );
-        let render = |seq: &Sequence| {
-            let exported = export_fseq(
-                show,
-                &comparison.map,
-                seq,
-                &audio,
-                &pictures,
-                Cursor::new(Vec::new()),
-                0,
-                |_, _| true,
-            );
-            let (bytes, summary) = match exported {
-                Ok((out, summary)) => (out.into_inner(), summary),
-                Err(ExportError::NoChannels) => return Err(FidelityError::NoChannels),
-                Err(e) => return Err(FidelityError::Render(e.to_string())),
-            };
-            let frames = pf_fseq::Sequence::from_reader(Cursor::new(bytes))
-                .map_err(|e| FidelityError::Render(e.to_string()))?;
-            Ok((frames, summary))
-        };
+        let pictures = pictures();
+        let render = |seq: &Sequence| export(&comparison, seq, &audio, &pictures);
         let (pixelflow, summary) = render(seq)?;
         // The same sequence from other seeds, when any of its effects draws on chance: what
         // PixelFlow's own renders disagree on is chance, and isn't held against the import.
@@ -310,7 +433,12 @@ impl Prepared {
             }
         }
 
-        let (slots, mut props) = lay_out(&comparison, summary.channels, &reference);
+        let stored = reference.stored_ranges();
+        let (slots, mut props) = lay_out(&comparison, summary.channels, |first, channels| {
+            stored
+                .iter()
+                .any(|r| u64::from(r.start) <= first && first + channels <= u64::from(r.end))
+        });
         let geometry = SceneGeometry::new(show, &comparison.map);
         for (entry, layout) in props.iter_mut().zip(&comparison.map.props) {
             let buffer = geometry.buffer(Target::Prop(layout.prop));
@@ -1209,20 +1337,15 @@ fn decode(slots: &[Option<Slot>], frame: &[u8], out: &mut [[u8; 3]]) {
 }
 
 /// Finds every show pixel's channels in PixelFlow's export (`exported` channels) and keeps
-/// those the reference holds too.
+/// those the reference holds too (`stored`: whether it holds `channels` channels from `first`,
+/// counting from 0).
 fn lay_out(
     comparison: &ComparisonShow,
     exported: u32,
-    reference: &pf_fseq::Sequence,
+    stored: impl Fn(u64, u64) -> bool,
 ) -> (Vec<Option<Slot>>, Vec<PropEntry>) {
     let (show, map) = (&comparison.show, &comparison.map);
-    let stored = reference.stored_ranges();
-    let both = |first: u64, channels: u64| {
-        first + channels <= u64::from(exported)
-            && stored
-                .iter()
-                .any(|r| u64::from(r.start) <= first && first + channels <= u64::from(r.end))
-    };
+    let both = |first: u64, channels: u64| first + channels <= u64::from(exported) && stored(first, channels);
     let mut props = Vec::with_capacity(map.props.len());
     let mut first = 0;
     for layout in &map.props {

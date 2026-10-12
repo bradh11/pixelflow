@@ -9,7 +9,7 @@ use pf_fidelity::metrics::Limits;
 use pf_fidelity::report::{headline, sequence_markdown};
 use pf_fidelity::scorecard::Scorecard;
 use pf_fidelity::strips;
-use pf_fidelity::{calibrate, labels};
+use pf_fidelity::{calibrate, fingerprint, labels, madeup, regress};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -140,6 +140,39 @@ enum Command {
         #[arg(long)]
         out: Option<PathBuf>,
     },
+    /// Write the made-up corpus kept in the repository: its show folder and sequences, as
+    /// `madeup.rs` makes them. Its `.fseq` references come from xLights (corpus/README.md).
+    CorpusFiles {
+        /// The corpus folder to write.
+        #[arg(long, default_value = madeup::CORPUS_DIR)]
+        dir: PathBuf,
+    },
+    /// Render each sequence of the corpus with PixelFlow alone and hold it to its fingerprint:
+    /// fails when what PixelFlow draws has changed. Needs no xLights reference.
+    Fingerprint {
+        /// The corpus folder (holding manifest.json).
+        #[arg(long, default_value = madeup::CORPUS_DIR)]
+        corpus: PathBuf,
+        /// Write the fingerprint of what PixelFlow draws now: accepts a change made on purpose.
+        #[arg(long)]
+        accept: bool,
+    },
+    /// Score each sequence of the corpus that has an xLights reference, and hold every effect's
+    /// look to the baseline: fails when an import has got materially worse. Passes, and says
+    /// so, while the corpus has no references.
+    Regress {
+        /// The corpus folder (holding manifest.json).
+        #[arg(long, default_value = madeup::CORPUS_DIR)]
+        corpus: PathBuf,
+        /// Make the baseline again from the import as it is now: accepts a change made on
+        /// purpose, or records the references when they first arrive.
+        #[arg(long)]
+        accept: bool,
+        /// With --accept: how many scorings, each from other seeds, the baseline's spread is
+        /// measured over.
+        #[arg(long, default_value_t = regress::RUNS)]
+        runs: u32,
+    },
     /// Draw frames as PNGs: xLights' above, PixelFlow's below.
     Strips {
         #[command(flatten)]
@@ -191,6 +224,140 @@ fn main() -> ExitCode {
             eprintln!("error: {err:#}");
             ExitCode::from(2)
         }
+    }
+}
+
+/// Prints a report, and adds it to the job's summary when run in GitHub Actions.
+fn report(markdown: &str) {
+    print!("{markdown}");
+    if let Some(path) = std::env::var_os("GITHUB_STEP_SUMMARY") {
+        use std::io::Write;
+        let file = std::fs::OpenOptions::new().append(true).create(true).open(path);
+        if let Ok(mut file) = file {
+            let _ = writeln!(file, "{markdown}");
+        }
+    }
+}
+
+/// A line GitHub Actions shows on the run's page (`kind` is notice, warning, or error); nothing
+/// elsewhere.
+fn annotate(kind: &str, title: &str, message: &str) {
+    if std::env::var_os("GITHUB_ACTIONS").is_some() {
+        println!("::{kind} title={title}::{message}");
+    }
+}
+
+/// The corpus's manifest.
+fn corpus_manifest(corpus: &std::path::Path) -> Result<Manifest> {
+    let path = corpus.join("manifest.json");
+    let manifest = Manifest::read(&path)?;
+    if manifest.sequences.is_empty() {
+        bail!("{} lists no sequences", path.display());
+    }
+    Ok(manifest)
+}
+
+fn run_fingerprint(corpus: &std::path::Path, accept: bool) -> Result<ExitCode> {
+    let manifest = corpus_manifest(corpus)?;
+    let started = std::time::Instant::now();
+    let now = fingerprint::take(&manifest, |label| eprintln!("{label}: rendered"))?;
+    eprintln!("rendered in {:.1} s", started.elapsed().as_secs_f64());
+    let kept = fingerprint::read(corpus)?;
+    if accept {
+        let checked = kept.as_ref().map(|k| fingerprint::check(k, &now));
+        fingerprint::write(corpus, &fingerprint::accepted(kept.as_ref(), now))?;
+        if let Some(checked) = checked {
+            print!("{}", fingerprint::markdown(&checked));
+        }
+        println!("Wrote {}", corpus.join(fingerprint::FILE).display());
+        return Ok(ExitCode::SUCCESS);
+    }
+    let Some(kept) = kept else {
+        bail!(
+            "{} has no {}: make it with `pf-fidelity fingerprint --accept`",
+            corpus.display(),
+            fingerprint::FILE
+        );
+    };
+    let checked = fingerprint::check(&kept, &now);
+    report(&fingerprint::markdown(&checked));
+    if checked.passed() {
+        Ok(ExitCode::SUCCESS)
+    } else {
+        annotate(
+            "error",
+            "PixelFlow's render of the corpus changed",
+            "See the table in the log. If the change is meant, run `cargo run --release -p pf-fidelity -- fingerprint --accept` and commit fingerprint.json.",
+        );
+        Ok(ExitCode::from(1))
+    }
+}
+
+fn run_regress(corpus: &std::path::Path, accept: bool, runs: u32) -> Result<ExitCode> {
+    let manifest = corpus_manifest(corpus)?;
+    let (with, without) = regress::references(&manifest);
+    if accept {
+        if with.is_empty() {
+            regress::write(corpus, &regress::empty())?;
+            println!(
+                "No sequence of the corpus has an xLights reference yet: wrote an empty {}.",
+                regress::FILE
+            );
+            return Ok(ExitCode::SUCCESS);
+        }
+        let started = std::time::Instant::now();
+        let baseline = regress::measure(&with, runs, |label, run| {
+            eprintln!("{label}: scoring {run} of {runs}")
+        })?;
+        regress::write(corpus, &baseline)?;
+        println!(
+            "Wrote {} from {runs} scorings of {} sequences in {:.0} s.",
+            corpus.join(regress::FILE).display(),
+            baseline.sequences.len(),
+            started.elapsed().as_secs_f64()
+        );
+        if let Some((spread, effect)) = regress::widest_spread(&baseline) {
+            println!(
+                "The widest spread of one effect's look over the scorings: {spread:.1} points ({effect})."
+            );
+        }
+        if !without.is_empty() {
+            println!("Not in it, for want of a reference: {}.", without.join(", "));
+        }
+        return Ok(ExitCode::SUCCESS);
+    }
+    let baseline = regress::read(corpus)?;
+    let expected = baseline.as_ref().map_or(0, |b| b.sequences.len());
+    if with.is_empty() && expected == 0 {
+        let message = format!(
+            "The corpus has no xLights references yet: none of its {} sequences has its .fseq, so no \
+             import was held against xLights. Render them as crates/pf-fidelity/corpus/README.md says.",
+            manifest.sequences.len()
+        );
+        report(&format!("## The corpus next to xLights' renders\n\n{message}\n"));
+        annotate("notice", "No xLights references yet", &message);
+        return Ok(ExitCode::SUCCESS);
+    }
+    let started = std::time::Instant::now();
+    let mut cards = Vec::new();
+    for entry in &with {
+        let card = regress::score(entry, regress::IDS)?;
+        eprintln!("{}: scored", card.sequence.label);
+        cards.push(card);
+    }
+    eprintln!("scored in {:.1} s", started.elapsed().as_secs_f64());
+    let checked = regress::check(baseline.as_ref(), &cards, &without);
+    let margin = baseline.as_ref().map_or(regress::MARGIN, |b| b.margin);
+    report(&regress::markdown(&checked, margin));
+    if checked.passed() {
+        Ok(ExitCode::SUCCESS)
+    } else {
+        annotate(
+            "error",
+            "An import looks worse next to xLights",
+            "See the table in the log. If the change is meant, run `cargo run --release -p pf-fidelity -- regress --accept` and commit baseline.json.",
+        );
+        Ok(ExitCode::from(1))
     }
 }
 
@@ -320,6 +487,21 @@ fn run(cli: Cli) -> Result<ExitCode> {
             }
             Ok(ExitCode::SUCCESS)
         }
+        Command::CorpusFiles { dir } => {
+            for (path, bytes) in madeup::files() {
+                let path = dir.join(path);
+                if let Some(parent) = path.parent() {
+                    std::fs::create_dir_all(parent)
+                        .with_context(|| format!("could not create {}", parent.display()))?;
+                }
+                std::fs::write(&path, bytes)
+                    .with_context(|| format!("could not write {}", path.display()))?;
+                println!("{}", path.display());
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+        Command::Fingerprint { corpus, accept } => run_fingerprint(&corpus, accept),
+        Command::Regress { corpus, accept, runs } => run_regress(&corpus, accept, runs),
         Command::Strips {
             files,
             how,

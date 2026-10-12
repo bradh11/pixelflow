@@ -37,6 +37,12 @@ cargo run --release -p pf-fidelity -- strips --show … --xsq … --fseq … \
 
 # The score held against PixelFlow's own renders, where the answer is known (no xLights needed).
 cargo run --release -p pf-fidelity -- calibrate --out reports/
+
+# The corpus in the repository, as CI checks it (see "The corpus in CI"), and accepting a change.
+cargo run --release -p pf-fidelity -- fingerprint            # PixelFlow's own render
+cargo run --release -p pf-fidelity -- regress                # the looks next to xLights'
+cargo run --release -p pf-fidelity -- fingerprint --accept   # a change to what PixelFlow draws
+cargo run --release -p pf-fidelity -- regress --accept       # a change to how the imports look
 ```
 
 ## The verdicts
@@ -626,9 +632,94 @@ A manifest lists what to compare; paths are relative to the manifest's folder:
 
 `show` must be the layout xLights rendered the `.fseq` on. If the layout has changed since, use
 the copy xLights kept in the show folder's `Backup/<date>` from that time. Real shows and their
-reports stay out of the repository; keep the manifest and its output elsewhere. CI runs the same
-code on a made-up show with references the tests write by hand (`crates/pf-fidelity/tests`), and
-the look score on made-up pairs of renders (`crates/pf-fidelity/src/look.rs`).
+reports stay out of the repository; keep the manifest and its output elsewhere. CI runs the
+same code on a made-up show with references the tests write by hand (`crates/pf-fidelity/tests`),
+the look score on made-up pairs of renders (`crates/pf-fidelity/src/look.rs`), and the corpus
+below.
+
+## The corpus in CI
+
+The seven sequences "What it found" is about belong to a real show and can never be published.
+So the repository keeps a corpus of its own, `crates/pf-fidelity/corpus`, made up for the
+purpose and PixelFlow's to publish: a show folder of seven props of the common kinds (a 32 by 16
+matrix, a 360° tree, three arches with a submodel, a line, four candy canes, a star, and a custom
+model; 1,091 pixels on one controller), two groups, and three sequences with no music.
+
+| Sequence | Length | What it holds |
+|---|---|---|
+| Washes and shapes | 24 s of 50 ms frames | Shockwave, Color Wash, Plasma, Fan, Pinwheel, Spirals, Butterfly, Morph, Bars, Twinkle, On, Fill; two layers on the tree blended Additive, Average, and Max; fades in and out; value curves on a Fan's revolutions, a Butterfly's speed, a Fill's position, and a blur; a group drawn per prop; an effect on a submodel; sparkles |
+| Chance | 20 s of 25 ms frames | Snowflakes, Fireworks, Circles, Shape, Fire, Twinkle, and sparkles: what no two renders draw alike |
+| Marks, words, and pictures | 20 s of 50 ms frames | A timing track and Shapes it sets off, Text, a picture standing and scrolling, PixelFlow's own Prism shader on a group and on the tree, a Shockwave whose size follows a curve, a Color Wash cycling three colors |
+
+37 effects in all, covering the kinds the real corpus uses most. `src/madeup.rs` writes every
+file (`cargo run -p pf-fidelity -- corpus-files`), and a test fails when the files and the
+module disagree. Nothing in it comes from anyone's show, and nothing was downloaded: the
+picture is drawn by the module, and the shader is PixelFlow's own.
+
+CI's `fidelity corpus` job (Linux) builds the tool and runs two checks, which take a few
+seconds between them: rendering the corpus takes a tenth of a second, and scoring it against
+references about a second and a half.
+
+**What PixelFlow draws for it, held to a fingerprint** (`pf-fidelity fingerprint`, and
+`cargo test -p pf-fidelity --test corpus` on Linux, Windows, and macOS). Each sequence is
+imported and rendered by PixelFlow alone; no xLights render is needed, so this one checks
+something today. The fingerprint (`corpus/fingerprint.json`) keeps, for every prop, every run of
+16 or more of its pixels (at most 16 runs), and every half second, the mean red, green, and
+blue. Any of them moving by more than 2 levels of 255 fails: a color, a brightness, a speed, a
+direction, or light on another part of a prop moves them many times that. A digest of every
+frame is kept beside it for the system it was made on, and the report says when a render is
+the same to the bit.
+
+The bits aren't the gate because they aren't yet the same on every system. A frame is the same
+bytes on any number of threads, but what is worked out with the system's own sines, cosines,
+arctangents, hypotenuses, or powers can differ in its last bit from one system or processor to
+another, which now and then turns a channel by a level, or a pixel on an edge on or off. Of the
+corpus's effects that is Fan, Circles, Shape, and Butterfly (and, outside it, Lines, Lightning,
+Tendril, Wave, VU Meter, the singing faces, and any effect's acceleration), and the layout's
+own geometry: where a tree's, an arch's, or a star's pixels are. Plasma, Pinwheel, Fireworks,
+and Shader are written to give the same bits everywhere, and the corpus's other effects use no
+such function. A mean over 16 pixels and half a second moves by a small fraction of a level for
+such a difference, so one fingerprint holds on every system; the macOS app job runs the same
+test to show it.
+
+**How the imports look next to xLights' renders, held to a baseline** (`pf-fidelity
+regress`). Each sequence with an xLights reference is scored as any sequence is, and every
+effect's look is held to `corpus/baseline.json`. An effect fails when its look is more than 3
+points under the lowest the baseline measured, when it earns a worse verdict than the worst the
+baseline saw even with those 3 points added (so that a look on a verdict's line never fails for
+a hair on another system), or when it is no longer measured at all. A sequence whose effects
+aren't the ones the baseline lists can't be held to it, and fails. An effect that is better by
+the margin is listed as improved; one that was judged in every scoring and whose look says too
+little now is listed, and doesn't fail by itself, since the look it got is still held. The job
+prints a table of everything that moved, and adds it to the run's summary page.
+
+The margins are measured, not guessed. The baseline is made from five scorings, each with every
+effect's chance drawn from another set of ids (`compare::fix_ids`), so the range it keeps for an
+effect is how far chance moves that effect's look. The check scores once, from the first set,
+which the baseline's first scoring used too: on the same build it is the same scorecard to the
+digit, every run, and it can't flake. The 3 points on top cover what another system's last bits
+can do to a look, which is a small fraction of a point. On stand-in references (PixelFlow's own
+render from another seed, `examples/stand_in_references.rs`) eight scorings moved most effects
+by nothing at all, the Chance sequence's look by 99.9 to 100, and one effect by 9 points (the
+twinkles on the custom model, 91 to 100) with two scorings of eight where its look said too
+little; an import made worse (one palette color changed) failed with every effect it touched
+listed.
+
+**Until the references exist**, the second check passes and says so: "The corpus has no xLights
+references yet … no import was held against xLights", in the log, as a notice on the run, and
+on its summary page. `baseline.json` holds no sequences until then.
+
+**Rendering the references** is done once, by the maintainer, in xLights, and again whenever
+`madeup.rs` changes the corpus: `corpus/README.md` has the steps, and
+`scripts/fidelity-corpus.sh` copies the show to a folder of its own and brings the renders back.
+Then `pf-fidelity regress --accept` makes the baseline, and both are committed.
+
+**Accepting a change on purpose.** A change to how a sequence is imported or drawn that shows on
+the lights moves the fingerprint: run `cargo run --release -p pf-fidelity -- fingerprint
+--accept` and commit `fingerprint.json` with the change, so the pull request shows that it
+moves the picture. An import made better next to xLights moves the baseline: run `cargo run
+--release -p pf-fidelity -- regress --accept` and commit `baseline.json`. A change to the
+corpus itself (`madeup.rs`) needs both, and the references rendered again.
 
 ## Limits
 

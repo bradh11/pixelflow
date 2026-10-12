@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- PixelFlow's made-up fidelity corpus (crates/pf-fidelity/src/madeup.rs writes this
+     file): seven props of the common kinds on one controller, and two groups. -->
+<xrgb>
+  <models type="rgb_effects">
+    <model name="Matrix" DisplayAs="Horiz Matrix" StringType="RGB Nodes" StartSide="B" Dir="L" parm1="16" parm2="32" parm3="1" WorldPosX="640.0" WorldPosY="380.0" WorldPosZ="0.0" ScaleX="8.0" ScaleY="8.0" ScaleZ="1.0" StartChannel="1" LayoutGroup="Default" versionNumber="8"/>
+    <model name="Tree" DisplayAs="Tree 360" StringType="RGB Nodes" StartSide="B" Dir="L" parm1="12" parm2="25" parm3="1" WorldPosX="230.0" WorldPosY="380.0" WorldPosZ="0.0" ScaleX="4.0" ScaleY="3.0" ScaleZ="4.0" StartChannel="1537" LayoutGroup="Default" versionNumber="8"/>
+    <model name="Arches" DisplayAs="Arches" StringType="RGB Nodes" StartSide="B" Dir="L" parm1="3" parm2="20" parm3="1" Arc="180" WorldPosX="80.0" WorldPosY="90.0" WorldPosZ="0.0" X2="420.0" Y2="0.0" Z2="0.0" Height="1.0" StartChannel="2437" LayoutGroup="Default" versionNumber="8">
+      <subModel name="Middle Arch" bufferstyle="Default" layout="horizontal" type="ranges" line0="21-40"/>
+    </model>
+    <model name="Line" DisplayAs="Single Line" StringType="RGB Nodes" StartSide="B" Dir="L" parm1="1" parm2="80" parm3="1" WorldPosX="80.0" WorldPosY="660.0" WorldPosZ="0.0" X2="1120.0" Y2="0.0" Z2="0.0" StartChannel="2617" LayoutGroup="Default" versionNumber="8"/>
+    <model name="Canes" DisplayAs="Candy Canes" StringType="RGB Nodes" StartSide="B" Dir="L" parm1="4" parm2="15" parm3="1" WorldPosX="760.0" WorldPosY="90.0" WorldPosZ="0.0" X2="440.0" Y2="0.0" Z2="0.0" Height="1.0" StartChannel="2857" LayoutGroup="Default" versionNumber="8"/>
+    <model name="Star" DisplayAs="Star" StringType="RGB Nodes" StartSide="B" Dir="L" parm1="1" parm2="50" parm3="5" WorldPosX="1080.0" WorldPosY="420.0" WorldPosZ="0.0" ScaleX="6.0" ScaleY="6.0" ScaleZ="1.0" StartChannel="3037" LayoutGroup="Default" versionNumber="8"/>
+    <model name="Flake" DisplayAs="Custom" StringType="RGB Nodes" parm1="9" parm2="9" WorldPosX="1080.0" WorldPosY="230.0" WorldPosZ="0.0" ScaleX="10.0" ScaleY="10.0" ScaleZ="1.0" CustomModel=",,,,1,,,,;,2,,,3,,,4,;,,5,,6,,7,,;,,,8,9,10,,,;11,12,13,14,15,16,17,18,19;,,,20,21,22,,,;,,23,,24,,25,,;,26,,,27,,,28,;,,,,29,,,," StartChannel="3187" LayoutGroup="Default" versionNumber="8"/>
+  </models>
+  <modelGroups type="rgb_effects">
+    <modelGroup name="Outlines" models="Line,Arches,Canes,Star" layout="minimalGrid" GridSize="400" LayoutGroup="Default"/>
+    <modelGroup name="Everything" models="Matrix,Tree,Arches,Line,Canes,Star,Flake" layout="minimalGrid" GridSize="400" LayoutGroup="Default"/>
+  </modelGroups>
+  <settings>
+    <previewWidth value="1280"/>
+    <previewHeight value="720"/>
+  </settings>
+</xrgb>

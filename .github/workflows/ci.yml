@@ -105,3 +105,37 @@ jobs:
         if: ${{ !cancelled() && runner.os == 'macOS' }}
         working-directory: .
         run: cargo test -p pf-shader --locked
+      # The fidelity corpus's fingerprint holds on every system (the engine's tests above hold it
+      # on Linux and Windows): it is made on one and must not move on another.
+      - name: Fidelity corpus, the same picture here
+        if: ${{ !cancelled() && runner.os == 'macOS' }}
+        working-directory: .
+        run: cargo test -p pf-fidelity --locked --test corpus
+
+  # The fidelity corpus (crates/pf-fidelity/corpus, docs/fidelity.md "The corpus in CI"): what
+  # PixelFlow draws for it, held to its fingerprint, and how its imports look next to xLights'
+  # own renders, held to the baseline. Until the references are rendered the second step passes
+  # and says so.
+  fidelity:
+    name: fidelity corpus
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: fidelity
+          cache-on-failure: true
+      - name: Install sound headers (for music playback)
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config
+      - name: Build the fidelity tool
+        run: cargo build --release --locked -p pf-fidelity
+      - name: PixelFlow's own render, held to its fingerprint
+        run: target/release/pf-fidelity fingerprint
+      # Runs even when the fingerprint moved: one run shows both.
+      - name: The imports next to xLights' renders, held to the baseline
+        if: ${{ !cancelled() }}
+        run: target/release/pf-fidelity regress

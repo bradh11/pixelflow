@@ -92,6 +92,8 @@ pub enum MusicLevelSource {
 }
 
 impl MusicLevelSource {
+    pub const ALL: [MusicLevelSource; 2] = [MusicLevelSource::LouderChannel, MusicLevelSource::LeftChannel];
+
     fn is_louder_channel(&self) -> bool {
         *self == MusicLevelSource::LouderChannel
     }

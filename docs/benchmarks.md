@@ -684,10 +684,15 @@ Everything here is drawn on one thread: it measures the work an effect is, not h
 threads get through it.
 
 Pinwheel's rows were measured again, the same way and on the same day, after it was rebuilt to
-work each pixel out from its own place. Before, it took 2.16 ms a frame on every prop (10.8 ns a
-pixel, with 336 allocations and 3,360 KB a frame) and 1.72 ms on the whole-house group (8.6 ns),
-0.20 ms of the typical sequence (16.4 ns a pixel drawn) and 0.73 ms of the worst (10.6 ns). The
-other rows, the totals, and the other kinds' shares are as first measured.
+work each pixel out from its own place: each figure is the middle one of three runs. Before, it
+took 2.16 ms a frame on every prop (10.8 ns a pixel, with 336 allocations and 3,360 KB a frame)
+and 1.72 ms on the whole-house group (8.6 ns), 0.20 ms of the typical sequence (16.4 ns a pixel
+drawn) and 0.73 ms of the worst (10.6 ns). The other rows, the totals, and the other kinds'
+shares are as first measured. Every Pinwheel here is drawn in the smooth style; the spokes style,
+timed apart over a buffer of 500 by 400 pixels as the effect's own work for a pixel (4.2 ns for
+the smooth wheel these rows draw), takes 4.7 ns a pixel with thin arms, 7 with thin arms twisted
+a full turn, 17 with six shaded arms 30 degrees wide and twisted, and 28 at worst, with twelve
+touching arms, twisted, that reach past the buffer.
 
 #### Each kind alone
 
@@ -698,7 +703,7 @@ other rows, the totals, and the other kinds' shares are as first measured.
 | Twinkle | 2.62 | 13.1 | 0 | 0 | 2.57 | 12.8 |
 | Butterfly | 1.92 | 9.6 | 0 | 0 | 1.48 | 7.4 |
 | Meteors | 1.80 | 9.0 | 168 | 63 | 0.99 | 5.0 |
-| Pinwheel | 1.42 | 7.1 | 0 | 0 | 1.11 | 5.5 |
+| Pinwheel | 1.43 | 7.2 | 0 | 0 | 1.16 | 5.8 |
 | Picture | 1.33 | 6.7 | 233 | 174 | 0.88 | 4.4 |
 | Spiral | 1.14 | 5.7 | 168 | 3351 | 0.71 | 3.5 |
 | Dancer | 1.03 | 5.2 | 168 | 3351 | 0.64 | 3.2 |
@@ -731,7 +736,7 @@ other rows, the totals, and the other kinds' shares are as first measured.
 | Fire | 34 | 0.056 | 0.27 | 8% | 23.9 |
 | Color Wash | 364 | 0.174 | 0.26 | 7% | 7.5 |
 | Bars | 321 | 0.168 | 0.18 | 5% | 5.3 |
-| Pinwheel | 76 | 0.061 | 0.13 | 4% | 10.9 |
+| Pinwheel | 76 | 0.061 | 0.13 | 4% | 11.1 |
 | Butterfly | 66 | 0.065 | 0.13 | 4% | 10.4 |
 | Spiral | 74 | 0.090 | 0.13 | 4% | 7.0 |
 | Picture | 17 | 0.063 | 0.086 | 2% | 6.9 |
@@ -755,7 +760,7 @@ Prop rows alone take 2.56 ms a frame and group rows alone 0.85 ms. Of the whole 
 | Fire | 156 | 0.354 | 1.57 | 10% | 22.1 |
 | Spiral | 186 | 0.962 | 1.00 | 6% | 5.2 |
 | Ripple | 678 | 1.071 | 0.91 | 6% | 4.3 |
-| Pinwheel | 156 | 0.344 | 0.52 | 3% | 7.6 |
+| Pinwheel | 156 | 0.344 | 0.53 | 3% | 7.8 |
 | Picture | 64 | 0.292 | 0.39 | 2% | 6.6 |
 | Dancer | 64 | 0.278 | 0.37 | 2% | 6.7 |
 | Text | 64 | 0.274 | 0.29 | 2% | 5.3 |

@@ -671,6 +671,13 @@ fn sequence(before: &Sequence, after: &Sequence, show: &Show, out: &mut Vec<Chan
             show_value(&json(&after.row_blending))
         ));
     }
+    if before.music_level_source != after.music_level_source {
+        details.push(format!(
+            "music loudness from: {} → {}",
+            show_value(&json(&before.music_level_source)),
+            show_value(&json(&after.music_level_source))
+        ));
+    }
     if !details.is_empty() {
         out.push(Change {
             section: Section::Sequence,
@@ -1176,6 +1183,24 @@ mod tests {
             (Section::Sequence, Action::Changed)
         );
         assert_eq!(d.changes[0].details, ["rows: \"cover\" → \"blend\""]);
+    }
+
+    #[test]
+    fn a_change_to_the_channel_the_music_level_comes_from_is_listed() {
+        let show = Show::new("Show");
+        let before = Sequence::new("Song", 60_000);
+        let mut after = before.clone();
+        after.music_level_source = pf_sequence::MusicLevelSource::LeftChannel;
+        let d = diff(&show, &show, Some((&before, &after)));
+        assert_eq!(d.changes.len(), 1);
+        assert_eq!(
+            (d.changes[0].section, d.changes[0].action),
+            (Section::Sequence, Action::Changed)
+        );
+        assert_eq!(
+            d.changes[0].details,
+            ["music loudness from: \"louderChannel\" → \"leftChannel\""]
+        );
     }
 
     #[test]

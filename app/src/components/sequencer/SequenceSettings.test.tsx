@@ -6,6 +6,7 @@ import { demoShow } from "../../api/demo";
 import { DEMO_SEQUENCE_PATH, demoSequence } from "../../api/demoSequence";
 import { MemoryBackend } from "../../api/memory";
 import { MemorySequencer } from "../../api/memorySequencer";
+import type { Sequence } from "../../api/sequence";
 import { useSequencer } from "../../state/sequencer";
 import { useApp } from "../../state/store";
 
@@ -27,12 +28,13 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-/** The Sequence screen on the demo sequence, with its settings panel open. */
-async function openSettings() {
+/** The Sequence screen on the demo sequence (with `saved` as its file has it), with its settings
+ * panel open. */
+async function openSettings(saved: Partial<Sequence> = {}) {
   const show = demoShow();
   const backend = new MemoryBackend(show);
   const seq = new MemorySequencer(backend);
-  seq.files.set(DEMO_SEQUENCE_PATH, demoSequence(show, 60_000));
+  seq.files.set(DEMO_SEQUENCE_PATH, { ...demoSequence(show, 60_000), ...saved });
   await seq.openSequenceDoc(DEMO_SEQUENCE_PATH);
   await useApp.getState().connect(backend);
   useApp.setState({ started: true, screen: "sequence" });
@@ -64,6 +66,32 @@ describe("Sequence settings", () => {
     expect(screen.queryByRole("dialog", { name: "Sequence settings" })).toBeNull();
     await user.click(settingsButton());
     expect(choice(/^Cover/)).toBeChecked();
+  });
+
+  it("changes which channel of the music is how loud it is, as one undo step", async () => {
+    const { seq, user } = await openSettings();
+    const level = () => within(panel()).getByRole("combobox", { name: "Loudness from" });
+    // A sequence made in PixelFlow follows the louder channel, and the file doesn't say so.
+    expect(level()).toHaveValue("louderChannel");
+    expect(within(level()).getByRole("option", { name: "The louder channel" })).toBeInTheDocument();
+    expect(level()).toHaveAccessibleDescription(/Sequences imported from xLights use the left channel, so they play as they did there\./);
+    await user.selectOptions(level(), "The left channel");
+    await waitFor(() => expect(seq.doc!.musicLevelSource).toBe("leftChannel"));
+    expect(useSequencer.getState().doc!.musicLevelSource).toBe("leftChannel");
+    expect(level()).toHaveValue("leftChannel");
+    // The panel stays open, and how rows meet is as it was.
+    expect(choice(/^Cover/)).toBeChecked();
+    const undo = screen.getByRole("button", { name: "Undo (sequence)" });
+    expect(undo).toHaveAttribute("data-tip", "Undo (sequence): Change where the music's loudness comes from");
+    await user.click(undo);
+    await waitFor(() => expect(seq.doc).not.toHaveProperty("musicLevelSource"));
+    await user.click(settingsButton());
+    expect(level()).toHaveValue("louderChannel");
+  });
+
+  it("opens a sequence imported from xLights on the left channel", async () => {
+    await openSettings({ musicLevelSource: "leftChannel" });
+    expect(within(panel()).getByRole("combobox", { name: "Loudness from" })).toHaveValue("leftChannel");
   });
 
   it("shows the frame time and the music, which Locate… points at the file chosen", async () => {

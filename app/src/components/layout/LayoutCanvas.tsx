@@ -50,6 +50,7 @@ import {
   type Rect,
 } from "../../lib/layoutMath";
 import { DOT_RADIUS, drawPixels } from "../../lib/pixelBatches";
+import { LAYOUT_LOOK } from "../../lib/pixelLooks";
 import { updateEdits } from "../../lib/layoutEdits";
 import {
   type LineEnd,
@@ -113,7 +114,7 @@ const GRID = "rgba(160, 160, 160, 0.22)";
 const GROUND = "rgba(200, 200, 200, 0.4)";
 /** The ring showing a point will join another line's end. */
 const JOIN_COLOR = "#4ade80";
-const PIXEL_COLORS = { unlit: "rgba(220, 220, 220, 0.7)", selected: ACCENT, dark: "rgba(90, 90, 90, 0.6)" };
+const PIXEL_COLORS = LAYOUT_LOOK.colors;
 
 type Drag =
   /** `from`/`clear`: pressed on empty space; a click there (no drag) clears the selection. */
@@ -476,7 +477,7 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
 
     const props = effectivePreview();
     const selected = new Set(editor.selected);
-    const radius = Math.min(4.5, Math.max(1.3, view.zoom * DOT_RADIUS));
+    const radius = Math.min(LAYOUT_LOOK.radius[1], Math.max(LAYOUT_LOOK.radius[0], view.zoom * DOT_RADIUS));
     drawPixels(ctx, props, frame.current, view, s, selected, PIXEL_COLORS, radius, ratio, useView3d.getState().glow);
 
     // A submodel or face picked in the properties panel, drawn over its prop: a little bigger, where its pixels have the room.

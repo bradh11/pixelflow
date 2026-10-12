@@ -2,6 +2,9 @@ import { act, render, waitFor } from "@testing-library/react";
 import { StrictMode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { emptyShow } from "../../api/memory";
+import { type LightLook, SPREAD_SIZE, packSpread } from "../../lib/layout3d";
+import { LAYOUT_LOOK, PREVIEW_LOOK, lightLook } from "../../lib/pixelLooks";
+import { useLayoutEditor } from "../../state/layoutEditor";
 import { useView3d } from "../../state/view3d";
 import { Layout3dView } from "./Layout3dView";
 import type { Scene3d, SceneFactory } from "./scene";
@@ -11,7 +14,7 @@ const stub: Scene3d = {
   setPixels: () => {},
   updatePixels: () => {},
   setColors: () => {},
-  setBulbSize: () => {},
+  setLook: () => {},
   setBackdrop: () => {},
   setModel: async () => null,
   placeModel: () => null,
@@ -67,6 +70,71 @@ describe("the 3D view's renderer", () => {
     act(() => useView3d.getState().setGround(false));
     expect(options.at(-1)).toEqual({ glow: 0, ground: false });
     expect(options).toHaveLength(3);
+  });
+
+  it("is handed every pixel's place with how its prop is spread out, and the look of the screen it's on", async () => {
+    const preview = {
+      revision: 1,
+      props: [
+        { prop: "string", frameOffset: 0, channelsPerPixel: 3, xyz: new Float32Array([0, 0, 0, 0.5, 0, 0, 1, 0, 0]) },
+        { prop: "one", frameOffset: 9, channelsPerPixel: 3, xyz: new Float32Array([4, 4, -2]) },
+      ],
+    };
+    const seen = { pixels: [] as { xyz: number[]; spread: number[] }[], looks: [] as LightLook[], colors: [] as number[][] };
+    const factory: SceneFactory = async () => ({
+      ...stub,
+      setPixels: (xyz, spread) => void seen.pixels.push({ xyz: Array.from(xyz), spread: Array.from(spread) }),
+      setLook: (look) => void seen.looks.push(look),
+      setColors: (rgb) => void seen.colors.push(Array.from(rgb)),
+    });
+    const photo = { image: null, aspect: 0.75, problem: null, reload: () => {} };
+    const looking = render(<Layout3dView preview={preview} show={emptyShow("Home")} photo={photo} storageKey="k" frame={null} sceneFactory={factory} />);
+    await waitFor(() => expect(seen.pixels).toHaveLength(1));
+    expect(seen.pixels[0].xyz).toEqual([0, 0, 0, 0.5, 0, 0, 1, 0, 0, 4, 4, -2]);
+    expect(seen.pixels[0].spread).toEqual(Array.from(packSpread(preview.props)));
+    // The string's pixels half a unit apart, the lone pixel with no neighbors: each sized by its own prop.
+    expect(seen.pixels[0].spread.filter((_, i) => i % SPREAD_SIZE === 0)).toEqual([0.5, 0.5, 0.5, 1e6]);
+    // A preview: the flat previews' quiet colors and dot sizes.
+    expect(seen.looks).toEqual([lightLook(PREVIEW_LOOK).look]);
+    // Nothing playing and nothing selected: no pixel has a color of its own.
+    expect(seen.colors.at(-1)).toEqual(new Array(12).fill(0));
+    looking.unmount();
+
+    // On the Layout screen: its look, and the selected prop's pixels in the selection color.
+    seen.looks.length = 0;
+    useLayoutEditor.getState().select(["one"]);
+    render(<Layout3dView preview={preview} show={emptyShow("Home")} photo={photo} storageKey="k" editable sceneFactory={factory} />);
+    await waitFor(() => expect(seen.looks).toEqual([lightLook(LAYOUT_LOOK).look]));
+    await waitFor(() => expect(seen.colors.at(-1)).toEqual([...new Array(9).fill(0), ...lightLook(LAYOUT_LOOK).selected]));
+    useLayoutEditor.getState().select([]);
+  });
+
+  it("tells the renderer while the camera is on its way somewhere, and when it has arrived", async () => {
+    const frames: boolean[] = [];
+    const raf = vi.spyOn(window, "requestAnimationFrame").mockImplementation((step) => setTimeout(() => step(performance.now()), 0) as unknown as number);
+    const view = render(
+      <Layout3dView
+        preview={{ revision: 1, props: [{ prop: "p", frameOffset: 0, channelsPerPixel: 3, xyz: new Float32Array([0, 0, 0, 1, 2, 0]) }] }}
+        show={emptyShow("Home")}
+        photo={{ image: null, aspect: 0.75, problem: null, reload: () => {} }}
+        storageKey="moving"
+        frame={null}
+        sceneFactory={async () => ({ ...stub, render: (_, moving) => void frames.push(!!moving) })}
+      />,
+    );
+    const canvas = view.container.querySelector("canvas")!;
+    Object.defineProperties(canvas, { clientWidth: { value: 800 }, clientHeight: { value: 500 } });
+    act(() => void window.dispatchEvent(new Event("resize")));
+    // Placed where it starts, it's still.
+    await waitFor(() => expect(frames.length).toBeGreaterThan(0));
+    expect(frames.at(-1)).toBe(false);
+    // Asked for another view, it glides there: moving until the last frame, which is still.
+    frames.length = 0;
+    act(() => useView3d.getState().camera({ kind: "preset", preset: "top" }));
+    await waitFor(() => expect(frames.at(-1)).toBe(false), { timeout: 3000 });
+    expect(frames.length).toBeGreaterThan(2);
+    expect(frames.slice(0, -1).every((moving) => moving)).toBe(true);
+    raf.mockRestore();
   });
 
   it("says so plainly when the graphics card drops the 3D view", async () => {

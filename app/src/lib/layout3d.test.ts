@@ -9,12 +9,16 @@ import {
   FOV_DEG,
   MAX_PITCH,
   MIN_PITCH,
+  DOT_GAP,
+  HALO_FROM,
+  SPREAD_SIZE,
   backdropBox,
-  bloomStrength,
   boundsOfXyz,
   clipRange,
   composeGestures3d,
+  coneFrom,
   dollyAt,
+  dotOrder,
   dragDelta,
   fillColors,
   fitModelPlacement,
@@ -25,26 +29,34 @@ import {
   freeDragHandle,
   gizmoHit,
   gizmoLength,
+  lightDim,
+  lightHalo,
+  lightWidth,
   moveGesture3,
+  neighborShare,
   orbitBy,
   orbitEye,
   packPositions,
+  packSpread,
   panBy3,
   parseOrbit,
   pickPixel,
   pickProp,
+  pixelsPerUnit,
   planeSquare,
   presetOrbit,
   project,
   propsInRect,
   screenRay,
   stepOrbit,
-  typicalSpacing,
+  stillDot,
   unionBox3,
   v3,
   viewProjection,
 } from "./layout3d";
 import { gestureTransform, isNoop } from "./layoutMath";
+import { FILL, FINE_FROM, REACH, dotSize, pixelRoom, pixelSpacing, pixelsAllRound } from "./pixelBatches";
+import { coreDim, glowStep } from "./pixelGlow";
 
 const size = { width: 800, height: 500 };
 const orbit: Orbit = { target: v3(1, 2, -1), yaw: 0.6, pitch: 0.3, distance: 20 };
@@ -406,30 +418,25 @@ describe("gestures in depth", () => {
   });
 });
 
-describe("bulb size", () => {
-  it("follows how far apart neighboring pixels usually are", () => {
-    const line = prop("a", [0, 0, 0, 0.1, 0, 0, 0.2, 0, 0, 0.3, 0, 0, 5, 0, 0]);
-    expect(typicalSpacing([line])).toBeCloseTo(0.1);
-    expect(typicalSpacing([prop("b", [1, 1, 1])])).toBeNull();
-  });
-});
-
 describe("pixel colors", () => {
-  const palette = { unlit: [10, 20, 30] as const, selected: [200, 100, 250] as const };
+  const picked = [200, 100, 250] as const;
 
   it("lights each pixel from the live frame, RGB or RGBW, and leaves missing ones off", () => {
     const props = [prop("rgb", [0, 0, 0, 1, 0, 0], 0, 3), prop("rgbw", [0, 0, 0, 1, 0, 0], 6, 4)];
     const frame = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 99, 10, 11]);
     const out = new Uint8Array(12).fill(77);
-    fillColors(props, frame, new Set(), palette, out);
+    fillColors(props, frame, new Set(), picked, out);
     expect(Array.from(out)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 0, 0]);
+    // Playing, a selected prop's pixels show their own colors too.
+    fillColors(props, frame, new Set(["rgb"]), picked, out);
+    expect(Array.from(out.subarray(0, 6))).toEqual([1, 2, 3, 4, 5, 6]);
   });
 
-  it("shows bulbs unlit, or in the selection color, when nothing plays", () => {
+  it("gives a selected prop's pixels the selection color when nothing plays, and the others none of their own", () => {
     const props = [prop("a", [0, 0, 0]), prop("b", [0, 0, 0])];
-    const out = new Uint8Array(6);
-    fillColors(props, null, new Set(["b"]), palette, out);
-    expect(Array.from(out)).toEqual([10, 20, 30, 200, 100, 250]);
+    const out = new Uint8Array(6).fill(77);
+    fillColors(props, null, new Set(["b"]), picked, out);
+    expect(Array.from(out)).toEqual([0, 0, 0, 200, 100, 250]);
   });
 
   it("packs every prop's pixels into one array for one draw", () => {
@@ -439,13 +446,282 @@ describe("pixel colors", () => {
   });
 });
 
-describe("the 3D view's bloom", () => {
-  it("is as strong as the glow level says: none at none, 0.9 at half way", () => {
-    expect(bloomStrength(0)).toBe(0);
-    expect(bloomStrength(0.5)).toBeCloseTo(0.9);
-    expect(bloomStrength(1)).toBeCloseTo(1.8);
-    for (let level = 0.05; level <= 1; level += 0.05) expect(bloomStrength(level)).toBeGreaterThan(bloomStrength(level - 0.05));
-    // A level out of range is kept in range; one that isn't a number is none.
-    expect([bloomStrength(-1), bloomStrength(9), bloomStrength(NaN)]).toEqual([0, bloomStrength(1), 0]);
+describe("how every pixel's prop is spread out, for the renderer", () => {
+  /** A matrix `columns` by `rows`, `step` apart both ways, facing the front at depth `z`. */
+  const matrix = (columns: number, rows: number, step: number, z = 0) => Array.from({ length: columns * rows }, (_, i) => [(i % columns) * step, Math.floor(i / columns) * step, z]).flat();
+  const perPixel = (packed: Float32Array) => Array.from({ length: packed.length / SPREAD_SIZE }, (_, i) => Array.from(packed.subarray(i * SPREAD_SIZE, (i + 1) * SPREAD_SIZE)).map((v) => Math.round(v * 1e4) / 1e4));
+
+  it("is each prop's own spacing, room to the side and whether it's all round, for each of its pixels, with where the pixel is on the wire", () => {
+    const string = prop("string", [0, 0, 3, 0.5, 0, 3, 1, 0, 3, 1.5, 0, 3]);
+    const grid = prop("grid", matrix(4, 4, 0.2));
+    const packed = perPixel(packSpread([string, grid, prop("one", [5, 5, 5])]));
+    expect(packed).toHaveLength(21);
+    // A string: its step; nothing to its side, as far as is looked (`REACH`); first, middle, middle, last.
+    expect(packed.slice(0, 4)).toEqual([
+      [0.5, REACH, 0, 1],
+      [0.5, REACH, 0, 0],
+      [0.5, REACH, 0, 0],
+      [0.5, REACH, 0, 2],
+    ]);
+    // A matrix: its own, closer, spacing, the same to the side, and neighbors on every side.
+    expect(packed[4]).toEqual([0.2, 0.2, 1, 1]);
+    expect(packed[10]).toEqual([0.2, 0.2, 1, 0]);
+    expect(packed[19]).toEqual([0.2, 0.2, 1, 2]);
+    // A prop of one pixel has no neighbors to shrink for: it's its wire's first and last.
+    expect(packed[20]).toEqual([1e6, REACH, 0, 3]);
+  });
+
+  it("is measured where the pixels stand, in depth too", () => {
+    // A string running straight back from the camera: every pixel at one place, seen from the front.
+    const back = prop("back", Array.from({ length: 20 }, (_, i) => [2, 1, -i * 0.3]).flat());
+    expect(perPixel(packSpread([back]))[5]).toEqual([0.3, REACH, 0, 0]);
+    // A matrix lying flat on the ground is as much a matrix as one on a wall.
+    const lying = prop("lying", matrix(6, 6, 0.25).flatMap((v, i, all) => (i % 3 === 0 ? [v, 0, all[i + 1]] : [])));
+    expect(perPixel(packSpread([lying]))[7]).toEqual([0.25, 0.25, 1, 0]);
+  });
+
+  it("is the flat previews' measure for a prop that faces the front", () => {
+    const flat = matrix(12, 5, 0.03).map((v, i) => (i % 3 === 1 ? v * 4 : v));
+    const front = flat.filter((_, i) => i % 3 !== 2);
+    const [spacing, room, round] = perPixel(packSpread([prop("m", flat)]))[0];
+    expect([spacing, room, round]).toEqual([pixelSpacing(front), pixelRoom(front), pixelsAllRound(front) ? 1 : 0].map((v) => Math.round(v * 1e4) / 1e4));
+    expect([spacing, room, round]).toEqual([0.03, 0.12, 0]);
+  });
+});
+
+describe("how big a light is drawn", () => {
+  const radius = [1.2, 4] as const;
+  /** For pixels with as much room to the side as along the wire (a matrix): the dot is fitted to their spacing alone. */
+  const fitted = (pitch: number, ratio: number) => lightWidth(1, 1, pitch, ratio, radius);
+
+  it("turns a distance from the camera into device pixels to a layout unit, as the camera does", () => {
+    const view = { width: 900, height: 600 };
+    const front: Orbit = { target: v3(0, 0, 0), yaw: 0, pitch: 0, distance: 12 };
+    const m = viewProjection(front, view);
+    const [a, b] = [project(m, view, v3(0, 0, 0))!, project(m, view, v3(1, 0, 0))!];
+    expect(b.x - a.x).toBeCloseTo(pixelsPerUnit(view.height, 1) / 12, 6);
+    // Twice as far, half as many; twice the device pixels to a screen pixel, twice as many.
+    expect(pixelsPerUnit(view.height, 2)).toBeCloseTo(2 * pixelsPerUnit(view.height, 1));
+  });
+
+  it("is the view's dot where a prop's pixels have room: a tenth of a layout unit across, bigger nearer the camera, within the smallest and largest", () => {
+    const wide = (scale: number, ratio = 1) => Math.round(lightWidth(10, REACH, scale, ratio, radius) * 1e6) / 1e6;
+    expect([5, 24, 30, 50, 79, 80, 400].map((scale) => wide(scale))).toEqual([2.4, 2.4, 3, 5, 7.9, 8, 8]);
+    // The same on a screen with two device pixels to a screen pixel: twice as many of them.
+    expect([10, 60, 100, 800].map((scale) => wide(scale, 2))).toEqual([4.8, 6, 10, 16]);
+    // The Layout screen's dots are a little bigger.
+    expect(lightWidth(10, REACH, 400, 1, [1.3, 4.5])).toBe(9);
+  });
+
+  it("stops short of the next pixel, so neighbors never touch however near the camera is", () => {
+    for (const ratio of [1, 2]) {
+      // From where the smallest dot there is fits.
+      for (let pitch = Math.max(2 * ratio + DOT_GAP, (2 * ratio) / FILL); pitch < 80; pitch += 0.37) {
+        const width = fitted(pitch, ratio);
+        expect(width + DOT_GAP).toBeLessThanOrEqual(pitch + 1e-9);
+        expect(width).toBeLessThanOrEqual(pitch * FILL + 1e-9);
+      }
+    }
+    // The flat previews' dot for the same pixels is within a device pixel of it.
+    for (const ratio of [1, 2]) {
+      for (let pitch = 3 * ratio; pitch < 60; pitch++) {
+        const [smallest, largest] = [2 * ratio, 8 * ratio];
+        expect(Math.abs(lightWidth(1, 1, pitch, ratio, [4, 4]) - dotSize(pitch, smallest, largest))).toBeLessThanOrEqual(1);
+      }
+    }
+  });
+
+  it("keeps a string a bold line however close its pixels are: most of the view's dot wide, never thinner", () => {
+    // The view's dot is 8 across here; pixels 30, 10, 4, 2 and a tenth of a device pixel apart.
+    const widths = [0.3, 0.1, 0.04, 0.02, 0.001].map((spacing) => lightWidth(spacing, REACH, 100, 1, radius));
+    expect(widths.map((w) => Math.round(w * 10) / 10)).toEqual([8, 7, 5.6, 5.6, 5.6]);
+    expect(widths[2]).toBeCloseTo(8 * FILL);
+    // Far off, where the view's dot is the smallest there is, the line is that.
+    expect(lightWidth(0.02, REACH, 10, 1, radius)).toBe(2);
+    expect(lightWidth(0.02, REACH, 10, 2, radius)).toBe(4);
+  });
+
+  it("draws a matrix's rows as thick as the room between them allows, and no thicker", () => {
+    // Pixels 2 device pixels apart along a row, rows 7 apart: bars that leave the rows clear of each other.
+    const bar = lightWidth(0.02, 0.07, 100, 1, radius);
+    expect(bar).toBeCloseTo(7 * FILL);
+    expect(bar + DOT_GAP).toBeLessThanOrEqual(7);
+    // As close both ways, it's the smallest dot: the picture has no gaps.
+    expect(lightWidth(0.02, 0.02, 100, 1, radius)).toBe(2);
+  });
+
+  it("never jumps as the camera moves: a little nearer is a little bigger", () => {
+    for (const [spacing, room] of [
+      [0.02, REACH],
+      [0.07, 0.07],
+      [0.3, REACH],
+      [0.02, 0.07],
+    ]) {
+      let last = lightWidth(spacing, room, 2, 2, radius);
+      for (let scale = 2; scale < 2000; scale *= 1.002) {
+        const width = lightWidth(spacing, room, scale, 2, radius);
+        expect(width).toBeGreaterThanOrEqual(last - 1e-9);
+        expect(width - last).toBeLessThan(0.05);
+        last = width;
+      }
+    }
+  });
+
+  it("sits on whole device pixels once the camera is still, when it's small, as the flat previews' small dots do", () => {
+    // Two across: the two device pixels its middle is nearest to the join of.
+    expect(stillDot(10.7, 2.3)).toEqual({ at: 11, width: 2 });
+    expect(stillDot(10.2, 2.3)).toEqual({ at: 10, width: 2 });
+    // Three across (from two and a half up): centered on a device pixel.
+    expect(stillDot(10.7, 2.5)).toEqual({ at: 10.5, width: 3 });
+    expect(stillDot(11.2, 3.4)).toEqual({ at: 11.5, width: 3 });
+    // The same device pixels as a dot stamped flat: its left edge rounded to a whole one.
+    for (const [x, size] of [
+      [10.7, 2],
+      [33.49, 3],
+      [7.5, 3],
+      [20.01, 2],
+    ]) {
+      expect(stillDot(x, size).at - size / 2).toBe(Math.round(x - size / 2));
+    }
+    // A wider one keeps its place: its soft edge falls where it falls.
+    expect(stillDot(10.7, FINE_FROM)).toEqual({ at: 10.7, width: FINE_FROM });
+    expect(stillDot(10.7, 6.3)).toEqual({ at: 10.7, width: 6.3 });
+  });
+});
+
+describe("the color of a light among pixels closer together than a screen pixel", () => {
+  it("is exactly its own while its prop's pixels are a screen pixel apart or more", () => {
+    // A string with pixels 0.02 apart: 2, 1.2 and exactly 1 screen pixel.
+    expect([100, 60, 50].map((scale) => neighborShare(0.02, scale, 1))).toEqual([0, 0, 0]);
+    // Two device pixels to a screen pixel: it's the screen pixel that counts.
+    expect(neighborShare(0.02, 100, 2)).toBe(0);
+    expect(neighborShare(0.02, 50, 2)).toBeGreaterThan(0);
+  });
+
+  it("takes on more of the two wired next to it the closer they are, up to a third from each", () => {
+    // Half a screen pixel apart: a sixth from each. On one spot: a third each, the three alike.
+    expect(neighborShare(0.02, 25, 1)).toBeCloseTo(1 / 6);
+    expect(neighborShare(0.02, 50, 2)).toBeCloseTo(1 / 6);
+    expect(neighborShare(0, 25, 1)).toBeCloseTo(1 / 3);
+    // Little by little as the camera backs off: nothing changes all at once.
+    let last = 0;
+    for (let scale = 60; scale > 1; scale *= 0.99) {
+      const share = neighborShare(0.02, scale, 1);
+      expect(share).toBeGreaterThanOrEqual(last);
+      expect(share - last).toBeLessThan(0.005);
+      last = share;
+    }
+    expect(last).toBeLessThanOrEqual(1 / 3);
+  });
+});
+
+describe("which light a place on the screen shows", () => {
+  const [near, far] = [0.05, 1000];
+  const lit = { colored: true };
+  const off = { colored: false };
+  /** A dot's solid part, so far from the camera. */
+  const solid = (light: { colored: boolean; beside?: boolean }, from: number) => dotOrder(light, 1, from, near, far);
+  const edge = (light: { colored: boolean; beside?: boolean }, cover: number, from = 10) => dotOrder(light, cover, from, near, far);
+
+  it("is a lit light before one that's off, wherever they stand: a light that's off never covers a lit one", () => {
+    // Right against the camera and off, or at the far end of the view and lit.
+    expect(solid(lit, 999)).toBeLessThan(solid(off, 0.06));
+    expect(solid(lit, 999)).toBeLessThan(edge(off, 0.99, 0.06));
+    // Even a lit light's thinnest edge comes before a solid light that's off.
+    expect(edge(lit, 0.01, 999)).toBeLessThan(solid(off, 0.06));
+    // Nothing playing: a selected prop's lights are the colored ones, the rest quiet.
+    expect(Math.max(solid(lit, far), edge(lit, 0.001))).toBeLessThan(Math.min(solid(off, near), edge(off, 0.999)));
+  });
+
+  it("is something solid before any soft edge of its kind, however near the edge's dot is", () => {
+    for (const light of [lit, off]) {
+      // A string seen end on: the edge of a dot right by the camera, over the solid middle of one far behind it.
+      expect(solid(light, 900)).toBeLessThan(edge(light, 0.99, 0.06));
+      expect(solid(light, far)).toBeLessThan(edge(light, 0.999, near));
+    }
+  });
+
+  it("is the nearest of the solid parts, told apart as finely near and far", () => {
+    expect(solid(lit, 5)).toBeLessThan(solid(lit, 5.01));
+    expect(solid(off, 400)).toBeLessThan(solid(off, 401));
+    // A thousandth nearer is as much sooner at any distance, and more than a step of a 24-bit depth buffer.
+    const sooner = [1, 30, 800].map((d) => solid(lit, d) - solid(lit, d * 0.999));
+    for (const step of sooner) expect(step).toBeCloseTo(sooner[0], 10);
+    expect(sooner[0]).toBeGreaterThan(2 ** -24);
+    // Nothing is nearer than the nearest thing drawn, or past its kind's share of the depths.
+    expect(solid(lit, 0.001)).toBe(0);
+    expect(solid(lit, 1e9)).toBeLessThan(edge(lit, 1 - 1e-9));
+  });
+
+  it("is, of two dots as far away, the one whose middle the place is nearer: they meet half way between them", () => {
+    // Dots a tenth of a unit across, 20 units off. A place 0.3 of a radius out from one's middle is 0.5 out from the other's.
+    const at = (out: number) => solid(lit, coneFrom(20, 0.1, out));
+    expect(at(0.3)).toBeLessThan(at(0.5));
+    expect(at(0.4)).toBe(at(0.4));
+    // The cone's tip is the dot's depth nearer than where the light is; by a round dot's rim, half of it is left.
+    expect(coneFrom(20, 0.1, 0)).toBeCloseTo(19.9);
+    expect(coneFrom(20, 0.1, 1)).toBeCloseTo(19.95);
+    // A square dot's far corners (1.41 of its half-width out) are where the light is, never behind it.
+    expect(coneFrom(20, 0.1, Math.SQRT2)).toBeCloseTo(20);
+  });
+
+  it("is the fullest of the soft edges", () => {
+    expect(edge(lit, 0.8)).toBeLessThan(edge(lit, 0.3));
+    expect(edge(off, 0.8, 500)).toBeLessThan(edge(off, 0.3, 1));
+  });
+
+  it("lets a light that's off keep its half of the way to a lit neighbor on its wire, and no more", () => {
+    const beside = { colored: false, beside: true };
+    // Its solid part meets the lit light's as an equal: the nearer middle has the place.
+    expect(solid(beside, coneFrom(20, 0.1, 0.3))).toBeLessThan(solid(lit, coneFrom(20, 0.1, 0.5)));
+    expect(solid(lit, coneFrom(20, 0.1, 0.3))).toBeLessThan(solid(beside, coneFrom(20, 0.1, 0.5)));
+    // Its edge is a quiet light's still: it never covers anything solid.
+    expect(edge(beside, 0.9)).toBe(edge(off, 0.9));
+    expect(solid(off, 999)).toBeLessThan(edge(beside, 0.99));
+  });
+});
+
+describe("a lit light's glow in 3D", () => {
+  const radius = [1.2, 4] as const;
+
+  it("is the flat previews' halo: sized from the dot a pixel has in the layout, as wide and as strong as the level says", () => {
+    // A layout unit 40 screen pixels: a dot of radius 2. At half glow the bell is 1.8 of that, and 0.35 strong.
+    expect(lightHalo(0.5, 40, 1, radius).bell).toBeCloseTo(2 * 1.8);
+    expect(lightHalo(0.5, 40, 1, radius).strength).toBeCloseTo(0.35);
+    expect(lightHalo(1, 40, 1, radius).bell).toBeCloseTo(2 * 2.4);
+    expect(lightHalo(1, 40, 1, radius).strength).toBeCloseTo(0.7);
+    // Twice the device pixels, twice the bell. Close up, it's sized from the view's largest dot.
+    expect(lightHalo(0.5, 80, 2, radius).bell).toBeCloseTo(7.2);
+    expect(lightHalo(0.5, 4000, 1, radius).bell).toBeCloseTo(4 * 1.8);
+    // No glow, no halo; a level between the slider's steps is drawn at the nearest.
+    expect(lightHalo(0, 40, 1, radius).strength).toBe(0);
+    expect(lightHalo(0.52, 40, 1, radius)).toEqual(lightHalo(0.5, 40, 1, radius));
+  });
+
+  it("fades in as the camera nears, from a bell too narrow to see", () => {
+    const strengths = [5, 8, 10, 12, 14, 16, 18, 40].map((scale) => lightHalo(0.5, scale, 1, radius).strength);
+    // The bell is 0.09 of the scale here: none under three quarters of a device pixel, all of it from one and a half.
+    expect(strengths[0]).toBe(0);
+    expect(strengths[1]).toBe(0);
+    expect(strengths.at(-1)).toBeCloseTo(0.35);
+    expect(lightHalo(0.5, HALO_FROM[1] / 0.09 + 0.01, 1, radius).strength).toBeCloseTo(0.35);
+    for (let i = 1; i < strengths.length; i++) expect(strengths[i]).toBeGreaterThanOrEqual(strengths[i - 1]);
+    expect(strengths[3]).toBeGreaterThan(0);
+    expect(strengths[3]).toBeLessThan(0.35);
+  });
+
+  it("dims the dot by what the halo adds back, as the flat previews do", () => {
+    for (const [glow, scale, width] of [
+      [0.5, 40, 4],
+      [1, 40, 2.8],
+      [0.25, 60, 6],
+      [0.5, 300, 5.6],
+    ]) {
+      const around = Math.min(radius[1], 0.05 * scale);
+      expect(lightDim(lightHalo(glow, scale, 1, radius), width)).toBeCloseTo(coreDim(glowStep(glow), (2 * around) / width), 12);
+    }
+    // No halo, no dimming.
+    expect(lightDim(lightHalo(0, 40, 1, radius), 4)).toBe(1);
+    expect(lightDim(lightHalo(0.5, 5, 1, radius), 2.4)).toBe(1);
   });
 });

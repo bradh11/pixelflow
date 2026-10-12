@@ -328,31 +328,38 @@ mod tests {
         (0..=20_000).map(move |i| lo + (hi - lo) * (i as f32 / 20_000.0))
     }
 
-    /// The most `ours` and the platform's `theirs` differ over `inputs`.
-    fn worst(inputs: impl Iterator<Item = f32>, ours: fn(f32) -> f32, theirs: fn(f32) -> f32) -> u32 {
-        inputs.map(|x| apart(ours(x), theirs(x))).max().unwrap_or(0)
+    /// The most `ours` differs over `inputs` from `exact`, worked out in double precision and
+    /// rounded once to single: as near the true answer as single precision holds, and the same on
+    /// every platform (the platforms' own single-precision functions differ from one another by a
+    /// step here and there).
+    fn worst(inputs: impl Iterator<Item = f32>, ours: fn(f32) -> f32, exact: fn(f64) -> f64) -> u32 {
+        inputs
+            .map(|x| apart(ours(x), exact(f64::from(x)) as f32))
+            .max()
+            .unwrap_or(0)
     }
 
     #[test]
-    fn each_function_is_within_a_step_of_the_platforms() {
-        assert!(worst(spread(-40.0, 40.0), sin, f32::sin) <= 1);
-        assert!(worst(spread(-40.0, 40.0), cos, f32::cos) <= 1);
-        assert!(worst(spread(-1.5, 1.5), tan, f32::tan) <= 1);
-        assert!(worst(spread(-30.0, 30.0), exp, f32::exp) <= 1);
-        assert!(worst(spread(-20.0, 20.0), exp2, f32::exp2) <= 1);
-        assert!(worst(spread(1e-6, 50.0), ln, f32::ln) <= 1);
-        assert!(worst(spread(1e-6, 5000.0), log2, f32::log2) <= 1);
-        assert!(worst(spread(-50.0, 50.0), atan, f32::atan) <= 1);
-        assert!(worst(spread(-1.0, 1.0), asin, f32::asin) <= 2);
-        assert!(worst(spread(-1.0, 1.0), acos, f32::acos) <= 2);
-        assert!(worst(spread(-8.0, 8.0), sinh, f32::sinh) <= 1);
-        assert!(worst(spread(-8.0, 8.0), cosh, f32::cosh) <= 1);
-        assert!(worst(spread(-8.0, 8.0), tanh, f32::tanh) <= 1);
+    fn each_function_is_within_a_step_of_the_true_answer() {
+        assert!(worst(spread(-40.0, 40.0), sin, f64::sin) <= 1);
+        assert!(worst(spread(-40.0, 40.0), cos, f64::cos) <= 1);
+        assert!(worst(spread(-1.5, 1.5), tan, f64::tan) <= 1);
+        assert!(worst(spread(-30.0, 30.0), exp, f64::exp) <= 1);
+        assert!(worst(spread(-20.0, 20.0), exp2, f64::exp2) <= 1);
+        assert!(worst(spread(1e-6, 50.0), ln, f64::ln) <= 1);
+        assert!(worst(spread(1e-6, 5000.0), log2, f64::log2) <= 1);
+        assert!(worst(spread(-50.0, 50.0), atan, f64::atan) <= 1);
+        assert!(worst(spread(-1.0, 1.0), asin, f64::asin) <= 2);
+        assert!(worst(spread(-1.0, 1.0), acos, f64::acos) <= 2);
+        assert!(worst(spread(-8.0, 8.0), sinh, f64::sinh) <= 1);
+        assert!(worst(spread(-8.0, 8.0), cosh, f64::cosh) <= 1);
+        assert!(worst(spread(-8.0, 8.0), tanh, f64::tanh) <= 1);
         let mut far = 0;
         for x in spread(0.01, 30.0).step_by(40) {
             for y in spread(-6.0, 6.0).step_by(160) {
-                far = far.max(apart(pow(x, y), x.powf(y)));
-                far = far.max(apart(atan2(y, x - 15.0), y.atan2(x - 15.0)));
+                let (wx, wy) = (f64::from(x), f64::from(y));
+                far = far.max(apart(pow(x, y), wx.powf(wy) as f32));
+                far = far.max(apart(atan2(y, x - 15.0), wy.atan2(f64::from(x - 15.0)) as f32));
             }
         }
         assert!(far <= 1, "{far}");

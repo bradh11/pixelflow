@@ -48,6 +48,29 @@ const LARGE_AREA: f32 = 0.25;
 
 /// Effects on a prop they don't suit: what's wrong, the prop, its row, and the effects' kind.
 type Misfit = (String, String, String, String);
+/// The most effects a fix names one by one; more are chosen by kind and time.
+const IDS_IN_A_FIX: usize = 40;
+
+/// An effect flashing too fast over a large area.
+struct Flicker {
+    from: u64,
+    to: u64,
+    hz: f32,
+    /// What it lights, by name.
+    target: String,
+    id: String,
+    kind: EffectKind,
+}
+
+/// Words that can't be read: when, on what, why, the effect, and the settings that fix it (when
+/// settings can).
+struct Unreadable {
+    at: u64,
+    prop: String,
+    why: String,
+    id: String,
+    settings: Option<serde_json::Value>,
+}
 
 /// What a prop gives an effect to draw on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -532,8 +555,8 @@ impl Reviewer<'_> {
         let pixels: usize = show.props.iter().map(|p| p.node_count() as usize).sum();
         // (what's wrong, the prop, the row, the kind) → the effects, as (start, end).
         let mut misfits: BTreeMap<Misfit, Vec<(u64, u64)>> = BTreeMap::new();
-        let mut unreadable: Vec<(u64, String, String)> = Vec::new();
-        let mut flickers: Vec<(u64, u64, f32, String)> = Vec::new();
+        let mut unreadable: Vec<Unreadable> = Vec::new();
+        let mut flickers: Vec<Flicker> = Vec::new();
         let (mut all_ms, mut misfit_ms, mut texts, mut bad_texts) = (0u64, 0u64, 0usize, 0usize);
         for row in &doc.rows {
             let prop = match row.target {
@@ -556,12 +579,14 @@ impl Reviewer<'_> {
                     && lights as f32 * share >= LARGE_AREA * pixels.max(1) as f32
                 {
                     let name = crate::diff::target_name(show, row.target);
-                    flickers.push((
-                        effect.start_ms,
-                        effect.end_ms,
+                    flickers.push(Flicker {
+                        from: effect.start_ms,
+                        to: effect.end_ms,
                         hz,
-                        name.trim_start_matches("group ").to_string(),
-                    ));
+                        target: name.trim_start_matches("group ").to_string(),
+                        id: effect.id.to_string(),
+                        kind,
+                    });
                 }
                 let Some(prop) = prop else {
                     continue;
@@ -599,7 +624,18 @@ impl Reviewer<'_> {
                     texts += 1;
                     if let Some(why) = text_problem(text, effect, on) {
                         bad_texts += 1;
-                        unreadable.push((effect.start_ms, prop.name.clone(), why));
+                        unreadable.push(Unreadable {
+                            at: effect.start_ms,
+                            prop: prop.name.clone(),
+                            why,
+                            id: effect.id.to_string(),
+                            settings: match on {
+                                Canvas::Grid { columns, rows } => {
+                                    super::text::readable(text, effect, columns, rows)
+                                }
+                                _ => None,
+                            },
+                        });
                     }
                 }
             }
@@ -628,31 +664,88 @@ impl Reviewer<'_> {
             );
             self.fixes.add(rank::FIT, first, what, Vec::new(), Some(hint));
         }
-        unreadable.sort();
-        for (at, prop, why) in unreadable.into_iter().take(2) {
-            let what = format!("The words on {prop} at {} can't be read: {why}", format_ms(at));
-            self.fixes.add(
-                rank::TEXT,
-                at,
-                what,
-                Vec::new(),
-                Some("get_guide effects: [\"text\"] has what fits.".into()),
+        unreadable.sort_by(|a, b| (a.at, &a.prop).cmp(&(b.at, &b.prop)));
+        for words in unreadable.into_iter().take(3) {
+            let what = format!(
+                "The words on {} at {} can't be read: {}",
+                words.prop,
+                format_ms(words.at),
+                words.why
             );
+            // The settings that make them readable, when settings can; otherwise it's a choice.
+            let (calls, hint) = match words.settings {
+                Some(settings) => (
+                    vec![Call {
+                        tool: "change_effects",
+                        input: json!({ "ids": [words.id], "change": { "settings": settings } }),
+                    }],
+                    None,
+                ),
+                None => (
+                    Vec::new(),
+                    Some("get_guide effects: [\"text\"] has what fits.".to_string()),
+                ),
+            };
+            self.fixes.add(rank::TEXT, words.at, what, calls, hint);
         }
-        flickers.sort_by_key(|a| a.0);
-        if let Some((from, to, hz, target)) = flickers.first() {
+        flickers.sort_by_key(|f| f.from);
+        if let Some(first) = flickers.first() {
             self.safe = false;
             self.criteria.safety = 0;
+            let more = match flickers.len() - 1 {
+                0 => String::new(),
+                1 => ", and 1 more stretch like it".to_string(),
+                n => format!(", and {n} more stretches like it"),
+            };
+            let what = format!(
+                "{} flickers about {:.0} times a second over a large part of the display ({}–{}{more}): over 3 a second can trigger seizures in people sensitive to flashing.",
+                first.target,
+                first.hz,
+                format_ms(first.from),
+                format_ms(first.to)
+            );
+            // One call for each kind of effect doing it: an On's shimmer off, the others slowed.
+            let mut kinds: Vec<EffectKind> = Vec::new();
+            for flicker in &flickers {
+                if !kinds.contains(&flicker.kind) {
+                    kinds.push(flicker.kind);
+                }
+            }
+            let calls = kinds
+                .into_iter()
+                .map(|kind| {
+                    let these: Vec<&Flicker> = flickers.iter().filter(|f| f.kind == kind).collect();
+                    let settings = if kind == EffectKind::On {
+                        json!({ "shimmer": false })
+                    } else {
+                        json!({ "rate": 2 })
+                    };
+                    let mut input = if these.len() <= IDS_IN_A_FIX {
+                        json!({ "ids": these.iter().map(|f| f.id.as_str()).collect::<Vec<_>>() })
+                    } else {
+                        let starts = these.iter().map(|f| f.from);
+                        json!({
+                            "kinds": [crate::knowledge::reference::key_of(&kind)],
+                            "fromMs": starts.clone().min().unwrap_or(0),
+                            "toMs": starts.max().unwrap_or(0) + 1,
+                        })
+                    };
+                    input["change"] = json!({ "settings": settings });
+                    Call {
+                        tool: "change_effects",
+                        input,
+                    }
+                })
+                .collect();
             self.fixes.add(
                 rank::SAFETY,
-                *from,
-                format!(
-                    "{target} flickers about {hz:.0} times a second over a large part of the display ({}–{}): over 3 a second can trigger seizures in people sensitive to flashing.",
-                    format_ms(*from),
-                    format_ms(*to)
+                first.from,
+                what,
+                calls,
+                Some(
+                    "That stops it, or slows it to 2 a second. A faster flicker is only for one small prop, for a moment."
+                        .into(),
                 ),
-                Vec::new(),
-                Some("Slow it to under 3 a second, or keep it to one small prop for a moment.".into()),
             );
         }
     }

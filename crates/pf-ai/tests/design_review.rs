@@ -4,7 +4,7 @@
 //! props, fire on a string, words too wide to read, a shimmer over the whole house), each found,
 //! said specifically enough to fix, and fixed by the fix it gives.
 
-use pf_ai::review::{Fix, Review};
+use pf_ai::review::{Call, Fix, Review};
 use pf_ai::stage::{self, BAR_MS, SONG_MS, Stage};
 use pf_ai::{Cancel, Draft, OpenDoc, UiContext, Workspace};
 use pf_analysis::Analysis;
@@ -396,6 +396,13 @@ fn effects_on_props_they_dont_suit_are_named_and_words_that_cant_be_read_are_exp
         "{}",
         wide.what
     );
+    // The settings that make them readable come with it: once across in the four seconds.
+    assert_eq!(wide.calls.len(), 1, "{wide:?}");
+    assert_eq!(wide.calls[0].tool, "change_effects");
+    assert_eq!(
+        wide.calls[0].input["change"],
+        json!({ "settings": { "movement": "left", "speed": 14 } })
+    );
     let run = find(&review, "The words on Roofline at 0:40.000 can't be read");
     assert!(run.what.contains("letters need rows to stand on"), "{}", run.what);
 }
@@ -428,6 +435,14 @@ fn a_shimmer_over_the_whole_house_is_unsafe_though_no_frame_shows_it() {
         fix.what.starts_with("Whole House flickers about 20 times a second over a large part of the display (0:24.000–0:28.000)"),
         "{}",
         fix.what
+    );
+    // The call that stops it comes with it, naming the effect.
+    assert_eq!(
+        fix.calls,
+        vec![Call {
+            tool: "change_effects",
+            input: json!({ "ids": [shimmer.id.to_string()], "change": { "settings": { "shimmer": false } } }),
+        }]
     );
     // On one arch it is a small area: not this check's business.
     let mut small = Show::new();

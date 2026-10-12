@@ -4,6 +4,7 @@
 //! two and a half cells a second for each point of speed.
 
 use pf_sequence::{Effect, TextCountdown, TextMovement, TextOrientation, TextParams};
+use serde_json::{Map, Value};
 
 /// The fewest rows the font's letters need to keep their shapes.
 pub(super) const SMALLEST_LETTERS: u32 = 7;
@@ -104,10 +105,99 @@ pub(super) fn problem(text: &TextParams, effect: &Effect, columns: u32, rows: u3
     None
 }
 
+/// The settings that make `text`'s words readable on a grid of `columns` by `rows` for as long
+/// as `effect` lasts, when changing settings alone can do it: letters at the font's own height
+/// (or as tall as fit), and, when the words are too wide to stand still or move at the wrong
+/// speed, crossing once in the time there is. `None` when no setting does it (too many words for
+/// the time, stacked letters, several lines): that takes a decision.
+pub(super) fn readable(text: &TextParams, effect: &Effect, columns: u32, rows: u32) -> Option<Value> {
+    if text.countdown != TextCountdown::None
+        || text.orientation != TextOrientation::Across
+        || text.text.contains('\n')
+        || rows < SMALLEST_LETTERS
+    {
+        return None;
+    }
+    let mut fixed = text.clone();
+    let mut settings = Map::new();
+    if fixed.size < SMALLEST_LETTERS || fixed.size > rows {
+        fixed.size = FONT_HEIGHT.min(rows).max(SMALLEST_LETTERS);
+        settings.insert("size".into(), fixed.size.into());
+    }
+    if problem(&fixed, effect, columns, rows).is_some() {
+        let across = width(fixed.text.chars().count(), fixed.size);
+        let seconds = (effect.duration_ms() as f32 / 1000.0).max(0.1);
+        let speed = ((columns as f32 + across) / (seconds * CELLS_A_SECOND)).ceil();
+        fixed.speed = (speed as u32).clamp(1, 100);
+        settings.insert("speed".into(), fixed.speed.into());
+        if !matches!(fixed.movement, TextMovement::Left | TextMovement::Right) {
+            fixed.movement = TextMovement::Left;
+            settings.insert("movement".into(), "left".into());
+        }
+        if fixed.to_center {
+            fixed.to_center = false;
+            settings.insert("toCenter".into(), false.into());
+        }
+    }
+    (!settings.is_empty() && problem(&fixed, effect, columns, rows).is_none())
+        .then_some(Value::Object(settings))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use pf_sequence::{EffectKind, EffectParams};
+
+    #[test]
+    fn settings_that_make_words_readable_are_worked_out_when_settings_can() {
+        // Too small: the font's own height. It then fits standing still.
+        let (params, effect) = text("JOY", |p| p.size = 5, 4_000);
+        assert_eq!(
+            readable(&params, &effect, 40, 20),
+            Some(serde_json::json!({ "size": 8 }))
+        );
+        // Too wide to stand still: once across in the four seconds there are (40 columns and
+        // 95 of words at two and a half columns a second for each point of speed).
+        let (params, effect) = text("MERRY AND BRIGHT", |_| {}, 4_000);
+        assert_eq!(
+            readable(&params, &effect, 40, 20),
+            Some(serde_json::json!({ "movement": "left", "speed": 14 }))
+        );
+        // Scrolling too fast to read, the other way: slowed, still going right.
+        let (params, effect) = text(
+            "JOY",
+            |p| {
+                p.movement = TextMovement::Right;
+                p.speed = 60;
+            },
+            4_000,
+        );
+        assert_eq!(
+            readable(&params, &effect, 40, 20),
+            Some(serde_json::json!({ "speed": 6 }))
+        );
+        // Every answer leaves nothing to fix.
+        for (words, ms) in [
+            ("JOY", 4_000),
+            ("MERRY AND BRIGHT", 4_000),
+            ("LANTERNS HIGH ABOVE", 8_000),
+        ] {
+            let (mut params, effect) = text(words, |p| p.size = 4, ms);
+            let settings = readable(&params, &effect, 40, 20).unwrap();
+            params.size = settings["size"].as_u64().unwrap() as u32;
+            if let Some(speed) = settings["speed"].as_u64() {
+                (params.speed, params.movement) = (speed as u32, TextMovement::Left);
+            }
+            assert_eq!(problem(&params, &effect, 40, 20), None, "{words}");
+        }
+        // Too many words for the time, or nothing wrong: no settings to give.
+        let (params, effect) = text("EVERY WINDOW STARTS TO GLOW TONIGHT AND TOMORROW", |_| {}, 1_000);
+        assert_eq!(readable(&params, &effect, 40, 20), None);
+        let (params, effect) = text("JOY", |_| {}, 4_000);
+        assert_eq!(readable(&params, &effect, 40, 20), None);
+        let (params, effect) = text("JOY\nJOY", |p| p.size = 5, 4_000);
+        assert_eq!(readable(&params, &effect, 40, 20), None);
+    }
 
     fn text(words: &str, change: impl Fn(&mut TextParams), ms: u64) -> (TextParams, Effect) {
         let mut params = TextParams {

@@ -83,6 +83,13 @@ Filled in as each lands; the commit that closes a gap adds its line here.
   checked against the edit's schema.
 - **Budgets.** `sequence_add_effect` went from 7,960 to about 4,950 of its 8,000 bytes: what each
   blend and curve shape does moved to the guides, generated from the same comments.
+- **What each effect draws, and how to use it.** A written guide for each of the 40 effect
+  kinds, from frames drawn by the engine on a string, an arch, a matrix, a tree, and the whole
+  house as one group: what it draws on each, what every setting and choice is for, when to use
+  it, and 186 named looks ready to place. The build stops (the `match` in
+  `crates/pf-ai/src/knowledge/library.rs`) when an effect kind has no guide, and the tests fail,
+  saying what to write, when a guide misses a setting or a choice, names one that isn't there,
+  or gives a look that isn't a real effect or lights nothing where it says it suits.
 
 ## Still out of reach
 

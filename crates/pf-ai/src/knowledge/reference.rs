@@ -125,14 +125,23 @@ fn setting_line(kind: EffectKind, setting: &SettingInfo) -> String {
             let notes = choice_notes(kind, setting.key);
             let listed: Vec<String> = options
                 .iter()
-                .map(|o| match notes.get(o.value).filter(|n| !n.is_empty()) {
-                    Some(note) => format!("`{}` ({}: {})", o.value, o.label, note.trim_end_matches('.')),
-                    None => format!("`{}` ({})", o.value, o.label),
+                .map(|o| {
+                    match notes
+                        .get(o.value)
+                        .filter(|n| !n.is_empty() && !n.trim_end_matches('.').eq_ignore_ascii_case(o.label))
+                    {
+                        Some(note) => format!("`{}` ({}: {})", o.value, o.label, note.trim_end_matches('.')),
+                        None => format!("`{}` ({})", o.value, o.label),
+                    }
                 })
                 .collect();
             format!("{}; default `{default}`", listed.join(" | "))
         }
         SettingValue::Face { .. } => "the name of one of the prop's faces; \"\" is its first".to_string(),
+        SettingValue::Text { default } if !default.is_empty() => format!(
+            "text, up to {} characters; default \"{default}\"",
+            pf_sequence::MAX_TEXT_LEN
+        ),
         SettingValue::Text { .. } => {
             format!("text, up to {} characters", pf_sequence::MAX_TEXT_LEN)
         }

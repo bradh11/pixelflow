@@ -245,15 +245,13 @@ fn every_guide_on_disk_is_in_the_app_and_every_guide_in_the_app_is_on_disk() {
         topics,
         "guides/topics and the TOPICS list in knowledge/library.rs name the same guides"
     );
-    let effects: BTreeSet<String> = EffectKind::ALL
-        .iter()
-        .filter(|k| library::effect_source(**k).is_some())
-        .map(reference::key_of)
-        .collect();
+    // Every effect kind has its guide (the build itself insists: see `effect_source`), and
+    // nothing else is in the folder.
+    let effects: BTreeSet<String> = reference::kind_keys().into_iter().collect();
     assert_eq!(
         on_disk("effects"),
         effects,
-        "guides/effects and knowledge/library.rs name the same guides (a guide is named for its effect's kind, like colorWash.md)"
+        "guides/effects holds one guide for each effect kind, named for its key (like colorWash.md)"
     );
 }
 
@@ -337,6 +335,118 @@ fn a_long_answer_keeps_whole_guides_and_names_the_ones_left_for_another_call() {
             &answer[answer.len() - 200..]
         );
     }
+}
+
+#[test]
+fn the_guides_are_complete() {
+    // Every effect kind has a guide that says what it draws on a string, an arch, a matrix, a
+    // tree, and the whole house; names every setting and choice the kind has and none it
+    // doesn't; and gives looks that are real effects and light every target they say they suit.
+    // Each problem says what to write, and where.
+    let problems = check::problems(None, None);
+    assert!(
+        problems.is_empty(),
+        "The Assistant's guides have fallen behind PixelFlow ({} to fix):\n\n{}",
+        problems.len(),
+        problems.join("\n\n")
+    );
+}
+
+#[test]
+fn a_guide_that_falls_behind_its_effect_is_told_what_to_write() {
+    let stage = Stage::new();
+    let bars = library::effect_source(EffectKind::Bars);
+    assert_eq!(
+        check::effect_problems(EffectKind::Bars, Some(bars), &stage),
+        Vec::<String>::new()
+    );
+    let problems = |source: &str| check::effect_problems(EffectKind::Bars, Some(source), &stage).join("\n");
+
+    // No guide at all (a new effect kind): what to draw, what to write, and where.
+    let missing = check::effect_problems(EffectKind::Bars, None, &stage).join("\n");
+    for words in [
+        "The Assistant has no guide for the Bars effect",
+        "crates/pf-ai/guides/effects/bars.md",
+        "knowledge/library.rs",
+        "--example guide_sheets",
+        "--kinds bars --auto",
+        "What it draws, Settings, When to use it, Looks",
+        "`count`, `speed`, `axis`",
+        "docs/dev/assistant-guides.md",
+    ] {
+        assert!(missing.contains(words), "{words}: {missing}");
+    }
+
+    // A setting or a choice the effect has gained since the guide was written.
+    let without = |name: &str| bars.replace(&format!("`{name}`"), name);
+    let said = problems(&without("highlight"));
+    assert!(
+        said.contains("has settings its guide doesn't mention: `highlight`"),
+        "{said}"
+    );
+    let said = problems(&without("step"));
+    assert!(
+        said.contains("has choices its guide doesn't mention: `step`"),
+        "{said}"
+    );
+    // A setting the guide names that the effect doesn't have (renamed, or another effect's).
+    let said = problems(&bars.replace("- `count`:", "- `count` (with `bands`):"));
+    assert!(
+        said.contains("names things the Bars effect (and PixelFlow's tools) don't have: `bands`")
+            && said.contains("This effect's settings: `count`, `speed`"),
+        "{said}"
+    );
+    // Another kind's setting, written as kind.setting, is fine; a made-up one is not.
+    assert_eq!(
+        problems(&bars.replace("`twinkle` or", "`twinkle` (its `twinkle.density`) or")),
+        ""
+    );
+    let said = problems(&bars.replace("`twinkle` or", "`twinkle` (its `twinkle.sparkliness`) or"));
+    assert!(said.contains("`twinkle.sparkliness`"), "{said}");
+
+    // A look that is no longer a real effect, or isn't this guide's kind.
+    let said = problems(&bars.replace("\"count\": 3, \"speed\": 0.3", "\"count\": 300, \"speed\": 0.3"));
+    assert!(
+        said.contains("the look \"Candy stripe along an outline\" isn't an effect PixelFlow can place: count is 300; use 1 to 100"),
+        "{said}"
+    );
+    let said = problems(&bars.replace(
+        "\"kind\": \"bars\", \"settings\": {\"axis\": \"horizontal\", \"count\": 3",
+        "\"kind\": \"chase\", \"settings\": {\"speed\": 3",
+    ));
+    assert!(said.contains("a guide's looks are of its own kind"), "{said}");
+    // A look that says it suits a target it lights nothing on.
+    let dark = bars.replace(
+        "\"colors\": [\"#ff0000\", \"#ffffff\"]}}",
+        "\"colors\": [\"#000000\"]}}",
+    );
+    let said = problems(&dark);
+    assert!(
+        said.contains("the look \"Candy stripe along an outline\" lights nothing on the string")
+            && said.contains("lights nothing on the arch"),
+        "{said}"
+    );
+
+    // The shape every effect's guide has.
+    let said = problems(&bars.replace("## When to use it", "## Uses"));
+    assert!(
+        said.contains("exactly these, in order: What it draws, Settings, When to use it, Looks"),
+        "{said}"
+    );
+    let said = problems(&bars.replace("# Bars", "# Stripes"));
+    assert!(
+        said.contains("its title is \"Stripes\"; the effect is called \"Bars\""),
+        "{said}"
+    );
+    let draws = bars.split("## Settings").next().unwrap();
+    let no_tree = bars.replace(draws, &draws.replace("tree", "bush"));
+    let said = problems(&no_tree);
+    assert!(
+        said.contains("doesn't say what the Bars effect looks like on: tree"),
+        "{said}"
+    );
+    let said = problems(&format!("{bars}\n{}", "More. ".repeat(2_000)));
+    assert!(said.contains("keep it under 12000"), "{said}");
 }
 
 #[test]

@@ -69,11 +69,10 @@ pub const MAX_GUIDES_PER_CALL: usize = 8;
 /// How much one `get_guide` answer may hold (under the limit on every tool answer).
 const ANSWER_BYTES: usize = crate::run::MAX_RESULT_CHARS - 2_000;
 
-/// The written guide for `kind`, read (`None`: the reference stands alone).
+/// The written guide for `kind`, read. (`None` only for a guide that can't be read, which the
+/// tests don't let through: the reference then stands alone.)
 pub fn effect_guide(kind: EffectKind) -> Option<Guide> {
-    library::effect_source(kind).map(|source| {
-        guide::parse(source).unwrap_or_else(|e| panic!("the {} guide: {e}", reference::key_of(&kind)))
-    })
+    guide::parse(library::effect_source(kind)).ok()
 }
 
 /// The guide for `kind` as the Assistant reads it: the written guide, then the reference.
@@ -87,9 +86,7 @@ pub fn effect_text(kind: EffectKind) -> String {
 
 /// The topic `key`, read, with its generated lists in place.
 pub fn topic_guide(key: &str) -> Option<Guide> {
-    let source = library::topic_source(key)?;
-    let filled = fill(source);
-    Some(guide::parse(&filled).unwrap_or_else(|e| panic!("the {key} topic: {e}")))
+    guide::parse(&fill(library::topic_source(key)?)).ok()
 }
 
 /// The topic `key` as the Assistant reads it.

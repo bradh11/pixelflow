@@ -160,6 +160,9 @@ fn look_effect(look: &Look, stage: &Stage) -> Result<pf_sequence::Effect, String
     )?;
     effect.start_ms = TRY_FROM_MS;
     effect.end_ms = TRY_FROM_MS + TRY_FOR_MS;
+    // Effects that scatter at random are seeded by their id: the same look draws the same way
+    // every time it is tried, so a sparse one can't pass on one run and fail on the next.
+    effect.id = stage::steady_id(&look.name);
     Ok(effect)
 }
 
@@ -365,19 +368,26 @@ pub fn topic_problems(key: &str, source: &str) -> Vec<String> {
 }
 
 /// Everything wrong with the guides: the ones compiled into the app, or, with `folder`, the ones
-/// in that folder (`effects/<kind>.md`, `topics/<key>.md`) as they are on disk.
-pub fn problems(folder: Option<&Path>) -> Vec<String> {
+/// in that folder (`effects/<kind>.md`, `topics/<key>.md`) as they are on disk. With `only`,
+/// those effects' guides and nothing else.
+pub fn problems(folder: Option<&Path>, only: Option<&[EffectKind]>) -> Vec<String> {
     let stage = Stage::new();
     let read = |part: &str, name: &str| -> Option<String> {
         std::fs::read_to_string(folder?.join(part).join(format!("{name}.md"))).ok()
     };
     let mut problems = Vec::new();
     for kind in EffectKind::ALL {
+        if only.is_some_and(|kinds| !kinds.contains(&kind)) {
+            continue;
+        }
         let source = match folder {
             Some(_) => read("effects", &reference::key_of(&kind)),
-            None => library::effect_source(kind).map(str::to_string),
+            None => Some(library::effect_source(kind).to_string()),
         };
         problems.extend(effect_problems(kind, source.as_deref(), &stage));
+    }
+    if only.is_some() {
+        return problems;
     }
     for key in library::topic_keys() {
         let source = match folder {

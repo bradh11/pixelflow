@@ -38,6 +38,9 @@ pub struct Stage {
     pub face: PropId,
     pub whole_house: GroupId,
     pub arches_group: GroupId,
+    /// The stage's sequence, made once: every copy has the same rows and timing tracks, by id,
+    /// so an effect that names a track finds it in whichever copy it's drawn on.
+    doc: Sequence,
 }
 
 fn at(mut prop: Prop, x: f32, y: f32) -> Prop {
@@ -52,7 +55,7 @@ fn generated(name: &str, shape: Generator) -> Prop {
 /// A face on a matrix of `columns` by `rows`: an outline round the edge, two eyes, and a mouth
 /// for every mouth shape, each a block of pixels as wide and tall as that shape is open.
 fn face(prop: &Prop, columns: u32, rows: u32) -> FaceDefinition {
-    // The node (from 1) at each column and row, whatever the wiring: found by where it sits.
+    // The node at each column and row, whatever the wiring: found by where it sits.
     let positions = pf_geometry::world_positions(prop);
     let (mut min, mut max) = ([f32::MAX; 2], [f32::MIN; 2]);
     for p in &positions {
@@ -68,7 +71,7 @@ fn face(prop: &Prop, columns: u32, rows: u32) -> FaceDefinition {
             .position(|p| {
                 cell(p.x, min[0], max[0], columns) == column && cell(p.y, min[1], max[1], rows) == row
             })
-            .map(|i| NodeRange::new(i as u32 + 1, i as u32 + 1))
+            .map(|i| NodeRange::new(i as u32, i as u32 + 1))
     };
     let block = |across: std::ops::RangeInclusive<u32>, up: std::ops::RangeInclusive<u32>| {
         let mut nodes = Vec::new();
@@ -253,6 +256,7 @@ impl Stage {
             .collect();
         let (house_id, arches_id) = (whole_house.id, arches_group.id);
         show.groups = vec![whole_house, arches_group, windows_group];
+        let doc = empty_sequence(&show);
         Self {
             show,
             roofline: roof_id,
@@ -262,6 +266,7 @@ impl Stage {
             face: face_id,
             whole_house: house_id,
             arches_group: arches_id,
+            doc,
         }
     }
 
@@ -290,29 +295,11 @@ impl Stage {
         }
     }
 
-    /// A new sequence for the stage's song: a row for each group, then one for each prop (so a
-    /// prop's own row draws over its groups'), with the song's Beats and Bars tracks and its sung
-    /// lines, words, syllables, and mouth shapes.
+    /// The stage's sequence with nothing on it yet: a row for each group, then one for each prop
+    /// (so a prop's own row draws over its groups'), with the song's Beats and Bars tracks and its
+    /// sung lines, words, syllables, and mouth shapes. Every copy is the same, ids and all.
     pub fn sequence(&self) -> Sequence {
-        let mut doc = Sequence::new("Paper Lanterns", SONG_MS);
-        doc.audio = Some(SONG_FILE.to_string());
-        doc.rows = self
-            .show
-            .groups
-            .iter()
-            .map(|g| Row::new(Target::Group(g.id)))
-            .chain(self.show.props.iter().map(|p| Row::new(Target::Prop(p.id))))
-            .collect();
-        let analysis = song();
-        doc.timing_tracks = analysis.timing_tracks().into_iter().take(2).collect();
-        doc.timing_tracks.extend(lyric_tracks());
-        let made = crate::lyrics::tracks::from_words(&doc.timing_tracks, &analysis.onsets, SONG_MS);
-        for edit in made.into_iter().flatten() {
-            if let SequenceEdit::AddTimingTrack { track } = edit {
-                doc.timing_tracks.push(track);
-            }
-        }
-        doc
+        self.doc.clone()
     }
 
     /// The row of `doc` that lights `target`.
@@ -381,6 +368,19 @@ impl Stage {
         renderer.set_pictures(pictures.waiting());
         times_ms.iter().map(|&t| renderer.frame(doc, t)).collect()
     }
+}
+
+/// An effect id made from `name`, the same every time: effects that scatter at random are
+/// seeded by their id, so one given this id draws the same way on every run.
+pub fn steady_id(name: &str) -> pf_sequence::EffectId {
+    // FNV-1a, twice over for 128 bits.
+    let hash = |seed: u64| {
+        name.bytes().fold(seed, |h, byte| {
+            (h ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01B3)
+        })
+    };
+    let bits = (u128::from(hash(0xCBF2_9CE4_8422_2325)) << 64) | u128::from(hash(0x8422_2325_CBF2_9CE4));
+    pf_sequence::EffectId(uuid::Uuid::from_u128(bits))
 }
 
 /// The stage's one picture, as a Picture effect's `file` names it.
@@ -488,6 +488,28 @@ pub struct Pixel {
     pub x: f32,
     pub y: f32,
     pub offset: usize,
+}
+
+/// A new sequence for the stage's song on `show` (see [`Stage::sequence`]).
+fn empty_sequence(show: &Show) -> Sequence {
+    let mut doc = Sequence::new("Paper Lanterns", SONG_MS);
+    doc.audio = Some(SONG_FILE.to_string());
+    doc.rows = show
+        .groups
+        .iter()
+        .map(|g| Row::new(Target::Group(g.id)))
+        .chain(show.props.iter().map(|p| Row::new(Target::Prop(p.id))))
+        .collect();
+    let analysis = song();
+    doc.timing_tracks = analysis.timing_tracks().into_iter().take(2).collect();
+    doc.timing_tracks.extend(lyric_tracks());
+    let made = crate::lyrics::tracks::from_words(&doc.timing_tracks, &analysis.onsets, SONG_MS);
+    for edit in made.into_iter().flatten() {
+        if let SequenceEdit::AddTimingTrack { track } = edit {
+            doc.timing_tracks.push(track);
+        }
+    }
+    doc
 }
 
 impl Default for Stage {
@@ -745,6 +767,74 @@ mod tests {
         ] {
             assert!(names.contains(&track), "{track} in {names:?}");
         }
+    }
+
+    #[test]
+    fn an_effect_that_names_a_track_is_drawn_following_it() {
+        // Every copy of the stage's sequence has the same tracks, so a track found in one copy
+        // is there in the copy the effect is drawn on.
+        let stage = Stage::new();
+        assert_eq!(stage.sequence(), stage.sequence());
+        let doc = stage.sequence();
+        let beats = doc.timing_tracks.iter().find(|t| t.name == "Beats").unwrap().id;
+        let mut on = Effect::new(pf_sequence::EffectKind::On, 24_000, 28_000);
+        on.curves.insert(
+            "brightness".into(),
+            pf_sequence::Curve {
+                fade: 4.0,
+                timing_track: Some(beats),
+                ..pf_sequence::Curve::shaped(pf_sequence::CurveShape::TimingFade, 0.0, 1.0, 1.0)
+            },
+        );
+        let drawn = stage.with_effects(Suit::String, &[on]);
+        let pixel = stage.pixels(Suit::String)[0];
+        // On the beat it is bright; 300 ms later the four-frame fade has run out.
+        let frames = stage.frames(&drawn, &[24_000, 24_300], &pf_render::Pictures::none());
+        assert!(frames[0][pixel.offset] > 200, "{}", frames[0][pixel.offset]);
+        assert_eq!(frames[1][pixel.offset], 0);
+    }
+
+    #[test]
+    fn the_stages_faces_have_pixels_and_sing_the_words() {
+        let stage = Stage::new();
+        for name in ["Matrix", "Singing Face"] {
+            let prop = stage.show.props.iter().find(|p| p.name == name).unwrap();
+            let face = prop
+                .regions
+                .iter()
+                .find_map(|r| match &r.kind {
+                    pf_model::RegionKind::Face(face) => Some(face),
+                    _ => None,
+                })
+                .unwrap_or_else(|| panic!("{name} has a face"));
+            assert!(
+                face.ranges()
+                    .all(|r| r.len() == 1 && r.fits_within(prop.node_count()))
+            );
+            assert!(face.outline.len() > 40 && face.eyes_open.len() >= 12, "{name}");
+            assert_eq!(face.mouths.len(), Phoneme::ALL.len());
+        }
+        // A Faces effect on the mouth shapes of the sung words lights the matrix's face while
+        // a word is sung (the first chorus's first word starts at 24 s).
+        let doc = stage.sequence();
+        let phonemes = doc
+            .timing_tracks
+            .iter()
+            .find(|t| t.kind == TimingKind::Phonemes)
+            .expect("the stage has mouth shapes");
+        let mut faces = Effect::new(pf_sequence::EffectKind::Faces, 24_000, 28_000);
+        let pf_sequence::EffectParams::Faces(params) = &mut faces.params else {
+            panic!()
+        };
+        params.timing_track = Some(phonemes.id);
+        let drawn = stage.with_effects(Suit::Matrix, &[faces]);
+        let frame = &stage.frames(&drawn, &[24_200], &pf_render::Pictures::none())[0];
+        let lit = stage
+            .pixels(Suit::Matrix)
+            .iter()
+            .filter(|p| frame[p.offset..p.offset + 3].iter().any(|v| *v > 12))
+            .count();
+        assert!(lit > 20, "{lit} pixels of the face are lit");
     }
 
     #[test]

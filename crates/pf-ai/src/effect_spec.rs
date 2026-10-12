@@ -88,9 +88,11 @@ fn setting(kind: EffectKind, key: &str, value: &Value, cx: &Context<'_>) -> Resu
             )
         });
     };
-    let out_of = |min: f64, max: f64, default: f64| {
-        format!("{key} is {value}; use {min} to {max} (default {default}).")
-    };
+    // Ranges are said as the catalog holds them (0.1, not the 0.10000000149 an f32 widens to).
+    let out_of =
+        |min: &dyn std::fmt::Display, max: &dyn std::fmt::Display, default: &dyn std::fmt::Display| {
+            format!("{key} is {value}; use {min} to {max} (default {default}).")
+        };
     match &spec.value {
         SettingValue::Number {
             min, max, default, ..
@@ -98,8 +100,9 @@ fn setting(kind: EffectKind, key: &str, value: &Value, cx: &Context<'_>) -> Resu
             let n = value
                 .as_f64()
                 .ok_or_else(|| format!("{key} is a number, {min} to {max}."))?;
-            if !(f64::from(*min)..=f64::from(*max)).contains(&n) {
-                return Err(out_of(f64::from(*min), f64::from(*max), f64::from(*default)));
+            // Compared as the setting holds it, so 0.1 is inside a range that starts at 0.1.
+            if !(*min..=*max).contains(&(n as f32)) {
+                return Err(out_of(min, max, default));
             }
         }
         SettingValue::Int {
@@ -115,7 +118,7 @@ fn setting(kind: EffectKind, key: &str, value: &Value, cx: &Context<'_>) -> Resu
                 })
                 .ok_or_else(|| format!("{key} is a whole number, {min} to {max}."))?;
             if !(u64::from(*min)..=u64::from(*max)).contains(&n) {
-                return Err(out_of(f64::from(*min), f64::from(*max), f64::from(*default)));
+                return Err(out_of(min, max, default));
             }
             return Ok(json!(n));
         }
@@ -487,6 +490,11 @@ mod tests {
         );
         let range = refused(json!({ "kind": "chase", "settings": { "speed": 70 } }));
         assert_eq!(range, "speed is 70; use 0 to 50 (default 1).");
+        // A range's own ends are inside it, and are said as they're written.
+        let low = json!({ "kind": "picture", "settings": { "file": "", "playSpeed": 0.1 } });
+        assert!(parse(&low, &cx).is_ok());
+        let under = refused(json!({ "kind": "picture", "settings": { "playSpeed": 0.05 } }));
+        assert_eq!(under, "playSpeed is 0.05; use 0.1 to 10 (default 1).");
         let whole = refused(json!({ "kind": "chase", "settings": { "bands": 2.5 } }));
         assert_eq!(whole, "bands is a whole number, 1 to 1000.");
         let choice = refused(json!({ "kind": "chase", "settings": { "direction": "left" } }));

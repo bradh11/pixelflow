@@ -42,7 +42,7 @@ On a group the rest come into play:
 - `overlayCentered` and `overlayScaled` lay the members' grids on top of each other, centered or each stretched to the largest, so every member shows the same part of the picture: matching windows all showing one `spiral`.
 - `singleLineModelAsPixel` makes each member one cell in a row, and `defaultModelAsPixel` makes each one cell where it sits. Anything that moves across the grid (`bars` sliding across, a `wipe`, a `chase` with its `order` set to `across`) then lights whole props one after another.
 
-One thing overrides all of this: a `chase` in its usual `order`, `wiring`, runs along the pixels in the order they are wired, through each member in turn, whatever the render style, and turning or flipping the grid doesn't change it. Its own `order` and `direction` settings are how to steer it.
+One effect goes its own way: a `chase` in its usual `order`, `wiring`, runs along the pixels in the order they are wired, through each member of a group in turn, whichever grid the render style lays out, and turning or flipping the grid doesn't change it. Only the per-model styles change it, by giving each member its own chase. Its own `order` and `direction` settings are how to steer it.
 
 ## A group's own layout
 

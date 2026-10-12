@@ -2,9 +2,6 @@
 
 use pf_sequence::EffectKind;
 
-/// The written guide for each effect kind that has one, as Markdown.
-const EFFECTS: &[(EffectKind, &str)] = &[];
-
 /// The topics, in the order the index lists them: key, and the guide as Markdown.
 const TOPICS: &[(&str, &str)] = &[
     ("effect-wide", include_str!("../../guides/topics/effect-wide.md")),
@@ -16,11 +13,62 @@ const TOPICS: &[(&str, &str)] = &[
 ];
 
 /// The written guide for `kind`, as Markdown.
-pub fn effect_source(kind: EffectKind) -> Option<&'static str> {
-    EFFECTS
-        .iter()
-        .find(|(k, _)| *k == kind)
-        .map(|(_, source)| *source)
+///
+/// **Adding an effect kind? This match is where the build stops until the Assistant has been
+/// taught about it.** To get past it:
+///
+/// 1. Draw the new effect on every kind of prop and look at it:
+///    `cargo run -p pf-ai --example guide_sheets -- <a scratch folder> --kinds <kind> --auto`
+/// 2. Write `crates/pf-ai/guides/effects/<kind>.md` (the file is named for the kind's key, like
+///    `colorWash.md`) from what you saw: what it draws on a string, an arch, a matrix, a tree, and
+///    the whole house; what each of its settings and choices is for; when to use it; and at
+///    least two named looks. `docs/dev/assistant-guides.md` has the format and the rules.
+/// 3. Add its line below.
+/// 4. `cargo run -p pf-ai --example guide_sheets -- --check --kinds <kind> --guides crates/pf-ai/guides`
+///    says what the guide still lacks, as `cargo test -p pf-ai --test knowledge` will.
+pub fn effect_source(kind: EffectKind) -> &'static str {
+    match kind {
+        EffectKind::On => include_str!("../../guides/effects/on.md"),
+        EffectKind::Off => include_str!("../../guides/effects/off.md"),
+        EffectKind::ColorWash => include_str!("../../guides/effects/colorWash.md"),
+        EffectKind::Fade => include_str!("../../guides/effects/fade.md"),
+        EffectKind::Chase => include_str!("../../guides/effects/chase.md"),
+        EffectKind::Bars => include_str!("../../guides/effects/bars.md"),
+        EffectKind::Wave => include_str!("../../guides/effects/wave.md"),
+        EffectKind::Twinkle => include_str!("../../guides/effects/twinkle.md"),
+        EffectKind::Shimmer => include_str!("../../guides/effects/shimmer.md"),
+        EffectKind::Strobe => include_str!("../../guides/effects/strobe.md"),
+        EffectKind::Spiral => include_str!("../../guides/effects/spiral.md"),
+        EffectKind::Fire => include_str!("../../guides/effects/fire.md"),
+        EffectKind::Meteors => include_str!("../../guides/effects/meteors.md"),
+        EffectKind::Ripple => include_str!("../../guides/effects/ripple.md"),
+        EffectKind::Shape => include_str!("../../guides/effects/shape.md"),
+        EffectKind::Fan => include_str!("../../guides/effects/fan.md"),
+        EffectKind::Morph => include_str!("../../guides/effects/morph.md"),
+        EffectKind::Circles => include_str!("../../guides/effects/circles.md"),
+        EffectKind::Pinwheel => include_str!("../../guides/effects/pinwheel.md"),
+        EffectKind::Snowflakes => include_str!("../../guides/effects/snowflakes.md"),
+        EffectKind::Plasma => include_str!("../../guides/effects/plasma.md"),
+        EffectKind::Butterfly => include_str!("../../guides/effects/butterfly.md"),
+        EffectKind::Garlands => include_str!("../../guides/effects/garlands.md"),
+        EffectKind::Lines => include_str!("../../guides/effects/lines.md"),
+        EffectKind::Life => include_str!("../../guides/effects/life.md"),
+        EffectKind::Tendril => include_str!("../../guides/effects/tendril.md"),
+        EffectKind::Text => include_str!("../../guides/effects/text.md"),
+        EffectKind::Faces => include_str!("../../guides/effects/faces.md"),
+        EffectKind::VuMeter => include_str!("../../guides/effects/vuMeter.md"),
+        EffectKind::Impact => include_str!("../../guides/effects/impact.md"),
+        EffectKind::Wipe => include_str!("../../guides/effects/wipe.md"),
+        EffectKind::Lightning => include_str!("../../guides/effects/lightning.md"),
+        EffectKind::Pulse => include_str!("../../guides/effects/pulse.md"),
+        EffectKind::Sing => include_str!("../../guides/effects/sing.md"),
+        EffectKind::ColorShift => include_str!("../../guides/effects/colorShift.md"),
+        EffectKind::Dancer => include_str!("../../guides/effects/dancer.md"),
+        EffectKind::Picture => include_str!("../../guides/effects/picture.md"),
+        EffectKind::Shockwave => include_str!("../../guides/effects/shockwave.md"),
+        EffectKind::Fill => include_str!("../../guides/effects/fill.md"),
+        EffectKind::Fireworks => include_str!("../../guides/effects/fireworks.md"),
+    }
 }
 
 /// Every topic's key, in order.

@@ -30,7 +30,9 @@
 //! - `--pictures`: a folder Picture effects read their files from (by the name after `images/`),
 //!   besides the stage's own `images/snowman.png`.
 //! - `--check`: draw nothing; read the guides (with `--guides`, from disk) and say what is wrong
-//!   with them, as the tests would.
+//!   with them, as the tests would. With `--kinds`, only those effects' guides.
+//! - `--reference`: draw nothing; print what `get_guide` adds to each effect's guide by itself
+//!   (every setting's key, range, default, choices, and description).
 
 use pf_ai::effect_spec::{self, Context};
 use pf_ai::knowledge::{self, Suit, guide, reference};
@@ -192,11 +194,22 @@ fn draw(
         let mut sheet = Sheet::new(SHEET_WIDTH, chunk.len() * ROW_HEIGHT as usize + 6);
         for (i, row) in chunk.iter().enumerate() {
             let number = n * ROWS_PER_SHEET + i + 1;
+            // The same row draws the same way on every run (random effects are seeded by id).
+            let layers: Vec<Effect> = row
+                .layers
+                .iter()
+                .enumerate()
+                .map(|(layer, effect)| {
+                    let mut effect = effect.clone();
+                    effect.id = stage::steady_id(&format!("{name} {number} {layer}"));
+                    effect
+                })
+                .collect();
             let top = 6 + i as i32 * ROW_HEIGHT;
             sheet.number(4, top + 36, number);
             legend.push_str(&format!("{number} (sheet {}): {}\n", n + 1, row.label));
             if let Some(target) = row.target {
-                let doc = stage.with_effects_on(target, &row.layers);
+                let doc = stage.with_effects_on(target, &layers);
                 let frames = stage.frames(&doc, &times, pictures);
                 let pixels = stage.pixels(Suit::House);
                 for (m, frame) in frames.iter().enumerate() {
@@ -205,7 +218,7 @@ fn draw(
                 continue;
             }
             for suit in Suit::ALL {
-                let doc = stage.with_effects(suit, &row.layers);
+                let doc = stage.with_effects(suit, &layers);
                 let frames = stage.frames(&doc, &times, pictures);
                 let pixels = stage.pixels(suit);
                 for (m, frame) in frames.iter().enumerate() {
@@ -285,6 +298,23 @@ fn auto_variants(kind: EffectKind) -> Vec<(String, Value)> {
     out
 }
 
+/// What an effect needs before any of its settings shows anything: words for Text, a picture
+/// for Picture, the sung words for the two that sing.
+fn needed(kind: EffectKind) -> serde_json::Map<String, Value> {
+    let mut out = serde_json::Map::new();
+    for setting in reference::info(kind).settings {
+        let value = match (&setting.value, kind) {
+            (SettingValue::Text { .. }, EffectKind::Text) if setting.key == "text" => json!("HELLO"),
+            (SettingValue::Image { .. }, _) => json!(stage::PICTURE),
+            (SettingValue::TimingTrack { .. }, EffectKind::Faces) => json!("Lyrics (phonemes)"),
+            (SettingValue::TimingTrack { .. }, EffectKind::Sing) => json!("Lyrics (words)"),
+            _ => continue,
+        };
+        out.insert(setting.key.to_string(), value);
+    }
+    out
+}
+
 /// The written guide for `kind`: from `folder` when given, else the one compiled in.
 fn guide_for(kind: EffectKind, folder: Option<&Path>) -> Result<Option<knowledge::Guide>, String> {
     let key = reference::key_of(&kind);
@@ -310,6 +340,9 @@ struct Options {
     spec: Option<PathBuf>,
     pictures: Option<PathBuf>,
     check: bool,
+    reference: bool,
+    /// Whether `--kinds` was given (a check then looks at those kinds only).
+    chosen: bool,
 }
 
 fn options() -> Result<Options, String> {
@@ -322,6 +355,8 @@ fn options() -> Result<Options, String> {
         spec: None,
         pictures: None,
         check: false,
+        reference: false,
+        chosen: false,
     };
     let mut out = None;
     while let Some(arg) = args.next() {
@@ -329,10 +364,12 @@ fn options() -> Result<Options, String> {
         match arg.as_str() {
             "--auto" => options.auto = true,
             "--check" => options.check = true,
+            "--reference" => options.reference = true,
             "--guides" => options.guides = Some(PathBuf::from(value("a folder")?)),
             "--spec" => options.spec = Some(PathBuf::from(value("a file")?)),
             "--pictures" => options.pictures = Some(PathBuf::from(value("a folder")?)),
             "--kinds" => {
+                options.chosen = true;
                 options.kinds = value("effect kinds")?
                     .split(',')
                     .map(|k| reference::kind_named(k.trim()).ok_or(format!("there's no effect kind \"{k}\"")))
@@ -342,8 +379,8 @@ fn options() -> Result<Options, String> {
             other => return Err(format!("unknown option {other}")),
         }
     }
-    if !options.check {
-        options.out = out.ok_or("usage: guide_sheets <out folder> [--kinds a,b] [--auto] [--guides <folder>] [--spec rows.json] [--pictures <folder>] | --check [--guides <folder>]")?;
+    if !options.check && !options.reference {
+        options.out = out.ok_or("usage: guide_sheets <out folder> [--kinds a,b] [--auto] [--guides <folder>] [--spec rows.json] [--pictures <folder>] | --check [--kinds a,b] [--guides <folder>] | --reference [--kinds a,b]")?;
     }
     Ok(options)
 }
@@ -351,8 +388,15 @@ fn options() -> Result<Options, String> {
 fn run() -> Result<(), String> {
     let options = options()?;
     let stage = Stage::new();
+    if options.reference {
+        for kind in &options.kinds {
+            println!("{}", reference::effect(*kind));
+        }
+        return Ok(());
+    }
     if options.check {
-        let problems = knowledge::check::problems(options.guides.as_deref());
+        let kinds = options.chosen.then_some(&options.kinds[..]);
+        let problems = knowledge::check::problems(options.guides.as_deref(), kinds);
         for problem in &problems {
             println!("{problem}\n");
         }
@@ -439,12 +483,26 @@ fn run() -> Result<(), String> {
             }
         }
         if options.auto {
-            for (what, settings) in auto_variants(kind) {
+            let needed = needed(kind);
+            let mut variants = auto_variants(kind);
+            if !needed.is_empty() {
+                variants.insert(0, ("only what it needs to show anything".to_string(), json!({})));
+            }
+            for (what, changed) in variants {
+                let mut settings = needed.clone();
+                if let Some(changed) = changed.as_object() {
+                    settings.extend(changed.clone());
+                }
                 let spec =
                     json!({ "kind": key, "settings": settings, "colors": ["#ff2020", "#20ff40", "#3060ff"] });
+                let rest = if needed.is_empty() {
+                    "the rest default".to_string()
+                } else {
+                    format!("with {}, the rest default", Value::Object(needed.clone()))
+                };
                 match effect_from(&stage, &spec, &more) {
                     Ok(effect) => rows.push(Row {
-                        label: format!("{what} (red, green, blue; the rest default)"),
+                        label: format!("{what} (red, green, blue; {rest})"),
                         layers: vec![effect],
                         target: None,
                     }),

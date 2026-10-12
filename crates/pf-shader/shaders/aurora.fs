@@ -33,5 +33,5 @@ void main() {
     float fall = 1.0 - 0.8 * smoothstep(band, 1.05, uv.y);
     float height = uv.y + 0.15 * sin(x * 0.5 + t);
     vec3 color = mix(low.rgb, high.rgb, smoothstep(0.2, 0.95, height));
-    gl_FragColor = vec4(color, clamp(light * rise * fall * 1.3, 0.0, 1.0));
+    gl_FragColor = vec4(color, clamp(light * rise * fall * 1.8, 0.0, 1.0));
 }

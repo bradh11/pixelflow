@@ -134,6 +134,8 @@ struct State {
     reading: HashSet<String>,
     /// The Shader effects that were stopped, by the seed of each one's id.
     stopped: HashMap<u64, Stopped>,
+    /// The work a pixel of each file did the last time it was drawn (see [`Run::typical`]).
+    typical: HashMap<String, u64>,
 }
 
 struct Library {
@@ -230,6 +232,7 @@ impl Shaders {
                     programs: HashMap::new(),
                     reading: HashSet::new(),
                     stopped: HashMap::new(),
+                    typical: HashMap::new(),
                 }),
                 stops: AtomicUsize::new(0),
                 arrived: Mutex::new(None),
@@ -281,6 +284,7 @@ impl Shaders {
             state.files.clear();
             state.programs.clear();
             state.stopped.clear();
+            state.typical.clear();
             library.stops.store(0, Ordering::Relaxed);
         }
     }
@@ -304,12 +308,36 @@ impl Shaders {
         self.known(file)?.err()
     }
 
-    /// The least work each pixel of `file` does, once the file has been read (0 until then):
-    /// how heavy a frame with it is, for deciding how to share the frame out.
-    pub(crate) fn least_work(&self, file: &str) -> u64 {
-        match self.known(file) {
+    /// About how much work each pixel of `file` does: what one did the last time it was drawn,
+    /// or at least what any must (0 until the file has been read). How heavy a frame with it
+    /// is, for deciding how to share the frame out; what's drawn never depends on it.
+    pub(crate) fn heaviness(&self, file: &str) -> u64 {
+        let least = match self.known(file) {
             Some(Ok(program)) => program.least_work(),
             _ => 0,
+        };
+        let drawn = self
+            .library
+            .as_ref()
+            .and_then(|library| lock(&library.state).typical.get(file).copied());
+        least.max(drawn.unwrap_or(0))
+    }
+
+    /// A pixel of `file` did about `work` this frame. Kept only when it's far from what was
+    /// known, so a steady shader costs a look and no more.
+    fn note_typical(&self, file: &str, work: u64) {
+        let Some(library) = &self.library else {
+            return;
+        };
+        let mut state = lock(&library.state);
+        let room = state.typical.len() < MAX_FILES;
+        match state.typical.get_mut(file) {
+            Some(known) if work.abs_diff(*known) * 4 <= *known => {}
+            Some(known) => *known = work,
+            None if room => {
+                state.typical.insert(file.to_string(), work);
+            }
+            None => {}
         }
     }
 
@@ -741,6 +769,9 @@ struct Run {
     uniforms: Uniforms,
     /// The most work each pixel may do this frame.
     work: u32,
+    /// The work a pixel did this frame, going by the few tried before it was drawn: how heavy
+    /// the frame is, for deciding whether to share it out.
+    typical: u64,
     columns: i32,
     rows: i32,
     /// Where a stop is told: the library, the seed of the effect's id, and the frame's time.
@@ -836,9 +867,10 @@ impl Glsl {
         // Time is counted in whole frames, as the effect's frames are, so a frame's picture is
         // the same however the clock that asked for it was rounded.
         let frame_ms = f64::from(time.frame_ms.max(1));
-        let lead = (f64::from(p.lead_in) * 1000.0 / frame_ms).round().max(0.0);
+        let (speed, lead_in) = p.clamped_timing();
+        let lead = (f64::from(lead_in) * 1000.0 / frame_ms).round().max(0.0);
         let frame = time.frame() as f64 + lead;
-        let speed = f64::from(p.speed);
+        let speed = f64::from(speed);
         let frame_s = frame_ms / 1000.0;
         program.set_time(
             &mut uniforms,
@@ -856,10 +888,11 @@ impl Glsl {
         let told = cx
             .shaders
             .map(|shaders| (shaders.clone(), seed, time.start_ms + time.elapsed_ms));
-        let run = Run {
+        let mut run = Run {
             program,
             uniforms,
             work,
+            typical: 0,
             columns,
             rows,
             told,
@@ -870,8 +903,70 @@ impl Glsl {
         }
         if let Some((shaders, effect, _)) = &run.told {
             shaders.note_drawn(*effect);
+            shaders.note_typical(&p.file, run.typical);
         }
         Self { run: Some(run) }
+    }
+}
+
+/// What a Shader effect's frame cost, for measuring (see [`shader_frame_cost`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ShaderCost {
+    /// Work done, added up over the pixels (see `pf_shader::Limits::work`).
+    pub work: u64,
+    /// Pixels stopped for reaching what each may do.
+    pub stopped: u64,
+    /// The most each pixel could do (0: the effect drew nothing at all).
+    pub allowed: u32,
+}
+
+/// Draws one frame of a Shader effect on `pixels` as the renderer would, and says what it cost.
+/// For measurements and for choosing limits: nothing that draws frames calls it.
+pub fn shader_frame_cost(
+    p: &ShaderParams,
+    time: &EffectTime,
+    canvas: Canvas,
+    cx: &RenderContext,
+    pixels: &[Pixel],
+) -> ShaderCost {
+    let effect = Glsl::new(p, time, 0, canvas, cx);
+    let mut cost = ShaderCost {
+        allowed: effect.run.as_ref().map_or(0, |run| run.work),
+        ..ShaderCost::default()
+    };
+    let mut colors = [Rgba::CLEAR; RUN_PIXELS];
+    for run in pixels.chunks(RUN_PIXELS) {
+        let stats = effect.shade_counted(run, &mut colors[..run.len()]);
+        cost.work += stats.work;
+        cost.stopped += stats.stopped;
+    }
+    cost
+}
+
+impl Glsl {
+    /// [`Shade::shade_run`], saying what the run cost.
+    fn shade_counted(&self, pixels: &[Pixel], colors: &mut [Rgba]) -> pf_shader::RunStats {
+        let Some(run) = &self.run else {
+            colors.fill(Rgba::CLEAR);
+            return pf_shader::RunStats::default();
+        };
+        BENCH.with_borrow_mut(|bench| {
+            bench.xs.clear();
+            bench.ys.clear();
+            for px in pixels {
+                let (x, y) = cell_of(px, run.columns, run.rows);
+                bench.xs.push(x as f32 + 0.5);
+                bench.ys.push(y as f32 + 0.5);
+            }
+            let stats = bench.run(run, pixels.len());
+            if stats.stopped > 0 {
+                run.tell(false);
+            }
+            for (color, c) in colors.iter_mut().zip(&bench.out) {
+                *color = Rgba::new(light(c[0]), light(c[1]), light(c[2]), light(c[3]));
+            }
+            stats
+        })
     }
 }
 
@@ -880,11 +975,11 @@ impl Run {
     /// pixel does at least the program's least work, so less than that allowed stops them all;
     /// and a few pixels spread over the grid are tried, since a shader that is stopped anywhere
     /// is most often stopped nearly everywhere.
-    fn stopped_at_once(&self) -> bool {
+    fn stopped_at_once(&mut self) -> bool {
         if self.program.least_work() > u64::from(self.work) {
             return true;
         }
-        BENCH.with_borrow_mut(|bench| {
+        let stats = BENCH.with_borrow_mut(|bench| {
             bench.xs.clear();
             bench.ys.clear();
             for j in 0..PROBE {
@@ -895,8 +990,10 @@ impl Run {
                     bench.ys.push((up * self.rows as f32).floor() + 0.5);
                 }
             }
-            bench.run(self, PROBE * PROBE).stopped > 0
-        })
+            bench.run(self, PROBE * PROBE)
+        });
+        self.typical = stats.work / (PROBE * PROBE) as u64;
+        stats.stopped > 0
     }
 
     fn tell(&self, whole: bool) {
@@ -923,30 +1020,11 @@ impl Shade for Glsl {
     }
 
     fn shade_run(&self, pixels: &[Pixel], colors: &mut [Rgba]) {
-        let Some(run) = &self.run else {
-            colors.fill(Rgba::CLEAR);
-            return;
-        };
-        BENCH.with_borrow_mut(|bench| {
-            bench.xs.clear();
-            bench.ys.clear();
-            for px in pixels {
-                let (x, y) = cell_of(px, run.columns, run.rows);
-                bench.xs.push(x as f32 + 0.5);
-                bench.ys.push(y as f32 + 0.5);
-            }
-            let stats = bench.run(run, pixels.len());
-            if stats.stopped > 0 {
-                run.tell(false);
-            }
-            for (color, c) in colors.iter_mut().zip(&bench.out) {
-                *color = Rgba::new(light(c[0]), light(c[1]), light(c[2]), light(c[3]));
-            }
-        });
+        self.shade_counted(pixels, colors);
     }
 
     fn share_from(&self) -> Option<usize> {
         let run = self.run.as_ref()?;
-        (run.program.least_work() >= SHARE_FROM_WORK).then_some(RUN_PIXELS)
+        (run.typical >= SHARE_FROM_WORK).then_some(RUN_PIXELS)
     }
 }

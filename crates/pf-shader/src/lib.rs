@@ -105,10 +105,12 @@ impl Default for Limits {
     /// The limits PixelFlow reads and runs shader files under.
     ///
     /// The two on work bound the time a frame can take whatever the file says. Measured on one
-    /// thread of an M-series laptop, the dearest work there is costs about a quarter of a
-    /// nanosecond a unit, so no frame of one effect takes longer than about 150 ms, and one on
-    /// a few thousand pixels no longer than about 50 ms a thousand; a shader written to be
-    /// drawn costs a small part of that (see `docs/benchmarks.md`).
+    /// thread of an M-series laptop (`examples/hostile.rs`), the dearest work there is costs
+    /// about a third of a nanosecond a unit, so a frame's shaders can't take longer than about
+    /// 150 ms between them, and a shader written to be drawn costs about a twentieth of a
+    /// nanosecond a unit. The heaviest shader in the sequences this was built against does
+    /// 18,600 units for a pixel, so a pixel may do five times that, and a frame has room for
+    /// 27,000 pixels of it or over a million of an ordinary one (see `docs/benchmarks.md`).
     fn default() -> Self {
         Self {
             source_bytes: 256 * 1024,
@@ -117,8 +119,8 @@ impl Default for Limits {
             instructions: 200_000,
             slots: 4096,
             array_len: 256,
-            work: 200_000,
-            frame_work: 600_000_000,
+            work: 100_000,
+            frame_work: 500_000_000,
         }
     }
 }

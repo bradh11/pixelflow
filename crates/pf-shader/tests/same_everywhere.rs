@@ -141,3 +141,33 @@ fn the_same_bits_on_every_system() {
         differ.join("\n")
     );
 }
+
+/// PixelFlow's own shaders, each as its file has it, a few seconds in: what ships is what is
+/// proved the same on every system.
+#[test]
+fn pixelflows_own_shaders_are_the_same_bits_on_every_system() {
+    let found: Vec<(&str, u64)> = pf_shader::BUILT_IN
+        .iter()
+        .map(|own| (own.name, shader(own.source)))
+        .collect();
+    let expected: [(&str, u64); 8] = [
+        ("aurora", 0x6349_1cf6_7dce_ba64),
+        ("prism", 0xd8ed_8784_aa90_ea65),
+        ("lava-lamp", 0xfe43_8b09_a233_96f6),
+        ("pond", 0xbec0_e0f6_c703_434e),
+        ("nebula", 0x5c77_41af_729d_827f),
+        ("stained-glass", 0xd5c4_3cac_b448_35f9),
+        ("kaleidoscope", 0x25a7_a4b7_59c8_7304),
+        ("tunnel", 0x0608_dea8_263d_9d97),
+    ];
+    let differ: Vec<String> = found
+        .iter()
+        .filter(|f| !expected.contains(f))
+        .map(|f| format!("(\"{}\", {:#018x}),", f.0, f.1))
+        .collect();
+    assert!(
+        differ.is_empty() && found.len() == expected.len(),
+        "not the bits these were on the system they were first worked out on (or a shader was changed, and its line here wasn't):\n{}",
+        differ.join("\n")
+    );
+}

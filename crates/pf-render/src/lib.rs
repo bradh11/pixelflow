@@ -67,8 +67,8 @@ pub use effects::{
 };
 pub use geometry::{Members, Pixel, PixelBuffer, SceneGeometry};
 pub use glsl::{
-    ReadShader, Refusal, ShaderChoice, ShaderInfo, ShaderInputInfo, Shaders, Stopped, built_in_shaders,
-    is_built_in_shader, shader_input_problem, shader_name,
+    ReadShader, Refusal, ShaderChoice, ShaderCost, ShaderInfo, ShaderInputInfo, Shaders, Stopped,
+    built_in_shaders, is_built_in_shader, shader_frame_cost, shader_input_problem, shader_name,
 };
 pub use picture::{Pictures, ReadPicture};
 pub use pool::{RenderPool, default_threads};

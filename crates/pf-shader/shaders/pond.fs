@@ -3,7 +3,7 @@
   "CREDIT": "Brad Haas",
   "INPUTS": [
     { "NAME": "drop", "LABEL": "First drop", "TYPE": "point2D", "MIN": [0.0, 0.0], "MAX": [1.0, 1.0], "DEFAULT": [0.3, 0.6] },
-    { "NAME": "rings", "LABEL": "Rings", "TYPE": "float", "MIN": 1.0, "MAX": 12.0, "DEFAULT": 4.0 },
+    { "NAME": "rings", "LABEL": "Rings", "TYPE": "float", "MIN": 1.0, "MAX": 12.0, "DEFAULT": 3.0 },
     { "NAME": "speed", "LABEL": "Speed", "TYPE": "float", "MIN": -4.0, "MAX": 4.0, "DEFAULT": 1.0 },
     { "NAME": "crisp", "LABEL": "Crisp rings", "TYPE": "float", "MIN": 0.0, "MAX": 1.0, "DEFAULT": 0.4 },
     { "NAME": "water", "LABEL": "Water", "TYPE": "color", "DEFAULT": [0.0, 0.15, 0.6, 1.0] },
@@ -14,11 +14,13 @@
 // The height of the water at `p` from a drop at `at`: rings that travel outward and die away.
 float rings_from(vec2 p, vec2 at, float t) {
     float far = length(p - at);
-    return cos(6.2831853 * (far * rings - t)) / (1.0 + far * far * 2.0);
+    return cos(6.2831853 * (far * rings - t)) / (1.0 + far * 1.5);
 }
 
 void main() {
-    vec2 shape = RENDERSIZE / min(RENDERSIZE.x, RENDERSIZE.y);
+    // The longer side of the picture is 1 across: the rings are round, and as many cross a
+    // tall prop as a wide one.
+    vec2 shape = RENDERSIZE / max(RENDERSIZE.x, RENDERSIZE.y);
     vec2 p = isf_FragNormCoord * shape;
     float t = TIME * speed;
     // The other two drops keep their places relative to the first, turned a third and two thirds

@@ -2,7 +2,7 @@
   "DESCRIPTION": "Panes of colored glass with dark leading between them, slowly shifting shape as the light behind them flickers.",
   "CREDIT": "Brad Haas",
   "INPUTS": [
-    { "NAME": "panes", "LABEL": "Panes across", "TYPE": "float", "MIN": 2.0, "MAX": 12.0, "DEFAULT": 5.0 },
+    { "NAME": "panes", "LABEL": "Panes across", "TYPE": "float", "MIN": 1.0, "MAX": 12.0, "DEFAULT": 4.0 },
     { "NAME": "speed", "LABEL": "Speed", "TYPE": "float", "MIN": 0.0, "MAX": 4.0, "DEFAULT": 1.0 },
     { "NAME": "leading", "LABEL": "Leading", "TYPE": "float", "MIN": 0.0, "MAX": 0.4, "DEFAULT": 0.1 },
     { "NAME": "flicker", "LABEL": "Flicker", "TYPE": "float", "MIN": 0.0, "MAX": 1.0, "DEFAULT": 0.4 },
@@ -27,7 +27,8 @@ vec3 wheel(float turn) {
 }
 
 void main() {
-    vec2 p = isf_FragNormCoord * RENDERSIZE / min(RENDERSIZE.x, RENDERSIZE.y) * panes;
+    // So many panes along the longer side of the picture, each about as tall as it is wide.
+    vec2 p = isf_FragNormCoord * RENDERSIZE / max(RENDERSIZE.x, RENDERSIZE.y) * panes;
     vec2 square = floor(p);
     vec2 within = p - square;
     float t = TIME * speed * 0.5;

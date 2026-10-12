@@ -1214,6 +1214,11 @@ impl Shader {
         canvas: Canvas,
         cx: &RenderContext,
     ) -> Self {
+        // A Shader effect is drawn from its settings as they are: it brings each one inside
+        // its range itself, so nothing (a file's name, a list of inputs) is copied each frame.
+        if let EffectParams::Shader(p) = params {
+            return Shader::Glsl(Glsl::new(p, time, seed, canvas, cx));
+        }
         match &params.sanitized() {
             EffectParams::On(p) => Shader::On(On::new(p, time, colors)),
             EffectParams::Off(_) => Shader::Off(Off),

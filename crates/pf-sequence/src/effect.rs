@@ -3235,6 +3235,25 @@ effect_params! {
     }
 }
 
+impl ShaderParams {
+    /// Its speed and lead-in as [`Self::sanitize`] would leave them. The renderer reads these
+    /// (and the inputs, which it holds against the shader file itself) straight from the
+    /// effect each frame, so that drawing a shader copies nothing.
+    pub fn clamped_timing(&self) -> (f32, f32) {
+        let clamped = |key: &str, value: f32, default: f32| {
+            let mut value = value;
+            if let Some(spec) = Self::SETTINGS.iter().find(|spec| spec.key == key) {
+                crate::settings::SettingField::sanitize(&mut value, &spec.range, default);
+            }
+            value
+        };
+        (
+            clamped("speed", self.speed, 1.0),
+            clamped("leadIn", self.lead_in, 0.0),
+        )
+    }
+}
+
 /// The shader a new Shader effect draws: one of PixelFlow's own, so there is something to see
 /// before a file is chosen (see `pf_shader::built_in`).
 pub const DEFAULT_SHADER: &str = "pixelflow:aurora";

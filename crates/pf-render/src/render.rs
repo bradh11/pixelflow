@@ -522,8 +522,8 @@ impl Renderer {
                     // costs, roughly, so a frame that is a few pixels of one is still shared out.
                     let buffers = (self.plan.units.len() - first_unit as usize).max(1);
                     self.plan.shader_pixels += len.max(buffers * crate::glsl::LEAST_LOAD);
-                    let least = self.pictures.shaders().least_work(&p.file);
-                    heavier = len.saturating_mul((least / 256).min(4096) as usize);
+                    let heaviness = self.pictures.shaders().heaviness(&p.file);
+                    heavier = len.saturating_mul((heaviness / 256).min(4096) as usize);
                 }
                 self.plan.ops.push(Op {
                     at: (r as u32, layer, place),

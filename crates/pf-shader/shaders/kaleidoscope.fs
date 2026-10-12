@@ -10,9 +10,9 @@
   ]
 }*/
 
-// A color from round the color wheel: 0 and 1 are the same red.
+// A fully saturated color from round the color wheel: 0 and 1 are the same red.
 vec3 wheel(float turn_of_wheel) {
-    return 0.5 + 0.5 * cos(6.2831853 * (turn_of_wheel + vec3(0.0, 0.667, 0.333)));
+    return clamp(abs(fract(turn_of_wheel + vec3(0.0, 0.6667, 0.3333)) * 6.0 - 3.0) - 1.0, 0.0, 1.0);
 }
 
 void main() {
@@ -28,6 +28,6 @@ void main() {
     float b = sin(q.y * 9.0 + q.x * 3.0 + t * 0.7);
     float c = sin((q.x + q.y) * 4.0 - t);
     float bands = (a + b + c) / 3.0;
-    vec3 color = wheel(shift + far * 0.35 + bands * 0.3 - TIME * 0.05);
-    gl_FragColor = vec4(color * (0.3 + 0.7 * smoothstep(-0.4, 0.6, bands)), 1.0);
+    vec3 color = wheel(shift + far * 0.35 + bands * 0.25 - TIME * 0.05);
+    gl_FragColor = vec4(color * (0.15 + 0.85 * smoothstep(-0.5, 0.3, bands)), 1.0);
 }

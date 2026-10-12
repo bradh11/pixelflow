@@ -18,12 +18,14 @@ Use the cheap ones first. A verse to pre-chorus step is "the arches join". A pre
 
 ## A ladder for a song
 
-Give each section a level from the music's energy (`analyze_song` gives each section's, and a digit for every bar), and keep to it:
+Give every section a level from its own music's energy (`analyze_song` gives each section's, and a digit for every bar), and keep to it:
 
 - **Level 1, quiet (energy under about 0.3; bar digits 0 to 2):** a third of the props or fewer, dim, slow or still, one color and maybe a second. Changes every four or eight bars.
 - **Level 2, moderate (0.3 to 0.6; digits 3 to 5):** half to two thirds of the props, a base and one moving thing, two colors. Changes every two or four bars.
 - **Level 3, loud (0.6 to 0.85; digits 6 to 7):** every prop group has a part, two or three colors, movement on the beat. Changes every bar or two.
 - **Level 4, the top (over 0.85; digits 8 to 9):** the full house, white in the palette, the fastest movement, accents on beats. Changes every bar, hits on the moments.
+
+Every section, not only the ones a request names. Asked for calmer verses and bigger choruses, set the whole ladder: the intro, bridge, breakdown, and outro are usually quieter than the verses, so they come down at least as far, and nothing outshines the choruses. When `review_draft` says a part "is lit like a loud part" or "is dim for how loud the music is", its level is wrong whoever asked about it: fix it before proposing. (A small job, a dancer in one chorus, leaves the levels as they are.)
 
 Most songs use three of the four. A slow carol may live between 1 and 2 and get its "chorus" from a second color and the tree joining; that is right for it.
 
@@ -45,7 +47,7 @@ The same music coming back (verse 2 after chorus 1) returns to its own look, so 
 
 ## Builds and releases
 
-- A build is a climb between levels over one to eight bars. One long effect with a `ramp` curve on speed or brightness, props joining one by one, or the `ramp` cue of `stage_cue`.
+- A build is a climb between levels over one to eight bars, and it has to grow: fewer props and less light where it starts, more of both every bar, the last bar clearly the brightest. Laying a brighter effect over a look that already lights every prop doesn't read as a build: thin out first (rest some props, dim the rest), then bring props in bar by bar. The `ramp` cue of `stage_cue` does all of it over the props you name: they go dark where it starts and join from the middle out, a step brighter and faster each bar, landing on the hit. By hand: props joining one by one (`spread` `build` on "Bars"), each bar's effects brighter than the last.
 - The bar before a drop is often better emptied than filled: thin out, go dark for the last half beat, then land.
 - After a peak, release: don't hold the top level for more than eight bars or so without a dip, or it stops feeling like the top.
 - A breakdown is level 1 arriving suddenly. The drop in intensity is the effect; don't soften it with a slow fade.

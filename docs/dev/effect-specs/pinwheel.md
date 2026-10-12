@@ -915,7 +915,8 @@ and then drawn side by side with the old one on about 4,600 settings. What that 
    whole extent of `n` cells, not over the `n − 1` steps between the first and last pixel. At 0 it
    is the middle either way; at ±100 it is on the buffer's outer edge, half a cell beyond the
    last pixel's own place. xLights' frames fit this reading (99.5% of pixels against 94.8%, on a
-   wheel a quarter of the way across a 400-cell buffer).
+   wheel a quarter of the way across a 400-cell buffer). Across a dimension one cell wide the
+   setting still does nothing (section 5.7).
 2. **Shading in the spokes style (section 4).** An arm that lights `m` rays shades them by ray:
    the `k`-th ray, counting from 0 at the clockwise edge, takes the shading for position `k/m`
    across the arm. So in a sweep the ray on the dark edge is unlit and the brightest ray is at
@@ -968,12 +969,12 @@ and then drawn side by side with the old one on about 4,600 settings. What that 
 
 ### Look score, old and new
 
-| Design (section 10) | Old (two runs) | New (five runs) |
+| Design (section 10) | Old (two runs) | New (six runs) |
 |---|---|---|
-| A, large group | 100.0 / 100.0 | 100.0 in all five |
+| A, large group | 100.0 / 100.0 | 100.0 in all six |
 | A, small group | 99.8 / 99.8 | 99.6 to 99.9 |
-| B, large group | 95.9 / 97.0 | 97.2 to 97.8 |
-| B, small group | 68.0 / 68.2 | 69.8 to 74.6 |
+| B, large group | 95.9 / 97.0 | 97.2 to 97.9 |
+| B, small group | 68.0 / 68.2 | 68.3 to 74.6 |
 | C, alone | 92.9 / 93.4 | 88.8 to 90.3 |
 
 Verdicts are unchanged: four match, one close.

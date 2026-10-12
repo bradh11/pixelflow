@@ -308,15 +308,66 @@ pub struct Look {
     /// are in the part of the look chance moves most, 0–1 (see [`LITTLE`]).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub itself: Option<f64>,
+    /// That part; `None` where chance moves none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub least: Option<Component>,
+    /// The same for every part, each as it was read (moment by moment, or over the whole
+    /// effect).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub own: Option<Components>,
 }
 
 impl Look {
-    /// Why a look next to PixelFlow's other seeds says less than its score seems to; `None`
-    /// when it doesn't, and for a look moment by moment.
-    pub fn caveat(&self) -> Option<&'static str> {
-        self.itself
-            .filter(|&itself| itself < LITTLE)
-            .map(|_| "says little: PixelFlow's own renders differ as much from one seed to the next")
+    /// Why a look next to PixelFlow's other seeds says too little to judge an effect by; `None`
+    /// when it says enough, and for a look moment by moment.
+    ///
+    /// Where both renders light less of the pixels than the look takes as any ([`LIT_FLOOR`]:
+    /// a few sparks crossing a prop), there is too little light to tell anything by. And two of
+    /// PixelFlow's own renders with less than half of some part in common ([`LITTLE`]) leave
+    /// nothing to hold xLights' render to there: chance moves that part further than a
+    /// difference would. A match can't be told from chance then, so a look that matches says
+    /// too little; and so does one whose difference rests on such a part. A difference found
+    /// on the parts chance leaves enough of stands ([`Look::stands`]).
+    pub fn says_little(&self) -> Option<String> {
+        let itself = self.itself?;
+        // A share of the pixels lit that the look takes as none, in both renders: whatever the
+        // specks happen to agree on from one seed to the next, there is nothing to hold.
+        if self.seen.lit.pixelflow.max(self.seen.lit.xlights) < LIT_FLOOR {
+            return Some("too little light to tell".to_string());
+        }
+        if itself >= LITTLE || self.stands() {
+            return None;
+        }
+        Some(format!(
+            "PixelFlow's own renders have {:.0} in 100 of their {} in common from one seed to the next",
+            itself * 100.0,
+            self.least.unwrap_or(self.weakest).name()
+        ))
+    }
+
+    /// Whether the look's verdict stands on the parts PixelFlow's own renders have enough of in
+    /// common: it doesn't match, and would earn no better with full marks for every part they
+    /// have too little of in common ([`LITTLE`]).
+    fn stands(&self) -> bool {
+        let Some(own) = self.own else {
+            return false;
+        };
+        let granted = |component: Component| {
+            if own.get(component) < LITTLE {
+                1.0
+            } else {
+                self.components.get(component)
+            }
+        };
+        let at_best = Components {
+            coverage: granted(Component::Coverage),
+            brightness: granted(Component::Brightness),
+            color: granted(Component::Color),
+            pattern: granted(Component::Pattern),
+            motion: granted(Component::Motion),
+            rhythm: granted(Component::Rhythm),
+        };
+        self.verdict != Verdict::Matches && verdict(round(at_best.score())) == self.verdict
     }
 
     /// What a viewer would notice first, in a few words ("moves the opposite way"); `None` when
@@ -734,6 +785,8 @@ pub fn next_to_seeds(by_moment: &Look, chance: Chance, between: &[Parts], within
     let every = between.iter().chain(within).all(|part| part.whole.is_some());
     let mut same = [0.0; 6];
     let mut itself: f64 = 1.0;
+    let mut least_alike = None;
+    let mut owns = [1.0; 6];
     // Which parts are read over the whole effect.
     let mut whole = [false; 6];
     for component in Component::ALL {
@@ -745,7 +798,11 @@ pub fn next_to_seeds(by_moment: &Look, chance: Chance, between: &[Parts], within
             own = least(&|p| over_whole(p, at));
             alike = mean(&|p| over_whole(p, at));
         }
-        itself = itself.min(own);
+        owns[at] = round(own.clamp(0.0, 1.0));
+        if own < itself {
+            itself = own;
+            least_alike = Some(component);
+        }
         let mut part = (alike / own.max(1e-6)).min(1.0);
         let amounts = |of: &dyn Fn(&Parts) -> [f64; 2], floor: f64| {
             let ours: Vec<f64> = between.iter().map(|p| of(p)[PIXELFLOW]).collect();
@@ -798,6 +855,15 @@ pub fn next_to_seeds(by_moment: &Look, chance: Chance, between: &[Parts], within
         },
         chance,
         itself: Some(round(itself.clamp(0.0, 1.0))),
+        least: least_alike,
+        own: Some(Components {
+            coverage: owns[Component::Coverage as usize],
+            brightness: owns[Component::Brightness as usize],
+            color: owns[Component::Color as usize],
+            pattern: owns[Component::Pattern as usize],
+            motion: owns[Component::Motion as usize],
+            rhythm: owns[Component::Rhythm as usize],
+        }),
         ..*by_moment
     }
 }
@@ -1722,6 +1788,8 @@ impl LookStats {
             seconds: round(f64::from(self.frames) * seconds),
             chance: Chance::Nothing,
             itself: None,
+            least: None,
+            own: None,
         };
         let mut parts = Parts {
             same: [
@@ -2604,7 +2672,7 @@ mod tests {
         // A hundred and twenty bursts: PixelFlow's own renders are much alike, and the look
         // can be taken at its word.
         assert!(held.itself.is_some_and(|itself| itself > LITTLE), "{held:?}");
-        assert_eq!(held.caveat(), None);
+        assert_eq!(held.says_little(), None);
         // What each side showed is the same in both looks.
         assert_eq!(held.seen.lit, by_moment.seen.lit);
         assert_eq!(
@@ -2721,9 +2789,117 @@ mod tests {
         };
         let (_, held) = bursts(once, once, 80);
         assert!(held.itself.is_some_and(|itself| itself < LITTLE), "{held:?}");
-        assert!(held.caveat().is_some_and(|c| c.starts_with("says little")));
+        assert!(held.least.is_some() && held.says_little().is_some(), "{held:?}");
         // Nothing is held against it that chance alone would do.
         assert_eq!(held.verdict, Verdict::Matches, "{held:?}");
+        // Why it says little: the part PixelFlow's own renders share least, and how little of
+        // it; or, with next to nothing lit in either render, that.
+        let pulsing = Look {
+            seen: Seen {
+                lit: Pair {
+                    pixelflow: 0.33,
+                    xlights: 0.33,
+                },
+                ..held.seen
+            },
+            itself: Some(0.06),
+            least: Some(Component::Rhythm),
+            ..held
+        };
+        assert_eq!(
+            pulsing.says_little().as_deref(),
+            Some("PixelFlow's own renders have 6 in 100 of their rhythm in common from one seed to the next")
+        );
+        let specks = Look {
+            seen: Seen {
+                lit: Pair {
+                    pixelflow: 0.0003,
+                    xlights: 0.0001,
+                },
+                ..held.seen
+            },
+            ..pulsing
+        };
+        assert_eq!(specks.says_little().as_deref(), Some("too little light to tell"));
+        // However alike the specks happen to be from one seed to the next.
+        let alike = Look {
+            itself: Some(0.9),
+            ..specks
+        };
+        assert_eq!(alike.says_little().as_deref(), Some("too little light to tell"));
+        // A look moment by moment, and one whose renders are alike enough, say what they say.
+        let enough = Look {
+            itself: Some(LITTLE),
+            ..pulsing
+        };
+        let by_moment = Look {
+            itself: None,
+            least: None,
+            own: None,
+            ..pulsing
+        };
+        assert_eq!((enough.says_little(), by_moment.says_little()), (None, None));
+    }
+
+    #[test]
+    fn a_difference_found_on_the_parts_that_say_enough_stands() {
+        let (_, held) = bursts(Bursts::USUAL, Bursts::USUAL, LONG);
+        let all = |value: f64| Components {
+            coverage: value,
+            brightness: value,
+            color: value,
+            pattern: value,
+            motion: value,
+            rhythm: value,
+        };
+        let look = |components: Components, own: Components| {
+            let score = round(components.score());
+            Look {
+                score,
+                verdict: verdict(score),
+                components,
+                weakest: components.weakest(),
+                itself: Some(0.1),
+                least: Some(Component::Rhythm),
+                own: Some(own),
+                ..held
+            }
+        };
+        // PixelFlow's own renders have a tenth of their rhythm in common, and the rest of
+        // their look nearly whole.
+        let own = Components {
+            rhythm: 0.1,
+            ..all(0.9)
+        };
+        // Everything agrees: a match that can't be told from chance in its rhythm.
+        assert!(look(all(1.0), own).says_little().is_some());
+        // The colors are wrong, whatever the rhythm does: that is found, and stands.
+        let wrong_colors = Components {
+            color: 0.0,
+            ..all(1.0)
+        };
+        let found = look(wrong_colors, own);
+        assert_eq!((found.verdict, found.says_little()), (Verdict::Different, None));
+        // Only the rhythm is off, and the rhythm is what chance moves: nothing is found.
+        let off_beat = Components {
+            rhythm: 0.0,
+            ..all(1.0)
+        };
+        let unsure = look(off_beat, own);
+        assert_ne!(unsure.verdict, Verdict::Matches);
+        assert!(unsure.says_little().is_some());
+        // Close on its colors, and different only with the rhythm counted: how different rests
+        // on the rhythm, so the look says too little.
+        let both = Components {
+            color: 0.45,
+            rhythm: 0.0,
+            ..all(1.0)
+        };
+        let worse = look(both, own);
+        let colors_alone = look(Components { rhythm: 1.0, ..both }, own);
+        assert_ne!(worse.verdict, colors_alone.verdict);
+        assert!(worse.says_little().is_some());
+        assert_eq!(colors_alone.says_little(), None);
     }
 
     /// Four columns flashing for 8 frames in every 40, starting `late` frames into each: on the

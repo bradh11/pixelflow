@@ -197,16 +197,28 @@ fn main() -> ExitCode {
 /// One line on how a sequence scored.
 fn summary(card: &Scorecard) -> String {
     let (coverage, look) = (&card.coverage, &card.look);
+    // What was measured and has a look that says too little is not judged, and said so.
+    let little = &look.says_little;
+    let said_little = if little.effects == 0 {
+        String::new()
+    } else {
+        format!(
+            "; {} more ({:.0} s, {:.0}% of the effect-time) not judged: their looks say too little",
+            little.effects,
+            little.seconds,
+            little.share * 100.0
+        )
+    };
     match look.score {
         Some(score) => format!(
-            "{} (look score {score:.0}, {} of {} effects judged, {} of {} pixels measured)",
+            "{} (look score {score:.0}, {} of {} effects judged, {} of {} pixels measured{said_little})",
             headline(look),
             look.judged,
             look.of,
             coverage.pixels_measured,
             coverage.pixels
         ),
-        None => "nothing could be judged".to_string(),
+        None => format!("nothing could be judged{said_little}"),
     }
 }
 

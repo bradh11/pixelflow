@@ -8,7 +8,7 @@
 
 use pf_fidelity::compare::{OTHER_SEEDS, Options, Request, compare};
 use pf_fidelity::corpus::{self, Manifest};
-use pf_fidelity::look::{Chance, Component};
+use pf_fidelity::look::{Chance, Component, LITTLE};
 use pf_fidelity::metrics::Limits;
 use pf_fidelity::report::{corpus_markdown, headline, sequence_markdown};
 use pf_fidelity::scorecard::{Basis, Class, EffectScore, Label, Scorecard, Source, Verdict};
@@ -118,8 +118,20 @@ fn score_with(reference: Reference, options: Options) -> Scorecard {
     compare(request, options).unwrap()
 }
 
+/// Every effect held moment by moment against the reference alone. The sequence's twinkles
+/// are ten pixels for two seconds: next to PixelFlow's other seeds what they earn is a matter of
+/// the seeds an import happens to draw (see
+/// `a_few_twinkling_pixels_are_found_different_or_say_too_little`), and these tests are of
+/// other things.
+fn by_moment() -> Options {
+    Options {
+        by_moment: true,
+        ..Options::default()
+    }
+}
+
 fn score(reference: Reference) -> Scorecard {
-    score_with(reference, Options::default())
+    score_with(reference, by_moment())
 }
 
 /// The effect of `kind` on `target` starting at `start_ms`.
@@ -649,7 +661,7 @@ fn a_manifest_runs_every_sequence_and_keeps_going_past_one_it_cant_compare() {
     assert_eq!(manifest.sequences[0].fseq, good);
 
     let mut heard = Vec::new();
-    let run = corpus::run(&manifest, &Options::default(), |label, result| {
+    let run = corpus::run(&manifest, &by_moment(), |label, result| {
         heard.push((label.to_string(), result.is_ok()));
     });
     assert_eq!(
@@ -755,7 +767,7 @@ fn a_manifest_runs_every_sequence_and_keeps_going_past_one_it_cant_compare() {
 fn a_scorecard_is_json_with_every_effect_and_its_importers_label() {
     let card = score(Reference::default());
     let json = serde_json::to_value(&card).unwrap();
-    assert_eq!(json["schema"], 3);
+    assert_eq!(json["schema"], 4);
     assert_eq!(json["sequence"]["import"]["effects"], 6);
     assert_eq!(json["coverage"]["pixelsMeasured"], 35);
     let effects = json["effects"].as_array().unwrap();
@@ -1070,11 +1082,23 @@ fn an_effect_that_draws_on_chance_is_held_against_pixelflows_other_seeds() {
             .as_deref()
             .is_some_and(|why| why.contains("chance moments"))
     );
-    let judged = fireworks.look.as_ref().unwrap();
-    assert_eq!(judged.chance, Chance::Moments);
-    assert!(judged.by_moment.is_some());
-    let (_, look) = fireworks.look_basis(&card.method.audit).unwrap();
+    let (_, look) = fireworks.look_measured(&card.method.audit).unwrap();
+    assert_eq!(look.chance, Chance::Moments);
     assert!(look.itself.is_some(), "{look:?}");
+    // Four seconds of bursts say enough or too little, as the seeds have it: the effect is
+    // judged on that look, or it is not judged and the look is kept beside it.
+    match (&fireworks.look, &fireworks.says_little) {
+        (Some(judged), None) => {
+            assert_eq!(judged.chance, Chance::Moments);
+            assert!(judged.by_moment.is_some());
+        }
+        (None, Some(said)) => {
+            assert_eq!((said.chance, said.score), (Chance::Moments, look.score));
+            assert!(said.by_moment.is_some() && !said.why.is_empty(), "{said:?}");
+            assert!(fireworks.look_basis(&card.method.audit).is_none());
+        }
+        both => panic!("judged, or not for a look that says too little: {both:?}"),
+    }
     let (_, by_moment) = fireworks.look_basis_by_moment(&card.method.audit).unwrap();
     assert_eq!((by_moment.chance, by_moment.itself), (Chance::Nothing, None));
     assert_eq!(by_moment.pixel_seconds, look.pixel_seconds);
@@ -1086,10 +1110,11 @@ fn an_effect_that_draws_on_chance_is_held_against_pixelflows_other_seeds() {
         (strip.chance, strip.chance_reason.as_ref()),
         (Chance::Nothing, None)
     );
-    let judged = strip.look.as_ref().unwrap();
-    assert_eq!((judged.basis, judged.chance), (Basis::Layered, Chance::Drawn));
-    assert!(judged.by_moment.is_some());
+    let (basis, look) = strip.look_measured(&card.method.audit).unwrap();
+    assert_eq!((basis, look.chance), (Basis::Layered, Chance::Drawn));
+    assert!(strip.look_layered_by_moment.is_some());
     assert!(strip.look_solo.is_none() && strip.look_solo_by_moment.is_none());
+    assert_ne!(strip.look.is_some(), strip.says_little.is_some());
 
     // Far's blue has its pixels to itself, and every seed draws it the same: judged as ever.
     let far = effect(&card, "On", "Far", 0);
@@ -1106,15 +1131,32 @@ fn an_effect_that_draws_on_chance_is_held_against_pixelflows_other_seeds() {
     );
     assert!(far.look_solo_by_moment.is_none() && far.look_layered_by_moment.is_none());
 
-    // Both ways of judging are in the scorecard, over the same effects.
+    // Both ways of judging are in the scorecard, over the same effects: moment by moment
+    // every one is judged, and next to other seeds all but those whose looks say too little.
+    let little = card.effects.iter().filter(|e| e.says_little.is_some()).count();
     assert_eq!(
-        (card.look.judged, card.look.of),
+        (card.look.judged + little, card.look.of),
         (card.look_by_moment.judged, card.look_by_moment.of)
     );
+    assert_eq!(
+        (
+            card.look.says_little.effects,
+            card.look_by_moment.says_little.effects
+        ),
+        (little, 0)
+    );
+    assert_eq!(card.look.says_little.share > 0.0, little > 0);
+    assert!(card.look.not_judged >= card.look.says_little.share);
     let json = serde_json::to_value(&card).unwrap();
     assert_eq!(json["effects"][fireworks.index]["chance"], "moments");
-    assert_eq!(json["effects"][fireworks.index]["look"]["chance"], "moments");
-    assert!(json["effects"][fireworks.index]["look"]["byMoment"]["score"].is_number());
+    let held = if fireworks.look.is_some() {
+        "look"
+    } else {
+        "saysLittle"
+    };
+    assert_eq!(json["effects"][fireworks.index][held]["chance"], "moments");
+    assert!(json["effects"][fireworks.index][held]["byMoment"]["score"].is_number());
+    assert_eq!(json["look"]["saysLittle"]["effects"], little);
     assert!(json["lookByMoment"]["score"].is_number());
     assert_eq!(json["effects"][far.index]["look"]["chance"], "nothing");
     assert!(json["effects"][far.index]["look"].get("byMoment").is_none());
@@ -1123,11 +1165,69 @@ fn an_effect_that_draws_on_chance_is_held_against_pixelflows_other_seeds() {
         markdown.contains("## Effects held against other seeds"),
         "{markdown}"
     );
-    assert!(markdown.contains("| Fireworks | All |"), "{markdown}");
     assert!(
-        markdown.contains("its bursts go off at chance moments"),
+        markdown.contains("## Not judged: looks that say little"),
         "{markdown}"
     );
+    // What isn't judged for a look that says too little is said in the summary and listed.
+    assert_eq!(
+        markdown.contains("has a look that says too little to judge it by"),
+        little > 0,
+        "{markdown}"
+    );
+    for effect in card.effects.iter().filter(|e| e.says_little.is_some()) {
+        let row = format!("| {} | {} | {} |", effect.index, effect.kind, effect.target);
+        assert!(markdown.contains(&row), "{row}: {markdown}");
+    }
+}
+
+#[test]
+fn a_few_twinkling_pixels_are_found_different_or_say_too_little() {
+    // The made-up twinkles slide along ten pixels for two seconds, where PixelFlow's come and go
+    // at random, and at other moments from each seed. Held against its other seeds they are
+    // found different on the parts its own renders agree on, or, where those are too few, the
+    // look says too little and the effect is not judged. It never matches.
+    let card = score_with(Reference::default(), Options::default());
+    assert_eq!(card.method.other_seeds, OTHER_SEEDS as usize);
+    let twinkle = effect(&card, "Twinkle", "Strip", 2000);
+    assert_eq!(twinkle.chance, Chance::Drawn);
+    let look = &card.look;
+    match (&twinkle.look, &twinkle.says_little) {
+        (Some(judged), None) => {
+            assert_ne!(judged.verdict, Verdict::Matches, "{judged:?}");
+            assert_eq!(
+                (look.judged, look.says_little.effects, look.not_judged),
+                (6, 0, 0.0)
+            );
+            assert_eq!(look.time.matches, 0.7778);
+        }
+        (None, Some(said)) => {
+            assert!(said.itself < LITTLE && said.why.contains("in common"), "{said:?}");
+            // Two of the nine seconds of effect are in no share: the Ons are all that is judged.
+            assert_eq!((look.judged, look.of), (5, 6));
+            assert_eq!((look.says_little.effects, look.says_little.seconds), (1, 2.0));
+            assert_eq!((look.says_little.share, look.not_judged), (0.2222, 0.2222));
+            assert_eq!((look.time.matches, look.effects.matches), (1.0, 5));
+            let labels = card.labels.rows.iter().find(|r| r.kind == "Twinkle").unwrap();
+            assert_eq!((labels.judged(), labels.says_little), (0, 1));
+            let kind = card.kinds.iter().find(|k| k.kind == "Twinkle").unwrap();
+            assert!(kind.look.is_none() && kind.says_little == 1);
+            let summary = sequence_markdown(&card);
+            assert!(
+                summary.contains(
+                    "22% of the effect-time (1 effect, 2 s) was measured and has a look that says too little"
+                ),
+                "{summary}"
+            );
+            assert!(
+                summary.contains("| Twinkle | Strip | 0:02.0–0:04.0 |"),
+                "{summary}"
+            );
+        }
+        both => panic!("judged, or not for a look that says too little: {both:?}"),
+    }
+    // Moment by moment it is judged either way, as it was before.
+    assert_eq!(card.look_by_moment.judged, 6);
 }
 
 #[test]

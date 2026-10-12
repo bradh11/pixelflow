@@ -92,13 +92,18 @@ impl On {
 /// The scores of one way of comparing over a line's pairs.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Tally {
+    /// Every look's score, whether or not it says enough to judge by.
     pub scores: Vec<f64>,
+    /// The looks that say enough to judge by, by the verdict each earns.
     pub verdicts: ByVerdict<usize>,
+    /// The looks that say too little ([`Look::says_little`]): not judged.
+    pub little: usize,
     /// The six parts, averaged over the pairs.
     pub parts: Components,
     /// How alike PixelFlow's own renders were from one seed to the next, averaged (a look next
-    /// to the other seeds only).
+    /// to the other seeds only), and the part they most often had least of in common.
     pub itself: Option<f64>,
+    pub least: Option<Component>,
 }
 
 impl Tally {
@@ -106,13 +111,27 @@ impl Tally {
         let n = looks.len().max(1) as f64;
         let part = |c: Component| looks.iter().map(|l| l.components.get(c)).sum::<f64>() / n;
         let mut verdicts = ByVerdict::default();
+        let mut little = 0;
         for look in looks {
-            verdicts.add(look.verdict, 1);
+            if look.says_little().is_some() {
+                little += 1;
+            } else {
+                verdicts.add(look.verdict, 1);
+            }
         }
         let own: Vec<f64> = looks.iter().filter_map(|l| l.itself).collect();
+        let least = Component::ALL
+            .into_iter()
+            .map(|c| (looks.iter().filter(|l| l.least == Some(c)).count(), c))
+            .filter(|(times, _)| *times > 0)
+            // The first of those named as often.
+            .max_by_key(|(times, c)| (*times, std::cmp::Reverse(*c as usize)))
+            .map(|(_, c)| c);
         Self {
             scores: looks.iter().map(|l| l.score).collect(),
             verdicts,
+            little,
+            least,
             parts: Components {
                 coverage: part(Component::Coverage),
                 brightness: part(Component::Brightness),
@@ -967,6 +986,7 @@ fn counts(verdicts: &ByVerdict<usize>) -> String {
     )
 }
 
+/// A tally moment by moment: every look is judged.
 fn tally(tally: &Tally) -> String {
     format!(
         "{:.0} ({:.0}–{:.0}) | {}",
@@ -974,6 +994,18 @@ fn tally(tally: &Tally) -> String {
         tally.least(),
         tally.most(),
         counts(&tally.verdicts)
+    )
+}
+
+/// A tally next to other seeds: the looks judged, and those that say too little.
+fn held(tally: &Tally) -> String {
+    format!(
+        "{:.0} ({:.0}–{:.0}) | {} / {}",
+        tally.middle(),
+        tally.least(),
+        tally.most(),
+        counts(&tally.verdicts),
+        tally.little
     )
 }
 
@@ -988,7 +1020,7 @@ fn parts(tally: &Tally) -> String {
 fn table(out: &mut String, lines: &[Line], lengths: bool) {
     let _ = writeln!(
         out,
-        "| Effect | Shown | On | {}Chance decides | By moment: look (least–most) | Matches / close / different | Next to other seeds: look (least–most) | Matches / close / different | Itself | Parts judged on |",
+        "| Effect | Shown | On | {}Chance decides | By moment: look (least–most) | Matches / close / different | Next to other seeds: look (least–most) | Matches / close / different / not judged | Itself | Parts |",
         if lengths { "Seconds | " } else { "" }
     );
     let _ = writeln!(
@@ -1010,11 +1042,17 @@ fn table(out: &mut String, lines: &[Line], lengths: bool) {
             },
             line.chance.title(),
             tally(&line.by_moment),
-            line.over.as_ref().map_or_else(|| "– | –".to_string(), tally),
+            line.over.as_ref().map_or_else(|| "– | –".to_string(), held),
             line.over
                 .as_ref()
-                .and_then(|t| t.itself)
-                .map_or_else(|| "–".to_string(), |v| format!("{v:.2}")),
+                .and_then(|t| Some((t.itself?, t.least)))
+                .map_or_else(
+                    || "–".to_string(),
+                    |(itself, least)| match least {
+                        Some(part) => format!("{itself:.2} {}", part.name()),
+                        None => format!("{itself:.2}"),
+                    }
+                ),
             parts(line.judged()),
         );
     }
@@ -1033,10 +1071,12 @@ pub fn markdown(calibration: &Calibration) -> String {
          moment by moment. \"Next to other seeds\" is what an effect that draws on chance is judged \
          on: the same held against {} more of PixelFlow's own renders of it from other seeds, and \
          read over the whole effect when chance decides its moments. A look is the middle score, \
-         with the least and the most. \"Itself\" is how alike PixelFlow's own renders are from one \
-         seed to the next in the part chance moves most: under {:.1}, chance alone moves the effect \
-         by a factor of two and the score says little. The parts are coverage, brightness, color, \
-         pattern, motion, and rhythm, averaged.\n",
+         with the least and the most, of every look. \"Itself\" is how alike PixelFlow's own \
+         renders are from one seed to the next in the part chance moves most, averaged, and the \
+         part that most often was: under {:.1} in a look, chance alone moves that part by a factor \
+         of two, the look says too little, and the effect is not judged (the fourth count). The \
+         parts are coverage, brightness, color, pattern, motion, and rhythm, averaged over every \
+         look.\n",
         settings.seconds,
         settings.frame_ms,
         settings.pairs,
@@ -1055,12 +1095,12 @@ pub fn markdown(calibration: &Calibration) -> String {
     }
     if !calibration.same.is_empty() {
         let _ = writeln!(o, "\n## The same effect from other seeds\n");
-        let _ = writeln!(o, "Every line should match.\n");
+        let _ = writeln!(o, "Every line that is judged should match.\n");
         table(o, &calibration.same, false);
     }
     if !calibration.wrong.is_empty() {
         let _ = writeln!(o, "\n## One thing wrong\n");
-        let _ = writeln!(o, "No line should match.\n");
+        let _ = writeln!(o, "No line that is judged should match.\n");
         table(o, &calibration.wrong, false);
     }
     if !calibration.short.is_empty() {
@@ -1123,6 +1163,18 @@ mod tests {
             ),
             (2, 1, 1)
         );
-        assert_eq!(tally.itself, None);
+        assert_eq!((tally.itself, tally.least, tally.little), (None, None, 0));
+        // A look that says too little is counted apart, with the part behind it.
+        let mut few = look(100.0);
+        (few.itself, few.least) = (Some(0.2), Some(Component::Color));
+        let mut enough = look(100.0);
+        (enough.itself, enough.least) = (Some(0.8), Some(Component::Color));
+        let tally = Tally::of(&[few, enough, look(60.0)]);
+        assert_eq!(
+            (tally.verdicts.matches, tally.verdicts.close, tally.little),
+            (1, 1, 1)
+        );
+        assert_eq!((tally.itself, tally.least), (Some(0.5), Some(Component::Color)));
+        assert_eq!(held(&tally), "100 (60–100) | 1 / 1 / 0 / 1");
     }
 }

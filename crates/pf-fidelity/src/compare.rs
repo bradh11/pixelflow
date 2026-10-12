@@ -987,6 +987,7 @@ impl Prepared {
                     look_solo_by_moment,
                     look_layered_by_moment,
                     look: None,
+                    says_little: None,
                     solo_stats: solo[index].clone(),
                     layered_stats: layered[index].clone(),
                 }

@@ -5,7 +5,7 @@
 
 import type { Backend } from "../../api/backend";
 import type { Size } from "../../lib/layoutMath";
-import type { Box3, GizmoHandle, Orbit, Ray, V3 } from "../../lib/layout3d";
+import type { Box3, GizmoHandle, LightLook, Orbit, Ray, V3 } from "../../lib/layout3d";
 
 /** The house model's placement (layout units and degrees). */
 export interface ModelPlacement {
@@ -18,14 +18,21 @@ export interface ModelPlacement {
 export interface Scene3d {
   /** Sets the drawing size (CSS pixels) and device pixels per CSS pixel. */
   resize(size: Size, ratio: number): void;
-  /** Every pixel's position (x, y, z triples), all drawn at once. */
-  setPixels(xyz: Float32Array): void;
+  /**
+   * Every pixel's position (x, y, z triples), all drawn at once, and how each one's prop is
+   * spread out, which sizes its dot (see `packSpread`).
+   */
+  setPixels(xyz: Float32Array, spread: Float32Array): void;
   /** Changes the positions of `xyz.length / 3` pixels from pixel `start` on (after `setPixels`). */
   updatePixels(start: number, xyz: Float32Array): void;
-  /** Every pixel's color (RGB bytes); `lit` is true for live colors, which glow as much as the options say. */
+  /**
+   * Every pixel's own color (RGB bytes): black for one with none, which is drawn in the look's
+   * quiet color, under the others. `lit` is true for live colors, which glow as much as the
+   * options say.
+   */
   setColors(rgb: Uint8Array, lit: boolean): void;
-  /** How big a bulb is, in layout units. */
-  setBulbSize(size: number): void;
+  /** How big lights are drawn, and the color of the ones with none of their own. */
+  setLook(look: LightLook): void;
   /** The photo as an upright picture filling `box` (a flat box at its depth), or none. */
   setBackdrop(backdrop: { image: TexImageSource; box: Box3; opacity: number } | null): void;
   /** Loads a house model from a file's bytes, replacing any other; resolves with its box as the file has it. */
@@ -40,8 +47,12 @@ export interface Scene3d {
   setGizmo(gizmo: { origin: V3; length: number; highlight: GizmoHandle | null } | null): void;
   /** How much lit pixels glow (0 for none, to 1), and the ground. */
   setOptions(options: { glow: number; ground: boolean }): void;
-  /** Draws a frame from the camera. */
-  render(orbit: Orbit): void;
+  /**
+   * Draws a frame from the camera. `moving`: the camera is on its way somewhere, and more frames
+   * follow: small dots are drawn soft wherever they fall, so they glide. Once it's still they sit
+   * on whole device pixels, crisp, as the flat previews draw them.
+   */
+  render(orbit: Orbit, moving?: boolean): void;
   dispose(): void;
 }
 

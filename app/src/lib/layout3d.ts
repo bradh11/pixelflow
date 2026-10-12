@@ -1,6 +1,7 @@
 // Pure math for the 3D layout view: the orbiting camera (presets, fit, damping, panning and
 // zooming toward the pointer), projecting pixels to the screen and picking them, the move
-// gizmo and dragging along its axes and planes, pixel colors, and gestures still on their way.
+// gizmo and dragging along its axes and planes, pixel colors, gestures still on their way, and
+// how big each light is drawn.
 // Nothing here touches the DOM or WebGL, so it is all unit-tested; the renderer draws what this
 // works out.
 //
@@ -10,6 +11,8 @@
 import type { Background, PreviewProp3d } from "../api/types";
 import { applyTransform } from "./geometry";
 import { type Gesture, type Pt, type Size, backgroundBox, gesturePoint, tidy } from "./layoutMath";
+import { DOT_RADIUS, FILL, FINE_FROM, REACH, SMALLEST, pixelSpread3d } from "./pixelBatches";
+import { GLOW_STEPS, GLOW_STRENGTH, GLOW_WIDTH, glowStep } from "./pixelGlow";
 
 export interface V3 {
   x: number;
@@ -50,12 +53,6 @@ export const DEFAULT_PITCH = 0.18;
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 const rad = (deg: number) => (deg * Math.PI) / 180;
-
-/**
- * How strongly the 3D view's bloom spreads the lights' glow, for a glow level (0–1): none at 0,
- * and 0.9 at half way (the level a saved "Glow on" reads as: see state/view3d.ts).
- */
-export const bloomStrength = (glow: number) => 1.8 * (Number.isFinite(glow) ? clamp(glow, 0, 1) : 0);
 
 export const v3 = (x: number, y: number, z: number): V3 => ({ x, y, z });
 export const add = (a: V3, b: V3): V3 => v3(a.x + b.x, a.y + b.y, a.z + b.z);
@@ -423,28 +420,6 @@ export function pickProp(props: PreviewProp3d[], m: Mat4, size: Size, s: Pt, tol
   return pickPixel(props, m, size, s, tolerance)?.prop ?? null;
 }
 
-/**
- * How far apart neighboring pixels usually are (the median gap between pixels next to each
- * other on the wire), to size the bulbs; null when there are too few pixels to tell.
- */
-export function typicalSpacing(props: PreviewProp3d[], samples = 4000): number | null {
-  const gaps: number[] = [];
-  const total = props.reduce((n, p) => n + Math.max(0, p.xyz.length / 3 - 1), 0);
-  const every = Math.max(1, Math.floor(total / samples));
-  let k = 0;
-  for (const p of props) {
-    const a = p.xyz;
-    for (let i = 3; i + 2 < a.length; i += 3, k++) {
-      if (k % every !== 0) continue;
-      const d = Math.hypot(a[i] - a[i - 3], a[i + 1] - a[i - 2], a[i + 2] - a[i - 1]);
-      if (d > 1e-6 && Number.isFinite(d)) gaps.push(d);
-    }
-  }
-  if (gaps.length === 0) return null;
-  gaps.sort((x, y) => x - y);
-  return gaps[Math.floor(gaps.length / 2)];
-}
-
 /** Props with any pixel inside the screen rectangle between `a` and `b` (in front of the camera). */
 export function propsInRect(props: PreviewProp3d[], m: Mat4, size: Size, a: Pt, b: Pt): string[] {
   const [minX, maxX, minY, maxY] = [Math.min(a.x, b.x), Math.max(a.x, b.x), Math.min(a.y, b.y), Math.max(a.y, b.y)];
@@ -637,25 +612,23 @@ export function composeGestures3d(props: PreviewProp3d[], layers: { ids: string[
 }
 
 export type Rgb = readonly [number, number, number];
+/** Red, green and blue (of 255), and how solid the color is (0–1). */
+export type Rgba = readonly [number, number, number, number];
 
-/** Colors for pixels that don't show a lit color of their own. */
-export interface PixelPalette {
-  /** Nothing playing: a bulb that's off, but visible. */
-  unlit: Rgb;
-  /** Nothing playing: a selected prop's bulbs. */
-  selected: Rgb;
-}
+const NO_COLOR: Rgb = [0, 0, 0];
 
 /**
- * Fills `out` (RGB bytes, one triple per pixel, props in order) with each pixel's color: from
- * `frame` while something plays (missing channels are off), otherwise unlit or selected.
+ * Fills `out` (RGB bytes, one triple per pixel, props in order) with each pixel's own color:
+ * from `frame` while something plays (missing channels are off), otherwise `picked` for a
+ * selected prop's pixels. A pixel with no color of its own (off, or not selected) is black: the
+ * renderer draws it in the view's quiet color (see `LightLook`).
  */
-export function fillColors(props: PreviewProp3d[], frame: Uint8Array | null, selected: ReadonlySet<string>, palette: PixelPalette, out: Uint8Array) {
+export function fillColors(props: PreviewProp3d[], frame: Uint8Array | null, selected: ReadonlySet<string>, picked: Rgb, out: Uint8Array) {
   let at = 0;
   for (const p of props) {
     const n = Math.floor(p.xyz.length / 3);
     if (!frame) {
-      const [r, g, b] = selected.has(p.prop) ? palette.selected : palette.unlit;
+      const [r, g, b] = selected.has(p.prop) ? picked : NO_COLOR;
       for (let i = 0; i < n && at + 2 < out.length; i++, at += 3) {
         out[at] = r;
         out[at + 1] = g;
@@ -689,4 +662,171 @@ export function packPositions(props: PreviewProp3d[]): { xyz: Float32Array; star
     at += count;
   }
   return { xyz, starts };
+}
+
+// ---- How lights are drawn --------------------------------------------------------------
+//
+// The 3D view draws lights by the flat previews' rules (lib/pixelBatches.ts), worked out for each
+// light where it stands: its dot is sized from how far apart its prop's pixels are in the layout
+// and from how many device pixels a layout unit is at its distance from the camera. The
+// renderer's shaders do these sums for every light (threeScene.ts); they're written out here to
+// be read and tested.
+
+/** How lights are drawn in a view: how big, and the color of the ones with none of their own. */
+export interface LightLook {
+  /** The smallest and the largest radius a view's dot gets, in screen pixels: in between, it's `DOT_RADIUS` of a layout unit. */
+  radius: readonly [number, number];
+  /** Nothing playing: the lights of a prop that isn't selected. */
+  unlit: Rgba;
+  /** Playing: a light that's off. */
+  dark: Rgba;
+}
+
+/** Numbers to a pixel in `packSpread`'s array. */
+export const SPREAD_SIZE = 4;
+/** How far apart the pixels of a prop with no two apart count as, for sizing its dots: farther than any dot reaches. */
+const FAR_APART = 1e6;
+
+/**
+ * How every pixel's prop is spread out, for sizing its dot: for each pixel (props in order, as
+ * `packPositions` has them), how far apart its prop's pixels are, how much room they have to
+ * their side (no farther than is looked: `REACH`), and 1 when they have neighbors on every side
+ * (see `pixelSpread3d`). Last comes where the pixel is on its prop's wire: 1 for the first, 2 for
+ * the last, 3 for the only one, otherwise 0 (the pixel packed before the first, or after the
+ * last, is another prop's).
+ *
+ * Each prop is measured once for its set of points. `before`: each prop's points when the spread
+ * was last packed; a prop whose pixels are where they were isn't measured again, so a change to
+ * one prop of a big layout costs one prop's measuring.
+ */
+export function packSpread(props: PreviewProp3d[], before?: ReadonlyMap<string, Float32Array>): Float32Array {
+  const total = props.reduce((n, p) => n + Math.floor(p.xyz.length / 3), 0);
+  const out = new Float32Array(total * SPREAD_SIZE);
+  let at = 0;
+  for (const p of props) {
+    const { spacing, across, allRound } = pixelSpread3d(p.xyz, before?.get(p.prop));
+    const [near, room, round] = [Math.min(spacing, FAR_APART), Math.min(across, REACH), allRound ? 1 : 0];
+    const count = Math.floor(p.xyz.length / 3);
+    for (let i = 0; i < count; i++, at += SPREAD_SIZE) {
+      out[at] = near;
+      out[at + 1] = room;
+      out[at + 2] = round;
+      out[at + 3] = (i === 0 ? 1 : 0) + (i === count - 1 ? 2 : 0);
+    }
+  }
+  return out;
+}
+
+/**
+ * Device pixels to a layout unit, one unit in front of the camera, on a view `height` screen
+ * pixels tall with `ratio` device pixels to a screen pixel. Farther off it's that over the
+ * distance: what makes near lights bigger than far ones.
+ */
+export const pixelsPerUnit = (height: number, ratio: number) => (height * ratio) / (2 * Math.tan(rad(FOV_DEG) / 2));
+
+/** A dot stops this many device pixels short of the next pixel's place, so neighbors' soft edges don't meet. */
+export const DOT_GAP = 1.5;
+
+/**
+ * How wide a light's dot is drawn, in device pixels, where a layout unit is `scale` device pixels
+ * (`ratio` of them to a screen pixel). It's the flat previews' rule (`stampPixels`), in fractions
+ * of a device pixel so a dot's size never jumps as the camera moves: the view's dot there
+ * (`DOT_RADIUS` of a unit, within `radius`), but no more than `FILL` of the way to the next pixel
+ * of its prop (`spacing`) and stopping `DOT_GAP` short of it; and no thinner than the line the
+ * prop's pixels make where they run together, which is as wide as the room to their side (`room`)
+ * allows and at most `FILL` of the view's dot.
+ */
+export function lightWidth(spacing: number, room: number, scale: number, ratio: number, radius: readonly [number, number]): number {
+  const largest = clamp(2 * DOT_RADIUS * scale, 2 * radius[0] * ratio, 2 * radius[1] * ratio);
+  const smallest = Math.min(largest, SMALLEST * ratio);
+  const fit = (pitch: number) => Math.max(smallest, Math.min(largest, pitch * FILL, pitch - DOT_GAP));
+  const line = Math.min(fit(room * scale), Math.max(smallest, largest * FILL));
+  return Math.max(fit(spacing * scale), line);
+}
+
+/**
+ * A dot as it's drawn once the camera is still: where its middle is along the screen (`at`,
+ * device pixels) and how wide it is. One narrower than `FINE_FROM` is a whole number of device
+ * pixels wide and covers whole device pixels, as the flat previews' small dots do; a wider one
+ * stays where it is, its soft edge falling where it falls. While the camera moves, every dot does.
+ */
+export function stillDot(at: number, width: number): { at: number; width: number } {
+  if (width >= FINE_FROM) return { at, width };
+  const whole = Math.floor(width + 0.5);
+  return { at: Math.floor(at - whole / 2 + 0.5) + whole / 2, width: whole };
+}
+
+/**
+ * How much of the color of each of the two lights wired next to it a light takes on, where a
+ * layout unit is `scale` device pixels: none while its prop's pixels are a screen pixel apart or
+ * more (every light is exactly its own color), up to a third from each as they close up (the
+ * three then count alike). Pixels closer together than a screen pixel can't each show, and the
+ * flat previews make one light of them, in their average color: this keeps a far-off string of
+ * many colors from crawling as the camera moves.
+ */
+export const neighborShare = (spacing: number, scale: number, ratio: number) => clamp(1 - (spacing * scale) / ratio, 0, 1) / 3;
+
+/**
+ * The kinds of thing a dot puts at a place on the screen, in the order they're kept in there: the
+ * solid part of a colored light's dot (one lit, or selected), a colored light's soft edge, the
+ * solid part of a quiet light's (one that's off, or not selected), a quiet light's soft edge.
+ */
+export const COLORED_SOLID = 0;
+export const COLORED_EDGE = 1;
+export const QUIET_SOLID = 2;
+export const QUIET_EDGE = 3;
+export const DOT_KINDS = 4;
+
+/**
+ * Where a dot comes in the order dots are kept in at a place on the screen: the place shows the
+ * one with the least of this (0 up to 1: the depth the renderer draws it at). A colored light's
+ * dot comes before a quiet light's, wherever they stand, so a light that's off never covers one
+ * that's lit; a solid part before a soft edge of its kind, so the edge of a near dot never shows
+ * through where a farther dot is solid. Among solid parts (`cover` 1: all of the device pixel)
+ * it's the nearest to the camera, by the ratio of their distances (`from`, between `near` and
+ * `far`); among edges, the one that covers most of the pixel.
+ *
+ * `colored`: the light has a color of its own. `beside`: it's a quiet light next on its wire to
+ * a colored one, whose solid part is kept as a colored light's is (its edge is a quiet one's
+ * still): the two then meet half way between them, as in the flat previews.
+ */
+export function dotOrder(light: { colored: boolean; beside?: boolean }, cover: number, from: number, near: number, far: number): number {
+  if (cover < 1) return ((light.colored ? COLORED_EDGE : QUIET_EDGE) + 1 - cover) / DOT_KINDS;
+  const within = Math.min(Math.log2(Math.max(from, near) / near) / Math.log2(far / near), 0.9999);
+  return ((light.colored || light.beside ? COLORED_SOLID : QUIET_SOLID) + within) / DOT_KINDS;
+}
+
+/**
+ * How far from the camera a dot's solid part counts as being at a place, for `dotOrder`: the dot
+ * is a cone pointing at the camera, `cone` deep, its tip at the dot's middle (`out` 0) and half
+ * its depth left by a round dot's rim (`out` 1: how far out the place is, of the dot's radius).
+ * Of two dots as far from the camera, a place shows the one whose middle it's nearer.
+ */
+export const coneFrom = (distance: number, cone: number, out: number) => distance - cone * (1 - 0.5 * out * out);
+
+/** Halos whose bell is this narrow (device pixels) aren't drawn, and they're as strong as the level says by the second: in between they fade in, so none appears all at once as the camera nears. */
+export const HALO_FROM = [0.75, 1.5] as const;
+
+/**
+ * The glow around a lit light at a glow level (0–1), where a layout unit is `scale` device
+ * pixels: its bell's width in device pixels, and how strong it is beside the dot (of the light's
+ * color). It's the flat previews' halo (lib/pixelGlow.ts): sized from the dot a pixel has in the
+ * layout, no bigger than the view's largest.
+ */
+export function lightHalo(glow: number, scale: number, ratio: number, radius: readonly [number, number]): { bell: number; strength: number } {
+  const level = glowStep(glow) / GLOW_STEPS;
+  const bell = Math.min(radius[1] * ratio, DOT_RADIUS * scale) * (GLOW_WIDTH[0] + (GLOW_WIDTH[1] - GLOW_WIDTH[0]) * level);
+  const shown = clamp((bell - HALO_FROM[0]) / (HALO_FROM[1] - HALO_FROM[0]), 0, 1);
+  return { bell, strength: (GLOW_STRENGTH[0] + (GLOW_STRENGTH[1] - GLOW_STRENGTH[0]) * level) * shown * shown * (3 - 2 * shown) };
+}
+
+/**
+ * How bright a lit dot `width` device pixels wide is drawn (0–1 of its color) under a halo, so
+ * that with the halo added it comes out its own color: 1 less the halo's strength averaged over
+ * the dot (the flat previews' `coreDim`).
+ */
+export function lightDim(halo: { bell: number; strength: number }, width: number): number {
+  if (halo.strength <= 0) return 1;
+  const w = (2 * halo.bell) / width;
+  return 1 - halo.strength * w * w * (1 - Math.exp(-1 / (w * w)));
 }

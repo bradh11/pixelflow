@@ -6,10 +6,12 @@
 //
 // It reports frames per second as the browser paints them (capped by the display), the time to
 // draw one frame when the GPU is made to finish it (the real cost, uncapped) with new colors
-// every frame and with the camera moving only, and the time to fill and send the colors.
+// every frame and with the camera moving only, the time to fill and send the colors, and the
+// time to measure how every prop's pixels are spread out (once for a layout, not each frame).
 
 import type { PreviewProp3d } from "../../api/types";
-import { type Orbit, boundsOfXyz, fillColors, fitOrbit, packPositions, pickPixel, typicalSpacing, viewProjection } from "../../lib/layout3d";
+import { type Orbit, boundsOfXyz, fillColors, fitOrbit, packPositions, packSpread, pickPixel, viewProjection } from "../../lib/layout3d";
+import { PREVIEW_LOOK, lightLook } from "../../lib/pixelLooks";
 import { createThreeScene } from "./threeScene";
 
 /** Mega trees of 16 strings × 100 pixels in rows across a yard, `pixels` in all. */
@@ -59,8 +61,12 @@ export async function runScene3dBench({ pixels = 200_000, frames = 300, width = 
   scene.setOptions({ glow, ground: true });
   const { props, frameLength } = syntheticShow3d(pixels);
   const packed = packPositions(props);
-  scene.setPixels(packed.xyz);
-  scene.setBulbSize((typicalSpacing(props) ?? 0.1) * 0.42);
+  const { look, selected } = lightLook(PREVIEW_LOOK);
+  scene.setLook(look);
+  const t0 = performance.now();
+  const spread = packSpread(props);
+  const spreadMs = performance.now() - t0;
+  scene.setPixels(packed.xyz, spread);
   const colors = new Uint8Array(packed.xyz.length);
   const start = fitOrbit(boundsOfXyz(props.map((p) => p.xyz)), { width, height });
   const orbitAt = (i: number): Orbit => ({ ...start, yaw: start.yaw + i * 0.01 });
@@ -77,11 +83,11 @@ export async function runScene3dBench({ pixels = 200_000, frames = 300, width = 
   const drawFrame = (i: number, recolor = true) => {
     if (recolor) {
       const t0 = performance.now();
-      fillColors(props, liveFrames[i % 3], none, { unlit: [96, 96, 104], selected: [167, 139, 250] }, colors);
+      fillColors(props, liveFrames[i % 3], none, selected, colors);
       scene.setColors(colors, true);
       fillMs += performance.now() - t0;
     }
-    scene.render(orbitAt(i));
+    scene.render(orbitAt(i), true);
   };
 
   // Warm up (shader compiles, buffer uploads).
@@ -129,6 +135,8 @@ export async function runScene3dBench({ pixels = 200_000, frames = 300, width = 
     msPerFrameOrbitOnly: Math.round(msPerOrbitFrame * 100) / 100,
     colorFillAndUploadMs: Math.round(fillPerFrame * 100) / 100,
     pickMs: Math.round(pickTime(props, start, { width, height }) * 100) / 100,
+    // Once for a layout, not every frame.
+    measureSpreadMs: Math.round(spreadMs * 100) / 100,
   };
   if (keep) return result;
   scene.dispose();

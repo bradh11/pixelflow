@@ -5,7 +5,6 @@ import {
   type Box3,
   type GizmoHandle,
   type Orbit,
-  type PixelPalette,
   type Ray,
   type V3,
   backdropBox,
@@ -23,6 +22,7 @@ import {
   moveGesture3,
   orbitBy,
   packPositions,
+  packSpread,
   panBy3,
   pickPixel,
   presetOrbit,
@@ -30,12 +30,12 @@ import {
   screenRay,
   stepOrbit,
   sub,
-  typicalSpacing,
   unionBox3,
   v3,
   viewProjection,
 } from "../../lib/layout3d";
 import { type Gesture, type Pt, type Size, pinchFactor, wheelIntent, wheelZoomFactor } from "../../lib/layoutMath";
+import { LAYOUT_LOOK, PREVIEW_LOOK, lightLook } from "../../lib/pixelLooks";
 import { useLayoutEditor } from "../../state/layoutEditor";
 import { commitGesture, settlePending, unsettled } from "../../state/layoutGestures";
 import { useApp } from "../../state/store";
@@ -49,9 +49,9 @@ import { View3dControls } from "./View3dControls";
 const HIT_PX = 8;
 /** Drags shorter than this (screen pixels) count as clicks. */
 const CLICK_PX = 4;
-/** Bulbs are this fraction of the usual gap between pixels across. */
-const BULB_PER_SPACING = 0.42;
-const PALETTE: PixelPalette = { unlit: [96, 96, 104], selected: [167, 139, 250] };
+/** How lights are drawn: as on the Layout screen where props are picked and moved, as in the previews where they're only looked at. */
+const EDITING = lightLook(LAYOUT_LOOK);
+const LOOKING = lightLook(PREVIEW_LOOK);
 /** The renderer draws at most this many device pixels per CSS pixel (sharper costs more than it shows). */
 const MAX_RATIO = 2;
 
@@ -239,7 +239,7 @@ export function Layout3dView({ preview, show, photo, storageKey, editable = fals
       tick.current.last = now;
       cam.current = stepOrbit(cam.current, cam.goal, dt);
       drawSelection(scene, cam.current);
-      scene.render(cam.current);
+      scene.render(cam.current, cam.current !== cam.goal);
       if (cam.current !== cam.goal) tick.current.request = requestAnimationFrame(step);
       else {
         tick.current.last = 0;
@@ -278,13 +278,14 @@ export function Layout3dView({ preview, show, photo, storageKey, editable = fals
     const up = uploaded.current;
     if (up.preview !== latest.current.preview) {
       const packed = packPositions(props);
-      scene.setPixels(packed.xyz);
+      // Measured where the props were last saved: a move on its way doesn't change how a prop's pixels are spread.
+      // Only the props whose pixels aren't where the renderer's last layout had them are measured.
+      const before = new Map(up.preview?.props.map((p) => [p.prop, p.xyz]));
+      scene.setPixels(packed.xyz, packSpread(latest.current.preview.props, before));
       up.preview = latest.current.preview;
       up.starts = packed.starts;
       up.xyz = new Map(props.map((p) => [p.prop, p.xyz]));
       up.colors = new Uint8Array(packed.xyz.length);
-      const spacing = typicalSpacing(props);
-      scene.setBulbSize(spacing ? spacing * BULB_PER_SPACING : 0.04);
       syncColors();
       return;
     }
@@ -302,8 +303,9 @@ export function Layout3dView({ preview, show, photo, storageKey, editable = fals
     if (!scene) return;
     const up = uploaded.current;
     const f = latest.current.frame !== undefined ? latest.current.frame : liveFrame.current;
-    const selected = new Set(latest.current.editable ? useLayoutEditor.getState().selected : []);
-    fillColors(latest.current.preview.props, f ?? null, selected, PALETTE, up.colors);
+    const { editable } = latest.current;
+    const selected = new Set(editable ? useLayoutEditor.getState().selected : []);
+    fillColors(latest.current.preview.props, f ?? null, selected, (editable ? EDITING : LOOKING).selected, up.colors);
     scene.setColors(up.colors, !!f);
   };
 
@@ -345,6 +347,7 @@ export function Layout3dView({ preview, show, photo, storageKey, editable = fals
         sceneRef.current = scene;
         const { glow, ground } = useView3d.getState();
         scene.setOptions({ glow, ground });
+        scene.setLook((latest.current.editable ? EDITING : LOOKING).look);
         const s = size();
         scene.resize(s, Math.min(MAX_RATIO, window.devicePixelRatio || 1));
         setReady(true);

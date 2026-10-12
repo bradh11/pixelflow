@@ -26,7 +26,7 @@ vi.mock("./components/layout3d/threeScene", () => ({
       setPixels() {},
       updatePixels() {},
       setColors() {},
-      setBulbSize() {},
+      setLook() {},
       setBackdrop() {},
       setModel: async () => null,
       placeModel: () => null,

@@ -42,7 +42,7 @@ export interface PixelColors {
 }
 
 /** How much of the way to its neighbor a dot may reach: the rest is the gap between them. */
-const FILL = 0.7;
+export const FILL = 0.7;
 /** The smallest dot, in screen pixels: smaller, a light is too thin to see what color it is. */
 export const SMALLEST = 2;
 /**
@@ -65,7 +65,7 @@ const SAMPLES = 256;
  * own dots): farther off than that, nothing is in the way of a dot at any zoom worth drawing.
  * The squares pixels are sorted into are no smaller than a `REACH_SQUARES`th of it.
  */
-const REACH = 10 * DOT_RADIUS;
+export const REACH = 10 * DOT_RADIUS;
 const REACH_SQUARES = 5;
 /**
  * A pixel is to another's side, not along its line, when the way to it is more than this off
@@ -102,7 +102,7 @@ export function packColor(css: string): number {
  * How a prop's pixels are spread out: how far apart they are, how far they are from the pixels
  * to their side, and whether they have neighbors on every side.
  */
-interface Spread {
+export interface Spread {
   spacing: number;
   across: number;
   allRound: boolean;
@@ -111,11 +111,11 @@ interface Spread {
 const ALONE: Spread = { spacing: Infinity, across: Infinity, allRound: false };
 const spreads = new WeakMap<object, Spread>();
 
-/** How a prop's pixels are spread out, measured once for each set of points. */
+/** How a prop's pixels are spread out, measured once for each set of points (x, y pairs). */
 function spreadOf(points: ArrayLike<number>): Spread {
   let found = spreads.get(points);
   if (!found) {
-    found = measureSpread(points);
+    found = measureSpread(points, 2);
     spreads.set(points, found);
   }
   return found;
@@ -143,12 +143,57 @@ export const pixelRoom = (points: ArrayLike<number>): number => spreadOf(points)
  */
 export const pixelsAllRound = (points: ArrayLike<number>): boolean => spreadOf(points).allRound;
 
-function measureSpread(points: ArrayLike<number>): Spread {
-  const n = points.length >> 1;
+/**
+ * How a prop's pixels are spread out where they stand in the layout (x, y, z triples), for the 3D
+ * view: the same measure as the flat drawings take, with every distance taken in depth too. For
+ * a prop that's flat and faces the front, it's what they measure.
+ *
+ * A prop with depth (a tree, whose strings at the back show between the ones in front) has no
+ * more room to its pixels' side than the flat drawings find looking at it from the front: its
+ * dots are then no bolder in 3D than they are flat.
+ *
+ * Measured once for each set of points. `same`: a set measured before (the prop's points before
+ * the layout last changed, say): when `xyz` holds the very same numbers, it isn't measured again.
+ */
+export function pixelSpread3d(xyz: ArrayLike<number>, same?: ArrayLike<number>): Spread {
+  let found = spreads.get(xyz);
+  if (!found && same && same.length === xyz.length) {
+    let alike = true;
+    for (let i = 0; i < xyz.length && alike; i++) alike = xyz[i] === same[i];
+    if (alike) found = spreads.get(same);
+  }
+  if (!found) {
+    found = measureSpread(xyz, 3);
+    const count = Math.floor(xyz.length / 3);
+    let flat = true;
+    for (let i = 1; i < count && flat; i++) flat = xyz[3 * i + 2] === xyz[2];
+    if (!flat) {
+      const front = new Float64Array(count * 2);
+      for (let i = 0; i < count; i++) {
+        front[2 * i] = xyz[3 * i];
+        front[2 * i + 1] = xyz[3 * i + 1];
+      }
+      const { across } = measureSpread(front, 2);
+      if (across < found.across) found = { ...found, across };
+    }
+  }
+  spreads.set(xyz, found);
+  return found;
+}
+
+function measureSpread(points: ArrayLike<number>, stride: 2 | 3): Spread {
+  const n = Math.floor(points.length / stride);
   if (n < 2) return ALONE;
+  const deep = stride === 3;
   const picks = Math.min(n, SAMPLES);
   const pick = (k: number) => Math.floor(((k + 0.5) * n) / picks);
-  const between = (i: number, j: number) => Math.hypot(points[2 * i] - points[2 * j], points[2 * i + 1] - points[2 * j + 1]);
+  const between = deep
+    ? (i: number, j: number) => {
+        const [dx, dy, dz] = [points[3 * i] - points[3 * j], points[3 * i + 1] - points[3 * j + 1], points[3 * i + 2] - points[3 * j + 2]];
+        // Two pixels at one depth are as far apart as the flat drawings find them, to the last digit.
+        return dz === 0 ? Math.hypot(dx, dy) : Math.sqrt(dx * dx + dy * dy + dz * dz);
+      }
+    : (i: number, j: number) => Math.hypot(points[2 * i] - points[2 * j], points[2 * i + 1] - points[2 * j + 1]);
   /** From pixel `i` to the nearer of the pixels wired before and after it that aren't on the same spot. */
   const toNext = (i: number) => {
     const [before, after] = [i > 0 ? between(i, i - 1) : 0, i + 1 < n ? between(i, i + 1) : 0];
@@ -165,31 +210,41 @@ function measureSpread(points: ArrayLike<number>): Spread {
   along.sort((a, b) => a - b);
   const step = along[along.length >> 1];
 
-  let [minX, minY, maxX, maxY] = [Infinity, Infinity, -Infinity, -Infinity];
+  let [minX, minY, minZ, maxX, maxY, maxZ] = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
   for (let i = 0; i < n; i++) {
-    const [x, y] = [points[2 * i], points[2 * i + 1]];
+    const [x, y] = [points[stride * i], points[stride * i + 1]];
     if (x < minX) minX = x;
     if (x > maxX) maxX = x;
     if (y < minY) minY = y;
     if (y > maxY) maxY = y;
+    if (!deep) continue;
+    const z = points[3 * i + 2];
+    if (z < minZ) minZ = z;
+    if (z > maxZ) maxZ = z;
   }
-  const [w, h] = [maxX - minX, maxY - minY];
-  // Every pixel goes in a grid of squares, so a pixel's neighbors are found in the squares
-  // around it. A square is as wide as the step along the wiring, unless the wiring jumps about
-  // (then a few pixels wide, going by how many pixels share the prop's box), and wide enough
-  // that a few squares each way reach as far as a pixel's side is looked at.
+  // The two widest ways across the prop's box: the face of a flat prop, whichever way it's turned.
+  const [w, h] = deep ? [maxX - minX, maxY - minY, maxZ - minZ].sort((a, b) => b - a) : [maxX - minX, maxY - minY];
+  // Every pixel goes in a grid of squares (cubes, with depth), so a pixel's neighbors are found in
+  // the squares around it. A square is as wide as the step along the wiring, unless the wiring
+  // jumps about (then a few pixels wide, going by how many pixels share the prop's box), and wide
+  // enough that a few squares each way reach as far as a pixel's side is looked at.
   const cell = Math.max(REACH / REACH_SQUARES, Math.min(step, 4 * Math.max(Math.sqrt((w * h) / n), Math.max(w, h) / n)));
   let buckets = 1;
   while (buckets < 2 * n) buckets <<= 1;
-  const bucketOf = (x: number, y: number) => (Math.imul(x, 73856093) ^ Math.imul(y, 19349663)) & (buckets - 1);
-  const column = (i: number) => Math.floor((points[2 * i] - minX) / cell);
-  const row = (i: number) => Math.floor((points[2 * i + 1] - minY) / cell);
+  const bucketOf = (x: number, y: number, z: number) => (Math.imul(x, 73856093) ^ Math.imul(y, 19349663) ^ Math.imul(z, 83492791)) & (buckets - 1);
+  const column = (i: number) => Math.floor((points[stride * i] - minX) / cell);
+  const row = (i: number) => Math.floor((points[stride * i + 1] - minY) / cell);
+  const layer = deep ? (i: number) => Math.floor((points[3 * i + 2] - minZ) / cell) : () => 0;
+  // The last column, row and layer of squares with pixels in them: none are looked for past them.
+  const lastColumn = Math.floor((maxX - minX) / cell);
+  const lastRow = Math.floor((maxY - minY) / cell);
+  const lastLayer = deep ? Math.floor((maxZ - minZ) / cell) : 0;
   const starts = new Int32Array(buckets + 1);
-  for (let i = 0; i < n; i++) starts[bucketOf(column(i), row(i)) + 1]++;
+  for (let i = 0; i < n; i++) starts[bucketOf(column(i), row(i), layer(i)) + 1]++;
   for (let b = 0; b < buckets; b++) starts[b + 1] += starts[b];
   const filled = starts.slice(0, buckets);
   const inBucket = new Int32Array(n);
-  for (let i = 0; i < n; i++) inBucket[filled[bucketOf(column(i), row(i))]++] = i;
+  for (let i = 0; i < n; i++) inBucket[filled[bucketOf(column(i), row(i), layer(i))]++] = i;
 
   const same = step * 1e-3;
   /**
@@ -197,17 +252,23 @@ function measureSpread(points: ArrayLike<number>): Spread {
    * (its own for 0), and how far from it each is.
    */
   const around = (i: number, ring: number, each: (d: number, j: number) => void) => {
-    const [cx, cy] = [column(i), row(i)];
-    for (let dy = -ring; dy <= ring; dy++) {
-      const edge = dy === -ring || dy === ring;
-      for (let dx = -ring; dx <= ring; dx += edge || ring === 0 ? 1 : 2 * ring) {
-        const b = bucketOf(cx + dx, cy + dy);
-        for (let at = starts[b]; at < starts[b + 1]; at++) {
-          const j = inBucket[at];
-          // Other squares can share the bucket.
-          if (column(j) !== cx + dx || row(j) !== cy + dy) continue;
-          const d = between(i, j);
-          if (d > same) each(d, j);
+    const [cx, cy, cz] = [column(i), row(i), layer(i)];
+    const [x0, x1] = [Math.max(-ring, -cx), Math.min(ring, lastColumn - cx)];
+    for (let dz = Math.max(-ring, -cz); dz <= Math.min(ring, lastLayer - cz); dz++) {
+      const face = dz === -ring || dz === ring;
+      for (let dy = Math.max(-ring, -cy); dy <= Math.min(ring, lastRow - cy); dy++) {
+        // Inside the ring, only its two ends on this row are part of it.
+        const ends = !face && dy !== -ring && dy !== ring && ring > 0;
+        for (let dx = ends ? -ring : x0; dx <= x1; dx += ends ? 2 * ring : 1) {
+          if (dx < x0) continue;
+          const b = bucketOf(cx + dx, cy + dy, cz + dz);
+          for (let at = starts[b]; at < starts[b + 1]; at++) {
+            const j = inBucket[at];
+            // Other squares can share the bucket.
+            if (column(j) !== cx + dx || row(j) !== cy + dy || layer(j) !== cz + dz) continue;
+            const d = between(i, j);
+            if (d > same) each(d, j);
+          }
         }
       }
     }
@@ -230,12 +291,15 @@ function measureSpread(points: ArrayLike<number>): Spread {
     nearest.push(best);
     // The nearest pixel that isn't along the line to that one, looking a ring of squares
     // farther out until nothing nearer can be left to find.
-    const [ux, uy] = [(points[2 * toward] - points[2 * i]) / best, (points[2 * toward + 1] - points[2 * i + 1]) / best];
+    const [ux, uy] = [(points[stride * toward] - points[stride * i]) / best, (points[stride * toward + 1] - points[stride * i + 1]) / best];
+    const uz = deep ? (points[3 * toward + 2] - points[3 * i + 2]) / best : 0;
     let side = Infinity;
     for (let ring = 0; ring <= REACH_SQUARES && side > (ring - 1) * cell; ring++) {
       around(i, ring, (d, j) => {
         if (d >= side) return;
-        const lined = Math.abs((points[2 * j] - points[2 * i]) * ux + (points[2 * j + 1] - points[2 * i + 1]) * uy) / d;
+        let along = (points[stride * j] - points[stride * i]) * ux + (points[stride * j + 1] - points[stride * i + 1]) * uy;
+        if (deep) along += (points[3 * j + 2] - points[3 * i + 2]) * uz;
+        const lined = Math.abs(along) / d;
         if (lined < SIDEWAYS) side = d;
       });
     }

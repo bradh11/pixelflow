@@ -42,7 +42,7 @@ vi.mock("../components/layout3d/threeScene", () => ({
         record.pixels?.set(xyz, start * 3);
       },
       setColors: (rgb, lit) => (record.colors = { rgb: rgb.slice(), lit }),
-      setBulbSize: () => {},
+      setLook: () => {},
       setBackdrop: () => {},
       setModel: async (model) => {
         record.calls.push(model ? `setModel:${model.name}` : "setModel:none");

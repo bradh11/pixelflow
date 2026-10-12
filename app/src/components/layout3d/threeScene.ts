@@ -1,10 +1,28 @@
 // The 3D view drawn with three.js: a night scene (sky, ground), the photo as an upright
-// backdrop, an optional house model, and every pixel as a bulb — all pixels in one draw call
-// (one Points object whose positions and colors are updated in place). Lit bulbs glow as much
-// as the viewer's Glow setting says, none at 0: each has a halo like the 2D previews' and the
-// video export's, and a bloom pass spreads the light further. Only the pixels bloom (drawn
-// alone, with the photo and model in black so they still hide what's behind them), never the
-// photo's bright spots. Selection outlines and the move gizmo are drawn over the top, unbloomed.
+// backdrop, an optional house model, and every pixel as a crisp dot, by the flat previews' rules
+// (lib/pixelBatches.ts) worked out in perspective. All pixels are one set of points whose
+// positions and colors are updated in place; their shader sizes each dot from how far apart its
+// prop's pixels are and how far it is from the camera (see `lightWidth` in lib/layout3d.ts).
+//
+// A dot is drawn in exactly its color, over what's behind it: nothing adds up. (Only where a
+// prop's pixels are closer together than a screen pixel, and can't each show, does a light take
+// on some of its wire neighbors' color.) Each place on the screen shows one light. Lights with a
+// color of their own (lit, or selected) come before the quiet ones (off, or not selected), so a
+// light that's off never covers one that's lit, wherever they stand; a dot's solid part comes
+// before any soft edge, so the edge of a near dot never shows through to the dark where a
+// farther dot is solid (a string seen end on stays a solid line); among solid parts it's the
+// nearest to the camera, each dot a shallow cone pointing at it, so pixels too close together
+// for dots of their own run into a clean line, cut where one pixel's light ends and the next
+// begins; and among edges, the fullest. The depth buffer settles it: once the scene is drawn
+// it's emptied, and every dot is drawn into it alone, at a depth that says where it comes in
+// that order; then in color, each place's first dot only.
+//
+// What hides a light (the photo, the house model) is drawn into a small depth picture first, and
+// each light looks there for whether anything stands in front of it.
+//
+// Lit pixels glow as much as the viewer's Glow setting says, none at 0: each light that isn't
+// hidden has the flat previews' halo (lib/pixelGlow.ts), drawn into a coarse picture of its own
+// and added over the dots. Selection outlines and the move gizmo are drawn over the top.
 
 import {
   AdditiveBlending,
@@ -16,24 +34,36 @@ import {
   CanvasTexture,
   Color,
   ConeGeometry,
+  CustomBlending,
+  DepthTexture,
   DirectionalLight,
   DoubleSide,
   DynamicDrawUsage,
+  EqualDepth,
   Euler,
   Fog,
   GridHelper,
   Group,
+  HalfFloatType,
   HemisphereLight,
+  InterleavedBuffer,
+  InterleavedBufferAttribute,
+  LessDepth,
   Line,
   LineBasicMaterial,
   type Material,
   Mesh,
   MeshBasicMaterial,
+  NoBlending,
+  NotEqualStencilFunc,
   type Object3D,
+  OneFactor,
+  OneMinusSrcAlphaFactor,
   PerspectiveCamera,
   PlaneGeometry,
   Points,
   Raycaster,
+  ReplaceStencilOp,
   SRGBColorSpace,
   Scene,
   ShaderMaterial,
@@ -41,14 +71,33 @@ import {
   Texture,
   Vector2,
   Vector3,
+  Vector4,
+  WebGLRenderTarget,
   WebGLRenderer,
 } from "three";
-import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
-import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
-import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
-import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
-import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
-import { type Box3, type GizmoHandle, type V3, FOV_DEG, PLANE_AT, PLANE_SIZE, bloomStrength, clipRange, orbitEye } from "../../lib/layout3d";
+import { FullScreenQuad } from "three/addons/postprocessing/Pass.js";
+import {
+  type Box3,
+  type GizmoHandle,
+  type LightLook,
+  type V3,
+  COLORED_EDGE,
+  COLORED_SOLID,
+  DOT_GAP,
+  DOT_KINDS,
+  FOV_DEG,
+  HALO_FROM,
+  PLANE_AT,
+  PLANE_SIZE,
+  QUIET_EDGE,
+  QUIET_SOLID,
+  SPREAD_SIZE,
+  clipRange,
+  orbitEye,
+  pixelsPerUnit,
+} from "../../lib/layout3d";
+import { DOT_RADIUS, FAINT, FILL, FINE_FROM, SMALLEST } from "../../lib/pixelBatches";
+import { GLOW_STEPS, GLOW_STRENGTH, GLOW_WIDTH, glowStep } from "../../lib/pixelGlow";
 import type { Scene3d } from "./scene";
 
 const SKY_TOP = new Color("#04060f");
@@ -58,54 +107,227 @@ const ACCENT = new Color("#a78bfa");
 const HIGHLIGHT = new Color("#facc15");
 const AXIS_COLORS: Record<"x" | "y" | "z", Color> = { x: new Color("#ef4444"), y: new Color("#22c55e"), z: new Color("#3b82f6") };
 
-/** A bulb's sprite is this many times its core's size: the rest is room for its halo. */
-const SPRITE_PER_BULB = 5;
+/** A number as a shader writes it. */
+const glsl = (n: number) => (Number.isInteger(n) ? n.toFixed(1) : String(n));
 
-const PIXEL_VERTEX = /* glsl */ `
-  attribute vec3 tint;
-  uniform float bulb;
+/**
+ * A dot's cone stands at least this many of the depth buffer's steps toward the camera, so
+ * that far off, where the steps are coarse, it still tells neighbors' cones apart.
+ */
+const CONE_STEPS = 32;
+/** A halo is drawn out to this many of its bell's widths, where it has faded to nothing that shows. */
+const HALO_REACH = 2.4;
+/** A halo's bell is drawn no narrower than this in the coarse picture (its pixels), fainter to make up: narrower, the picture couldn't hold its shape. */
+const NARROWEST_BELL = 0.75;
+
+/** The view's dot at a light (`largest`, device pixels) from `unit`, the device pixels to a layout unit there. */
+const VIEW_DOT = /* glsl */ `
   uniform float scale;
-  uniform float minPx;
-  uniform float maxPx;
-  varying vec3 vColor;
-  varying float vCore;
-  varying float vDim;
-  void main() {
-    vec4 mv = modelViewMatrix * vec4(position, 1.0);
-    gl_Position = projectionMatrix * mv;
-    float core = bulb * scale / max(-mv.z, 1e-3);
-    float sprite = core * ${SPRITE_PER_BULB.toFixed(1)};
-    gl_PointSize = clamp(sprite, minPx, maxPx);
-    // The core is at least a pixel and a bit across, so far-off bulbs don't vanish; ones that
-    // would be smaller than that are dimmed by how much smaller (by area: the light a pixel
-    // gets), so a distant crowd of bulbs adds up to a glow instead of a white blot.
-    vCore = max(core, 1.4) / gl_PointSize;
-    float shrink = core / 1.4;
-    vDim = clamp(shrink * shrink, 0.12, 1.0);
-    vColor = pow(tint, vec3(2.2));
+  uniform float ratio;
+  uniform vec2 radius;
+  float viewDot(float unit) {
+    return clamp(2.0 * ${glsl(DOT_RADIUS)} * unit, 2.0 * radius.x * ratio, 2.0 * radius.y * ratio);
   }
 `;
 
-const PIXEL_FRAGMENT = /* glsl */ `
+/** A lit light's halo at glow level `glow`: its bell's width (device pixels) and its strength beside the dot (see `lightHalo`). */
+const HALO = /* glsl */ `
   uniform float glow;
-  varying vec3 vColor;
-  varying float vCore;
-  varying float vDim;
+  vec2 haloOf(float unit) {
+    float bell = min(radius.y * ratio, ${glsl(DOT_RADIUS)} * unit) * (${glsl(GLOW_WIDTH[0])} + ${glsl(GLOW_WIDTH[1] - GLOW_WIDTH[0])} * glow);
+    float strength = (${glsl(GLOW_STRENGTH[0])} + ${glsl(GLOW_STRENGTH[1] - GLOW_STRENGTH[0])} * glow) * smoothstep(${glsl(HALO_FROM[0])}, ${glsl(HALO_FROM[1])}, bell);
+    return vec2(bell, strength);
+  }
+`;
+
+/** Puts a light that isn't drawn off the screen. */
+const SKIP = /* glsl */ `{
+      gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+      gl_PointSize = 1.0;
+      return;
+    }`;
+
+/**
+ * Whether something stands in front of a light `depth` from the camera, drawn at `clip`: whether
+ * the depth picture has something nearer there. It takes the farthest of the picture's pixels
+ * around the place, so a light on a wall seen at a slant isn't hidden by the wall beside it.
+ */
+const HIDDEN = /* glsl */ `
+  uniform sampler2D hides;
+  uniform vec3 hiding;
+  uniform vec2 project;
+  bool hidden(vec4 clip, float depth) {
+    if (hiding.x < 0.5) return false;
+    vec2 at = clip.xy / clip.w * 0.5 + 0.5;
+    float deepest = 0.0;
+    for (int y = -1; y <= 1; y++) {
+      for (int x = -1; x <= 1; x++) {
+        deepest = max(deepest, texture2D(hides, at + vec2(float(x), float(y)) * hiding.yz).r);
+      }
+    }
+    // The picture's depth as a distance from the camera, and a hair more: more than the picture's
+    // own steps of depth, and far less than a light stands off the wall it's on.
+    return depth > 1.0001 * project.y / (2.0 * deepest - 1.0 + project.x);
+  }
+`;
+
+// A light's dot (see `lightWidth`, `lightDim`): how wide, its color, and where it comes in the
+// order dots are kept in. `tintBefore` and `tintAfter` are the colors of the lights wired before
+// and after it.
+const LIGHT_VERTEX = /* glsl */ `
+  attribute vec3 tint;
+  attribute vec3 tintBefore;
+  attribute vec3 tintAfter;
+  attribute vec4 spread;
+  uniform vec4 quiet;
+  uniform float faint;
+  uniform vec2 depths;
+  uniform vec2 viewport;
+  uniform float still;
+  varying vec4 vColor;
+  varying vec3 vDot;
+  varying vec4 vOrder;
+  ${VIEW_DOT}
+  ${HALO}
+  ${HIDDEN}
+  float fit(float pitch, float smallest, float largest) {
+    return max(smallest, min(largest, min(pitch * ${glsl(FILL)}, pitch - ${glsl(DOT_GAP)})));
+  }
+  bool has(vec3 color) {
+    return max(color.r, max(color.g, color.b)) > 0.0;
+  }
+  // The color of a light's dot, as light: its own (dimmer by dim); or, for a light with none
+  // or a faint one, the quiet color showing through, the more the dimmer it is.
+  vec4 looks(vec3 color, float dim) {
+    float most = max(color.r, max(color.g, color.b));
+    float solid = faint > 0.0 ? min(1.0, most / faint) : sign(most);
+    return vec4(color * dim, solid) + (1.0 - solid) * quiet;
+  }
   void main() {
-    vec2 d = gl_PointCoord * 2.0 - 1.0;
-    float r = length(d);
-    if (r > 1.0) discard;
-    float core = 1.0 - smoothstep(vCore * 0.6, vCore, r);
-    // The halo the 2D previews and the video export draw at this glow level: a bell from the
-    // bulb's edge out, 1.2 to 2.4 bulb radii wide and up to 0.7 of the color strong. That's a
-    // share of the color as seen, so it's raised to 2.2 here, where colors add as light. It
-    // fades out by the sprite's edge.
-    float bell = vCore * (1.2 + 1.2 * glow);
-    float seen = (1.0 - core) * 0.7 * glow * exp(-(r * r) / (bell * bell));
-    float halo = pow(seen, 2.2) * (1.0 - smoothstep(0.85, 1.0, r));
-    vec3 c = vColor * (core * 1.6 + halo) * vDim;
-    gl_FragColor = vec4(c, 1.0);
-    #include <colorspace_fragment>
+    vec4 mv = modelViewMatrix * vec4(position, 1.0);
+    gl_Position = projectionMatrix * mv;
+    float depth = max(-mv.z, 1e-3);
+    if (hidden(gl_Position, depth)) ${SKIP}
+    float unit = scale / depth;
+    float largest = viewDot(unit);
+    float smallest = min(largest, ${glsl(SMALLEST)} * ratio);
+    float along = spread.x * unit;
+    float line = min(fit(spread.y * unit, smallest, largest), max(smallest, largest * ${glsl(FILL)}));
+    float width = max(fit(along, smallest, largest), line);
+    // Pixels with neighbors on every side, where their dots overlap, are whole squares: round
+    // ones would leave the corners between four of them half covered. In between, the corners
+    // round off little by little.
+    float corners = spread.z > 0.5 ? clamp((along - width) / (0.25 * width), 0.0, 1.0) : 1.0;
+    // Half a device pixel all round for the soft edge.
+    gl_PointSize = width + 1.0;
+    // With the camera still, a small dot is a whole number of device pixels wide and sits on
+    // whole device pixels (stillDot in lib/layout3d.ts): a soft edge that fell anywhere would
+    // blur it. Too small to round, it's its whole square.
+    if (still > 0.5 && width < ${glsl(FINE_FROM)}) {
+      width = floor(width + 0.5);
+      vec2 at = (gl_Position.xy / gl_Position.w * 0.5 + 0.5) * viewport;
+      at = floor(at - 0.5 * width + 0.5) + 0.5 * width;
+      gl_Position.xy = (at / viewport * 2.0 - 1.0) * gl_Position.w;
+      gl_PointSize = width;
+      if (width < 3.0) corners = 0.0;
+    }
+    vDot = vec3(gl_PointSize, width, corners);
+    // The lights wired before and after it, where they're its own prop's (spread.w says).
+    bool hasBefore = mod(spread.w, 2.0) < 0.5;
+    bool hasAfter = spread.w < 1.5;
+    bool own = has(tint);
+    bool beside = (hasBefore && has(tintBefore)) || (hasAfter && has(tintAfter));
+    // Pixels closer together than a screen pixel can't each show their own color: each takes on
+    // some of the two wired next to it, up to a third from each (neighborShare in
+    // lib/layout3d.ts), as the flat previews make one light of such pixels, in their average
+    // color.
+    float share = clamp(1.0 - along / ratio, 0.0, 1.0) / 3.0;
+    bool colored = own || (share > 0.0 && beside);
+    // The cone is as deep as the dot is wide, in the layout (and never so shallow that the depth
+    // buffer can't tell its slope).
+    float cone = max(width / unit, depth * (exp2(${glsl(CONE_STEPS * DOT_KINDS)} / (depths.y * 16777216.0)) - 1.0));
+    // A quiet light next on the wire to one with a color keeps its own half of the way between
+    // them, as in the flat previews: its dot's solid part is kept as a colored light's is, so
+    // the colored one's dot ends half way to it.
+    vOrder = vec4(depth, cone, own || beside ? ${glsl(COLORED_SOLID)} : ${glsl(QUIET_SOLID)}, colored ? ${glsl(COLORED_EDGE)} : ${glsl(QUIET_EDGE)});
+    if (!colored) {
+      vColor = quiet;
+      return;
+    }
+    // Under a halo, a dot is drawn dimmer by what the halo adds back.
+    vec2 halo = haloOf(unit);
+    float w = 2.0 * halo.x / width;
+    float dim = halo.y > 0.0 ? 1.0 - halo.y * w * w * (1.0 - exp(-1.0 / (w * w))) : 1.0;
+    vec4 mine = looks(tint, dim);
+    vColor = mine + share * ((hasBefore ? looks(tintBefore, dim) : mine) + (hasAfter ? looks(tintAfter, dim) : mine) - 2.0 * mine);
+  }
+`;
+
+// A dot's depth says where it comes in the order dots are kept in at a place (`dotOrder` in
+// lib/layout3d.ts): each kind has its band of the depth buffer, the first kind nearest.
+const LIGHT_FRAGMENT = /* glsl */ `
+  uniform vec2 depths;
+  varying vec4 vColor;
+  varying vec3 vDot;
+  varying vec4 vOrder;
+  void main() {
+    // From the dot's middle, in device pixels.
+    vec2 p = (gl_PointCoord - 0.5) * vDot.x;
+    float reach = 0.5 * vDot.y;
+    float corner = reach * vDot.z;
+    vec2 q = abs(p) - (reach - corner);
+    // How much of this device pixel the dot covers: all of it inside, less across its soft edge
+    // (one pixel wide), nothing past that.
+    float cover = clamp(0.5 + corner - length(max(q, 0.0)) - min(max(q.x, q.y), 0.0), 0.0, 1.0);
+    if (cover <= 0.0) discard;
+    if (cover >= 1.0) {
+      // Solid: the nearest to the camera first, the dot a cone with its tip at its middle and
+      // half its depth left by a round dot's rim (coneFrom in lib/layout3d.ts). Distances count
+      // by their ratio, so near and far lights are told apart as finely.
+      float from = max(vOrder.x - vOrder.y * (1.0 - 0.5 * dot(p, p) / (reach * reach)), depths.x);
+      gl_FragDepth = (vOrder.z + min(log2(from / depths.x) * depths.y, 0.9999)) / ${glsl(DOT_KINDS)};
+    } else {
+      // A soft edge: the fullest first.
+      gl_FragDepth = (vOrder.w + 1.0 - cover) / ${glsl(DOT_KINDS)};
+    }
+    gl_FragColor = vColor * cover;
+  }
+`;
+
+// A lit light's halo, in the coarse picture (`cell` device pixels to one of its pixels).
+const HALO_VERTEX = /* glsl */ `
+  attribute vec3 tint;
+  uniform float cell;
+  varying vec3 vColor;
+  varying vec2 vBell;
+  ${VIEW_DOT}
+  ${HALO}
+  ${HIDDEN}
+  void main() {
+    if (max(tint.r, max(tint.g, tint.b)) <= 0.0) ${SKIP}
+    vec4 mv = modelViewMatrix * vec4(position, 1.0);
+    gl_Position = projectionMatrix * mv;
+    float depth = max(-mv.z, 1e-3);
+    vec2 halo = haloOf(scale / depth);
+    if (halo.y <= 0.0 || hidden(gl_Position, depth)) ${SKIP}
+    float bell = halo.x / cell;
+    float drawn = max(bell, ${glsl(NARROWEST_BELL)});
+    gl_PointSize = 2.0 * ${glsl(HALO_REACH)} * drawn + 1.0;
+    // A bell drawn wider than it is holds the same light, spread thinner.
+    vColor = tint * halo.y * (bell * bell) / (drawn * drawn);
+    vBell = vec2(gl_PointSize, drawn);
+  }
+`;
+
+const HALO_FRAGMENT = /* glsl */ `
+  varying vec3 vColor;
+  varying vec2 vBell;
+  void main() {
+    vec2 p = (gl_PointCoord - 0.5) * vBell.x;
+    // Less what's left of the bell at the halo's edge, so it ends without a step.
+    float bell = exp(-dot(p, p) / (vBell.y * vBell.y)) - ${glsl(Math.exp(-HALO_REACH * HALO_REACH))};
+    if (bell <= 0.0) discard;
+    gl_FragColor = vec4(vColor * bell, 1.0);
   }
 `;
 
@@ -117,7 +339,7 @@ const SKY_VERTEX = /* glsl */ `
   }
 `;
 
-const MIX_VERTEX = /* glsl */ `
+const OVER_VERTEX = /* glsl */ `
   varying vec2 vUv;
   void main() {
     vUv = uv;
@@ -125,12 +347,11 @@ const MIX_VERTEX = /* glsl */ `
   }
 `;
 
-const MIX_FRAGMENT = /* glsl */ `
-  uniform sampler2D baseTexture;
-  uniform sampler2D bloomTexture;
+const OVER_FRAGMENT = /* glsl */ `
+  uniform sampler2D halos;
   varying vec2 vUv;
   void main() {
-    gl_FragColor = texture2D(baseTexture, vUv) + texture2D(bloomTexture, vUv);
+    gl_FragColor = vec4(texture2D(halos, vUv).rgb, 1.0);
   }
 `;
 
@@ -268,9 +489,38 @@ function buildGizmo() {
 
 /** A WebGL renderer for the canvas. */
 function webglRenderer(canvas: HTMLCanvasElement): WebGLRenderer {
-  // No multisampling: hundreds of thousands of overlapping bulb sprites cost far more with it
-  // (the bloom path renders without it anyway), and round sprites don't need it.
-  return new WebGLRenderer({ canvas, antialias: false, powerPreference: "high-performance" });
+  // No multisampling: hundreds of thousands of dots cost far more with it, and they soften their
+  // own edges. The stencil buffer keeps a place to one light where two tie for it.
+  return new WebGLRenderer({ canvas, antialias: false, stencil: true, powerPreference: "high-performance" });
+}
+
+/**
+ * The material the lights are drawn with, in one of their two passes: into the depth buffer
+ * alone (`settling`), which keeps the first dot at each place in `LIGHT_FRAGMENT`'s order; or in
+ * color, each place's kept dot and nothing else.
+ */
+function lightMaterial(uniforms: ShaderMaterial["uniforms"], settling: boolean): ShaderMaterial {
+  return new ShaderMaterial({
+    uniforms,
+    vertexShader: LIGHT_VERTEX,
+    fragmentShader: LIGHT_FRAGMENT,
+    transparent: true,
+    ...(settling
+      ? { colorWrite: false, depthFunc: LessDepth, blending: NoBlending }
+      : {
+          depthWrite: false,
+          depthFunc: EqualDepth,
+          // Colors come out of the shader already multiplied by how solid they are.
+          blending: CustomBlending,
+          blendSrc: OneFactor,
+          blendDst: OneMinusSrcAlphaFactor,
+          // Where two dots tie for a place, only the first is drawn: it marks the place as taken.
+          stencilWrite: true,
+          stencilFunc: NotEqualStencilFunc,
+          stencilRef: 1,
+          stencilZPass: ReplaceStencilOp,
+        }),
+  });
 }
 
 /** The renderer for one canvas (`makeRenderer` lets tests run it without WebGL). */
@@ -313,40 +563,79 @@ export function createThreeScene(canvas: HTMLCanvasElement, makeRenderer: (canva
   moon.position.set(-30, 60, 40);
   scene.add(new HemisphereLight(0x8a9bc4, 0x0b0d10, 0.55), moon);
 
-  // Every pixel: one Points object, positions and colors updated in place.
-  const pixelMaterial = new ShaderMaterial({
-    uniforms: {
-      bulb: { value: 0.04 },
-      scale: { value: 600 },
-      minPx: { value: 2.5 },
-      maxPx: { value: 96 },
-      glow: { value: 0 },
-    },
-    vertexShader: PIXEL_VERTEX,
-    fragmentShader: PIXEL_FRAGMENT,
-    transparent: true,
-    depthWrite: false,
-    blending: AdditiveBlending,
-  });
+  // What hides lights: the photo and the house model, drawn into a depth picture a screen pixel
+  // to each of its own, where every light looks for whether something stands in front of it.
+  const hidingScene = new Scene();
+  const hidingTarget = new WebGLRenderTarget(1, 1, { depthTexture: new DepthTexture(1, 1) });
+
+  // Every pixel: one set of points, positions and colors updated in place, drawn over the
+  // finished scene in two passes (see `lightMaterial`).
+  const dots = {
+    scale: { value: 600 },
+    ratio: { value: 1 },
+    radius: { value: new Vector2(1, 4) },
+    glow: { value: 0 },
+    quiet: { value: new Vector4() },
+    faint: { value: 0 },
+    /** How far the nearest thing drawn is from the camera, and one over the doublings from there to the farthest. */
+    depths: { value: new Vector2(0.1, 0.1) },
+    /** What turns a depth in a depth picture into a distance from the camera. */
+    project: { value: new Vector2(-1, -0.2) },
+    viewport: { value: new Vector2(1, 1) },
+    still: { value: 1 },
+    hides: { value: hidingTarget.depthTexture },
+    /** 1 when something may hide lights, and how far apart the depth picture's pixels are across it and down it. */
+    hiding: { value: new Vector3(0, 1, 1) },
+  };
   let pixelGeometry = new BufferGeometry();
   /** Every position must reach the GPU at the next frame, so partial updates add no ranges until then. */
   let fullUpload = false;
-  const pixels = new Points(pixelGeometry, pixelMaterial);
-  pixels.frustumCulled = false;
-  pixels.renderOrder = 10;
-  scene.add(pixels);
+  const lightScene = new Scene();
+  const passes = [true, false].map((settling, order) => {
+    const points = new Points(pixelGeometry, lightMaterial(dots, settling));
+    points.frustumCulled = false;
+    points.renderOrder = order;
+    lightScene.add(points);
+    return points;
+  });
 
-  // What blooms: the pixels alone, with the photo and model as black shapes in front of the
-  // pixels behind them. The objects share their geometry with the main scene's.
-  const bloomScene = new Scene();
-  bloomScene.background = new Color(0x000000);
-  const bloomPixels = new Points(pixelGeometry, pixelMaterial);
-  bloomPixels.frustumCulled = false;
-  bloomScene.add(bloomPixels);
-  const occluder = new MeshBasicMaterial({ color: 0x000000 });
+  // The halos: the lit pixels alone, drawn into a picture a screen pixel to each of its own.
+  // The points share their geometry with the dots'.
+  const haloScene = new Scene();
+  haloScene.background = new Color(0x000000);
+  const haloCell = { value: 1 };
+  const halos = new Points(
+    pixelGeometry,
+    new ShaderMaterial({
+      uniforms: { scale: dots.scale, ratio: dots.ratio, radius: dots.radius, glow: dots.glow, cell: haloCell, project: dots.project, hides: dots.hides, hiding: dots.hiding },
+      vertexShader: HALO_VERTEX,
+      fragmentShader: HALO_FRAGMENT,
+      transparent: true,
+      depthTest: false,
+      depthWrite: false,
+      blending: AdditiveBlending,
+    }),
+  );
+  halos.frustumCulled = false;
+  haloScene.add(halos);
+  const haloTarget = new WebGLRenderTarget(1, 1, { type: HalfFloatType, depthBuffer: false });
+  // Added over the finished picture, a pixel of the halos' picture smoothed across the screen pixels it covers.
+  const haloOver = new FullScreenQuad(
+    new ShaderMaterial({
+      uniforms: { halos: { value: haloTarget.texture } },
+      vertexShader: OVER_VERTEX,
+      fragmentShader: OVER_FRAGMENT,
+      transparent: true,
+      depthTest: false,
+      depthWrite: false,
+      blending: AdditiveBlending,
+    }),
+  );
+  // Only where they are matters, from either side.
+  const occluder = new MeshBasicMaterial({ colorWrite: false, side: DoubleSide });
   let backdropShadow: Mesh | null = null;
   const modelShadow = new Group();
-  bloomScene.add(modelShadow);
+  hidingScene.add(modelShadow);
 
   let backdrop: Mesh<PlaneGeometry, MeshBasicMaterial> | null = null;
   let backdropImage: TexImageSource | null = null;
@@ -367,32 +656,22 @@ export function createThreeScene(canvas: HTMLCanvasElement, makeRenderer: (canva
   gizmo.group.visible = false;
   overlayScene.add(gizmo.group);
 
-  const bloomComposer = new EffectComposer(renderer);
-  bloomComposer.renderToScreen = false;
-  const bloomRender = new RenderPass(bloomScene, camera);
-  bloomComposer.addPass(bloomRender);
-  // Its strength follows the glow level (see `setOptions`).
-  const bloom = new UnrealBloomPass(new Vector2(256, 256), 0, 0.45, 0);
-  bloomComposer.addPass(bloom);
-  const composer = new EffectComposer(renderer);
-  const mainRender = new RenderPass(scene, camera);
-  composer.addPass(mainRender);
-  const mix = new ShaderPass(
-    new ShaderMaterial({
-      uniforms: { baseTexture: { value: null }, bloomTexture: { value: bloomComposer.renderTarget2.texture } },
-      vertexShader: MIX_VERTEX,
-      fragmentShader: MIX_FRAGMENT,
-    }),
-    "baseTexture",
-  );
-  mix.needsSwap = true;
-  composer.addPass(mix);
-  const output = new OutputPass();
-  composer.addPass(output);
-  /** How much lit pixels glow (0–1), and whether the colors now are live ones. */
+  /** How much lit pixels glow (0–1, at the step the flat previews draw it), and whether the colors now are live ones. */
   let glow = 0;
   let lit = false;
+  let look: LightLook = { radius: [1, 4], unlit: [0, 0, 0, 0], dark: [0, 0, 0, 0] };
   let size = { width: 1, height: 1, ratio: 1 };
+
+  /** The uniforms that follow the look and whether the colors are live. */
+  const applyLook = () => {
+    dots.radius.value.set(look.radius[0], look.radius[1]);
+    // Playing, a pixel that's off; otherwise one that isn't selected. As light: each color times how solid it is.
+    const [r, g, b, a] = lit ? look.dark : look.unlit;
+    dots.quiet.value.set((r / 255) * a, (g / 255) * a, (b / 255) * a, a);
+    dots.faint.value = lit ? FAINT / 255 : 0;
+    // Only lit pixels glow.
+    dots.glow.value = lit ? glow : 0;
+  };
 
   const raycaster = new Raycaster();
 
@@ -406,7 +685,7 @@ export function createThreeScene(canvas: HTMLCanvasElement, makeRenderer: (canva
         m.depthWrite = modelOpacity >= 0.5;
       }
     });
-    // A see-through model doesn't hide the lights behind it, so it doesn't hide their glow either.
+    // A see-through model doesn't hide the lights behind it.
     modelShadow.visible = modelOpacity >= 0.5;
   };
 
@@ -416,7 +695,7 @@ export function createThreeScene(canvas: HTMLCanvasElement, makeRenderer: (canva
     modelShadow.scale.copy(model.scale);
   };
 
-  /** The model as black shapes for the bloom scene, placed like the model. */
+  /** The model's shape for the depth picture of what hides lights, placed like the model. */
   const shadowModel = () => {
     modelShadow.clear();
     for (const child of model.children) {
@@ -434,15 +713,17 @@ export function createThreeScene(canvas: HTMLCanvasElement, makeRenderer: (canva
       size = { width: Math.max(1, next.width), height: Math.max(1, next.height), ratio };
       renderer.setPixelRatio(ratio);
       renderer.setSize(size.width, size.height, false);
-      composer.setPixelRatio(ratio);
-      composer.setSize(size.width, size.height);
-      bloomComposer.setPixelRatio(ratio);
-      // The bloom pass sizes its own targets from this, at half resolution and smaller.
-      bloomComposer.setSize(size.width, size.height);
+      // The halos' picture, and the depth picture of what hides lights, have a pixel to a screen
+      // pixel (to a device pixel, where those are bigger).
+      haloCell.value = Math.max(1, ratio);
+      const [across, down] = [Math.max(1, Math.round((size.width * ratio) / haloCell.value)), Math.max(1, Math.round((size.height * ratio) / haloCell.value))];
+      haloTarget.setSize(across, down);
+      hidingTarget.setSize(across, down);
+      dots.hiding.value.set(dots.hiding.value.x, 1 / across, 1 / down);
       camera.aspect = size.width / size.height;
     },
 
-    setPixels(xyz) {
+    setPixels(xyz, spread) {
       const count = xyz.length / 3;
       const current = pixelGeometry.getAttribute("position") as BufferAttribute | undefined;
       if (current && current.count === count) {
@@ -450,6 +731,9 @@ export function createThreeScene(canvas: HTMLCanvasElement, makeRenderer: (canva
         current.clearUpdateRanges();
         current.needsUpdate = true;
         fullUpload = true;
+        const spreads = pixelGeometry.getAttribute("spread") as BufferAttribute;
+        (spreads.array as Float32Array).set(spread.subarray(0, spreads.array.length));
+        spreads.needsUpdate = true;
         return;
       }
       fullUpload = true;
@@ -457,12 +741,18 @@ export function createThreeScene(canvas: HTMLCanvasElement, makeRenderer: (canva
       pixelGeometry = new BufferGeometry();
       const position = new BufferAttribute(new Float32Array(xyz), 3);
       position.setUsage(DynamicDrawUsage);
-      const tint = new BufferAttribute(new Uint8Array(count * 3), 3, true);
-      tint.setUsage(DynamicDrawUsage);
+      // One list of colors, with a pixel to spare at either end, read three ways: each pixel's
+      // own, and those of the pixels before and after it.
+      const tints = new InterleavedBuffer(new Uint8Array((count + 2) * 3), 3);
+      tints.setUsage(DynamicDrawUsage);
+      const spreads = new Float32Array(count * SPREAD_SIZE);
+      spreads.set(spread.subarray(0, spreads.length));
       pixelGeometry.setAttribute("position", position);
-      pixelGeometry.setAttribute("tint", tint);
-      pixels.geometry = pixelGeometry;
-      bloomPixels.geometry = pixelGeometry;
+      pixelGeometry.setAttribute("tintBefore", new InterleavedBufferAttribute(tints, 3, 0, true));
+      pixelGeometry.setAttribute("tint", new InterleavedBufferAttribute(tints, 3, 3, true));
+      pixelGeometry.setAttribute("tintAfter", new InterleavedBufferAttribute(tints, 3, 6, true));
+      pixelGeometry.setAttribute("spread", new BufferAttribute(spreads, SPREAD_SIZE));
+      for (const points of [...passes, halos]) points.geometry = pixelGeometry;
     },
 
     updatePixels(start, xyz) {
@@ -474,19 +764,20 @@ export function createThreeScene(canvas: HTMLCanvasElement, makeRenderer: (canva
     },
 
     setColors(rgb, live) {
-      const tint = pixelGeometry.getAttribute("tint") as BufferAttribute | undefined;
+      const tint = pixelGeometry.getAttribute("tint") as InterleavedBufferAttribute | undefined;
       if (!tint) return;
-      const array = tint.array as Uint8Array;
-      array.set(rgb.length > array.length ? rgb.subarray(0, array.length) : rgb);
-      tint.clearUpdateRanges();
-      tint.needsUpdate = true;
+      const array = tint.data.array as Uint8Array;
+      // After the spare pixel at the start.
+      array.set(rgb.length > array.length - 6 ? rgb.subarray(0, array.length - 6) : rgb, 3);
+      tint.data.clearUpdateRanges();
+      tint.data.needsUpdate = true;
       lit = live;
-      // Only lit pixels glow: unlit bulbs are just small grey dots.
-      pixelMaterial.uniforms.glow.value = lit ? glow : 0;
+      applyLook();
     },
 
-    setBulbSize(bulb) {
-      pixelMaterial.uniforms.bulb.value = bulb;
+    setLook(next) {
+      look = next;
+      applyLook();
     },
 
     setBackdrop(next) {
@@ -495,7 +786,7 @@ export function createThreeScene(canvas: HTMLCanvasElement, makeRenderer: (canva
           scene.remove(backdrop);
           disposeTree(backdrop);
         }
-        if (backdropShadow) bloomScene.remove(backdropShadow);
+        if (backdropShadow) hidingScene.remove(backdropShadow);
         backdrop = backdropShadow = null;
         backdropImage = null;
       };
@@ -520,7 +811,7 @@ export function createThreeScene(canvas: HTMLCanvasElement, makeRenderer: (canva
         backdropImage = next.image;
         scene.add(backdrop);
         backdropShadow = new Mesh(backdrop.geometry, occluder);
-        bloomScene.add(backdropShadow);
+        hidingScene.add(backdropShadow);
       }
       const { min, max } = next.box;
       backdrop.scale.set(max.x - min.x, max.y - min.y, 1);
@@ -589,13 +880,12 @@ export function createThreeScene(canvas: HTMLCanvasElement, makeRenderer: (canva
     },
 
     setOptions(options) {
-      glow = Number.isFinite(options.glow) ? Math.min(1, Math.max(0, options.glow)) : 0;
-      pixelMaterial.uniforms.glow.value = lit ? glow : 0;
-      bloom.strength = bloomStrength(glow);
+      glow = glowStep(options.glow) / GLOW_STEPS;
+      applyLook();
       ground.visible = options.ground;
     },
 
-    render(orbit) {
+    render(orbit, moving = false) {
       const eye = orbitEye(orbit);
       const { near, far } = clipRange(orbit);
       camera.near = near;
@@ -605,18 +895,36 @@ export function createThreeScene(canvas: HTMLCanvasElement, makeRenderer: (canva
       camera.updateProjectionMatrix();
       sky.position.copy(camera.position);
       sky.scale.setScalar(far * 0.9);
-      pixelMaterial.uniforms.scale.value = (size.height * size.ratio) / (2 * Math.tan(((FOV_DEG / 2) * Math.PI) / 180));
-      pixelMaterial.uniforms.maxPx.value = 96 * size.ratio;
-      pixelMaterial.uniforms.minPx.value = 2.5 * size.ratio;
+      dots.scale.value = pixelsPerUnit(size.height, size.ratio);
+      dots.ratio.value = size.ratio;
+      // The drawing's size in device pixels, as the renderer rounds it.
+      dots.viewport.value.set(Math.floor(size.width * size.ratio), Math.floor(size.height * size.ratio));
+      dots.still.value = moving ? 0 : 1;
+      dots.depths.value.set(near, 1 / Math.log2(far / near));
+      dots.project.value.set(camera.projectionMatrix.elements[10], camera.projectionMatrix.elements[14]);
       renderer.autoClear = true;
-      // With nothing glowing there's nothing to bloom: the scene is drawn straight to the screen.
-      if (pixelMaterial.uniforms.glow.value > 0) {
-        bloomComposer.render();
-        composer.render();
-      } else renderer.render(scene, camera);
+      // With nothing that could hide a light, none of them looks.
+      const hiding = !!backdropShadow?.visible || (modelShadow.visible && modelShadow.children.length > 0);
+      dots.hiding.value.x = hiding ? 1 : 0;
+      if (hiding) {
+        renderer.setRenderTarget(hidingTarget);
+        renderer.render(hidingScene, camera);
+      }
+      // With nothing glowing, there are no halos to draw.
+      const glowing = dots.glow.value > 0;
+      if (glowing) {
+        renderer.setRenderTarget(haloTarget);
+        renderer.render(haloScene, camera);
+      }
+      renderer.setRenderTarget(null);
+      renderer.render(scene, camera);
+      // The lights go over the finished scene, with the depth buffer to themselves.
+      renderer.autoClear = false;
+      renderer.clearDepth();
+      renderer.render(lightScene, camera);
       fullUpload = false;
+      if (glowing) haloOver.render(renderer);
       if (selectionBox.visible || gizmo.group.visible) {
-        renderer.autoClear = false;
         renderer.clearDepth();
         renderer.render(overlayScene, camera);
       }
@@ -626,12 +934,14 @@ export function createThreeScene(canvas: HTMLCanvasElement, makeRenderer: (canva
       modelLoads++;
       disposeTree(scene);
       disposeTree(overlayScene);
-      disposeTree(bloomScene);
+      disposeTree(lightScene);
+      disposeTree(haloScene);
+      disposeTree(hidingScene);
       occluder.dispose();
-      // A composer frees only its own targets and copy pass: every other pass is freed here.
-      for (const pass of [bloomRender, bloom, mainRender, mix, output]) pass.dispose();
-      bloomComposer.dispose();
-      composer.dispose();
+      hidingTarget.dispose();
+      haloTarget.dispose();
+      haloOver.material.dispose();
+      haloOver.dispose();
       renderer.renderLists.dispose();
       renderer.dispose();
       // Let go of the WebGL context now rather than whenever it's collected: browsers allow only

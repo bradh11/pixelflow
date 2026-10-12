@@ -318,7 +318,8 @@ progress (a brightness ramp, a setting's curve, a fade-out) still ends where the
 On an effect cut by a large share of its length that would show; this corpus has none.
 
 **What follows the music.** Sequence B has sparkles, and an On's transparency, following the
-music. Three things were found in its frames: two are fixed, and one is a decision to make.
+music. Three things were found in its frames, and all three are now drawn as the frames show
+them.
 
 - *A value curve under the Music checkbox.* The palette's Music checkbox scales the sparkle
   count by the music's peak. The importer carried it over only when the Sparkles slider itself
@@ -358,11 +359,31 @@ music. Three things were found in its frames: two are fixed, and one is a decisi
   and 46 more. Nothing else in the corpus moves outside what it does from run to run.
 - *Sparkles on a see-through effect.* xLights flashes an On's sparkles however see-through the
   On is. On the three loudest frames of one half-second On its transparency is 99 to 100% and
-  five or six in ten of its pixels flash. PixelFlow flashes sparkles only where the effect
-  shows, and is dark on two of those frames. That is the whole of that On's difference: it
-  looks 54, and with sparkles flashing wherever the effect's own color is lit, whatever its
-  transparency, it looked 99 in five runs of six and 100 once the left channel was read too.
-  That was tried and not kept either: it changes how PixelFlow's own sparkles behave.
+  five or six in ten of its pixels flash, each at full strength over a dark prop. PixelFlow
+  flashed sparkles only where the effect showed, and was dark on two of those frames. That was
+  the whole of that On's difference: it looked 54.
+
+  An effect's own Transparency now hides the effect and not its sparkles (`pf_render`'s
+  `sparkles`), so an On at full Transparency with sparkles is a layer of sparkles alone. Only On
+  has such a setting, and a PixelFlow sequence changes only where an On has both sparkles and
+  some Transparency. That On now looks 88 to 97 (seventeen runs). What keeps it from 100 is the
+  level above: on one of its 23 frames the right channel is at full level and the left at two
+  thirds, and PixelFlow flashes six pixels in ten where xLights flashes one in fifteen.
+
+  A wider rule was tried first, sparkles wherever the effect's own color is lit whatever covers
+  it, and xLights' frames don't ask for it. Nothing else was found in them that sparkles look
+  past:
+
+  - *A fade.* Through a plasma's two-second fade-in its sparkles rise with it, in both renders,
+    and show at their three full levels (53%, 75%, and all of the sparkle color) only once the
+    fade is over.
+  - *Faint light.* The faint parts of an effect flash as often as PixelFlow's already do. Of the
+    pixels a fan had lit under a tenth of full a few frames before, 2.98% are flashing in
+    xLights' frames and 3.12% in PixelFlow's; of those it had lit brightly, 3.25% and 3.33%. Of
+    those in a morph's fading tail, 2.6% and 3.0%; of those in its head, 4.6% and 4.5%.
+  - *Nothing at all.* Pixels an effect doesn't reach never flash. A thin wheel's sparkles flash
+    on 1,296 pixels in the course of its sixteen seconds in xLights' frames, and every one is a
+    pixel the wheel itself crosses.
 
 On a group, xLights' sparkles are also wider. On a matrix twelve pixels wide inside a
 layout-wide group, four in ten of its sparkling pixels have the pixel beside them flashing with
@@ -422,18 +443,17 @@ and firing from a timing track.
 **What to improve, by look:**
 
 - *Mappings to check.* None is known in this corpus. What the last list had here is fixed (the
-  Spirals a turn early), is a decision to make (the half-second On: see "What follows the
-  music"), or is the reference's doing (the Pinwheel on a small group that scores Close, and the
+  Spirals a turn early, and the half-second On: see "What follows the music"), or is the
+  reference's doing (the Pinwheel on a small group that scores Close, and the
   wash and the stars under it: the reference has a wheel in two blues there that the sequence
   has no effect for). Not measured, because no sequence here has one: a strobing twinkle's share
   of the pixels at more than one count and number of steps (it is taken to rise with the first
   and fall with the second), and a strobing twinkle in the older way of drawing twinkles, which
   is still shown as soft twinkles.
-- *Decisions to make.* Whether sparkles flash on an effect that is see-through: a change to
-  PixelFlow's own behavior, tried and measured above. (Which channel the music an effect follows
-  is taken from was one too: it is the louder of the two.) And what an imported Fireworks is
-  called: the importer expects close, and the score cannot say better than different of bursts
-  at other moments (see Limits).
+- *Decisions to make.* What an imported Fireworks is called: the importer expects close, and
+  the score cannot say better than different of bursts at other moments (see Limits). The two
+  that were here are made, and measured above: the music an effect follows is the louder of the
+  two channels, and sparkles flash on an effect its own Transparency hides.
 - *What PixelFlow can't show yet.* Shader (ten effects, the largest item by far) and Text in
   the sequence's own font. A Tendril that wanders at random shows less of itself and pulses at
   other moments. A Wave has no square shape. A Fireworks that moves stays where it goes off.

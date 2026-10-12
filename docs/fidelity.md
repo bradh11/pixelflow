@@ -11,7 +11,9 @@ simpler way is better, as long as the result looks the same.
 
 `pf-fidelity` measures this. Given an xLights show folder, a sequence, and the `.fseq` xLights
 saved for that sequence, it renders the sequence in PixelFlow and compares the two renders by
-how they look. It works from the two renders alone and knows nothing of how either was made.
+how they look. It works from the renders and knows nothing of how either was made, but for one
+thing it is told of each effect: whether chance decides when its light comes (see "Effects that
+draw on chance").
 
 ```sh
 # One sequence: prints the scorecard, or writes <label>.json and <label>.md with --out.
@@ -22,12 +24,19 @@ cargo run --release -p pf-fidelity -- score \
 cargo run --release -p pf-fidelity -- corpus path/to/corpus.json --out reports/
 PF_FIDELITY_CORPUS=path/to/corpus.json cargo run --release -p pf-fidelity -- corpus --out reports/
 
+# The same with every effect held moment by moment against xLights' render alone: the numbers
+# from before effects that draw on chance were held against PixelFlow's other seeds.
+cargo run --release -p pf-fidelity -- corpus path/to/corpus.json --by-moment --out reports/
+
 # The importer's table of expected looks, held against a scorecard.
 cargo run --release -p pf-fidelity -- labels reports/corpus.json
 
 # Frames side by side (xLights' above, PixelFlow's below), to see a difference for yourself.
 cargo run --release -p pf-fidelity -- strips --show … --xsq … --fseq … \
   --effect 12 --target Matrix --frames 10 --levels --out strips/
+
+# The score held against PixelFlow's own renders, where the answer is known (no xLights needed).
+cargo run --release -p pf-fidelity -- calibrate --out reports/
 ```
 
 ## The verdicts
@@ -56,18 +65,26 @@ pixels in a row, a group's layout.
 | **Motion** | Does it move the same way, as fast, and change as much? | The move that best lays each row and column of the picture on itself a moment later gives a direction and a speed (opposite scores 0, half speed a half). And the share of the light that changes from frame to frame. The lesser of the two. |
 | **Rhythm** | Does it pulse in step, and flash as often? | The brightness with its slow curve taken off, the two held against each other a frame either way (a strobe at another rate, or out of step, scores low). And how often dark pixels light up. The lesser of the two. |
 
-Three things keep the score honest.
+Four things keep the score honest.
 
 **People notice ratios.** Each part is how much of the two renders is the same, passed through
 one curve: a fifth off passes for the same (0.97), half off is half alike (0.5), three quarters
 off has next to nothing in common (0.11).
 
 **A render isn't asked to be more like the other than it is like itself.** The pixels are split
-in two at random. What the two halves of one render disagree on (which pixels twinkle, where the
-snow is) is chance, and is taken off before the renders are compared. A layout that doesn't hold
-still within one render (blobs coming and going) isn't asked to be where the other render has it.
-A speed is only as sure as its readings agree. This is why random effects need no special case:
-the same density, colors, and rate from another seed matches.
+in two at random. What the two halves of one render disagree on (which pixels twinkle) is
+chance, and is taken off before the renders are compared. A layout that doesn't hold still
+within one render (blobs coming and going) isn't asked to be where the other render has it. A
+speed is only as sure as its readings agree.
+
+**Nor more like xLights than it is like itself from another seed.** Splitting the pixels allows
+for chance that is each pixel's own. A burst, a ball, or a flake moves many pixels together:
+both halves of a render see it, and no other render has it at that moment in that place. So
+where an effect draws on chance, PixelFlow renders the sequence again from other seeds, and
+what its own renders disagree on isn't held against the import. Where an effect's moments are
+chance, the parts of its look that chance moves are read over the whole effect, not moment by
+moment. "Effects that draw on chance" has the rule, the effects it applies to, and what it
+costs.
 
 **One thing badly wrong reads as a different look.** The composite, 0–100, is 70% the weighted
 mean of the parts and 30% the weakest part. The weights: color 0.25 and pattern 0.20, because
@@ -94,6 +111,399 @@ what the pictures showed. Some of what settled them:
 | A shader shown as a dim fill (before the Shader effect) | error 57–108 | 13–40 | No equivalent |
 | A shader drawn with its own file, on a group across the layout | error 0.13–0.15, every pixel within tolerance | 100 | Matches |
 
+## Effects that draw on chance
+
+Fireworks go off at moments and in places no two renders share, in PixelFlow or in xLights. Held
+second against second, two good renders of the same fireworks have no color in common and never
+pulse together, and that used to cap such an effect at a look of about 45, "different", however
+alike the two were. The same fault moved other scores from run to run: a wandering ball is
+somewhere else in every render, a game of life settles into other shapes, and a sparkle falls
+on another pixel.
+
+Three things are done about it. They are kept apart, because only the second could hide a
+fault, and the third is there to stop the first from hiding one.
+
+**What PixelFlow's own renders disagree on is chance.** An effect draws its chance from its
+seed. Where any effect of a sequence draws on chance, PixelFlow renders the sequence twice more,
+every effect from another seed (`--seeds` changes how many). Each part of a look is then how
+much PixelFlow's renders have in common with xLights' on average, next to how much the two of
+PixelFlow's own renders that are least alike have in common with each other. Where its renders
+agree from seed to seed, nothing is allowed. Where they differ in which pixels sparkle, where a
+ball started, which color a burst took, or how many bursts crossed a prop, that much is allowed
+and no more. This is done for both looks of an effect that draws on chance, and for the layered
+look of an effect that shares its pixels with one: the picture there changes from seed to seed
+whoever drew it. An effect that draws on nothing, on pixels nothing else draws on by chance, is
+judged exactly as before, to the last digit.
+
+**Where the moments are chance, the parts chance moves are read over the whole effect.** Held
+moment against moment, two renders of bursts at chance moments have next to nothing in common,
+PixelFlow's own included, and next to nothing over next to nothing says nothing of whether the
+colors are right. So for an effect whose moments are chance, a part of the look that
+PixelFlow's own renders have less than half of in common moment by moment is read with the
+order of the moments set aside:
+
+| Part | Over the whole effect |
+|---|---|
+| Coverage | The same curve of the share of pixels lit, sorted from its highest moment to its lowest: how much of the time how much is lit, and how much of the time it is dark. |
+| Brightness | The same for mean brightness. |
+| Color | All the light of the effect sorted into the same hue bins once, not second by second. |
+| Pattern | Where the light fell over the whole effect, on the same grid of at most 8 by 8, in place of where it is at each look. Light a single burst left where it happened to go off counts for no layout of the render's own, and a render too dim on the whole to have a pattern (a few sparks crossing a prop) has no layout. Times the texture, as before. |
+| Motion | Which way the picture moves over all its one-second windows together, how fast, and the share of its light that changes from frame to frame: three amounts, each held against PixelFlow's seeds (below). Whether the two move the same way in each window is not asked. |
+| Rhythm | How often dark pixels light up: an amount, held the same way. Whether the two pulse in step is not asked. |
+
+A part PixelFlow's renders do share moment by moment is still read that way. Snow over a
+steady wash has its moments left to chance, and the wash under it is held to its own.
+
+Which effects those are is declared from the effect's kind and settings
+(`pf_fidelity::chance`), and never read off xLights' frames: an effect that ought to keep time
+and doesn't would look just like one chance moves. An effect set off by its own clock, a timing
+track, or the music keeps its moments, whatever else it draws by chance, and is held moment by
+moment, so that coming in late shows.
+
+| Effect | Chance decides | Why |
+|---|---|---|
+| Fireworks, bursting at random moments | its moments | Each burst goes off at a moment, in a place, and in a color drawn from the seed. |
+| Shape, with a staggered start and no timing track or music | its moments | Each shape keeps time from a chance start of its own, in a chance place. |
+| Circles (balls, bubbles, plasma blobs) | its moments | The balls start in chance places and head off in chance directions at chance speeds. Nothing brings one back at a set moment. |
+| Meteors | its moments | Each meteor falls in a chance lane, starting at a chance moment. |
+| Snowflakes | its moments | The flakes are scattered by chance, and new ones start at chance moments. |
+| Lines | its moments | The lines start in chance places and head off in chance directions. |
+| Lightning | its moments | It strikes at chance moments. |
+| Tendril, moving at random | its moments | The point it follows wanders by chance. |
+| Fireworks or Shape on a timing track or with the music; Shape with every shape starting together | what it draws | Each appears when the track, the music, or the clock says, in a chance place and color. |
+| Life | what it draws | A new generation comes by the clock. The cells it starts from are chance. |
+| Fire | what it draws | It burns where and as high as it is set to (or as the music is loud). Its flames flare by chance. |
+| Twinkle, Strobe | what it draws | Each pixel twinkles from a chance moment of its own, and over a prop they add up to the same light at every moment. A strobe flashes by the clock on chance pixels. |
+| VU Meter's random bars | what it draws | The bar lights with the music or on a mark. Which bar is chance. |
+| Faces with blinking eyes | what it draws | It sings from its timing track. Its blinks fall at chance moments. |
+| Any effect with sparkles | what it draws | Each lit pixel flashes at a moment of its own. |
+| Everything else, and Circles' rings, a Tendril on a set path | nothing | Worked out from the clock, the settings, a timing track, the music, or a file. Every render is the same. |
+
+A kind added to PixelFlow has to be given a line in that table before `pf-fidelity` builds.
+
+**And there has to be as much of it.** What chance leaves in common between two renders can be
+little, and half of little passes for little: a ball half the size, somewhere else at every
+moment, has nearly as much in common with xLights' ball as PixelFlow's own renders have with
+each other. So next to other seeds, coverage and brightness are also held to how much is lit
+and how brightly over the whole effect. PixelFlow's seeds give an average and a spread.
+xLights' amount within what the spread allows is chance, and counts for nothing; from twice
+that far it counts in full, the smaller amount over the larger; in between, a share of it.
+What the spread allows is one and a half times a spread that is sure. A spread read from
+three renders is itself a matter of chance and often too small, so it is allowed 2.45 times
+(Student's t, at the same odds), and a little more for the average of three being only so
+sure. Over the whole effect, movement and rhythm are amounts too, and are held the same way.
+That reads chance that is drawn once for a whole effect, such as which way three balls set
+off, better than how alike any two renders happen to be.
+
+**How much it takes to say anything.** The allowance is measured, not assumed, so it is as wide
+as chance is. Sixty bursts differ little from one seed to the next, and a render with half as
+many is caught. Four bursts differ as much from seed to seed as from a render with eight, and
+nothing can tell those apart, a viewer least of all. Each look next to other seeds says how
+alike PixelFlow's own renders were in each part (`own` in the scorecard), and in the part they
+had least of in common (`itself`, and `least` for which). Two things make a look say too
+little:
+
+- *Too little light.* Both renders light under one pixel in a hundred of what was looked at,
+  which every look takes as none. A few sparks crossing an outline are that, however alike the
+  specks happen to be from one seed to the next.
+- *A part that chance moves by a factor of two.* PixelFlow's own renders have less than half of
+  some part in common. A match can't be told from chance there, so a look that matches says
+  too little, and so does one whose difference rests on that part. A difference found on the
+  other parts stands: a look that would earn the same verdict with full marks for every such
+  part is judged on it.
+
+**An effect whose look says too little is not judged.** A score of 100 that chance alone would
+give is no evidence that an import matches, and it isn't counted as any. The effect is in no
+share, score, or count of the effects judged, for its kind, its sequence, or the corpus, and
+the importer's label for it is held against nothing. It is listed apart, with the look it got,
+what that would have earned, and why it says too little ("Not judged: looks that say little"),
+and the summary says how much of the effect-time that is. A short effect is looked at the same
+way, and for the same reason is more often not judged. Moment by moment (`--by-moment`, and the
+"by moment" numbers a scorecard keeps beside the others) every effect is judged, as all were.
+
+**What it can no longer tell**, for a part read over the whole effect:
+
+- *The order of things over the effect.* Sorted curves and a single palette are the same for a
+  fireworks that builds up as for one that dies down, for a fade in as for a fade out, and for
+  colors that come in another order. Only how much of each there is over the whole effect is
+  compared.
+- *Whether it pulses in step with anything.* That is the point for bursts at chance moments. It
+  is also why a burst fired by a timing track or the music is not declared so.
+- *Where each thing is at each moment.* Where the light fell over the whole effect is still
+  compared: every burst in the middle of the prop against bursts all over it is caught.
+
+And for any look held against other seeds:
+
+- *What PixelFlow leaves to chance and xLights doesn't.* The allowance is what PixelFlow's own
+  renders disagree on. If PixelFlow scattered by chance something xLights always puts in one
+  place, the scatter would be allowed. Only PixelFlow can be rendered again, so xLights' own
+  chance is never seen: it is taken to be as large.
+- *A difference smaller than chance.* Where chance is as large as the look, the effect is not
+  judged at all (above). Where it is judged, the calibration below says how large a
+  difference is told.
+- *A steady effect's fault under a busy one.* An effect that keeps time is held to it as far as
+  the picture it is judged in keeps still from seed to seed. Under falling snow that is nearly
+  all the way. Under something that changes most of the picture, most of the fault is allowed.
+- *What is too sparse or too dim to count.* This is not new. A share of pixels lit under one in
+  a hundred, a brightness under 0.4%, and fewer than one flash per pixel every four seconds are
+  each taken as nothing, for every effect. Fireworks as xLights' usual settings come across
+  light a few pixels in a thousand of a group of outline props, and twice as many bursts there
+  is twice next to nothing.
+
+`--by-moment` judges every effect moment by moment against xLights' render alone, as all were
+before. A scorecard made without it shows both: each effect held against other seeds has the
+look it scores by moment beside the one it is judged on, and "How it looks" gives the whole
+sequence both ways.
+
+### Calibration
+
+`pf-fidelity calibrate` holds the score against PixelFlow's own renders, where the answer is
+known. One render of an effect stands in for xLights' frames, and the effect is rendered again
+from other seeds, or with one setting changed, and scored against it as an import is against
+its reference. The tables below are its output: effects 60 seconds long in 25 ms frames, each
+line scored eight times from fresh seeds, on a 32 by 16 matrix and on a group of eight outline
+props (1,200 pixels on a grid of 400 by 179 cells, so that most of what an effect draws falls
+between the props). "By moment" is the look held moment by moment against the one render
+alone, as every effect was judged before. "Next to other seeds" is what an effect that draws
+on chance is judged on now. A look is the middle score of the eight with the least and the
+most, whether or not each says enough to judge by; the counts are matches / close / different,
+and for a look next to other seeds how many of the eight say too little and are not judged;
+"itself" is as above, averaged, with the part PixelFlow's own renders most often had least of
+in common; the parts are coverage, brightness, color, pattern, motion, and rhythm, averaged.
+
+#### The same effect from other seeds
+
+Every line that is judged should match.
+
+| Effect | Shown | On | Chance decides | By moment: look (least–most) | Matches / close / different | Next to other seeds: look (least–most) | Matches / close / different / not judged | Itself | Parts |
+|---|---|---|---|---|---|---|---|---|---|
+| Fireworks | the same | matrix | its moments | 51 (44–57) | 0 / 2 / 6 | 100 (93–100) | 7 / 0 / 0 / 1 | 0.51 rhythm | 1.00 1.00 1.00 0.96 1.00 1.00 |
+| Fireworks, big bursts | the same | matrix | its moments | 49 (42–57) | 0 / 1 / 7 | 100 (97–100) | 8 / 0 / 0 / 0 | 0.52 rhythm | 1.00 1.00 1.00 0.99 1.00 1.00 |
+| Fireworks, as imported | the same | matrix | its moments | 42 (37–44) | 0 / 0 / 8 | 100 (100–100) | 0 / 0 / 0 / 8 | 0.59 coverage | 1.00 1.00 1.00 1.00 1.00 1.00 |
+| Fireworks, dark between bursts | the same | matrix | its moments | 24 (21–25) | 0 / 0 / 8 | 100 (96–100) | 8 / 0 / 0 / 0 | 0.62 color | 1.00 1.00 0.99 1.00 1.00 1.00 |
+| Circles | the same | matrix | its moments | 58 (54–78) | 0 / 7 / 1 | 100 (78–100) | 0 / 1 / 0 / 7 | 0.05 motion | 1.00 1.00 1.00 1.00 1.00 0.93 |
+| Meteors | the same | matrix | its moments | 100 (100–100) | 8 / 0 / 0 | 100 (100–100) | 8 / 0 / 0 / 0 | 0.90 motion | 1.00 1.00 1.00 1.00 1.00 1.00 |
+| Snowflakes, blowing | the same | matrix | its moments | 100 (83–100) | 7 / 1 / 0 | 100 (100–100) | 8 / 0 / 0 / 0 | 0.73 rhythm | 1.00 1.00 1.00 1.00 1.00 1.00 |
+| Snowflakes, falling | the same | matrix | its moments | 100 (100–100) | 8 / 0 / 0 | 100 (100–100) | 8 / 0 / 0 / 0 | 0.88 motion | 1.00 1.00 1.00 1.00 1.00 1.00 |
+| Lines | the same | matrix | its moments | 68 (67–72) | 0 / 8 / 0 | 100 (100–100) | 8 / 0 / 0 / 0 | 0.77 motion | 1.00 1.00 1.00 1.00 1.00 1.00 |
+| Lightning | the same | matrix | its moments | 50 (48–51) | 0 / 0 / 8 | 100 (100–100) | 8 / 0 / 0 / 0 | 0.89 pattern | 1.00 1.00 1.00 1.00 1.00 1.00 |
+| Tendril, wandering | the same | matrix | its moments | 94 (93–96) | 8 / 0 / 0 | 100 (98–100) | 8 / 0 / 0 / 0 | 0.67 rhythm | 1.00 1.00 1.00 1.00 1.00 1.00 |
+| Shape | the same | matrix | its moments | 60 (56–65) | 0 / 8 / 0 | 100 (100–100) | 6 / 0 / 0 / 2 | 0.55 pattern | 1.00 1.00 1.00 1.00 1.00 1.00 |
+| Shape, all at once | the same | matrix | what it draws | 62 (61–67) | 0 / 8 / 0 | 100 (100–100) | 0 / 0 / 0 / 8 | 0.28 pattern | 1.00 1.00 1.00 1.00 1.00 1.00 |
+| Life | the same | matrix | what it draws | 57 (48–69) | 0 / 5 / 3 | 100 (59–100) | 0 / 2 / 0 / 6 | 0.24 pattern | 0.85 0.84 1.00 0.96 1.00 1.00 |
+| Twinkle | the same | matrix | what it draws | 100 (100–100) | 8 / 0 / 0 | 100 (100–100) | 8 / 0 / 0 / 0 | 0.92 pattern | 1.00 1.00 1.00 1.00 1.00 1.00 |
+| Strobe | the same | matrix | what it draws | 100 (100–100) | 8 / 0 / 0 | 100 (100–100) | 8 / 0 / 0 / 0 | 0.92 pattern | 1.00 1.00 1.00 1.00 1.00 1.00 |
+| Fire, rolling | the same | matrix | what it draws | 100 (100–100) | 8 / 0 / 0 | 100 (100–100) | 8 / 0 / 0 / 0 | 0.98 motion | 1.00 1.00 1.00 1.00 1.00 1.00 |
+| Fire, flickering | the same | matrix | what it draws | 88 (88–89) | 8 / 0 / 0 | 100 (100–100) | 8 / 0 / 0 / 0 | 0.58 rhythm | 1.00 1.00 1.00 1.00 1.00 1.00 |
+| On with sparkles | the same | matrix | what it draws | 100 (100–100) | 8 / 0 / 0 | 100 (100–100) | 8 / 0 / 0 / 0 | 0.90 motion | 1.00 1.00 1.00 1.00 1.00 1.00 |
+| Fireworks | the same | outlines | its moments | 34 (30–35) | 0 / 0 / 8 | 100 (91–100) | 3 / 0 / 0 / 5 | 0.41 pattern | 1.00 1.00 1.00 0.97 1.00 1.00 |
+| Fireworks, big bursts | the same | outlines | its moments | 39 (34–44) | 0 / 0 / 8 | 100 (100–100) | 6 / 0 / 0 / 2 | 0.52 coverage | 1.00 1.00 1.00 1.00 1.00 1.00 |
+| Fireworks, as imported | the same | outlines | its moments | 34 (32–45) | 0 / 0 / 8 | 100 (100–100) | 0 / 0 / 0 / 8 | 0.45 color | 1.00 1.00 1.00 1.00 1.00 1.00 |
+| Fireworks, dark between bursts | the same | outlines | its moments | 28 (25–29) | 0 / 0 / 8 | 100 (96–100) | 0 / 0 / 0 / 8 | 0.56 coverage | 1.00 1.00 0.98 1.00 1.00 1.00 |
+| Circles | the same | outlines | its moments | 39 (36–47) | 0 / 0 / 8 | 100 (100–100) | 0 / 0 / 0 / 8 | 0.64 motion | 1.00 1.00 1.00 1.00 1.00 1.00 |
+| Meteors | the same | outlines | its moments | 63 (61–64) | 0 / 8 / 0 | 100 (100–100) | 0 / 0 / 0 / 8 | 0.76 color | 1.00 1.00 1.00 1.00 1.00 1.00 |
+| Snowflakes, blowing | the same | outlines | its moments | 63 (63–65) | 0 / 8 / 0 | 100 (100–100) | 0 / 0 / 0 / 8 | 0.94 pattern | 1.00 1.00 1.00 1.00 1.00 1.00 |
+| Snowflakes, falling | the same | outlines | its moments | 63 (63–67) | 0 / 8 / 0 | 100 (100–100) | 0 / 0 / 0 / 8 | 0.91 color | 1.00 1.00 1.00 1.00 1.00 1.00 |
+| Lines | the same | outlines | its moments | 46 (41–50) | 0 / 0 / 8 | 100 (95–100) | 0 / 0 / 0 / 8 | 0.46 pattern | 1.00 1.00 1.00 0.97 1.00 1.00 |
+| Lightning | the same | outlines | its moments | 49 (48–51) | 0 / 0 / 8 | 100 (100–100) | 8 / 0 / 0 / 0 | 0.93 coverage | 1.00 1.00 1.00 1.00 1.00 1.00 |
+| Tendril, wandering | the same | outlines | its moments | 59 (59–60) | 0 / 8 / 0 | 100 (100–100) | 8 / 0 / 0 / 0 | 0.63 brightness | 1.00 1.00 1.00 1.00 1.00 1.00 |
+| Shape | the same | outlines | its moments | 36 (35–42) | 0 / 0 / 8 | 100 (100–100) | 0 / 0 / 0 / 8 | 0.76 color | 1.00 1.00 1.00 1.00 1.00 1.00 |
+| Shape, all at once | the same | outlines | what it draws | 37 (35–46) | 0 / 0 / 8 | 100 (87–100) | 0 / 0 / 0 / 8 | 0.08 pattern | 1.00 1.00 1.00 0.99 1.00 0.96 |
+| Life | the same | outlines | what it draws | 65 (60–76) | 0 / 8 / 0 | 100 (97–100) | 0 / 0 / 0 / 8 | 0.31 pattern | 1.00 1.00 1.00 0.99 1.00 1.00 |
+| Twinkle | the same | outlines | what it draws | 100 (100–100) | 8 / 0 / 0 | 100 (100–100) | 8 / 0 / 0 / 0 | 0.89 pattern | 1.00 1.00 1.00 1.00 1.00 1.00 |
+| Strobe | the same | outlines | what it draws | 100 (100–100) | 8 / 0 / 0 | 100 (100–100) | 8 / 0 / 0 / 0 | 0.84 pattern | 1.00 1.00 1.00 1.00 1.00 1.00 |
+| Fire, rolling | the same | outlines | what it draws | 100 (100–100) | 8 / 0 / 0 | 100 (100–100) | 8 / 0 / 0 / 0 | 0.97 rhythm | 1.00 1.00 1.00 1.00 1.00 1.00 |
+| Fire, flickering | the same | outlines | what it draws | 100 (100–100) | 8 / 0 / 0 | 100 (100–100) | 8 / 0 / 0 / 0 | 0.99 rhythm | 1.00 1.00 1.00 1.00 1.00 1.00 |
+| On with sparkles | the same | outlines | what it draws | 100 (100–100) | 8 / 0 / 0 | 100 (100–100) | 8 / 0 / 0 / 0 | 0.98 motion | 1.00 1.00 1.00 1.00 1.00 1.00 |
+
+#### One thing wrong
+
+No line that is judged should match.
+
+| Effect | Shown | On | Chance decides | By moment: look (least–most) | Matches / close / different | Next to other seeds: look (least–most) | Matches / close / different / not judged | Itself | Parts |
+|---|---|---|---|---|---|---|---|---|---|
+| Fireworks, big bursts | twice as many bursts | matrix | its moments | 54 (49–60) | 0 / 2 / 6 | 82 (79–85) | 0 / 8 / 0 / 0 | 0.53 color | 0.71 0.64 0.99 0.99 1.00 1.00 |
+| Fireworks, big bursts | half as many bursts | matrix | its moments | 30 (27–33) | 0 / 0 / 8 | 79 (77–82) | 0 / 8 / 0 / 0 | 0.60 motion | 0.60 0.58 1.00 1.00 0.99 1.00 |
+| Fireworks, big bursts | bursts twice the size | matrix | its moments | 39 (34–45) | 0 / 0 / 8 | 67 (65–88) | 1 / 7 / 0 / 0 | 0.60 brightness | 0.78 0.77 1.00 0.90 0.44 0.95 |
+| Fireworks, big bursts | bursts half the size | matrix | its moments | 34 (30–37) | 0 / 0 / 8 | 71 (69–75) | 0 / 8 / 0 / 0 | 0.50 pattern | 0.47 0.47 1.00 0.99 0.89 1.00 |
+| Fireworks, big bursts | all in a wrong color (green) | matrix | its moments | 27 (25–30) | 0 / 0 / 8 | 41 (40–47) | 0 / 0 / 8 / 0 | 0.53 pattern | 1.00 1.00 0.00 0.25 1.00 1.00 |
+| Fireworks, big bursts | one of its three colors wrong (green for red) | matrix | its moments | 36 (30–43) | 0 / 0 / 8 | 94 (86–97) | 6 / 0 / 0 / 2 | 0.48 motion | 1.00 1.00 0.86 1.00 1.00 1.00 |
+| Fireworks, big bursts | half as bright | matrix | its moments | 42 (40–52) | 0 / 0 / 8 | 80 (62–84) | 0 / 8 / 0 / 0 | 0.52 rhythm | 0.94 0.54 1.00 0.91 1.00 1.00 |
+| Fireworks, big bursts | sparks glow twice as long | matrix | its moments | 42 (41–50) | 0 / 0 / 8 | 82 (78–85) | 0 / 8 / 0 / 0 | 0.57 pattern | 0.73 0.66 0.98 1.00 0.86 0.99 |
+| Fireworks, big bursts | sparks glow half as long | matrix | its moments | 29 (26–32) | 0 / 0 / 8 | 79 (75–81) | 0 / 8 / 0 / 0 | 0.57 pattern | 0.59 0.58 1.00 0.99 0.99 0.99 |
+| Fireworks, big bursts | every burst in the middle | matrix | its moments | 51 (37–55) | 0 / 0 / 8 | 74 (66–81) | 0 / 8 / 0 / 0 | 0.57 rhythm | 0.96 0.96 1.00 0.48 0.84 1.00 |
+| Fireworks, big bursts | steady light: as many sparks, spread evenly over the time | matrix | its moments | 50 (45–58) | 0 / 1 / 7 | 61 (58–69) | 0 / 8 / 0 / 0 | 0.81 pattern | 0.86 0.59 0.69 0.46 0.84 0.96 |
+| Fireworks, big bursts | a steady twinkle | matrix | what it draws | 43 (40–44) | 0 / 0 / 8 | 43 (40–44) | 0 / 0 / 8 / 0 | 0.92 pattern | 0.85 0.94 0.55 0.06 0.45 0.92 |
+| Fireworks, big bursts | nothing at all | matrix | its moments | 7 (6–7) | 0 / 0 / 8 | 7 (6–7) | 0 / 0 / 8 / 0 | 1.00 | 0.01 0.01 0.00 0.01 0.04 0.84 |
+| Fireworks | twice as many bursts | matrix | its moments | 50 (48–55) | 0 / 0 / 8 | 79 (77–81) | 0 / 8 / 0 / 0 | 0.54 color | 0.59 0.60 0.98 0.99 1.00 1.00 |
+| Fireworks | half as bright | matrix | its moments | 47 (41–55) | 0 / 1 / 7 | 83 (76–84) | 0 / 8 / 0 / 0 | 0.38 pattern | 0.78 0.62 1.00 0.95 1.00 1.00 |
+| Fireworks, dark between bursts | twice as many bursts | matrix | its moments | 20 (18–25) | 0 / 0 / 8 | 77 (54–92) | 3 / 3 / 1 / 1 | 0.68 pattern | 0.82 0.86 0.98 0.56 1.00 1.00 |
+| Fireworks, dark between bursts | steady light: as many sparks, spread evenly over the time | matrix | its moments | 19 (19–21) | 0 / 0 / 8 | 25 (24–27) | 0 / 0 / 8 / 0 | 0.57 motion | 0.34 0.44 0.16 0.26 1.00 0.01 |
+| Fireworks, as imported | twice as many bursts | matrix | its moments | 36 (34–38) | 0 / 0 / 8 | 95 (93–98) | 0 / 0 / 0 / 8 | 0.57 coverage | 0.95 0.88 1.00 1.00 1.00 0.96 |
+| Fireworks, as imported | four times as many bursts | matrix | its moments | 34 (32–34) | 0 / 0 / 8 | 66 (65–67) | 0 / 8 / 0 / 0 | 0.56 coverage | 0.53 0.35 1.00 1.00 1.00 0.57 |
+| Circles | twice as many balls | matrix | its moments | 48 (46–63) | 0 / 2 / 6 | 79 (62–81) | 0 / 8 / 0 / 0 | 0.05 motion | 0.62 0.59 1.00 0.99 0.88 0.86 |
+| Circles | balls twice the size | matrix | its moments | 38 (31–54) | 0 / 0 / 8 | 57 (41–63) | 0 / 5 / 1 / 2 | 0.11 motion | 0.29 0.27 1.00 0.86 0.56 0.96 |
+| Snowflakes, blowing | twice as many flakes | matrix | its moments | 80 (62–81) | 0 / 8 / 0 | 78 (77–79) | 0 / 8 / 0 / 0 | 0.61 rhythm | 0.59 0.55 1.00 1.00 1.00 0.94 |
+| Meteors | twice as many meteors | matrix | its moments | 94 (93–95) | 8 / 0 / 0 | 83 (82–84) | 0 / 8 / 0 / 0 | 0.89 pattern | 0.68 0.64 1.00 1.00 1.00 0.95 |
+| Meteors | falling half as fast | matrix | its moments | 79 (78–80) | 0 / 8 / 0 | 84 (83–86) | 0 / 7 / 0 / 1 | 0.40 pattern | 1.00 1.00 1.00 1.00 0.60 1.00 |
+| Lightning | twice as many strikes | matrix | its moments | 50 (50–51) | 0 / 0 / 8 | 76 (73–79) | 0 / 8 / 0 / 0 | 0.62 coverage | 0.55 0.59 1.00 1.00 1.00 0.79 |
+| Life | a new generation twice as often | matrix | what it draws | 55 (48–61) | 0 / 2 / 6 | 99 (65–100) | 0 / 1 / 0 / 7 | 0.18 pattern | 0.98 0.96 1.00 0.98 0.89 0.99 |
+| Fireworks, big bursts | twice as many bursts | outlines | its moments | 50 (46–54) | 0 / 0 / 8 | 82 (81–84) | 0 / 8 / 0 / 0 | 0.59 color | 0.70 0.64 0.99 0.99 1.00 0.99 |
+| Fireworks, big bursts | half as many bursts | outlines | its moments | 29 (24–32) | 0 / 0 / 8 | 77 (75–81) | 0 / 8 / 0 / 0 | 0.54 pattern | 0.56 0.55 1.00 0.99 1.00 0.97 |
+| Fireworks, big bursts | bursts twice the size | outlines | its moments | 37 (35–40) | 0 / 0 / 8 | 78 (72–82) | 0 / 8 / 0 / 0 | 0.62 brightness | 0.69 0.67 1.00 0.69 1.00 0.88 |
+| Fireworks, big bursts | bursts half the size | outlines | its moments | 30 (27–34) | 0 / 0 / 8 | 68 (66–69) | 0 / 8 / 0 / 0 | 0.39 pattern | 0.39 0.41 1.00 0.97 1.00 0.90 |
+| Fireworks, big bursts | all in a wrong color (green) | outlines | its moments | 28 (24–29) | 0 / 0 / 8 | 45 (40–52) | 0 / 0 / 8 / 0 | 0.55 coverage | 1.00 1.00 0.00 0.50 1.00 1.00 |
+| Fireworks, big bursts | one of its three colors wrong (green for red) | outlines | its moments | 35 (32–41) | 0 / 0 / 8 | 94 (86–99) | 8 / 0 / 0 / 0 | 0.56 coverage | 1.00 1.00 0.85 0.99 1.00 1.00 |
+| Fireworks, big bursts | half as bright | outlines | its moments | 39 (36–40) | 0 / 0 / 8 | 80 (79–82) | 0 / 8 / 0 / 0 | 0.55 coverage | 0.97 0.53 1.00 0.99 1.00 0.96 |
+| Fireworks, big bursts | sparks glow twice as long | outlines | its moments | 38 (35–41) | 0 / 0 / 8 | 79 (77–80) | 0 / 8 / 0 / 0 | 0.58 pattern | 0.69 0.64 1.00 1.00 0.66 0.96 |
+| Fireworks, big bursts | sparks glow half as long | outlines | its moments | 27 (22–28) | 0 / 0 / 8 | 75 (73–76) | 0 / 8 / 0 / 0 | 0.64 pattern | 0.61 0.59 1.00 0.88 0.65 1.00 |
+| Fireworks, big bursts | every burst in the middle | outlines | its moments | 36 (34–39) | 0 / 0 / 8 | 62 (60–64) | 0 / 8 / 0 / 0 | 0.61 brightness | 0.99 0.99 1.00 0.14 1.00 1.00 |
+| Fireworks, big bursts | steady light: as many sparks, spread evenly over the time | outlines | its moments | 41 (39–46) | 0 / 0 / 8 | 59 (54–62) | 0 / 7 / 1 / 0 | 0.80 color | 0.95 0.54 0.76 0.44 0.80 0.43 |
+| Fireworks, big bursts | a steady twinkle | outlines | what it draws | 43 (41–44) | 0 / 0 / 8 | 44 (42–44) | 0 / 0 / 8 / 0 | 0.89 pattern | 0.87 0.92 0.51 0.06 0.98 0.40 |
+| Fireworks, big bursts | nothing at all | outlines | its moments | 3 (2–3) | 0 / 0 / 8 | 3 (2–3) | 0 / 0 / 8 / 0 | 1.00 | 0.01 0.01 0.00 0.01 0.04 0.22 |
+| Fireworks | twice as many bursts | outlines | its moments | 35 (31–38) | 0 / 0 / 8 | 80 (77–83) | 0 / 8 / 0 / 0 | 0.51 color | 0.62 0.63 0.99 0.99 1.00 0.98 |
+| Fireworks | half as bright | outlines | its moments | 31 (29–34) | 0 / 0 / 8 | 87 (85–91) | 1 / 2 / 0 / 5 | 0.35 pattern | 0.93 0.70 1.00 1.00 1.00 0.99 |
+| Fireworks, dark between bursts | twice as many bursts | outlines | its moments | 25 (23–30) | 0 / 0 / 8 | 97 (95–98) | 3 / 0 / 0 / 5 | 0.71 color | 0.93 0.94 1.00 1.00 1.00 1.00 |
+| Fireworks, dark between bursts | steady light: as many sparks, spread evenly over the time | outlines | its moments | 28 (27–32) | 0 / 0 / 8 | 69 (56–97) | 0 / 0 / 0 / 8 | 0.57 color | 0.94 0.94 0.66 0.64 0.99 1.00 |
+| Fireworks, as imported | twice as many bursts | outlines | its moments | 36 (34–44) | 0 / 0 / 8 | 100 (61–100) | 0 / 0 / 0 / 8 | 0.65 color | 1.00 1.00 0.92 0.89 1.00 1.00 |
+| Fireworks, as imported | four times as many bursts | outlines | its moments | 41 (34–48) | 0 / 0 / 8 | 95 (84–100) | 0 / 0 / 0 / 8 | 0.68 pattern | 1.00 1.00 0.98 0.89 1.00 1.00 |
+| Circles | twice as many balls | outlines | its moments | 42 (36–52) | 0 / 0 / 8 | 100 (97–100) | 0 / 0 / 0 / 8 | 0.57 color | 1.00 0.99 0.99 1.00 1.00 1.00 |
+| Circles | balls twice the size | outlines | its moments | 38 (33–42) | 0 / 0 / 8 | 97 (86–100) | 0 / 0 / 0 / 8 | 0.63 brightness | 0.99 0.95 1.00 1.00 0.94 1.00 |
+| Snowflakes, blowing | twice as many flakes | outlines | its moments | 63 (63–64) | 0 / 8 / 0 | 100 (100–100) | 0 / 0 / 0 / 8 | 0.91 motion | 1.00 1.00 1.00 1.00 1.00 1.00 |
+| Meteors | twice as many meteors | outlines | its moments | 63 (60–63) | 0 / 8 / 0 | 99 (99–100) | 0 / 0 / 0 / 8 | 0.77 motion | 0.99 0.97 1.00 1.00 1.00 1.00 |
+| Meteors | falling half as fast | outlines | its moments | 57 (54–59) | 0 / 6 / 2 | 89 (88–90) | 0 / 0 / 0 / 8 | 0.66 color | 1.00 1.00 1.00 1.00 0.72 1.00 |
+| Lightning | twice as many strikes | outlines | its moments | 50 (49–51) | 0 / 0 / 8 | 77 (75–79) | 0 / 8 / 0 / 0 | 0.61 coverage | 0.57 0.61 1.00 1.00 1.00 0.81 |
+| Life | a new generation twice as often | outlines | what it draws | 61 (57–69) | 0 / 8 / 0 | 92 (86–98) | 0 / 0 / 0 / 8 | 0.30 pattern | 0.99 0.99 1.00 0.99 0.80 1.00 |
+
+#### Short effects and few events
+
+Fireworks with a big burst a second, from one second and one burst to two minutes.
+
+| Effect | Shown | On | Seconds | Chance decides | By moment: look (least–most) | Matches / close / different | Next to other seeds: look (least–most) | Matches / close / different / not judged | Itself | Parts |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Fireworks, big bursts | the same | matrix | 1 | its moments | 34 (27–60) | 0 / 2 / 6 | 78 (44–100) | 0 / 1 / 1 / 6 | 0.03 color | 1.00 1.00 0.62 0.88 0.90 1.00 |
+| Fireworks, big bursts | twice as many bursts | matrix | 1 | its moments | 51 (28–87) | 1 / 2 / 5 | 93 (39–100) | 0 / 0 / 2 / 6 | 0.10 color | 0.99 0.97 0.75 0.66 1.00 0.99 |
+| Fireworks, big bursts | the same | matrix | 2 | its moments | 34 (26–49) | 0 / 0 / 8 | 98 (52–100) | 0 / 1 / 0 / 7 | 0.12 color | 0.98 1.00 0.76 1.00 0.97 1.00 |
+| Fireworks, big bursts | twice as many bursts | matrix | 2 | its moments | 32 (22–62) | 0 / 1 / 7 | 90 (77–100) | 0 / 2 / 0 / 6 | 0.14 color | 0.93 0.86 0.94 1.00 0.96 0.99 |
+| Fireworks, big bursts | the same | matrix | 4 | its moments | 48 (41–62) | 0 / 1 / 7 | 100 (94–100) | 0 / 0 / 0 / 8 | 0.13 color | 1.00 1.00 1.00 0.97 1.00 1.00 |
+| Fireworks, big bursts | twice as many bursts | matrix | 4 | its moments | 51 (26–62) | 0 / 3 / 5 | 84 (68–93) | 2 / 4 / 0 / 2 | 0.39 pattern | 0.74 0.64 1.00 0.96 1.00 1.00 |
+| Fireworks, big bursts | the same | matrix | 8 | its moments | 49 (29–73) | 0 / 1 / 7 | 100 (97–100) | 3 / 0 / 0 / 5 | 0.33 pattern | 1.00 0.99 0.99 1.00 1.00 1.00 |
+| Fireworks, big bursts | twice as many bursts | matrix | 8 | its moments | 50 (40–56) | 0 / 2 / 6 | 80 (75–90) | 1 / 6 / 0 / 1 | 0.42 pattern | 0.73 0.65 0.93 1.00 0.98 1.00 |
+| Fireworks, big bursts | the same | matrix | 15 | its moments | 42 (30–56) | 0 / 2 / 6 | 100 (70–100) | 7 / 1 / 0 / 0 | 0.52 rhythm | 1.00 1.00 1.00 0.91 1.00 1.00 |
+| Fireworks, big bursts | twice as many bursts | matrix | 15 | its moments | 49 (41–57) | 0 / 3 / 5 | 81 (76–86) | 0 / 7 / 0 / 1 | 0.51 pattern | 0.68 0.62 1.00 0.98 1.00 1.00 |
+| Fireworks, big bursts | the same | matrix | 30 | its moments | 47 (37–56) | 0 / 2 / 6 | 100 (100–100) | 5 / 0 / 0 / 3 | 0.50 rhythm | 1.00 1.00 1.00 1.00 1.00 1.00 |
+| Fireworks, big bursts | twice as many bursts | matrix | 30 | its moments | 51 (42–59) | 0 / 2 / 6 | 80 (78–86) | 1 / 7 / 0 / 0 | 0.55 motion | 0.69 0.63 1.00 0.98 1.00 1.00 |
+| Fireworks, big bursts | the same | matrix | 60 | its moments | 48 (44–55) | 0 / 0 / 8 | 100 (100–100) | 7 / 0 / 0 / 1 | 0.52 rhythm | 1.00 1.00 1.00 1.00 1.00 1.00 |
+| Fireworks, big bursts | twice as many bursts | matrix | 60 | its moments | 53 (47–57) | 0 / 3 / 5 | 83 (81–87) | 1 / 7 / 0 / 0 | 0.54 pattern | 0.72 0.66 0.99 0.99 1.00 1.00 |
+| Fireworks, big bursts | the same | matrix | 120 | its moments | 47 (45–53) | 0 / 0 / 8 | 100 (100–100) | 8 / 0 / 0 / 0 | 0.51 rhythm | 1.00 1.00 1.00 1.00 1.00 1.00 |
+| Fireworks, big bursts | twice as many bursts | matrix | 120 | its moments | 54 (49–59) | 0 / 3 / 5 | 83 (81–85) | 1 / 7 / 0 / 0 | 0.52 color | 0.73 0.67 0.99 0.98 1.00 1.00 |
+
+#### Effects that keep time
+
+Effects that keep time, with their timing wrong: alone (judged as ever, moment by moment), with
+sparkles on them, and under falling snow (both held against other seeds). What a fault costs alone,
+it should cost the other two. Where it costs nothing alone, the look score never saw it.
+
+| Effect | Shown | On | Chance decides | By moment: look (least–most) | Matches / close / different | Next to other seeds: look (least–most) | Matches / close / different / not judged | Itself | Parts |
+|---|---|---|---|---|---|---|---|---|---|
+| Spirals | a quarter of a second early, alone | matrix | nothing | 100 (100–100) | 8 / 0 / 0 | – | – | – | 1.00 1.00 1.00 1.00 1.00 1.00 |
+| Spirals | a quarter of a second early, with sparkles | matrix | what it draws | 100 (100–100) | 8 / 0 / 0 | 100 (100–100) | 8 / 0 / 0 / 0 | 1.00 motion | 1.00 1.00 1.00 1.00 1.00 1.00 |
+| Spirals | a quarter of a second early, under falling snow | matrix | what it draws | 100 (100–100) | 8 / 0 / 0 | 100 (100–100) | 8 / 0 / 0 / 0 | 0.98 motion | 1.00 1.00 1.00 1.00 1.00 1.00 |
+| Chase | a hundredth faster, alone | matrix | nothing | 100 (100–100) | 8 / 0 / 0 | – | – | – | 1.00 1.00 1.00 1.00 1.00 1.00 |
+| Chase | a hundredth faster, with sparkles | matrix | what it draws | 100 (100–100) | 8 / 0 / 0 | 100 (100–100) | 8 / 0 / 0 / 0 | 0.99 motion | 1.00 1.00 1.00 1.00 1.00 1.00 |
+| Chase | a hundredth faster, under falling snow | matrix | what it draws | 100 (100–100) | 8 / 0 / 0 | 100 (100–100) | 8 / 0 / 0 / 0 | 0.98 motion | 1.00 1.00 1.00 1.00 1.00 1.00 |
+| Chase | half as fast, alone | matrix | nothing | 76 (76–76) | 0 / 8 / 0 | – | – | – | 1.00 1.00 1.00 1.00 0.41 1.00 |
+| Chase | half as fast, with sparkles | matrix | what it draws | 76 (76–76) | 0 / 8 / 0 | 77 (76–77) | 0 / 8 / 0 / 0 | 0.99 motion | 1.00 1.00 1.00 1.00 0.42 1.00 |
+| Chase | half as fast, under falling snow | matrix | what it draws | 72 (71–72) | 0 / 8 / 0 | 73 (73–73) | 0 / 8 / 0 / 0 | 0.96 motion | 1.00 1.00 1.00 1.00 0.37 0.80 |
+| Chase | the other way, alone | matrix | nothing | 60 (60–60) | 0 / 8 / 0 | – | – | – | 1.00 1.00 1.00 1.00 0.01 1.00 |
+| Chase | the other way, with sparkles | matrix | what it draws | 60 (60–60) | 0 / 8 / 0 | 60 (60–60) | 0 / 8 / 0 / 0 | 0.99 motion | 1.00 1.00 1.00 1.00 0.01 1.00 |
+| Chase | the other way, under falling snow | matrix | what it draws | 60 (60–60) | 0 / 8 / 0 | 60 (60–60) | 0 / 8 / 0 / 0 | 0.98 motion | 1.00 1.00 1.00 1.00 0.02 1.00 |
+| Shimmer | a quarter of a second late, alone | matrix | nothing | 63 (63–63) | 0 / 8 / 0 | – | – | – | 1.00 1.00 1.00 1.00 1.00 0.00 |
+| Shimmer | a quarter of a second late, with sparkles | matrix | what it draws | 63 (63–63) | 0 / 8 / 0 | 63 (63–63) | 0 / 8 / 0 / 0 | 0.93 motion | 1.00 1.00 1.00 1.00 1.00 0.00 |
+| Shimmer | a quarter of a second late, under falling snow | matrix | what it draws | 61 (61–62) | 0 / 8 / 0 | 61 (61–62) | 0 / 8 / 0 / 0 | 0.96 motion | 1.00 1.00 1.00 0.88 1.00 0.00 |
+| Spirals | a quarter of a second early, alone | outlines | nothing | 89 (89–89) | 8 / 0 / 0 | – | – | – | 1.00 1.00 1.00 1.00 1.00 0.71 |
+| Spirals | a quarter of a second early, with sparkles | outlines | what it draws | 89 (89–89) | 8 / 0 / 0 | 89 (89–89) | 8 / 0 / 0 / 0 | 0.99 motion | 1.00 1.00 1.00 1.00 1.00 0.71 |
+| Spirals | a quarter of a second early, under falling snow | outlines | what it draws | 89 (89–89) | 8 / 0 / 0 | 89 (89–89) | 8 / 0 / 0 / 0 | 1.00 motion | 1.00 1.00 1.00 1.00 1.00 0.71 |
+| Chase | a hundredth faster, alone | outlines | nothing | 100 (100–100) | 8 / 0 / 0 | – | – | – | 1.00 1.00 1.00 1.00 1.00 1.00 |
+| Chase | a hundredth faster, with sparkles | outlines | what it draws | 100 (100–100) | 8 / 0 / 0 | 100 (100–100) | 8 / 0 / 0 / 0 | 0.99 motion | 1.00 1.00 1.00 1.00 1.00 1.00 |
+| Chase | a hundredth faster, under falling snow | outlines | what it draws | 100 (100–100) | 8 / 0 / 0 | 100 (100–100) | 8 / 0 / 0 / 0 | 1.00 motion | 1.00 1.00 1.00 1.00 1.00 1.00 |
+| Chase | half as fast, alone | outlines | nothing | 81 (81–81) | 0 / 8 / 0 | – | – | – | 1.00 1.00 1.00 1.00 0.58 0.72 |
+| Chase | half as fast, with sparkles | outlines | what it draws | 83 (83–83) | 0 / 8 / 0 | 83 (83–83) | 0 / 8 / 0 / 0 | 1.00 motion | 1.00 1.00 1.00 1.00 0.63 0.73 |
+| Chase | half as fast, under falling snow | outlines | what it draws | 81 (81–81) | 0 / 8 / 0 | 81 (81–81) | 0 / 8 / 0 / 0 | 1.00 motion | 1.00 1.00 1.00 1.00 0.59 0.73 |
+| Chase | the other way, alone | outlines | nothing | 100 (100–100) | 8 / 0 / 0 | – | – | – | 1.00 1.00 1.00 1.00 0.99 1.00 |
+| Chase | the other way, with sparkles | outlines | what it draws | 100 (100–100) | 8 / 0 / 0 | 100 (100–100) | 8 / 0 / 0 / 0 | 0.99 motion | 1.00 1.00 1.00 1.00 0.99 1.00 |
+| Chase | the other way, under falling snow | outlines | what it draws | 100 (100–100) | 8 / 0 / 0 | 100 (100–100) | 8 / 0 / 0 / 0 | 1.00 motion | 1.00 1.00 1.00 1.00 0.99 1.00 |
+| Shimmer | a quarter of a second late, alone | outlines | nothing | 63 (63–63) | 0 / 8 / 0 | – | – | – | 1.00 1.00 1.00 1.00 1.00 0.00 |
+| Shimmer | a quarter of a second late, with sparkles | outlines | what it draws | 63 (63–63) | 0 / 8 / 0 | 63 (63–63) | 0 / 8 / 0 / 0 | 1.00 pattern | 1.00 1.00 1.00 1.00 1.00 0.00 |
+| Shimmer | a quarter of a second late, under falling snow | outlines | what it draws | 63 (63–63) | 0 / 8 / 0 | 63 (63–63) | 0 / 8 / 0 / 0 | 0.96 pattern | 1.00 1.00 1.00 1.00 1.00 0.00 |
+
+#### What the tables say
+
+**The same effect from other seeds.** Of 304 scores, 111 matched by moment, 80 were close, and
+113 were different. Next to other seeds 182 match, 119 say too little and are not judged, and
+3 are judged close: Circles on the matrix once (78) and Life on the matrix twice (59 at the
+least). Those three are the tool calling an effect unlike itself. Both effects draw their
+chance once for the whole effect (which way three balls set off, which cells start alive), and
+three renders have seen too few such draws: the rest of their eight looks say too little (7
+and 6). On the outlines Circles, Meteors, Snowflakes, Shape, Lines, Life, the Fireworks with
+dark between its bursts, and Fireworks as an import usually sets them (on the matrix too) are
+never judged: most of them light under one pixel in a hundred of the props. A Shape with every
+shape starting together is never judged on either stage: its shapes are in other places in
+every render, for the whole effect.
+
+**One thing wrong.** Of 416 scores, 8 matched by moment, 54 were close, and 354 were different,
+which was no credit to it: it called the same effect different as readily. Next to other seeds
+59 are different, 232 close, 22 match, and 103 are not judged. Told on both stages in every
+one of eight scorings, with bursts big enough to cross the props: twice as many bursts (82),
+half as many (79 and 77), bursts half the size (71 and 68), every burst in a wrong color (41
+and 45, different), half as bright (80), sparks that glow twice or half as long (75 to 82),
+every burst in the middle (74 and 62), a steady twinkle in their place (43 and 44, different),
+and nothing at all (7 and 3). The same sparks spread evenly over the time are close (61 and
+59), and different once in 16. Twice as many meteors on the matrix matched by moment and is
+close now (83): there is more light than chance gives.
+
+The 22 that match with something wrong:
+
+- *One color of three wrong* matches in 14 scorings of 16 (94 on both stages; the other two are
+  not judged). A third of the light in another hue takes 0.1 to 0.15 from the color part and
+  nothing from the rest, and that is a match by the yardstick every effect is held to.
+- *Twice as many of few bursts with dark between them*: 77 on the matrix (3 match, 3 are close,
+  1 is different, 1 is not judged) and 97 on the outlines (3 match, 5 are not judged). So few
+  bursts differ nearly as much from one seed to the next.
+- *Bursts twice the size, on the matrix*, once in 8 (88; the other seven are close), and *the
+  usual Fireworks at half the brightness, on the outlines*, once in 8 (2 are close, 5 are not
+  judged).
+
+What used to pass for a match because there was too little light to count is now not judged:
+Fireworks as an import usually sets them with twice as many bursts (95 and 100) and, on the
+outlines, with four times as many (95; on the matrix that is close, at 66); and on the
+outlines twice as many balls, balls twice the size, twice as many snowflakes or meteors,
+meteors at half the speed, steady light for bursts with dark between them, and a Life whose
+generations come twice as often (not judged in 7 of 8 on the matrix either, and close in the
+other). Twice as many strikes of Lightning is close on both stages (76 and 77). On the matrix
+twice as many balls is close in all 8 (79), balls twice the size is close or different in 6
+and not judged in 2, and meteors at half the speed is close in 7 and not judged in 1.
+
+**Short effects and few events.** With a big burst a second, the same effect of 4 seconds or
+less is not judged in 6 to 8 looks of 8, and at 8 seconds in 5; one with twice the bursts is
+not judged in 6 of 8 at one and two seconds. What is judged that short is as often wrong as
+right: at one second two looks of the same effect are judged, one close and one different.
+From 15 seconds on the same effect is judged in 28 looks of 32 and matches in 27 (close once,
+at 70, at 15 seconds), and one with twice as many bursts is judged in 31 of 32: close in 28
+(80 to 83) and matching in 3. A Fireworks' own renders have about half
+of their least-shared part in common however long it runs (0.50 to 0.52 from 15 seconds on),
+which is where the line is drawn, so a look of the same long Fireworks is now and then not
+judged: 3 of 8 at 30 seconds, 1 at 60, none at 120.
+
+**Effects that keep time.** None of the 240 looks says too little. Each fault scores the same
+with sparkles on the effect or falling snow over it, held against other seeds, as it does by
+moment: to within a point on all 20 lines. Alone, it is judged by moment as ever. Two of the
+faults the look score never saw as less than a match, and still doesn't: a Chase a hundredth
+faster (100 on every line), and Spirals a quarter of a second early (100 on the matrix; 89 on
+the outlines, for a rhythm out of step). A Chase half as fast is close (73 to 83), a Chase the
+other way is close on the matrix (60) and unseen on the outlines (100), and a Shimmer a quarter
+of a second late is close (61 to 63).
+
 ## The method
 
 1. **Import the layout** as PixelFlow imports it (`pf-xlights`), then change two things so both
@@ -109,14 +519,18 @@ what the pictures showed. Some of what settled them:
    with xLights' name for it and the verdict the importer expects (`SequenceImport::effects`).
 3. **Render with the real renderer through the real export**: `pf_render::export::export_fseq`,
    into memory. The music is read when it can be found, so effects that follow it are drawn as
-   they would be.
+   they would be. When any effect draws on chance, the sequence is rendered twice more, every
+   effect from another seed.
 4. **Line the frames up by time**: PixelFlow's frame at `t` against the reference's frame at `t`
    (`--frame-offset` moves that).
 5. **Look at every effect twice**: on the pixel-frames where it was the only effect (`lookSolo`),
    and on all of them, whatever else was on (`lookLayered`). It is judged alone when at least a
    tenth of what it was lit on had nothing else on it; otherwise layered. A layered look is the
    look of the picture there, which several effects share: trust "alone", and treat "layered" as
-   a hint.
+   a hint. An effect that draws on chance has both looks held against PixelFlow's other seeds,
+   and one that shares its pixels with such an effect its layered look; what each scores moment
+   by moment against xLights' render alone is kept beside it (`lookSoloByMoment`,
+   `lookLayeredByMoment`).
 6. **Look at every prop** over the frames either side lit it, whatever effects were on it
    (`props[].look`). The mean over the props, by pixel-seconds, is the sequence's `asSeen`:
    the look of the whole picture, with no question of which effect to blame.
@@ -125,7 +539,21 @@ what the pictures showed. Some of what settled them:
 
 **How it looks** comes first: the share of effect-time (each judged effect's length, added up)
 that matches, is close, is different, or has no equivalent, the same by pixel-seconds, the look
-score, and its six parts. "Not judged" is effect-time that couldn't be measured.
+score, and its six parts. "Not judged" is effect-time that couldn't be measured. Where effects
+were held against PixelFlow's other seeds, the same summary with every effect held moment by
+moment against xLights' render alone follows (`lookByMoment`): what the scorecard said before.
+
+**Effects held against other seeds** counts the effects judged next to PixelFlow's other seeds,
+and lists those whose look that changed by half a point or more: what chance decides in each
+and why, the look it is judged on, what it scores by moment, and how alike PixelFlow's own
+renders of it were (`itself`).
+
+**Not judged: looks that say little** lists the effects that were measured and are in none of
+the shares above, because their look next to PixelFlow's other seeds says too little: the look
+each got, what that would have earned, what it scores by moment, and why (too little light, or
+the part PixelFlow's own renders have too little of in common). The summary under "How it looks"
+says how much of the effect-time they are, and the kinds' and the labels' tables count them in
+a column of their own.
 
 **What to improve first** ranks the kinds of effect by what there is to gain: how far each
 instance falls short of matching, times the pixel-seconds it was lit on. A look that matches
@@ -165,6 +593,12 @@ effect from what it carried over and a table (`pf_xlights::sequence::look::TABLE
 - An effect whose every setting has a PixelFlow setting is expected to **match**.
 - One with a difference noted is expected to look **close**, and the note says what a viewer
   would notice ("fading tail not shown"), not which setting wasn't applied.
+- Chance on both sides is no difference, and nothing is noted for it. Fireworks that burst at
+  random moments, snow, meteors, and wandering balls are at other moments and in other places
+  in every render of either program; as much light, as bright, in the same colors is the same
+  look, which is how `pf-fidelity` holds them ("Effects that draw on chance"). A burst that
+  keeps time with a track or the music in xLights and can't in PixelFlow is a difference, and
+  is noted.
 - The table names the exceptions: an xLights effect, a condition (always, or a note containing
   some text), and the verdict. The worst row that applies wins.
 - A placeholder has **no equivalent**.
@@ -175,7 +609,10 @@ those judged alone when there are any. A row that disagrees on two or more effec
 fails the command. Then either the table gets a row, or the effect gets fixed. Rows for looks no
 measured sequence has are judged from what the note says a viewer would see, by the same
 yardstick: the wrong colors, nothing moving where xLights moves, or light on another part of the
-prop is a different look; a shape, a direction, or a speed that is off is close.
+prop is a different look; a shape, a direction, or a speed that is off is close. An effect whose
+look says too little earned nothing: its row counts it apart ("say little"), and the table is
+neither borne out nor contradicted by it. That is where Fireworks stands: expected to match,
+by the rule and by what xLights' frames show of a burst, with no look to say so yet.
 
 ## Adding sequences
 
@@ -205,15 +642,19 @@ the look score on made-up pairs of renders (`crates/pf-fidelity/src/look.rs`).
   looks (`props[].look`) beside the effects'.
 - **Short effects are judged on little.** Under half a second there are few frames to read a
   speed or a rhythm from; the score allows for it, and says less.
-- **Random effects move the numbers.** Each import seeds them anew: a share of a sequence that
-  sits near a line can fall on either side from run to run.
-- **Bursts at random moments read as out of step.** Color is compared second by second and
-  rhythm step by step, so light that comes in short bursts has to come at the same moments to
-  count as the same light. Fireworks goes off at random moments in both programs. PixelFlow's
-  bursts can be as many, as big, as bright, and as short-lived as xLights' and still score
-  next to nothing for color and rhythm, as would any render whose bursts fall at other
-  moments. With those two at 0 the look cannot pass 45.5, whatever the rest says. For such an
-  effect read coverage, brightness, pattern, and motion, and look at the frames.
+- **Random effects still move the numbers, by less.** Each import seeds them anew, and each
+  scorecard draws its other seeds anew: what is allowed for chance is measured from three
+  renders, and is itself a little different each time. A look that sits on a line can still
+  fall on either side of it. "What it found" has how far the corpus moves.
+- **An effect whose moments are chance is not held to the order of things**, and one whose look
+  says too little is not judged: see "Effects that draw on chance" for what can no longer be
+  told, and for what "too little" is.
+- **It takes three renders where it took one.** A corpus that scored in half a minute takes two.
+  `--by-moment` is as quick as before.
+- **The picture as a whole is still read moment by moment.** A prop's look (`props[].look`, and
+  the sequence's `asSeen`) runs over the whole show, through effects that keep time and effects
+  that don't, and is not held against other seeds. A prop that shows nothing but bursts at
+  chance moments looks worse there than its effect is judged to.
 - **Only what has channels in both files is measured.** A reference with fewer channels, or a
   sparse one, leaves props out; `coverage` names them.
 - **A reference can be unrendered, or stale.** xLights saves a file with whatever it has rendered
@@ -236,25 +677,111 @@ the look score on made-up pairs of renders (`crates/pf-fidelity/src/look.rs`).
 ## What it found
 
 Seven sequences of one real show (about 6,200 pixels, 341 imported effects), October 2026. One
-has no effects. Of the rest, 242 effects could be judged (75% of the effect-time):
+has no effects. Of the rest, 242 effects were measured on enough to judge (75% of the
+effect-time). Three to six of those, as the seeds have it, have a look that says too little
+and are not judged: 72 to 98 seconds, 1.3% to 1.8% of all the effect-time. One run of eight:
 
-| Sequence | Matches | Close | Different | No equivalent | Look | As seen |
-|---|---|---|---|---|---|---|
-| A | 94% | 2% | 5% | – | 96 | 96 |
-| B | 73% | 27% | – | – | 88 | 96 |
-| C | 100% | – | – | – | 99 | 98 |
-| D | 100% | – | – | – | 100 | 100 |
-| E | 100% | – | – | – | 94 | 93 |
-| G | 53% | – | 17% | 30% | 69 | 72 |
-| All | 91% | 2% | 5% | 2% | 94 | 93 |
+| Sequence | Matches | Close | Different | No equivalent | Look | Look by moment | As seen | Not judged: says little |
+|---|---|---|---|---|---|---|---|---|
+| A | 95% | 3% | 2% | – | 97 | 93 | 96 | 3 effects, 17 s |
+| B | 100% | – | – | – | 100 | 91 | 95 | 1 effect, 18 s |
+| C | 100% | – | – | – | 99 | 98 | 98 | – |
+| D | 100% | – | – | – | 100 | 100 | 100 | – |
+| E | 100% | – | – | – | 95 | 94 | 93 | – |
+| G | 64% | – | – | 36% | 74 | 69 | 72 | 1 effect, 53 s |
+| All | 94% | 3% | 1% | 2% | 96 | 92 | 94 | 5 effects, 88 s |
 
-That is one run of six. The shares move with the random effects, which each import seeds anew.
-B is mostly fire and circles under short flashes, and three stretches of it sit near the line,
-two of ten seconds under circles that wander at random and eighteen seconds of a tendril that
-does: its share that matches was 73% in five of these runs and 59% in the other, and anywhere
-from 43% to 100% in the twenty-one before them. A has one cellular automaton nine minutes long
-that matched in all six of these runs and was close in three of those twenty-one, which alone
-takes A from 94% to 76%. Hold a change against several runs before and after, effect by effect.
+The shares are of the effect-time judged (3,920 seconds in this run), with effects that draw on
+chance held against PixelFlow's other seeds. "Look by moment" is the same run with every effect
+held moment by moment against xLights' render alone, as all were before, the five that say too
+little included: 91% matching, 2% close, 5% different. B's effect is a tendril with sparkles
+and G's is the Fireworks (both below); A's are a wash under circles and two effects of under a
+second. Before looks that say too little were set apart, both
+counted as matching: G read 70% matching with a look of 79, and B's tendril matched in seven
+runs of eight.
+
+Of the 242 effects measured, 219 are held against other seeds: 139 that draw on chance with
+their moments set, most of them for their sparkles; 40 whose moments are chance; and 40 that
+draw on none and share their pixels with one that does. The other 23 are judged exactly as
+before. Over eight runs, 83 in 100 of the looks held against other seeds are within half a
+point of what the same renders score by moment (88 in 100 for effects that draw on none, which
+are never more than 12 points from it and never get another verdict by it; 87 for those with
+their moments set; 67 for those whose moments are chance). Nine of 1,752 are lower, by 0.7 at
+most.
+
+**How far it moves from run to run.** Each import seeds the random effects anew. Over eight
+runs before and eight after:
+
+| | Before: every effect by moment | After |
+|---|---|---|
+| Look, all sequences | 91.6 to 93.3 | 95.5 to 95.8 |
+| Matches, all sequences | 90.8% to 91.5%, and 76.7% in one of eight more | 92.7% to 94.2% |
+| Look, B | 85.6 to 97.0 | 99.8 to 99.9 |
+| Matches, B | 59% to 100% | 100% in all eight (its tendril is not judged) |
+| Look, A | 92.9 to 95.0 | 96.7 to 97.0 |
+| Look, G | 67.8 to 70.1 | 74.4 in all eight (its Fireworks is not judged) |
+| As seen, all sequences (not held against other seeds) | 92.9 to 93.9 | 93.1 to 93.9 |
+| Effects judged, of 341 | 242 | 236 to 239 |
+| Not judged for a look that says too little | – | 3 to 6 effects, 72 to 98 seconds |
+
+"After" is eight runs with develop's rebuilt Shockwave merged in. Eight runs before it, on the
+same measure, gave the same picture: matches 92.7% to 94.2%, look 95.6 to 95.7, and 2 to 5
+effects (71 to 87 seconds) not judged.
+
+The eight more are eight later runs judged by moment as well: in one of them A's cellular
+automaton, nine minutes long, was close, which alone takes A from 94% to 76%. It matched by
+moment in the other fifteen, and was close in three of twenty-one earlier runs. Held against
+other seeds it scores 100 in every run: its cells are in other places in PixelFlow's own
+renders too.
+
+The effects that moved most from run to run, before and after:
+
+| Effect | Before | After |
+|---|---|---|
+| A tendril with sparkles, 18 seconds | 64 to 100: close in five runs of eight | Not judged, in all eight: PixelFlow's own renders have 8 to 36 in 100 of their rhythm in common. The look it got: 81 to 100. |
+| The Fireworks, 52 seconds | 36 to 50: different | Not judged, in all eight: too little light to tell. The look it got: 86 to 100. |
+| Shockwaves and Morphs of under a second, under snow or other effects | 76 to 100: one Shockwave close in four runs of eight, another in one | 100 where judged. Each of nine is not judged in one to three runs of eight: PixelFlow's own renders had under half of their motion in common. |
+| Circles over an On, 10 seconds, and the On | 74 to 94: close in two; 80 to 94: close in one | 100; 100, and the On not judged in two runs of eight |
+| The cellular automaton | 85 to 96, and close in one run of eight more | 100 |
+| Snow, a wash, and circles, 15 seconds each | 88 to 100 | 99 to 100 |
+| Circles over a wash, in two pictures of 15 seconds (four effects) | 33 to 46: different | 75 to 92: close or matching, as the seeds have it (the wash not judged in five runs of eight) |
+
+What still moves is that last pair of pictures, and a Shape under a wash that sits on the line
+between close and different (54 to 59: close in six runs, different in two). Those five are
+the only effects judged whose verdict isn't the same in all eight runs.
+
+**What changed verdict, and why.** Eight effects, 163 seconds of the 4,007 measured.
+
+- *The Fireworks*: different (36 to 50) to not judged. By moment its color and its rhythm
+  scored 0, for bursts at other moments. Held against other seeds, neither is told apart from
+  chance, and the look comes to 86 to 100. That is no evidence of a match: on this group
+  xLights lights one pixel in ten thousand and PixelFlow about as few, and both renders are
+  dark but for a few specks. Too little light to tell, in every run.
+- *The tendril*: close in five runs of eight (64 at the least, for "pulses out of step") to
+  not judged. Its sparkles give the props a pulse that comes at other moments in each of
+  PixelFlow's own renders (8 to 36 in 100 in common), so whether xLights' pulse is the same
+  can't be told. By moment its rhythm scored 0.02 to 0.09 and every other part 0.9 or more,
+  and next to other seeds the look comes to 81 to 100.
+- *Circles over a wash, twice* (four effects, two pictures of 15 seconds on one group):
+  different (33 to 46) to close, and now and then matching (75 to 92). By moment nearly every
+  part scored low, because the balls are somewhere else at every moment. Held against other seeds, color, pattern, motion,
+  and rhythm are within chance, and what is left is that PixelFlow lights about a sixth of the
+  group where xLights lights nearly a third, three fifths as brightly: "less of the target
+  lit". That is found on coverage and brightness, which PixelFlow's own renders agree on, so it
+  stands for the wash too, whose own look has under 20 in 100 of its rhythm in common from seed
+  to seed, whenever that difference is large enough to make the verdict; where the picture
+  comes to about 84 or more, the wash is not judged. Over eight runs the circles matched in two to
+  four of them, by how much of the group their seeds happened to light. This
+  stretch is in the part of the file that wasn't finished (see "A reference that wasn't
+  finished"), and close may be as much as its frames can show.
+- *A Shape under a wash* (two effects, one picture of 15 seconds): different (48 to 51) to
+  close in six runs of eight (55 to 59; 54 in the other two). Where its shapes are no longer
+  counts. That a ninth as much of its light changes from frame to frame as in xLights' (2%
+  against 18%), and that it is half again as bright, still do. This is the stretch where three
+  props hold a turning wheel the sequence doesn't have.
+
+Hold a change against several runs before and after, effect by effect: three or four runs now
+show what took ten.
 
 The first scorecards of this corpus (A at 87%, 4%, and 8%; D as seen at 91) are what the first
 two findings below changed. G's look was 65, and 71 as seen, before Fireworks had an effect of
@@ -291,7 +818,8 @@ then the fill that follows them. A wash laid over stars the same way matches whe
 whole (a look of 99).
 
 What in A never scores as a match is on these three props or on the props cut short: the 5% of
-its time that scores as different, and the five effects that score as close in every run (a
+its time that scored as different by moment (2% different and 3% close now that the circles in
+it are held against other seeds), and the five effects that score as close in every run (a
 Pinwheel at about 70, two Shockwaves, a Shape, and a Color Wash). Held prop by prop, it is
 these three that differ in what is lit and in what color; one of the five, a Shockwave on a
 small group, has only one of them to be measured on. None of it is known to be the import's
@@ -499,9 +1027,20 @@ from 1.00 to 0.00: both renders burst at random moments, and not the same ones, 
 limit above. Where other rows cover the same pixels the picture went from 68 to 97; sequence
 G's look went from 65.5 to between 68 and 69, and as seen from 71.5 to 72.3. One other effect
 in the sequence moved by more than it does from run to run: a Shader's dim stand-in, from 39.8
-to 37.6 in every run. The import says "bursts go off at other random moments than xLights'" of
-a Fireworks that isn't on a timing track and expects it to look close; the score, for the
-reason above, still says different.
+to 37.6 in every run. The import then said "bursts go off at other random moments than xLights'"
+of a Fireworks that isn't on a timing track, and expected it to look close; the score, held
+moment by moment, still said different.
+
+Held against PixelFlow's other seeds and read over the whole effect (see "Effects that draw on
+chance"), its look comes to 86 to 100 in eight runs of eight. On this group that is no finding:
+both renders light one pixel in ten thousand, which is too little light to tell anything by,
+and the effect is not judged. Sequence G's look, over what is judged, is 74. The same Fireworks
+on a matrix, and on a group of outlines with a burst big enough to cross them, matches itself
+from seed to seed and is told from one with half the bursts, half the size, half the
+brightness, or another color (see "Calibration"). So the measure can judge a Fireworks, and
+this corpus has none it can. The importer notes nothing for bursts at random moments any more,
+which is chance on both sides, and expects such a Fireworks to match: by its rule, and by what
+the frames above show of a burst, not by a look (see "The importer's labels").
 
 Not measured, because no sequence in the corpus has them: a particle fade other than 50 (taken
 as half as many frames of glow, and noted), frames other than 25 ms (taken as xLights counting
@@ -547,19 +1086,22 @@ further.
   of the pixels at more than one count and number of steps (it is taken to rise with the first
   and fall with the second), and a strobing twinkle in the older way of drawing twinkles, which
   is still shown as soft twinkles.
-- *Decisions to make.* What an imported Fireworks is called: the importer expects close, and
-  the score cannot say better than different of bursts at other moments (see Limits). And
-  whether a curve should be able to give whole numbers itself, so that an imported Pinwheel
-  setting can step and still follow its timing track or the music (see "A wheel on a curve
-  moves a whole unit at a time"): that changes the saved file. The ones that were here are
-  made, and measured above: the music an effect follows is the louder of the two channels in a
-  sequence made in PixelFlow and the left channel in one imported from xLights, a setting of the
-  sequence's own; and sparkles flash on an effect its own Transparency hides.
+- *Decisions to make.* Whether a curve should be able to give whole numbers itself, so that an
+  imported Pinwheel setting can step and still follow its timing track or the music (see "A
+  wheel on a curve moves a whole unit at a time"): that changes the saved file. What an
+  imported Fireworks is called is settled: bursts at other random moments are no difference,
+  nothing is noted for them, and it is expected to match (see "The importer's labels"). The
+  ones that were here before are made, and measured above: the music an effect follows is the
+  louder of the two channels in a sequence made in PixelFlow and the left channel in one
+  imported from xLights, a setting of the sequence's own; and sparkles flash on an effect its
+  own Transparency hides.
 - *What PixelFlow can't show yet.* Text in the sequence's own font. A Shader whose file isn't
   found near the sequence, or needs what PixelFlow doesn't give a shader yet (several passes,
   kept buffers, pictures, the music), is still a dim fill; an input on a value curve stays at its
-  slider's value. A Tendril that wanders at random shows less of itself and pulses at
-  other moments. A Wave has no square shape. A Fireworks that moves stays where it goes off.
+  slider's value. A Tendril that wanders at random shows less of itself and pulses at other
+  moments (the pulsing no longer counts against it: PixelFlow's own renders of it pulse at other
+  moments from each other, see "What changed verdict"). A Wave has no square shape. A Fireworks
+  that moves stays where it goes off.
 
 How rows are laid over one another was not changed: where the references are whole, rows that
 blend as the sequence says match them, a group's row over its props' own rows included.

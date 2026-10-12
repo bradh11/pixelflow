@@ -3,7 +3,7 @@
 //! labels held up. The pixel-for-pixel measures are its diagnostics.
 
 use crate::layout::SetAside;
-use crate::look::{Component, Components, Look, MATCHES};
+use crate::look::{Chance, Component, Components, Look, MATCHES};
 use crate::metrics::{Limits, Scores, Stats};
 use pf_xlights::SequenceImportSummary;
 pub use pf_xlights::sequence::{ByVerdict, Verdict};
@@ -11,7 +11,7 @@ use serde::Serialize;
 use std::collections::BTreeMap;
 
 /// The scorecard format's version.
-pub const SCHEMA: u32 = 2;
+pub const SCHEMA: u32 = 4;
 
 /// What the importer carried over of an effect (its own bookkeeping; what it tells people is
 /// the [`Verdict`] it expects).
@@ -165,6 +165,16 @@ pub struct Method {
     /// The look score at or above which two renders match, and at or above which they're close.
     pub matches: f64,
     pub close: f64,
+    /// Every effect was judged moment by moment against xLights' render alone, whatever chance
+    /// decides in it (the numbers from before effects that draw on chance were held against
+    /// PixelFlow's own renders from other seeds).
+    pub by_moment: bool,
+    /// How many more times PixelFlow rendered the sequence, each from other seeds, for those
+    /// effects to be held against (0 when none draws on chance).
+    pub other_seeds: usize,
+    /// Where two of PixelFlow's own renders are less alike than this in some part of an
+    /// effect's look, the look has too little to go on to say much.
+    pub little: f64,
     /// Controller-side settings left out of the comparison (xLights' file is rendered before
     /// them).
     pub set_aside: SetAside,
@@ -252,6 +262,45 @@ pub struct Judged {
     pub weakest: Component,
     /// What a viewer would notice first; `None` when the two match.
     pub differs: Option<String>,
+    /// What chance decides in it, as it was judged: "nothing" when it was held moment by
+    /// moment against xLights' render alone, anything else when it was held against
+    /// PixelFlow's own renders from other seeds as well.
+    pub chance: Chance,
+    /// What it scores and earns held moment by moment against xLights' render alone; `None`
+    /// when that is how it was judged.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub by_moment: Option<Scored>,
+}
+
+/// A look score and the verdict it earns.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct Scored {
+    pub score: f64,
+    pub verdict: Verdict,
+}
+
+/// A look next to PixelFlow's other seeds that says too little to judge its effect by: the
+/// effect counts as not judged, and this is what the look came to all the same.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaysLittle {
+    /// Why: too little light in either render, or the part of the look PixelFlow's own renders
+    /// have too little of in common from one seed to the next ([`Look::says_little`]).
+    pub why: String,
+    pub basis: Basis,
+    /// The look score it got, and the verdict that would have earned.
+    pub score: f64,
+    pub verdict: Verdict,
+    /// What chance decides in it, as it was looked at.
+    pub chance: Chance,
+    /// How alike two of PixelFlow's own renders are in the part of the look they have least of
+    /// in common, 0–1, and that part.
+    pub itself: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub least: Option<Component>,
+    /// What it scores and earns held moment by moment against xLights' render alone.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub by_moment: Option<Scored>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -271,11 +320,29 @@ pub struct EffectScore {
     pub expected: Verdict,
     pub label: Label,
     pub notes: Vec<String>,
-    /// How it was judged to look; `None` when it wasn't measured on enough to say.
+    /// How it was judged to look; `None` when it wasn't measured on enough to say, or its
+    /// look says too little (`says_little`).
     pub look: Option<Judged>,
-    /// Its look where it was the only effect on the pixel, and everywhere it was lit.
+    /// The look it got, when that says too little to judge it by. Such an effect is not judged:
+    /// it is in no share, score, or count of the effects judged.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub says_little: Option<SaysLittle>,
+    /// What chance decides in it, from its kind and settings, and why (see
+    /// [`crate::chance`]). A look of it can be held against PixelFlow's other seeds without
+    /// that ([`Look::chance`]): where an effect that draws on chance shares its pixels.
+    pub chance: Chance,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chance_reason: Option<String>,
+    /// Its look where it was the only effect on the pixel, and everywhere it was lit: the looks
+    /// it is judged on.
     pub look_solo: Option<Look>,
     pub look_layered: Option<Look>,
+    /// The same held moment by moment against xLights' render alone, when chance decides
+    /// something in it and the looks above are next to PixelFlow's other seeds.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub look_solo_by_moment: Option<Look>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub look_layered_by_moment: Option<Look>,
     pub class: Class,
     pub class_reason: Option<String>,
     /// The share of its lit pixels that random sparkles may make differ (0: it has none). The
@@ -324,13 +391,57 @@ impl EffectScore {
     }
 
     /// The look it's judged on: alone where it has enough of the picture to itself, layered
-    /// otherwise. `None` when it was measured on too little, or follows music that wasn't read.
+    /// otherwise. `None` when it was measured on too little, follows music that wasn't read, or
+    /// its look says too little to judge it by ([`EffectScore::little`]).
     pub fn look_basis(&self, limits: &AuditLimits) -> Option<(Basis, &Look)> {
-        let layered = self.look_layered.as_ref()?;
+        self.look_measured(limits)
+            .filter(|(_, look)| self.little_of(look).is_none())
+    }
+
+    /// The look it would be judged on, whether or not that says enough to judge it by.
+    pub fn look_measured(&self, limits: &AuditLimits) -> Option<(Basis, &Look)> {
+        self.basis_of(limits, self.look_solo.as_ref(), self.look_layered.as_ref())
+    }
+
+    /// Why `look` says too little to judge this effect by, when it does. A placeholder is "no
+    /// equivalent" by what it is, whatever its look says or doesn't.
+    fn little_of(&self, look: &Look) -> Option<String> {
+        if self.label == Label::Placeholder {
+            None
+        } else {
+            look.says_little()
+        }
+    }
+
+    /// The look it got and why that says too little to judge it by, when that is so.
+    pub fn little(&self, limits: &AuditLimits) -> Option<(Basis, &Look, String)> {
+        let (basis, look) = self.look_measured(limits)?;
+        Some((basis, look, self.little_of(look)?))
+    }
+
+    /// The same held moment by moment against xLights' render alone: another look when chance
+    /// decides something in the effect, the one it's judged on otherwise.
+    pub fn look_basis_by_moment(&self, limits: &AuditLimits) -> Option<(Basis, &Look)> {
+        self.basis_of(
+            limits,
+            self.look_solo_by_moment.as_ref().or(self.look_solo.as_ref()),
+            self.look_layered_by_moment
+                .as_ref()
+                .or(self.look_layered.as_ref()),
+        )
+    }
+
+    fn basis_of<'a>(
+        &self,
+        limits: &AuditLimits,
+        solo: Option<&'a Look>,
+        layered: Option<&'a Look>,
+    ) -> Option<(Basis, &'a Look)> {
+        let layered = layered?;
         if self.class == Class::NoMusic || layered.pixel_seconds < limits.min_pixel_seconds {
             return None;
         }
-        match &self.look_solo {
+        match solo {
             Some(solo)
                 if solo.pixel_seconds >= limits.alone_share * layered.pixel_seconds
                     && solo.pixel_seconds >= limits.min_pixel_seconds =>
@@ -341,22 +452,56 @@ impl EffectScore {
         }
     }
 
+    /// The verdict a look of this effect's earns: a placeholder has no equivalent whatever it
+    /// scores.
+    fn verdict_of(&self, look: &Look) -> Verdict {
+        if self.label == Label::Placeholder {
+            Verdict::NoEquivalent
+        } else {
+            look.verdict
+        }
+    }
+
+    /// The verdict it earned and the look it earned it on.
+    fn judged(&self, limits: &AuditLimits) -> Option<(Verdict, &Look)> {
+        let (_, look) = self.look_basis(limits)?;
+        Some((self.verdict_of(look), look))
+    }
+
+    /// The same compared moment by moment throughout.
+    fn judged_by_moment(&self, limits: &AuditLimits) -> Option<(Verdict, &Look)> {
+        let (_, look) = self.look_basis_by_moment(limits)?;
+        Some((self.verdict_of(look), look))
+    }
+
     fn judge(&mut self, limits: &AuditLimits) {
+        let by_moment = self.look_basis_by_moment(limits).map(|(_, look)| Scored {
+            score: look.score,
+            verdict: self.verdict_of(look),
+        });
         self.look = self.look_basis(limits).map(|(basis, look)| Judged {
-            verdict: if self.label == Label::Placeholder {
-                Verdict::NoEquivalent
-            } else {
-                look.verdict
-            },
+            verdict: self.verdict_of(look),
             basis,
             score: look.score,
             weakest: look.weakest,
             differs: look.differs(),
+            chance: look.chance,
+            by_moment: by_moment.filter(|_| look.chance != Chance::Nothing),
+        });
+        self.says_little = self.little(limits).map(|(basis, look, why)| SaysLittle {
+            why,
+            basis,
+            score: look.score,
+            verdict: look.verdict,
+            chance: look.chance,
+            itself: look.itself.unwrap_or(0.0),
+            least: look.least,
+            by_moment,
         });
     }
 
     /// How long it runs, in seconds.
-    fn seconds(&self) -> f64 {
+    pub(crate) fn seconds(&self) -> f64 {
         self.end_ms.saturating_sub(self.start_ms) as f64 / 1000.0
     }
 }
@@ -430,8 +575,20 @@ pub struct LookSummary {
     pub of: usize,
     pub seconds: f64,
     pub not_judged: f64,
+    /// Of what couldn't be judged, the effects that were measured and whose look next to
+    /// PixelFlow's other seeds says too little to judge them by ([`EffectScore::says_little`]):
+    /// how many, the seconds of effect that is, and that as a share of all effect-time.
+    pub says_little: SaidLittle,
     #[serde(skip)]
     sums: SummarySums,
+}
+
+/// How much was measured and not judged, for a look that says too little.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize)]
+pub struct SaidLittle {
+    pub effects: usize,
+    pub seconds: f64,
+    pub share: f64,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -441,20 +598,27 @@ struct SummarySums {
     score: f64,
     components: [f64; 6],
     all_seconds: f64,
+    little_seconds: f64,
     seen: (f64, f64),
 }
 
 impl LookSummary {
-    fn add(&mut self, effect: &EffectScore, limits: &AuditLimits) {
+    /// Adds an effect with the verdict it earned and the look it earned it on, when it was
+    /// judged; `little` when it wasn't for a look that says too little.
+    fn add(&mut self, effect: &EffectScore, judged: Option<(Verdict, &Look)>, little: bool) {
         self.of += 1;
         self.sums.all_seconds += effect.seconds();
-        let (Some(judged), Some((_, look))) = (&effect.look, effect.look_basis(limits)) else {
+        let Some((verdict, look)) = judged else {
+            if little {
+                self.says_little.effects += 1;
+                self.sums.little_seconds += effect.seconds();
+            }
             return;
         };
         self.judged += 1;
-        self.effects.add(judged.verdict, 1);
-        self.sums.seconds.add(judged.verdict, effect.seconds());
-        self.sums.pixel_seconds.add(judged.verdict, effect.share);
+        self.effects.add(verdict, 1);
+        self.sums.seconds.add(verdict, effect.seconds());
+        self.sums.pixel_seconds.add(verdict, effect.share);
         self.sums.score += look.score * effect.seconds();
         for component in Component::ALL {
             self.sums.components[component as usize] += look.components.get(component) * effect.seconds();
@@ -479,6 +643,8 @@ impl LookSummary {
             *sum += more;
         }
         self.sums.all_seconds += other.sums.all_seconds;
+        self.says_little.effects += other.says_little.effects;
+        self.sums.little_seconds += other.sums.little_seconds;
         self.sums.seen.0 += other.sums.seen.0;
         self.sums.seen.1 += other.sums.seen.1;
         self.finish();
@@ -498,6 +664,12 @@ impl LookSummary {
         } else {
             0.0
         };
+        self.says_little.seconds = round(sums.little_seconds);
+        self.says_little.share = if sums.all_seconds > 0.0 {
+            round(sums.little_seconds / sums.all_seconds)
+        } else {
+            0.0
+        };
     }
 }
 
@@ -507,6 +679,8 @@ impl LookSummary {
 pub struct KindLook {
     /// The look score, 0–100, weighted by what each instance was lit on; and its parts.
     pub score: f64,
+    /// The same with every instance held moment by moment against xLights' render alone.
+    pub by_moment: f64,
     pub components: Components,
     /// The part that agrees least, and what a viewer would notice of it (from the instance
     /// that loses most to it).
@@ -532,6 +706,7 @@ fn shortfall(score: f64) -> f64 {
 struct KindLookSums {
     weight: f64,
     score: f64,
+    by_moment: f64,
     components: [f64; 6],
     impact: f64,
     verdicts: ByVerdict<usize>,
@@ -548,8 +723,12 @@ impl KindLookSums {
             return;
         };
         let impact = shortfall(look.score) * effect.share;
+        let by_moment = effect
+            .look_basis_by_moment(limits)
+            .map_or(look.score, |(_, l)| l.score);
         self.weight += effect.share;
         self.score += look.score * effect.share;
+        self.by_moment += by_moment * effect.share;
         for component in Component::ALL {
             self.components[component as usize] += look.components.get(component) * effect.share;
         }
@@ -571,6 +750,7 @@ impl KindLookSums {
     fn merge(&mut self, other: &KindLookSums) {
         self.weight += other.weight;
         self.score += other.score;
+        self.by_moment += other.by_moment;
         for (sum, more) in self.components.iter_mut().zip(other.components) {
             *sum += more;
         }
@@ -596,6 +776,7 @@ impl KindLookSums {
         let differs = self.differs[weakest as usize].clone();
         Some(KindLook {
             score: round(self.score / self.weight),
+            by_moment: round(self.by_moment / self.weight),
             components,
             weakest,
             differs: differs.map(|(_, text)| text),
@@ -616,6 +797,8 @@ pub struct KindScore {
     pub class: Class,
     pub instances: usize,
     pub measured: usize,
+    /// Those measured and not judged, for a look that says too little.
+    pub says_little: usize,
     /// How the instances judged look.
     pub look: Option<KindLook>,
     pub labels: Labels,
@@ -750,6 +933,8 @@ pub struct LabelRow {
     /// Those judged, by the verdict each earned; and the ones judged alone among them.
     pub measured: ByVerdict<usize>,
     pub measured_alone: ByVerdict<usize>,
+    /// Those measured and not judged, for a look that says too little.
+    pub says_little: usize,
     /// Their look score, weighted by effect-time.
     pub score: Option<f64>,
     #[serde(skip)]
@@ -781,6 +966,7 @@ impl LabelRow {
         self.effects += other.effects;
         self.measured.merge(&other.measured);
         self.measured_alone.merge(&other.measured_alone);
+        self.says_little += other.says_little;
         self.sums.0 += other.sums.0;
         self.sums.1 += other.sums.1;
         self.score = (self.sums.1 > 0.0).then(|| round(self.sums.0 / self.sums.1));
@@ -844,10 +1030,12 @@ impl LabelCheck {
                     effects: 0,
                     measured: ByVerdict::default(),
                     measured_alone: ByVerdict::default(),
+                    says_little: 0,
                     score: None,
                     sums: (0.0, 0.0),
                 });
             row.effects += 1;
+            row.says_little += usize::from(effect.says_little.is_some());
             let Some(judged) = &effect.look else {
                 continue;
             };
@@ -971,6 +1159,10 @@ pub struct Scorecard {
     pub coverage: Coverage,
     /// How much of the sequence comes across looking the same.
     pub look: LookSummary,
+    /// The same with every effect held moment by moment against xLights' render alone: what
+    /// `look` was before effects that draw on chance were held against PixelFlow's own renders
+    /// from other seeds. The two differ by those effects alone.
+    pub look_by_moment: LookSummary,
     /// Kinds of effect by what there is to gain in look, the most first.
     pub improve: Vec<Improve>,
     /// The importer's labels held against the looks measured.
@@ -996,6 +1188,7 @@ fn kinds(effects: &[EffectScore], audit: &AuditLimits, frame_ms: u32, limits: &L
             class: effect.class,
             instances: 0,
             measured: 0,
+            says_little: 0,
             look: None,
             labels: Labels::default(),
             pixel_seconds: 0.0,
@@ -1015,6 +1208,7 @@ fn kinds(effects: &[EffectScore], audit: &AuditLimits, frame_ms: u32, limits: &L
         kind.solo_stats.merge(&effect.solo_stats);
         kind.layered_stats.merge(&effect.layered_stats);
         kind.measured += usize::from(effect.layered.is_some());
+        kind.says_little += usize::from(effect.says_little.is_some());
         kind.sums.0 += effect.share;
         if let Some(error) = effect.error(audit) {
             kind.sums.1 += effect.share;
@@ -1064,6 +1258,7 @@ impl KindScore {
     fn merge(&mut self, other: &KindScore) {
         self.instances += other.instances;
         self.measured += other.measured;
+        self.says_little += other.says_little;
         self.labels.merge(other.labels);
         self.look_sums.merge(&other.look_sums);
         self.solo_stats.merge(&other.solo_stats);
@@ -1232,19 +1427,23 @@ impl Scorecard {
         mut effects: Vec<EffectScore>,
         notes: Vec<String>,
     ) -> Self {
-        let mut look = LookSummary::default();
+        let (mut look, mut look_by_moment) = (LookSummary::default(), LookSummary::default());
         for effect in &mut effects {
             effect.judge(&method.audit);
-            look.add(effect, &method.audit);
+            look.add(effect, effect.judged(&method.audit), effect.says_little.is_some());
+            look_by_moment.add(effect, effect.judged_by_moment(&method.audit), false);
         }
         for prop in &props {
             look.add_prop(prop);
+            look_by_moment.add_prop(prop);
         }
         look.finish();
+        look_by_moment.finish();
         let kinds = kinds(&effects, &method.audit, sequence.frame_ms, &method.limits);
         Self {
             schema: SCHEMA,
             look,
+            look_by_moment,
             improve: improve(&kinds),
             labels: LabelCheck::of(&effects),
             diagnostics: Diagnostics {
@@ -1267,6 +1466,21 @@ impl Scorecard {
     }
 }
 
+/// An effect measured and not judged, for a look that says too little, in a corpus scorecard.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LittleEntry {
+    /// The sequence it's in, and its place in that sequence's `effects`.
+    pub sequence: String,
+    pub index: usize,
+    pub kind: String,
+    pub target: String,
+    pub start_ms: u64,
+    pub end_ms: u64,
+    #[serde(flatten)]
+    pub look: SaysLittle,
+}
+
 /// One sequence's line in a corpus scorecard.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -1274,6 +1488,7 @@ pub struct Headline {
     pub label: String,
     pub duration_ms: u64,
     pub look: LookSummary,
+    pub look_by_moment: LookSummary,
     pub import: SequenceImportSummary,
     pub pixels: usize,
     pub pixels_measured: usize,
@@ -1313,8 +1528,12 @@ pub struct CorpusCard {
     pub tool: String,
     /// How much of all the sequences comes across looking the same.
     pub look: LookSummary,
+    /// The same with every effect held moment by moment against xLights' render alone.
+    pub look_by_moment: LookSummary,
     pub sequences: Vec<Headline>,
     pub failures: Vec<Failure>,
+    /// The effects measured and not judged, for a look that says too little; the longest first.
+    pub says_little: Vec<LittleEntry>,
     pub improve: Vec<Improve>,
     pub labels: LabelCheck,
     pub kinds: Vec<KindScore>,
@@ -1327,8 +1546,10 @@ impl CorpusCard {
             schema: SCHEMA,
             tool: tool.to_string(),
             look: LookSummary::default(),
+            look_by_moment: LookSummary::default(),
             sequences: Vec::new(),
             failures: Vec::new(),
+            says_little: Vec::new(),
             improve: Vec::new(),
             labels: LabelCheck::default(),
             kinds: Vec::new(),
@@ -1341,11 +1562,32 @@ impl CorpusCard {
         let label = &card.sequence.label;
         let audit = &card.diagnostics.label_audit;
         self.look.merge(&card.look);
+        self.look_by_moment.merge(&card.look_by_moment);
         self.labels.merge(&card.labels, label);
+        for effect in &card.effects {
+            if let Some(look) = &effect.says_little {
+                self.says_little.push(LittleEntry {
+                    sequence: label.clone(),
+                    index: effect.index,
+                    kind: effect.kind.clone(),
+                    target: effect.target.clone(),
+                    start_ms: effect.start_ms,
+                    end_ms: effect.end_ms,
+                    look: look.clone(),
+                });
+            }
+        }
+        self.says_little.sort_by(|a, b| {
+            (b.end_ms.saturating_sub(b.start_ms))
+                .cmp(&a.end_ms.saturating_sub(a.start_ms))
+                .then(a.sequence.cmp(&b.sequence))
+                .then(a.index.cmp(&b.index))
+        });
         self.sequences.push(Headline {
             label: label.clone(),
             duration_ms: card.sequence.duration_ms,
             look: card.look.clone(),
+            look_by_moment: card.look_by_moment.clone(),
             import: card.sequence.import,
             pixels: card.coverage.pixels,
             pixels_measured: card.coverage.pixels_measured,
@@ -1423,5 +1665,219 @@ impl CorpusCard {
             label: label.to_string(),
             error: error.to_string(),
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::look::{Grid, LookStats, Scratch};
+    use std::rc::Rc;
+
+    /// A look of made-up frames with the score it is given. `itself` is how alike PixelFlow's
+    /// own renders were in their rhythm, for a look next to its other seeds.
+    fn look(score: f64, itself: Option<f64>) -> Look {
+        let mut stats = LookStats::new(Rc::new(Grid::new(&[(0.0, 0.0)], 1, 1)), 25, &Limits::default());
+        let mut scratch = Scratch::default();
+        stats.add(&mut scratch, 0, 0, [[255; 3]; 2]);
+        stats.end_frame(&mut scratch, 0);
+        let mut look = stats.finish().unwrap();
+        look.score = score;
+        look.verdict = crate::look::verdict(score);
+        look.pixel_seconds = 100.0;
+        if let Some(itself) = itself {
+            (look.chance, look.itself, look.least) = (Chance::Drawn, Some(itself), Some(Component::Rhythm));
+        }
+        look
+    }
+
+    /// An effect ten seconds long with pixels to itself, the look it got there, and what that
+    /// scores moment by moment when the look is next to other seeds.
+    fn effect(index: usize, kind: &str, label: Label, held: Look, by_moment: Option<Look>) -> EffectScore {
+        let limits = Limits::default();
+        let mut effect = EffectScore {
+            index,
+            kind: kind.to_string(),
+            pixelflow_kind: kind.to_string(),
+            target: "Matrix".to_string(),
+            start_ms: 0,
+            end_ms: 10_000,
+            layer: 0,
+            expected: if label == Label::Placeholder {
+                Verdict::NoEquivalent
+            } else {
+                Verdict::Matches
+            },
+            label,
+            notes: Vec::new(),
+            look: None,
+            says_little: None,
+            chance: held.chance,
+            chance_reason: None,
+            look_solo: Some(held),
+            look_layered: Some(held),
+            look_solo_by_moment: by_moment,
+            look_layered_by_moment: by_moment,
+            class: Class::Deterministic,
+            class_reason: None,
+            sparkles: 0.0,
+            pixels: 10,
+            measured_pixels: 10,
+            solo: None,
+            layered: None,
+            share: 100.0,
+            onset: None,
+            solo_stats: Stats::new(25, &limits),
+            layered_stats: Stats::new(25, &limits),
+        };
+        effect.judge(&AuditLimits::default());
+        effect
+    }
+
+    #[test]
+    fn a_look_that_says_too_little_leaves_its_effect_not_judged() {
+        let audit = AuditLimits::default();
+        // PixelFlow's own renders have nine tenths of this one's rhythm in common, and a tenth
+        // of that one's: the second look scores 100 and says nothing.
+        let sure = effect(
+            0,
+            "On",
+            Label::Exact,
+            look(100.0, Some(0.9)),
+            Some(look(100.0, None)),
+        );
+        let little = effect(
+            1,
+            "Fireworks",
+            Label::Exact,
+            look(100.0, Some(0.1)),
+            Some(look(40.0, None)),
+        );
+        let close = effect(2, "On", Label::Exact, look(70.0, None), None);
+        assert!(sure.look.is_some() && sure.says_little.is_none());
+        assert!(close.look.is_some() && close.says_little.is_none());
+        assert!(little.look.is_none() && little.look_basis(&audit).is_none());
+        // The look it got is kept, with what it would have earned and why it says too little.
+        let said = little.says_little.as_ref().unwrap();
+        assert_eq!(
+            (said.basis, said.score, said.verdict, said.chance),
+            (Basis::Solo, 100.0, Verdict::Matches, Chance::Drawn)
+        );
+        assert_eq!((said.itself, said.least), (0.1, Some(Component::Rhythm)));
+        assert_eq!(
+            said.by_moment,
+            Some(Scored {
+                score: 40.0,
+                verdict: Verdict::Different
+            })
+        );
+        assert_eq!(
+            said.why,
+            "PixelFlow's own renders have 10 in 100 of their rhythm in common from one seed to the next"
+        );
+
+        // It is in no share, score, or count of what was judged, and is counted as what it is.
+        let effects = [sure, little, close];
+        let (mut summary, mut by_moment) = (LookSummary::default(), LookSummary::default());
+        for effect in &effects {
+            summary.add(effect, effect.judged(&audit), effect.says_little.is_some());
+            by_moment.add(effect, effect.judged_by_moment(&audit), false);
+        }
+        summary.finish();
+        by_moment.finish();
+        assert_eq!((summary.judged, summary.of, summary.seconds), (2, 3, 20.0));
+        assert_eq!(
+            (summary.time.matches, summary.time.close, summary.score),
+            (0.5, 0.5, Some(85.0))
+        );
+        assert_eq!((summary.effects.matches, summary.effects.close), (1, 1));
+        assert_eq!(
+            summary.says_little,
+            SaidLittle {
+                effects: 1,
+                seconds: 10.0,
+                share: 0.3333
+            }
+        );
+        assert_eq!(summary.not_judged, 0.3333);
+        // Moment by moment every effect is judged, as all were before.
+        assert_eq!((by_moment.judged, by_moment.says_little.effects), (3, 0));
+        assert_eq!(
+            (
+                by_moment.time.matches,
+                by_moment.time.close,
+                by_moment.time.different
+            ),
+            (0.3333, 0.3333, 0.3333)
+        );
+        // A corpus adds them up.
+        let mut all = LookSummary::default();
+        all.merge(&summary);
+        all.merge(&summary);
+        assert_eq!(
+            (
+                all.judged,
+                all.of,
+                all.says_little.effects,
+                all.says_little.seconds
+            ),
+            (4, 6, 2, 20.0)
+        );
+        assert_eq!((all.says_little.share, all.not_judged), (0.3333, 0.3333));
+
+        // The importer's label for it is held against nothing, and its kind has no look.
+        let check = LabelCheck::of(&effects);
+        assert_eq!((check.judged, check.agree), (2, 1));
+        let row = check.rows.iter().find(|row| row.kind == "Fireworks").unwrap();
+        assert_eq!(
+            (
+                row.effects,
+                row.judged(),
+                row.says_little,
+                row.earned(),
+                row.score
+            ),
+            (1, 0, 1, None, None)
+        );
+        let kinds = kinds(&effects, &audit, 25, &Limits::default());
+        let fireworks = kinds.iter().find(|kind| kind.kind == "Fireworks").unwrap();
+        assert_eq!((fireworks.instances, fireworks.says_little), (1, 1));
+        assert!(fireworks.look.is_none());
+        let on = kinds.iter().find(|kind| kind.kind == "On").unwrap();
+        assert_eq!(
+            (
+                on.says_little,
+                on.look.as_ref().map(|look| (look.judged, look.score))
+            ),
+            (0, Some((2, 85.0)))
+        );
+        assert!(improve(&kinds).iter().all(|ranked| ranked.kind != "Fireworks"));
+    }
+
+    #[test]
+    fn a_placeholder_has_no_equivalent_whatever_its_look_says() {
+        let stand_in = effect(
+            0,
+            "Shader",
+            Label::Placeholder,
+            look(40.0, Some(0.1)),
+            Some(look(40.0, None)),
+        );
+        let judged = stand_in.look.as_ref().unwrap();
+        assert_eq!((judged.verdict, judged.score), (Verdict::NoEquivalent, 40.0));
+        assert!(stand_in.says_little.is_none());
+    }
+
+    #[test]
+    fn a_look_of_next_to_no_light_says_so() {
+        let mut dark = look(100.0, Some(0.2));
+        dark.seen.lit.pixelflow = 0.0003;
+        dark.seen.lit.xlights = 0.0001;
+        let fireworks = effect(0, "Fireworks", Label::Exact, dark, Some(look(38.0, None)));
+        assert!(fireworks.look.is_none());
+        assert_eq!(
+            fireworks.says_little.as_ref().map(|said| said.why.as_str()),
+            Some("too little light to tell")
+        );
     }
 }

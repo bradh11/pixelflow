@@ -6,9 +6,9 @@
 //! frames): Strip red for a second, then green, then twinkling; Matrix blue and Porch orange for
 //! two seconds; and everything in the group white for the last second.
 
-use pf_fidelity::compare::{Options, Request, compare};
+use pf_fidelity::compare::{OTHER_SEEDS, Options, Request, compare};
 use pf_fidelity::corpus::{self, Manifest};
-use pf_fidelity::look::Component;
+use pf_fidelity::look::{Chance, Component, LITTLE};
 use pf_fidelity::metrics::Limits;
 use pf_fidelity::report::{corpus_markdown, headline, sequence_markdown};
 use pf_fidelity::scorecard::{Basis, Class, EffectScore, Label, Scorecard, Source, Verdict};
@@ -118,8 +118,20 @@ fn score_with(reference: Reference, options: Options) -> Scorecard {
     compare(request, options).unwrap()
 }
 
+/// Every effect held moment by moment against the reference alone. The sequence's twinkles
+/// are ten pixels for two seconds: next to PixelFlow's other seeds what they earn is a matter of
+/// the seeds an import happens to draw (see
+/// `a_few_twinkling_pixels_are_found_different_or_say_too_little`), and these tests are of
+/// other things.
+fn by_moment() -> Options {
+    Options {
+        by_moment: true,
+        ..Options::default()
+    }
+}
+
 fn score(reference: Reference) -> Scorecard {
-    score_with(reference, Options::default())
+    score_with(reference, by_moment())
 }
 
 /// The effect of `kind` on `target` starting at `start_ms`.
@@ -649,7 +661,7 @@ fn a_manifest_runs_every_sequence_and_keeps_going_past_one_it_cant_compare() {
     assert_eq!(manifest.sequences[0].fseq, good);
 
     let mut heard = Vec::new();
-    let run = corpus::run(&manifest, &Options::default(), |label, result| {
+    let run = corpus::run(&manifest, &by_moment(), |label, result| {
         heard.push((label.to_string(), result.is_ok()));
     });
     assert_eq!(
@@ -755,7 +767,7 @@ fn a_manifest_runs_every_sequence_and_keeps_going_past_one_it_cant_compare() {
 fn a_scorecard_is_json_with_every_effect_and_its_importers_label() {
     let card = score(Reference::default());
     let json = serde_json::to_value(&card).unwrap();
-    assert_eq!(json["schema"], 2);
+    assert_eq!(json["schema"], 4);
     assert_eq!(json["sequence"]["import"]["effects"], 6);
     assert_eq!(json["coverage"]["pixelsMeasured"], 35);
     let effects = json["effects"].as_array().unwrap();
@@ -1026,4 +1038,220 @@ fn an_effect_pixelflow_has_no_effect_for_has_no_equivalent_whatever_it_scores() 
         "0% comes across the same · 0% looks close · 0% looks different · 100% has no PixelFlow effect yet"
     );
     assert_eq!((card.labels.judged, card.labels.agree), (1, 1));
+}
+
+/// The show's sequence of chance (`chance.xsq`) held against PixelFlow's own render of it from
+/// another import, and so from other seeds: the fireworks go off at other moments in the two.
+fn score_against_itself(options: Options) -> Scorecard {
+    let dir = TempDir::new().unwrap();
+    let sequence = show().join("chance.xsq");
+    let comparison = pf_fidelity::layout::comparison_show(&show()).unwrap();
+    let import = pf_xlights::import_sequence_file(&sequence, &comparison.show, |_, _| None).unwrap();
+    let fseq = dir.path().join("chance.fseq");
+    pf_render::export::export_fseq_file(
+        &comparison.show,
+        &comparison.map,
+        &import.sequence,
+        &pf_render::AudioSource::none(),
+        &pf_render::Pictures::new(|file| std::fs::read(file).map_err(|e| e.to_string())),
+        &fseq,
+        |_, _| true,
+    )
+    .unwrap();
+    let request = Request {
+        show: &show(),
+        xsq: &sequence,
+        fseq: &fseq,
+    };
+    compare(request, options).unwrap()
+}
+
+#[test]
+fn an_effect_that_draws_on_chance_is_held_against_pixelflows_other_seeds() {
+    let card = score_against_itself(Options::default());
+    assert_eq!(card.method.other_seeds, OTHER_SEEDS as usize);
+    assert!(!card.method.by_moment);
+
+    // The fireworks' moments are chance: judged over the whole effect, next to the other seeds,
+    // with what they score moment by moment beside.
+    let fireworks = effect(&card, "Fireworks", "All", 0);
+    assert_eq!(fireworks.chance, Chance::Moments);
+    assert!(
+        fireworks
+            .chance_reason
+            .as_deref()
+            .is_some_and(|why| why.contains("chance moments"))
+    );
+    let (_, look) = fireworks.look_measured(&card.method.audit).unwrap();
+    assert_eq!(look.chance, Chance::Moments);
+    assert!(look.itself.is_some(), "{look:?}");
+    // Four seconds of bursts say enough or too little, as the seeds have it: the effect is
+    // judged on that look, or it is not judged and the look is kept beside it.
+    match (&fireworks.look, &fireworks.says_little) {
+        (Some(judged), None) => {
+            assert_eq!(judged.chance, Chance::Moments);
+            assert!(judged.by_moment.is_some());
+        }
+        (None, Some(said)) => {
+            assert_eq!((said.chance, said.score), (Chance::Moments, look.score));
+            assert!(said.by_moment.is_some() && !said.why.is_empty(), "{said:?}");
+            assert!(fireworks.look_basis(&card.method.audit).is_none());
+        }
+        both => panic!("judged, or not for a look that says too little: {both:?}"),
+    }
+    let (_, by_moment) = fireworks.look_basis_by_moment(&card.method.audit).unwrap();
+    assert_eq!((by_moment.chance, by_moment.itself), (Chance::Nothing, None));
+    assert_eq!(by_moment.pixel_seconds, look.pixel_seconds);
+
+    // Strip's red draws on nothing, but it is only ever seen under the fireworks: the picture
+    // it is judged on changes from seed to seed, and is held against the other seeds too.
+    let strip = effect(&card, "On", "Strip", 0);
+    assert_eq!(
+        (strip.chance, strip.chance_reason.as_ref()),
+        (Chance::Nothing, None)
+    );
+    let (basis, look) = strip.look_measured(&card.method.audit).unwrap();
+    assert_eq!((basis, look.chance), (Basis::Layered, Chance::Drawn));
+    assert!(strip.look_layered_by_moment.is_some());
+    assert!(strip.look_solo.is_none() && strip.look_solo_by_moment.is_none());
+    assert_ne!(strip.look.is_some(), strip.says_little.is_some());
+
+    // Far's blue has its pixels to itself, and every seed draws it the same: judged as ever.
+    let far = effect(&card, "On", "Far", 0);
+    let judged = far.look.as_ref().unwrap();
+    assert_eq!(
+        (
+            judged.basis,
+            judged.chance,
+            judged.by_moment,
+            judged.verdict,
+            judged.score
+        ),
+        (Basis::Solo, Chance::Nothing, None, Verdict::Matches, 100.0)
+    );
+    assert!(far.look_solo_by_moment.is_none() && far.look_layered_by_moment.is_none());
+
+    // Both ways of judging are in the scorecard, over the same effects: moment by moment
+    // every one is judged, and next to other seeds all but those whose looks say too little.
+    let little = card.effects.iter().filter(|e| e.says_little.is_some()).count();
+    assert_eq!(
+        (card.look.judged + little, card.look.of),
+        (card.look_by_moment.judged, card.look_by_moment.of)
+    );
+    assert_eq!(
+        (
+            card.look.says_little.effects,
+            card.look_by_moment.says_little.effects
+        ),
+        (little, 0)
+    );
+    assert_eq!(card.look.says_little.share > 0.0, little > 0);
+    assert!(card.look.not_judged >= card.look.says_little.share);
+    let json = serde_json::to_value(&card).unwrap();
+    assert_eq!(json["effects"][fireworks.index]["chance"], "moments");
+    let held = if fireworks.look.is_some() {
+        "look"
+    } else {
+        "saysLittle"
+    };
+    assert_eq!(json["effects"][fireworks.index][held]["chance"], "moments");
+    assert!(json["effects"][fireworks.index][held]["byMoment"]["score"].is_number());
+    assert_eq!(json["look"]["saysLittle"]["effects"], little);
+    assert!(json["lookByMoment"]["score"].is_number());
+    assert_eq!(json["effects"][far.index]["look"]["chance"], "nothing");
+    assert!(json["effects"][far.index]["look"].get("byMoment").is_none());
+    let markdown = sequence_markdown(&card);
+    assert!(
+        markdown.contains("## Effects held against other seeds"),
+        "{markdown}"
+    );
+    assert!(
+        markdown.contains("## Not judged: looks that say little"),
+        "{markdown}"
+    );
+    // What isn't judged for a look that says too little is said in the summary and listed.
+    assert_eq!(
+        markdown.contains("has a look that says too little to judge it by"),
+        little > 0,
+        "{markdown}"
+    );
+    for effect in card.effects.iter().filter(|e| e.says_little.is_some()) {
+        let row = format!("| {} | {} | {} |", effect.index, effect.kind, effect.target);
+        assert!(markdown.contains(&row), "{row}: {markdown}");
+    }
+}
+
+#[test]
+fn a_few_twinkling_pixels_are_found_different_or_say_too_little() {
+    // The made-up twinkles slide along ten pixels for two seconds, where PixelFlow's come and go
+    // at random, and at other moments from each seed. Held against its other seeds they are
+    // found different on the parts its own renders agree on, or, where those are too few, the
+    // look says too little and the effect is not judged. It never matches.
+    let card = score_with(Reference::default(), Options::default());
+    assert_eq!(card.method.other_seeds, OTHER_SEEDS as usize);
+    let twinkle = effect(&card, "Twinkle", "Strip", 2000);
+    assert_eq!(twinkle.chance, Chance::Drawn);
+    let look = &card.look;
+    match (&twinkle.look, &twinkle.says_little) {
+        (Some(judged), None) => {
+            assert_ne!(judged.verdict, Verdict::Matches, "{judged:?}");
+            assert_eq!(
+                (look.judged, look.says_little.effects, look.not_judged),
+                (6, 0, 0.0)
+            );
+            assert_eq!(look.time.matches, 0.7778);
+        }
+        (None, Some(said)) => {
+            assert!(said.itself < LITTLE && said.why.contains("in common"), "{said:?}");
+            // Two of the nine seconds of effect are in no share: the Ons are all that is judged.
+            assert_eq!((look.judged, look.of), (5, 6));
+            assert_eq!((look.says_little.effects, look.says_little.seconds), (1, 2.0));
+            assert_eq!((look.says_little.share, look.not_judged), (0.2222, 0.2222));
+            assert_eq!((look.time.matches, look.effects.matches), (1.0, 5));
+            let labels = card.labels.rows.iter().find(|r| r.kind == "Twinkle").unwrap();
+            assert_eq!((labels.judged(), labels.says_little), (0, 1));
+            let kind = card.kinds.iter().find(|k| k.kind == "Twinkle").unwrap();
+            assert!(kind.look.is_none() && kind.says_little == 1);
+            let summary = sequence_markdown(&card);
+            assert!(
+                summary.contains(
+                    "22% of the effect-time (1 effect, 2 s) was measured and has a look that says too little"
+                ),
+                "{summary}"
+            );
+            assert!(
+                summary.contains("| Twinkle | Strip | 0:02.0–0:04.0 |"),
+                "{summary}"
+            );
+        }
+        both => panic!("judged, or not for a look that says too little: {both:?}"),
+    }
+    // Moment by moment it is judged either way, as it was before.
+    assert_eq!(card.look_by_moment.judged, 6);
+}
+
+#[test]
+fn every_effect_can_be_judged_moment_by_moment_as_before() {
+    let options = Options {
+        by_moment: true,
+        ..Options::default()
+    };
+    let card = score_against_itself(options);
+    assert!(card.method.by_moment);
+    assert_eq!(card.method.other_seeds, 0);
+    for effect in &card.effects {
+        let judged = effect.look.as_ref().unwrap();
+        assert_eq!(
+            (judged.chance, judged.by_moment),
+            (Chance::Nothing, None),
+            "{effect:?}"
+        );
+        assert!(effect.look_solo_by_moment.is_none() && effect.look_layered_by_moment.is_none());
+    }
+    // What chance decides in each is still said.
+    assert_eq!(effect(&card, "Fireworks", "All", 0).chance, Chance::Moments);
+    // The one summary is the other.
+    assert_eq!(card.look.score, card.look_by_moment.score);
+    assert_eq!(card.look.time, card.look_by_moment.time);
+    assert!(sequence_markdown(&card).contains("`--by-moment`"));
 }

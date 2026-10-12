@@ -11,17 +11,23 @@
 //! - [`compare`] does the import, the render, and the measuring.
 //! - [`look`] is the look score: coverage, brightness, color, pattern, motion, and rhythm, the
 //!   composite of the six, and the verdict it earns.
+//! - [`chance`] says which effects draw their places or their moments by chance, and so are
+//!   held against PixelFlow's own renders from other seeds.
 //! - [`scorecard`] is what comes out: how much of the sequence matches, is close, is different,
 //!   or has no equivalent; what to improve first and which part of its look is off; and how the
 //!   importer's labels held up.
 //! - [`labels`] holds the importer's table of expected looks against a scorecard.
 //! - [`metrics`] is the pixel-for-pixel arithmetic the scorecard keeps as diagnostics: error,
 //!   tolerance, lit agreement, brightness correlation, hue, and distributions.
+//! - [`calibrate`] holds the look score against PixelFlow's own renders, where the answer is
+//!   known: an effect against itself from another seed, and with one setting wrong.
 //! - [`corpus`] runs a list of sequences from a manifest; [`report`] writes the summaries;
 //!   [`strips`] draws frames side by side for looking into a difference.
 //!
 //! `docs/fidelity.md` has the method and its limits.
 
+pub mod calibrate;
+pub mod chance;
 pub mod compare;
 pub mod corpus;
 pub mod labels;

@@ -989,9 +989,6 @@ const FIREWORKS_MEASURED_FADE: f64 = 50.0;
 /// they have glowed: a tenth of how far the fastest has flown, at the settings measured.
 const FIREWORKS_DROP: f64 = 0.008;
 
-/// What an import says of Fireworks that go off at random moments.
-const FIREWORKS_OWN_MOMENTS: &str = "bursts go off at other random moments than xLights'";
-
 /// xLights' Fireworks, set up from what its rendered frames show (`docs/fidelity.md`), measured
 /// with Particle Fade at 50, Velocity at 2, and 25 ms frames: a burst at a time, at random
 /// moments, as many over the effect as "Number of Explosions"; each spark one cell of the
@@ -1002,15 +999,17 @@ const FIREWORKS_OWN_MOMENTS: &str = "bursts go off at other random moments than 
 /// size is how far the fastest spark flies in its glow time.
 ///
 /// A timing track is looked up by name when the effect is placed (see `Builder::effect`).
+///
+/// With neither a track nor the music, each program draws its own moments and places: a burst
+/// is as likely at any one as in xLights, and never at the same ones. That is chance on both
+/// sides, as where a flame lands or a flake falls, and nothing is noted for it: as many bursts
+/// as big, as bright, and as long-lived at other moments are the same look
+/// (`docs/fidelity.md`, "Effects that draw on chance").
 fn fireworks(r: &Reader, duration_ms: u64, frame: f64, diff: &mut Diff) -> EffectParams {
     let use_timing = r.check("FIRETIMING") && !r.choice("FIRETIMINGTRACK", "").trim().is_empty();
     let fire_on_music = !use_timing && r.check("Fireworks_UseMusic");
     if fire_on_music {
         diff.add("bursts follow the music at about the moments xLights' do");
-    } else if !use_timing {
-        // Each program draws its own moments: a burst is as likely at any one as in xLights,
-        // and never at the same ones.
-        diff.add(FIREWORKS_OWN_MOMENTS);
     }
     let fade = r.get("Fireworks_Fade", FIREWORKS_MEASURED_FADE, 1.0, 100.0);
     if (fade - FIREWORKS_MEASURED_FADE).abs() > 0.5 {
@@ -4231,14 +4230,14 @@ mod tests {
             scale: false,
         };
         assert_eq!(t.params, EffectParams::Fireworks(expected));
-        // Every number has its setting; the moments the bursts go off at are each program's own.
-        let own_moments = Fidelity::Approximate(vec![FIREWORKS_OWN_MOMENTS.into()]);
-        assert_eq!(t.fidelity, own_moments);
+        // Every number has its setting. The moments the bursts go off at are each program's
+        // own, as chance has them on both sides: nothing to note.
+        assert_eq!(t.fidelity, Fidelity::Exact);
         assert!(t.curves.is_empty());
         // A file that leaves them out means the same.
         let plain = translate("Fireworks", &Settings::default(), &palette(&[]), 40_000, 25).unwrap();
         assert_eq!(plain.params, EffectParams::Fireworks(expected));
-        assert_eq!(plain.fidelity, own_moments);
+        assert_eq!(plain.fidelity, Fidelity::Exact);
         // xLights counts in frames: with frames twice as long the sparks glow twice as long
         // and fly as far.
         let slow = translate("Fireworks", &Settings::parse(usual), &palette(&[]), 40_000, 50).unwrap();
@@ -4268,7 +4267,7 @@ mod tests {
                 ..expected
             })
         );
-        assert_eq!(t.fidelity, own_moments);
+        assert_eq!(t.fidelity, Fidelity::Exact);
         // With gravity, faster sparks have flown further by the time they have dropped as far.
         let faster = Settings::parse("E_SLIDER_Fireworks_Velocity=4");
         let EffectParams::Fireworks(fast) = translate("Fireworks", &faster, &palette(&[]), 10_000, 25)
@@ -4301,13 +4300,7 @@ mod tests {
         // Another Particle Fade: half as many frames of glow is the reading at 50, held to.
         let (p, notes) = noted("E_SLIDER_Fireworks_Fade=80");
         assert_eq!((p.life, p.size), (1.0, 80.0));
-        assert_eq!(
-            notes,
-            [
-                FIREWORKS_OWN_MOMENTS,
-                "sparks may glow for longer or shorter than in xLights"
-            ]
-        );
+        assert_eq!(notes, ["sparks may glow for longer or shorter than in xLights"]);
         // Colors that change, fireworks that move, and a place along one line only.
         let (p, notes) = noted(
             "E_CHECKBOX_Fireworks_HoldColour=0,E_SLIDER_Fireworks_XVelocity=20,E_SLIDER_Fireworks_XLocation=30",
@@ -4319,7 +4312,6 @@ mod tests {
         assert_eq!(
             notes,
             [
-                FIREWORKS_OWN_MOMENTS,
                 "sparks change color through the palette as they fade, perhaps not as xLights changes them",
                 "bursts stay where they go off, where xLights moves them",
                 "bursts go off anywhere on the prop, where xLights keeps them in one line",
@@ -4352,7 +4344,7 @@ mod tests {
         // More than PixelFlow's settings hold is set to the nearest they do.
         let (p, notes) = noted("E_SLIDER_Fireworks_Explosions=500,E_SLIDER_Fireworks_Count=900");
         assert_eq!((p.rate, p.sparks), (20.0, 200));
-        assert_eq!(notes, [FIREWORKS_OWN_MOMENTS, BEYOND_RANGE]);
+        assert_eq!(notes, [BEYOND_RANGE]);
     }
 
     #[test]

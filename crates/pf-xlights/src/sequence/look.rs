@@ -208,6 +208,14 @@ const fn noted(effect: &'static str, text: &'static str, verdict: Verdict) -> Ro
 /// same yardstick the measurements use: a look with the wrong colors, nothing moving where
 /// xLights moves, or light on another part of the prop reads as a different look; a shape, a
 /// direction, or a speed that is off is the same idea with a noticeable difference.
+///
+/// Chance on both sides is no difference. Where an effect draws its moments or its places by
+/// chance in both programs (fireworks, snow, meteors, wandering balls), the importer notes
+/// nothing for that and the rule expects a match: `pf-fidelity` holds such an effect against
+/// PixelFlow's own renders from other seeds, and as much light, as bright, in the same colors
+/// at other moments is the same look. For Fireworks that expectation is judged and not
+/// measured. Its settings are carried over from what xLights' frames show, and the one in the
+/// corpus lights too few pixels of its props for its look to say anything, either way.
 pub const TABLE: &[Row] = &[
     // Judged: each is drawn as the nearest PixelFlow effect with its usual settings, a stand-in.
     // Fireworks was a fourth, and measured: it lit the prop steadily where xLights bursts and
@@ -405,11 +413,13 @@ mod tests {
         let (verdict, why) = expected("Snowstorm", &noting("shown as falling meteors"));
         assert_eq!((verdict, why.is_empty()), (Verdict::Different, true));
         // Fireworks has an effect of its own: as any effect, the same unless something is noted.
+        // Bursting at random moments is chance on both sides, and the importer notes nothing
+        // for it; a burst that keeps other time than xLights' is noted.
         assert_eq!(expected("Fireworks", &Fidelity::Exact).0, Verdict::Matches);
         assert_eq!(
             expected(
                 "Fireworks",
-                &noting("bursts go off at other random moments than xLights'")
+                &noting("bursts follow the music at about the moments xLights' do")
             )
             .0,
             Verdict::Close

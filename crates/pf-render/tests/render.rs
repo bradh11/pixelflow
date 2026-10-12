@@ -699,11 +699,17 @@ fn sparkles_are_the_same_every_render_and_cover_about_5_in_208_minus_the_setting
     assert_eq!(render(&show, &seq, 1000), first);
 
     let sparkling = |frame: &[u8]| frame.chunks(3).filter(|p| p[2] > 0).count();
-    let n = sparkling(&first);
+    // The share is a chance one, so it is read over forty frames: a single frame's count moves
+    // by about a tenth of itself from one effect's seed to the next.
+    let frames = 40;
+    let n = (0..frames)
+        .map(|f| sparkling(&render(&show, &seq, 1000 + 25 * f)))
+        .sum::<usize>() as f64
+        / frames as f64;
     let want = 2000.0 * 5.0 / 58.0;
     assert!(
-        (n as f64 - want).abs() < want * 0.2,
-        "{n} sparkling, about {want} expected"
+        (n - want).abs() < want * 0.2,
+        "{n} sparkling a frame, about {want} expected"
     );
     assert!(
         first

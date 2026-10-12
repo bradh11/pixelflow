@@ -103,19 +103,10 @@ impl EffectTime {
         (self.length_ms.max(1) - 1) / u64::from(self.frame_ms.max(1)) + 1
     }
 
-    /// xLights' `GetEffectTimeIntervalPosition(cycles)`: where the effect is in its current cycle
-    /// (0–1), counting in frames, with `cycles` cycles over the effect.
+    /// Where the effect is in its current cycle (0–1), counting in whole frames, with `cycles`
+    /// cycles over the effect: 0 on a cycle's first frame, 1 on its last.
     pub(crate) fn cycle_position(&self, cycles: f64) -> f64 {
-        let periods = self.frames() as f64;
-        if periods <= 1.0 {
-            return 0.0;
-        }
-        let per_cycle = periods / cycles;
-        if per_cycle.is_nan() || per_cycle <= 1.0 || per_cycle.is_infinite() {
-            return 0.0;
-        }
-        let at = (self.frame() as f64).rem_euclid(per_cycle);
-        (at / (per_cycle - 1.0)).min(1.0)
+        crate::carried::cycle_position(self.frame(), self.frames(), cycles)
     }
 
     pub(crate) fn seconds(&self) -> f64 {
@@ -186,22 +177,9 @@ pub(crate) fn hash01(seed: u64, a: u64, b: u64) -> f32 {
     (hash(seed, a, b) >> 40) as f32 / (1u64 << 24) as f32
 }
 
-/// xLights' acceleration (`RenderBuffer::calcAccel`): bends progress through an effect (0–1) so
-/// it speeds up (positive, up to 10) or slows down (negative).
-pub(crate) fn accelerate(ratio: f64, accel: f64) -> f64 {
-    if accel == 0.0 || !accel.is_finite() {
-        return ratio;
-    }
-    let pct = (accel.abs() - 1.0) / 9.0;
-    let a1 = pct * 5.0 + (1.0 - pct) * 1.5;
-    let a2 = 1.5 + ratio * a1;
-    let exponent = pct * a2 + (1.0 - pct) * a1;
-    if accel > 0.0 {
-        ratio.powf(exponent)
-    } else {
-        1.0 - (1.0 - ratio).powf(a1)
-    }
-}
+/// Bends progress through an effect (0–1) so it speeds up (positive `accel`, up to 10) or slows
+/// down (negative, down to -10); 0 leaves it as it is. 0 stays 0 and 1 stays 1.
+pub(crate) use crate::carried::accelerate;
 
 /// Draws one effect, one pixel at a time.
 pub trait Shade {

@@ -1,0 +1,353 @@
+row	columns	rows	length_ms	frame_ms	at_ms	palette	settings	x	y	red	green	blue	alpha
+1	101	101	1050	50	0	255,0,0	(defaults)	50	50	1	0	0	0.79607844
+1	101	101	1050	50	0	255,0,0	(defaults)	51	50	1	0	0	0.8
+1	101	101	1050	50	0	255,0,0	(defaults)	48	48	1	0	0	0.07058824
+1	101	101	1050	50	0	255,0,0	(defaults)	50	48	1	0	0	0.4
+1	101	101	1050	50	0	255,0,0	(defaults)	49	51	1	0	0	0.63529414
+1	101	101	1050	50	0	255,0,0	(defaults)	50	47	1	0	0	0
+2	101	101	1050	50	250	255,0,0	(defaults)	50	50	0	0	0	0
+2	101	101	1050	50	250	255,0,0	(defaults)	63	50	1	0	0	0.99607843
+2	101	101	1050	50	250	255,0,0	(defaults)	43	43	1	0	0	0.003921569
+2	101	101	1050	50	250	255,0,0	(defaults)	46	36	1	0	0	0.49803922
+2	101	101	1050	50	250	255,0,0	(defaults)	38	48	1	0	0	0.7294118
+2	101	101	1050	50	250	255,0,0	(defaults)	49	34	1	0	0	0.02745098
+2	101	101	1050	50	250	255,0,0	(defaults)	48	34	1	0	0	0
+3	101	101	1050	50	500	255,0,0	(defaults)	50	50	0	0	0	0
+3	101	101	1050	50	500	255,0,0	(defaults)	75	45	1	0	0	0.99607843
+3	101	101	1050	50	500	255,0,0	(defaults)	32	27	1	0	0	0.011764706
+3	101	101	1050	50	500	255,0,0	(defaults)	31	36	1	0	0	0.49019608
+3	101	101	1050	50	500	255,0,0	(defaults)	61	28	1	0	0	0.75686276
+3	101	101	1050	50	500	255,0,0	(defaults)	46	21	0	0	0	0
+3	101	101	1050	50	500	255,0,0	(defaults)	38	32	0	0	0	0
+4	101	101	1050	50	1000	255,0,0	(defaults)	50	50	0	0	0	0
+4	101	101	1050	50	1000	255,0,0	(defaults)	100	43	1	0	0	0.99607843
+4	101	101	1050	50	1000	255,0,0	(defaults)	26	0	1	0	0	0.003921569
+4	101	101	1050	50	1000	255,0,0	(defaults)	24	96	1	0	0	0.5294118
+4	101	101	1050	50	1000	255,0,0	(defaults)	31	98	1	0	0	0.77254903
+4	101	101	1050	50	1000	255,0,0	(defaults)	24	1	1	0	0	0.003921569
+4	101	101	1050	50	1000	255,0,0	(defaults)	22	2	0	0	0	0
+5	100	100	1000	50	500	255,0,0	(defaults)	50	50	0	0	0	0
+5	100	100	1000	50	500	255,0,0	(defaults)	75	41	1	0	0	0.99215686
+5	100	100	1000	50	500	255,0,0	(defaults)	44	28	1	0	0	0.015686275
+5	100	100	1000	50	500	255,0,0	(defaults)	37	29	1	0	0	0.5137255
+5	100	100	1000	50	500	255,0,0	(defaults)	59	76	1	0	0	0.74509805
+5	100	100	1000	50	500	255,0,0	(defaults)	46	20	1	0	0	0.023529412
+5	100	100	1000	50	500	255,0,0	(defaults)	41	21	1	0	0	0
+6	41	21	1000	50	450	255,0,0;0,255,0;0,0,255	(defaults)	20	10	0	0	0	0
+6	41	21	1000	50	450	255,0,0;0,255,0;0,0,255	(defaults)	29	6	0.052631557	0.94736844	0	0.9764706
+6	41	21	1000	50	450	255,0,0;0,255,0;0,0,255	(defaults)	15	0	0.052631557	0.94736844	0	0.07450981
+6	41	21	1000	50	450	255,0,0;0,255,0;0,0,255	(defaults)	30	7	0.052631557	0.94736844	0	0.5764706
+6	41	21	1000	50	450	255,0,0;0,255,0;0,0,255	(defaults)	30	12	0.052631557	0.94736844	0	0.7411765
+6	41	21	1000	50	450	255,0,0;0,255,0;0,0,255	(defaults)	12	2	0	0	0	0
+6	41	21	1000	50	450	255,0,0;0,255,0;0,0,255	(defaults)	18	2	0	0	0	0
+7	400	177	900	50	400	255,0,0	(defaults)	200	88	0	0	0	0
+7	400	177	900	50	400	255,0,0	(defaults)	295	83	1	0	0	0.99607843
+7	400	177	900	50	400	255,0,0	(defaults)	133	1	1	0	0	0.003921569
+7	400	177	900	50	400	255,0,0	(defaults)	259	153	1	0	0	0.49411765
+7	400	177	900	50	400	255,0,0	(defaults)	231	2	1	0	0	0.7411765
+7	400	177	900	50	400	255,0,0	(defaults)	108	28	1	0	0	0
+7	400	177	900	50	400	255,0,0	(defaults)	180	10	1	0	0	0
+8	101	101	1050	50	0	255,0,0	scale off, blendEdges off, startRadius 30, endRadius 30, startWidth 4, endWidth 4	50	50	0	0	0	0
+8	101	101	1050	50	0	255,0,0	scale off, blendEdges off, startRadius 30, endRadius 30, startWidth 4, endWidth 4	78	50	1	0	0	1
+8	101	101	1050	50	0	255,0,0	scale off, blendEdges off, startRadius 30, endRadius 30, startWidth 4, endWidth 4	77	50	0	0	0	0
+8	101	101	1050	50	0	255,0,0	scale off, blendEdges off, startRadius 30, endRadius 30, startWidth 4, endWidth 4	82	50	1	0	0	1
+8	101	101	1050	50	0	255,0,0	scale off, blendEdges off, startRadius 30, endRadius 30, startWidth 4, endWidth 4	83	50	0	0	0	0
+8	101	101	1050	50	0	255,0,0	scale off, blendEdges off, startRadius 30, endRadius 30, startWidth 4, endWidth 4	50	18	1	0	0	1
+8	101	101	1050	50	0	255,0,0	scale off, blendEdges off, startRadius 30, endRadius 30, startWidth 4, endWidth 4	68	74	1	0	0	1
+8	101	101	1050	50	0	255,0,0	scale off, blendEdges off, startRadius 30, endRadius 30, startWidth 4, endWidth 4	69	75	1	0	0	1
+9	101	101	1050	50	0	255,0,0	scale off, blendEdges on, startRadius 30, endRadius 30, startWidth 20, endWidth 20	80	50	1	0	0	1
+9	101	101	1050	50	0	255,0,0	scale off, blendEdges on, startRadius 30, endRadius 30, startWidth 20, endWidth 20	75	50	1	0	0	0.49803922
+9	101	101	1050	50	0	255,0,0	scale off, blendEdges on, startRadius 30, endRadius 30, startWidth 20, endWidth 20	71	50	1	0	0	0.09803922
+9	101	101	1050	50	0	255,0,0	scale off, blendEdges on, startRadius 30, endRadius 30, startWidth 20, endWidth 20	70	50	1	0	0	0
+9	101	101	1050	50	0	255,0,0	scale off, blendEdges on, startRadius 30, endRadius 30, startWidth 20, endWidth 20	89	50	1	0	0	0.09803922
+9	101	101	1050	50	0	255,0,0	scale off, blendEdges on, startRadius 30, endRadius 30, startWidth 20, endWidth 20	90	50	1	0	0	0
+9	101	101	1050	50	0	255,0,0	scale off, blendEdges on, startRadius 30, endRadius 30, startWidth 20, endWidth 20	68	74	1	0	0	1
+9	101	101	1050	50	0	255,0,0	scale off, blendEdges on, startRadius 30, endRadius 30, startWidth 20, endWidth 20	50	23	1	0	0	0.69803923
+10	101	101	1050	50	0	255,0,0	scale off, blendEdges on, startRadius 30, endRadius 30, startWidth 0, endWidth 0	80	50	1	0	0	1
+10	101	101	1050	50	0	255,0,0	scale off, blendEdges on, startRadius 30, endRadius 30, startWidth 0, endWidth 0	68	74	1	0	0	1
+10	101	101	1050	50	0	255,0,0	scale off, blendEdges on, startRadius 30, endRadius 30, startWidth 0, endWidth 0	79	57	1	0	0	0.32941177
+10	101	101	1050	50	0	255,0,0	scale off, blendEdges on, startRadius 30, endRadius 30, startWidth 0, endWidth 0	80	51	1	0	0	0.93333334
+10	101	101	1050	50	0	255,0,0	scale off, blendEdges on, startRadius 30, endRadius 30, startWidth 0, endWidth 0	80	52	1	0	0	0.73333335
+11	101	101	1050	50	0	255,0,0	scale off, blendEdges off, startRadius 30, endRadius 30, startWidth 1, endWidth 1	80	50	1	0	0	1
+11	101	101	1050	50	0	255,0,0	scale off, blendEdges off, startRadius 30, endRadius 30, startWidth 1, endWidth 1	79	57	1	0	0	1
+11	101	101	1050	50	0	255,0,0	scale off, blendEdges off, startRadius 30, endRadius 30, startWidth 1, endWidth 1	80	51	1	0	0	1
+11	101	101	1050	50	0	255,0,0	scale off, blendEdges off, startRadius 30, endRadius 30, startWidth 1, endWidth 1	80	53	1	0	0	1
+11	101	101	1050	50	0	255,0,0	scale off, blendEdges off, startRadius 30, endRadius 30, startWidth 1, endWidth 1	80	54	1	0	0	1
+12	101	101	1050	50	500	255,0,0;0,255,0;0,0,255	scale off, blendEdges off, startRadius 0, endRadius 20, startWidth 4, endWidth 4	50	50	0	0	0	0
+12	101	101	1050	50	500	255,0,0;0,255,0;0,0,255	scale off, blendEdges off, startRadius 0, endRadius 20, startWidth 4, endWidth 4	58	50	0	1	0	1
+12	101	101	1050	50	500	255,0,0;0,255,0;0,0,255	scale off, blendEdges off, startRadius 0, endRadius 20, startWidth 4, endWidth 4	57	50	0	0	0	0
+12	101	101	1050	50	500	255,0,0;0,255,0;0,0,255	scale off, blendEdges off, startRadius 0, endRadius 20, startWidth 4, endWidth 4	62	50	0	1	0	1
+12	101	101	1050	50	500	255,0,0;0,255,0;0,0,255	scale off, blendEdges off, startRadius 0, endRadius 20, startWidth 4, endWidth 4	63	50	0	0	0	0
+12	101	101	1050	50	500	255,0,0;0,255,0;0,0,255	scale off, blendEdges off, startRadius 0, endRadius 20, startWidth 4, endWidth 4	56	58	0	1	0	1
+13	101	101	1050	50	350	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 1, endRadius 100, startWidth 5, endWidth 59	50	50	0	0	0	0
+13	101	101	1050	50	350	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 1, endRadius 100, startWidth 5, endWidth 59	85	43	0.3	0.7	0	0.99607843
+13	101	101	1050	50	350	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 1, endRadius 100, startWidth 5, endWidth 59	43	3	0.3	0.7	0	0.003921569
+13	101	101	1050	50	350	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 1, endRadius 100, startWidth 5, endWidth 59	25	34	0.3	0.7	0	0.49803922
+13	101	101	1050	50	350	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 1, endRadius 100, startWidth 5, endWidth 59	88	43	0.3	0.7	0	0.7490196
+13	101	101	1050	50	350	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 1, endRadius 100, startWidth 5, endWidth 59	38	4	0.3	0.7	0	0.003921569
+13	101	101	1050	50	350	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 1, endRadius 100, startWidth 5, endWidth 59	20	13	0	0	0	0
+14	101	101	1050	50	700	255,128,0;0,128,255	scale off, blendEdges on, startRadius 60, endRadius 5, startWidth 30, endWidth 2	50	50	0	0	0	0
+14	101	101	1050	50	700	255,128,0;0,128,255	scale off, blendEdges on, startRadius 60, endRadius 5, startWidth 30, endWidth 2	70	42	0.3	0.5019608	0.7	0.99215686
+14	101	101	1050	50	700	255,128,0;0,128,255	scale off, blendEdges on, startRadius 60, endRadius 5, startWidth 30, endWidth 2	35	28	0.3	0.5019608	0.7	0.011764706
+14	101	101	1050	50	700	255,128,0;0,128,255	scale off, blendEdges on, startRadius 60, endRadius 5, startWidth 30, endWidth 2	33	33	0.3	0.5019608	0.7	0.50980395
+14	101	101	1050	50	700	255,128,0;0,128,255	scale off, blendEdges on, startRadius 60, endRadius 5, startWidth 30, endWidth 2	68	36	0.3	0.5019608	0.7	0.7490196
+14	101	101	1050	50	700	255,128,0;0,128,255	scale off, blendEdges on, startRadius 60, endRadius 5, startWidth 30, endWidth 2	44	24	0.3	0.5019608	0.7	0
+14	101	101	1050	50	700	255,128,0;0,128,255	scale off, blendEdges on, startRadius 60, endRadius 5, startWidth 30, endWidth 2	47	34	0	0	0	0
+15	101	101	1050	50	1000	255,128,0;0,128,255	scale off, blendEdges off, startRadius 40, endRadius 0, startWidth 10, endWidth 0	50	50	0	0.5019608	1	1
+15	101	101	1050	50	1000	255,128,0;0,128,255	scale off, blendEdges off, startRadius 40, endRadius 0, startWidth 10, endWidth 0	51	50	0	0	0	0
+15	101	101	1050	50	1000	255,128,0;0,128,255	scale off, blendEdges off, startRadius 40, endRadius 0, startWidth 10, endWidth 0	50	51	0	0	0	0
+15	101	101	1050	50	1000	255,128,0;0,128,255	scale off, blendEdges off, startRadius 40, endRadius 0, startWidth 10, endWidth 0	49	49	0	0	0	0
+16	201	201	3600	50	1800	255,0,0	scale off, blendEdges on, startRadius 1, endRadius 196, startWidth 5, endWidth 200, acceleration -7	100	100	0	0	0	0
+16	201	201	3600	50	1800	255,0,0	scale off, blendEdges on, startRadius 1, endRadius 196, startWidth 5, endWidth 200, acceleration -7	200	0	1	0	0	0.5529412
+16	201	201	3600	50	1800	255,0,0	scale off, blendEdges on, startRadius 1, endRadius 196, startWidth 5, endWidth 200, acceleration -7	94	10	1	0	0	0.003921569
+16	201	201	3600	50	1800	255,0,0	scale off, blendEdges on, startRadius 1, endRadius 196, startWidth 5, endWidth 200, acceleration -7	59	194	1	0	0	0.13725491
+16	201	201	3600	50	1800	255,0,0	scale off, blendEdges on, startRadius 1, endRadius 196, startWidth 5, endWidth 200, acceleration -7	24	16	1	0	0	0.2509804
+16	201	201	3600	50	1800	255,0,0	scale off, blendEdges on, startRadius 1, endRadius 196, startWidth 5, endWidth 200, acceleration -7	0	0	1	0	0	0.5529412
+16	201	201	3600	50	1800	255,0,0	scale off, blendEdges on, startRadius 1, endRadius 196, startWidth 5, endWidth 200, acceleration -7	49	26	1	0	0	0
+17	1501	1	1050	50	1000	255,0,0	scale off, blendEdges off, centerX 0, startRadius 0, endRadius 750, startWidth 255, endWidth 255	622	0	0	0	0	0
+17	1501	1	1050	50	1000	255,0,0	scale off, blendEdges off, centerX 0, startRadius 0, endRadius 750, startWidth 255, endWidth 255	623	0	1	0	0	1
+17	1501	1	1050	50	1000	255,0,0	scale off, blendEdges off, centerX 0, startRadius 0, endRadius 750, startWidth 255, endWidth 255	750	0	1	0	0	1
+17	1501	1	1050	50	1000	255,0,0	scale off, blendEdges off, centerX 0, startRadius 0, endRadius 750, startWidth 255, endWidth 255	877	0	1	0	0	1
+17	1501	1	1050	50	1000	255,0,0	scale off, blendEdges off, centerX 0, startRadius 0, endRadius 750, startWidth 255, endWidth 255	878	0	0	0	0	0
+18	101	101	1050	50	0	255,0,0	blendEdges off, startRadius 50, endRadius 50, startWidth 10, endWidth 10	70	50	0	0	0	0
+18	101	101	1050	50	0	255,0,0	blendEdges off, startRadius 50, endRadius 50, startWidth 10, endWidth 10	71	50	1	0	0	1
+18	101	101	1050	50	0	255,0,0	blendEdges off, startRadius 50, endRadius 50, startWidth 10, endWidth 10	80	50	1	0	0	1
+18	101	101	1050	50	0	255,0,0	blendEdges off, startRadius 50, endRadius 50, startWidth 10, endWidth 10	81	50	0	0	0	0
+18	101	101	1050	50	0	255,0,0	blendEdges off, startRadius 50, endRadius 50, startWidth 10, endWidth 10	75	50	1	0	0	1
+18	101	101	1050	50	0	255,0,0	blendEdges off, startRadius 50, endRadius 50, startWidth 10, endWidth 10	50	50	0	0	0	0
+19	201	81	1050	50	0	255,0,0	blendEdges on, startRadius 40, endRadius 40, startWidth 10, endWidth 10	100	40	0	0	0	0
+19	201	81	1050	50	0	255,0,0	blendEdges on, startRadius 40, endRadius 40, startWidth 10, endWidth 10	140	36	1	0	0	0.99607843
+19	201	81	1050	50	0	255,0,0	blendEdges on, startRadius 40, endRadius 40, startWidth 10, endWidth 10	96	10	1	0	0	0.003921569
+19	201	81	1050	50	0	255,0,0	blendEdges on, startRadius 40, endRadius 40, startWidth 10, endWidth 10	70	21	1	0	0	0.5294118
+19	201	81	1050	50	0	255,0,0	blendEdges on, startRadius 40, endRadius 40, startWidth 10, endWidth 10	130	70	1	0	0	0.7764706
+19	201	81	1050	50	0	255,0,0	blendEdges on, startRadius 40, endRadius 40, startWidth 10, endWidth 10	54	20	1	0	0	0.003921569
+19	201	81	1050	50	0	255,0,0	blendEdges on, startRadius 40, endRadius 40, startWidth 10, endWidth 10	65	4	0	0	0	0
+20	81	201	1050	50	0	255,0,0	blendEdges on, startRadius 40, endRadius 40, startWidth 10, endWidth 10	40	100	0	0	0	0
+20	81	201	1050	50	0	255,0,0	blendEdges on, startRadius 40, endRadius 40, startWidth 10, endWidth 10	80	96	1	0	0	0.99607843
+20	81	201	1050	50	0	255,0,0	blendEdges on, startRadius 40, endRadius 40, startWidth 10, endWidth 10	36	50	1	0	0	0.003921569
+20	81	201	1050	50	0	255,0,0	blendEdges on, startRadius 40, endRadius 40, startWidth 10, endWidth 10	10	81	1	0	0	0.5294118
+20	81	201	1050	50	0	255,0,0	blendEdges on, startRadius 40, endRadius 40, startWidth 10, endWidth 10	34	142	1	0	0	0.7764706
+20	81	201	1050	50	0	255,0,0	blendEdges on, startRadius 40, endRadius 40, startWidth 10, endWidth 10	5	64	0	0	0	0
+20	81	201	1050	50	0	255,0,0	blendEdges on, startRadius 40, endRadius 40, startWidth 10, endWidth 10	23	75	1	0	0	0
+21	101	1	1050	50	0	255,0,0	blendEdges off, centerX 0, startRadius 50, endRadius 50, startWidth 2.97, endWidth 2.97	24	0	0	0	0	0
+21	101	1	1050	50	0	255,0,0	blendEdges off, centerX 0, startRadius 50, endRadius 50, startWidth 2.97, endWidth 2.97	25	0	1	0	0	1
+21	101	1	1050	50	0	255,0,0	blendEdges off, centerX 0, startRadius 50, endRadius 50, startWidth 2.97, endWidth 2.97	26	0	1	0	0	1
+21	101	1	1050	50	0	255,0,0	blendEdges off, centerX 0, startRadius 50, endRadius 50, startWidth 2.97, endWidth 2.97	27	0	0	0	0	0
+22	101	1	1050	50	0	255,0,0	blendEdges off, centerX 0, startRadius 50, endRadius 50, startWidth 3, endWidth 3	23	0	0	0	0	0
+22	101	1	1050	50	0	255,0,0	blendEdges off, centerX 0, startRadius 50, endRadius 50, startWidth 3, endWidth 3	24	0	1	0	0	1
+22	101	1	1050	50	0	255,0,0	blendEdges off, centerX 0, startRadius 50, endRadius 50, startWidth 3, endWidth 3	26	0	1	0	0	1
+22	101	1	1050	50	0	255,0,0	blendEdges off, centerX 0, startRadius 50, endRadius 50, startWidth 3, endWidth 3	27	0	0	0	0	0
+23	58	58	1050	50	0	255,0,0	blendEdges off, startRadius 0, endRadius 0, startWidth 50, endWidth 50	43	29	1	0	0	1
+23	58	58	1050	50	0	255,0,0	blendEdges off, startRadius 0, endRadius 0, startWidth 50, endWidth 50	44	29	0	0	0	0
+23	58	58	1050	50	0	255,0,0	blendEdges off, startRadius 0, endRadius 0, startWidth 50, endWidth 50	29	43	1	0	0	1
+23	58	58	1050	50	0	255,0,0	blendEdges off, startRadius 0, endRadius 0, startWidth 50, endWidth 50	39	39	0	0	0	0
+23	58	58	1050	50	0	255,0,0	blendEdges off, startRadius 0, endRadius 0, startWidth 50, endWidth 50	40	39	0	0	0	0
+24	60	60	1050	50	0	255,0,0	blendEdges off, startRadius 0, endRadius 0, startWidth 50, endWidth 50	44	30	1	0	0	1
+24	60	60	1050	50	0	255,0,0	blendEdges off, startRadius 0, endRadius 0, startWidth 50, endWidth 50	45	30	1	0	0	1
+24	60	60	1050	50	0	255,0,0	blendEdges off, startRadius 0, endRadius 0, startWidth 50, endWidth 50	46	30	0	0	0	0
+24	60	60	1050	50	0	255,0,0	blendEdges off, startRadius 0, endRadius 0, startWidth 50, endWidth 50	30	15	1	0	0	1
+25	41	41	1050	50	500	255,0,0;0,255,0;0,0,255	blendEdges on, startRadius 10, endRadius 150, startWidth 20, endWidth 5	20	20	0	0	0	0
+25	41	41	1050	50	500	255,0,0;0,255,0;0,0,255	blendEdges on, startRadius 10, endRadius 150, startWidth 20, endWidth 5	33	10	0	1	0	0.99607843
+25	41	41	1050	50	500	255,0,0;0,255,0;0,0,255	blendEdges on, startRadius 10, endRadius 150, startWidth 20, endWidth 5	15	7	0	1	0	0.007843138
+25	41	41	1050	50	500	255,0,0;0,255,0;0,0,255	blendEdges on, startRadius 10, endRadius 150, startWidth 20, endWidth 5	8	33	0	1	0	0.48235294
+25	41	41	1050	50	500	255,0,0;0,255,0;0,0,255	blendEdges on, startRadius 10, endRadius 150, startWidth 20, endWidth 5	33	31	0	1	0	0.74509805
+25	41	41	1050	50	500	255,0,0;0,255,0;0,0,255	blendEdges on, startRadius 10, endRadius 150, startWidth 20, endWidth 5	10	4	0	1	0	0.011764706
+25	41	41	1050	50	500	255,0,0;0,255,0;0,0,255	blendEdges on, startRadius 10, endRadius 150, startWidth 20, endWidth 5	14	2	0	0	0	0
+26	101	101	1050	50	0	255,0,0	scale off, blendEdges off, centerX 25, centerY 75, startRadius 10, endRadius 10, startWidth 2, endWidth 2	25	75	0	0	0	0
+26	101	101	1050	50	0	255,0,0	scale off, blendEdges off, centerX 25, centerY 75, startRadius 10, endRadius 10, startWidth 2, endWidth 2	35	75	1	0	0	1
+26	101	101	1050	50	0	255,0,0	scale off, blendEdges off, centerX 25, centerY 75, startRadius 10, endRadius 10, startWidth 2, endWidth 2	36	75	1	0	0	1
+26	101	101	1050	50	0	255,0,0	scale off, blendEdges off, centerX 25, centerY 75, startRadius 10, endRadius 10, startWidth 2, endWidth 2	34	75	1	0	0	1
+26	101	101	1050	50	0	255,0,0	scale off, blendEdges off, centerX 25, centerY 75, startRadius 10, endRadius 10, startWidth 2, endWidth 2	25	64	1	0	0	1
+26	101	101	1050	50	0	255,0,0	scale off, blendEdges off, centerX 25, centerY 75, startRadius 10, endRadius 10, startWidth 2, endWidth 2	19	83	1	0	0	1
+27	100	100	1050	50	0	255,0,0	scale off, blendEdges off, centerX 0, centerY 0, startRadius 10, endRadius 10, startWidth 2, endWidth 2	0	0	0	0	0	0
+27	100	100	1050	50	0	255,0,0	scale off, blendEdges off, centerX 0, centerY 0, startRadius 10, endRadius 10, startWidth 2, endWidth 2	9	0	1	0	0	1
+27	100	100	1050	50	0	255,0,0	scale off, blendEdges off, centerX 0, centerY 0, startRadius 10, endRadius 10, startWidth 2, endWidth 2	10	0	1	0	0	1
+27	100	100	1050	50	0	255,0,0	scale off, blendEdges off, centerX 0, centerY 0, startRadius 10, endRadius 10, startWidth 2, endWidth 2	11	0	1	0	0	1
+27	100	100	1050	50	0	255,0,0	scale off, blendEdges off, centerX 0, centerY 0, startRadius 10, endRadius 10, startWidth 2, endWidth 2	12	0	0	0	0	0
+27	100	100	1050	50	0	255,0,0	scale off, blendEdges off, centerX 0, centerY 0, startRadius 10, endRadius 10, startWidth 2, endWidth 2	6	8	1	0	0	1
+28	40	20	1050	50	0	255,0,0	scale off, blendEdges off, centerX 100, centerY 100, startRadius 3, endRadius 3, startWidth 2, endWidth 2	39	19	0	0	0	0
+28	40	20	1050	50	0	255,0,0	scale off, blendEdges off, centerX 100, centerY 100, startRadius 3, endRadius 3, startWidth 2, endWidth 2	38	19	1	0	0	1
+28	40	20	1050	50	0	255,0,0	scale off, blendEdges off, centerX 100, centerY 100, startRadius 3, endRadius 3, startWidth 2, endWidth 2	37	17	0	0	0	0
+28	40	20	1050	50	0	255,0,0	scale off, blendEdges off, centerX 100, centerY 100, startRadius 3, endRadius 3, startWidth 2, endWidth 2	36	19	0	0	0	0
+28	40	20	1050	50	0	255,0,0	scale off, blendEdges off, centerX 100, centerY 100, startRadius 3, endRadius 3, startWidth 2, endWidth 2	39	16	0	0	0	0
+28	40	20	1050	50	0	255,0,0	scale off, blendEdges off, centerX 100, centerY 100, startRadius 3, endRadius 3, startWidth 2, endWidth 2	38	17	1	0	0	1
+29	41	21	1050	50	0	255,0,0	scale off, blendEdges on, centerX 33.7, centerY 66.2, startRadius 5, endRadius 5, startWidth 6, endWidth 6	20	10	1	0	0	0.1254902
+29	41	21	1050	50	0	255,0,0	scale off, blendEdges on, centerX 33.7, centerY 66.2, startRadius 5, endRadius 5, startWidth 6, endWidth 6	17	10	1	0	0	1
+29	41	21	1050	50	0	255,0,0	scale off, blendEdges on, centerX 33.7, centerY 66.2, startRadius 5, endRadius 5, startWidth 6, endWidth 6	8	7	1	0	0	0.0627451
+29	41	21	1050	50	0	255,0,0	scale off, blendEdges on, centerX 33.7, centerY 66.2, startRadius 5, endRadius 5, startWidth 6, endWidth 6	8	17	1	0	0	0.5294118
+29	41	21	1050	50	0	255,0,0	scale off, blendEdges on, centerX 33.7, centerY 66.2, startRadius 5, endRadius 5, startWidth 6, endWidth 6	12	17	1	0	0	0.7058824
+29	41	21	1050	50	0	255,0,0	scale off, blendEdges on, centerX 33.7, centerY 66.2, startRadius 5, endRadius 5, startWidth 6, endWidth 6	7	18	1	0	0	0.0627451
+29	41	21	1050	50	0	255,0,0	scale off, blendEdges on, centerX 33.7, centerY 66.2, startRadius 5, endRadius 5, startWidth 6, endWidth 6	5	7	0	0	0	0
+30	7	5	1050	50	0	255,0,0	scale off, blendEdges off, centerX 99, centerY 99, startRadius 0, endRadius 0, startWidth 0, endWidth 0	6	4	1	0	0	1
+30	7	5	1050	50	0	255,0,0	scale off, blendEdges off, centerX 99, centerY 99, startRadius 0, endRadius 0, startWidth 0, endWidth 0	5	4	0	0	0	0
+30	7	5	1050	50	0	255,0,0	scale off, blendEdges off, centerX 99, centerY 99, startRadius 0, endRadius 0, startWidth 0, endWidth 0	6	3	0	0	0	0
+31	101	101	1000	50	500	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8	50	50	0	0	0	0
+31	101	101	1000	50	500	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8	71	49	0	0.9473684	0.052631617	0.99215686
+31	101	101	1000	50	500	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8	49	25	0	0.9473684	0.052631617	0.007843138
+31	101	101	1000	50	500	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8	27	49	0	0.9473684	0.052631617	0.5058824
+31	101	101	1000	50	500	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8	67	36	0	0.9473684	0.052631617	0.75686276
+31	101	101	1000	50	500	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8	38	28	0	0	0	0
+31	101	101	1000	50	500	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8	49	33	0	0	0	0
+32	101	101	1000	50	524	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8	50	50	0	0	0	0
+32	101	101	1000	50	524	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8	71	49	0	0.9473684	0.052631617	0.99215686
+32	101	101	1000	50	524	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8	49	25	0	0.9473684	0.052631617	0.007843138
+32	101	101	1000	50	524	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8	27	49	0	0.9473684	0.052631617	0.5058824
+32	101	101	1000	50	524	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8	67	36	0	0.9473684	0.052631617	0.75686276
+32	101	101	1000	50	524	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8	38	28	0	0	0	0
+32	101	101	1000	50	524	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8	49	33	0	0	0	0
+33	101	101	975	50	950	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8	50	50	0	0	0	0
+33	101	101	975	50	950	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8	90	50	0	0	1	1
+33	101	101	975	50	950	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8	37	8	0	0	1	0.007843138
+33	101	101	975	50	950	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8	88	50	0	0	1	0.49803922
+33	101	101	975	50	950	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8	27	84	0	0	1	0.7372549
+33	101	101	975	50	950	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8	50	6	0	0	1	0
+33	101	101	975	50	950	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8	49	14	0	0	1	0
+34	101	101	1000	25	500	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8	50	50	0	0	0	0
+34	101	101	1000	25	500	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8	65	36	0	0.9743589	0.025641084	0.99607843
+34	101	101	1000	25	500	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8	43	35	0	0.9743589	0.025641084	0.007843138
+34	101	101	1000	25	500	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8	42	29	0	0.9743589	0.025641084	0.50980395
+34	101	101	1000	25	500	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8	40	31	0	0.9743589	0.025641084	0.75686276
+34	101	101	1000	25	500	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8	36	30	0	0.9743589	0.025641084	0.023529412
+34	101	101	1000	25	500	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8	45	26	0	0	0	0
+35	101	101	1000	50	300	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, cycles 3	50	50	0	0	0	0
+35	101	101	1000	50	300	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, cycles 3	90	50	0	0	1	1
+35	101	101	1000	50	300	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, cycles 3	37	8	0	0	1	0.007843138
+35	101	101	1000	50	300	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, cycles 3	88	50	0	0	1	0.49803922
+35	101	101	1000	50	300	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, cycles 3	27	84	0	0	1	0.7372549
+35	101	101	1000	50	300	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, cycles 3	50	6	0	0	1	0
+35	101	101	1000	50	300	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, cycles 3	49	14	0	0	1	0
+36	101	101	1000	50	350	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, cycles 3	50	50	0.88235295	0.11764706	0	0.4117647
+36	101	101	1000	50	350	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, cycles 3	52	49	0.88235295	0.11764706	0	0.96862745
+36	101	101	1000	50	350	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, cycles 3	48	44	0.88235295	0.11764706	0	0.003921569
+36	101	101	1000	50	350	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, cycles 3	54	48	0.88235295	0.11764706	0	0.46666667
+36	101	101	1000	50	350	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, cycles 3	52	53	0.88235295	0.11764706	0	0.6862745
+36	101	101	1000	50	350	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, cycles 3	46	45	0	0	0	0
+37	101	101	1000	50	500	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, cycles 6	50	50	0	0	0	0
+37	101	101	1000	50	500	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, cycles 6	90	50	0	0	1	1
+37	101	101	1000	50	500	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, cycles 6	37	8	0	0	1	0.007843138
+37	101	101	1000	50	500	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, cycles 6	88	50	0	0	1	0.49803922
+37	101	101	1000	50	500	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, cycles 6	27	84	0	0	1	0.7372549
+37	101	101	1000	50	500	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, cycles 6	50	6	0	0	1	0
+37	101	101	1000	50	500	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, cycles 6	49	14	0	0	1	0
+38	101	101	1000	50	500	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, cycles 15	50	50	0	0	0	0
+38	101	101	1000	50	500	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, cycles 15	90	50	0	0	1	1
+38	101	101	1000	50	500	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, cycles 15	37	8	0	0	1	0.007843138
+38	101	101	1000	50	500	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, cycles 15	88	50	0	0	1	0.49803922
+38	101	101	1000	50	500	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, cycles 15	27	84	0	0	1	0.7372549
+38	101	101	1000	50	500	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, cycles 15	50	6	0	0	1	0
+38	101	101	1000	50	500	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, cycles 15	49	14	0	0	1	0
+39	101	101	1000	50	500	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 10, endRadius 40, startWidth 8, endWidth 8, cycles 20	50	50	0	0	0	0
+39	101	101	1000	50	500	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 10, endRadius 40, startWidth 8, endWidth 8, cycles 20	60	50	1	0	0	1
+39	101	101	1000	50	500	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 10, endRadius 40, startWidth 8, endWidth 8, cycles 20	45	37	1	0	0	0.015686275
+39	101	101	1000	50	500	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 10, endRadius 40, startWidth 8, endWidth 8, cycles 20	41	58	1	0	0	0.4862745
+39	101	101	1000	50	500	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 10, endRadius 40, startWidth 8, endWidth 8, cycles 20	61	49	1	0	0	0.7372549
+39	101	101	1000	50	500	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 10, endRadius 40, startWidth 8, endWidth 8, cycles 20	50	36	1	0	0	0
+39	101	101	1000	50	500	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 10, endRadius 40, startWidth 8, endWidth 8, cycles 20	50	44	1	0	0	0
+40	101	101	1000	50	500	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 10, endRadius 40, startWidth 8, endWidth 8, cycles 19	50	50	0	0	0	0
+40	101	101	1000	50	500	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 10, endRadius 40, startWidth 8, endWidth 8, cycles 19	90	50	0	0	1	1
+40	101	101	1000	50	500	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 10, endRadius 40, startWidth 8, endWidth 8, cycles 19	37	8	0	0	1	0.007843138
+40	101	101	1000	50	500	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 10, endRadius 40, startWidth 8, endWidth 8, cycles 19	88	50	0	0	1	0.49803922
+40	101	101	1000	50	500	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 10, endRadius 40, startWidth 8, endWidth 8, cycles 19	27	84	0	0	1	0.7372549
+40	101	101	1000	50	500	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 10, endRadius 40, startWidth 8, endWidth 8, cycles 19	50	6	0	0	1	0
+40	101	101	1000	50	500	255,0,0;0,255,0;0,0,255	scale off, blendEdges on, startRadius 10, endRadius 40, startWidth 8, endWidth 8, cycles 19	49	14	0	0	1	0
+41	101	101	1050	50	500	255,128,0;0,128,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, acceleration -10	50	50	0	0	0	0
+41	101	101	1050	50	500	255,128,0;0,128,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, acceleration -10	88	42	0.03125	0.5019608	0.96875	0.9764706
+41	101	101	1050	50	500	255,128,0;0,128,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, acceleration -10	38	9	0.03125	0.5019608	0.96875	0.003921569
+41	101	101	1050	50	500	255,128,0;0,128,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, acceleration -10	18	68	0.03125	0.5019608	0.96875	0.49019608
+41	101	101	1050	50	500	255,128,0;0,128,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, acceleration -10	14	67	0.03125	0.5019608	0.96875	0.73333335
+41	101	101	1050	50	500	255,128,0;0,128,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, acceleration -10	42	8	0	0	0	0
+41	101	101	1050	50	500	255,128,0;0,128,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, acceleration -10	43	16	0	0	0	0
+42	101	101	1050	50	500	255,128,0;0,128,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, acceleration -5	50	50	0	0	0	0
+42	101	101	1050	50	500	255,128,0;0,128,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, acceleration -5	84	41	0.120278	0.5019608	0.879722	0.99215686
+42	101	101	1050	50	500	255,128,0;0,128,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, acceleration -5	30	26	0.120278	0.5019608	0.879722	0.011764706
+42	101	101	1050	50	500	255,128,0;0,128,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, acceleration -5	41	18	0.120278	0.5019608	0.879722	0.50980395
+42	101	101	1050	50	500	255,128,0;0,128,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, acceleration -5	82	38	0.120278	0.5019608	0.879722	0.74509805
+42	101	101	1050	50	500	255,128,0;0,128,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, acceleration -5	47	11	0.120278	0.5019608	0.879722	0.015686275
+42	101	101	1050	50	500	255,128,0;0,128,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, acceleration -5	46	11	0	0	0	0
+43	101	101	1050	50	500	255,128,0;0,128,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, acceleration -1	50	50	0	0	0	0
+43	101	101	1050	50	500	255,128,0;0,128,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, acceleration -1	71	35	0.3535534	0.5019608	0.6464466	0.9843137
+43	101	101	1050	50	500	255,128,0;0,128,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, acceleration -1	43	21	0.3535534	0.5019608	0.6464466	0.003921569
+43	101	101	1050	50	500	255,128,0;0,128,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, acceleration -1	30	37	0.3535534	0.5019608	0.6464466	0.49803922
+43	101	101	1050	50	500	255,128,0;0,128,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, acceleration -1	32	30	0.3535534	0.5019608	0.6464466	0.7372549
+43	101	101	1050	50	500	255,128,0;0,128,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, acceleration -1	37	23	0	0	0	0
+43	101	101	1050	50	500	255,128,0;0,128,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, acceleration -1	44	29	0	0	0	0
+44	101	101	1050	50	500	255,128,0;0,128,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, acceleration 1	50	50	0	0	0	0
+44	101	101	1050	50	500	255,128,0;0,128,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, acceleration 1	64	48	0.6464466	0.5019608	0.35355338	1
+44	101	101	1050	50	500	255,128,0;0,128,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, acceleration 1	48	32	0.6464466	0.5019608	0.35355338	0.003921569
+44	101	101	1050	50	500	255,128,0;0,128,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, acceleration 1	44	35	0.6464466	0.5019608	0.35355338	0.49411765
+44	101	101	1050	50	500	255,128,0;0,128,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, acceleration 1	44	36	0.6464466	0.5019608	0.35355338	0.7254902
+44	101	101	1050	50	500	255,128,0;0,128,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, acceleration 1	47	32	0	0	0	0
+44	101	101	1050	50	500	255,128,0;0,128,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, acceleration 1	49	40	0	0	0	0
+45	101	101	1050	50	500	255,128,0;0,128,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, acceleration 5	50	50	0	0	0	0
+45	101	101	1050	50	500	255,128,0;0,128,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, acceleration 5	55	50	0.87868834	0.5019608	0.12131166	0.9607843
+45	101	101	1050	50	500	255,128,0;0,128,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, acceleration 5	50	49	0.87868834	0.5019608	0.12131166	0.03529412
+45	101	101	1050	50	500	255,128,0;0,128,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, acceleration 5	47	44	0.87868834	0.5019608	0.12131166	0.53333336
+45	101	101	1050	50	500	255,128,0;0,128,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, acceleration 5	45	53	0.87868834	0.5019608	0.12131166	0.7529412
+45	101	101	1050	50	500	255,128,0;0,128,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, acceleration 5	45	43	0.87868834	0.5019608	0.12131166	0.05882353
+45	101	101	1050	50	500	255,128,0;0,128,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, acceleration 5	46	42	0	0	0	0
+46	101	101	1050	50	800	255,128,0;0,128,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, acceleration 10	50	50	0	0	0	0
+46	101	101	1050	50	800	255,128,0;0,128,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, acceleration 10	61	46	0.70691407	0.5019608	0.2930859	0.99215686
+46	101	101	1050	50	800	255,128,0;0,128,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, acceleration 10	43	36	0.70691407	0.5019608	0.2930859	0.015686275
+46	101	101	1050	50	800	255,128,0;0,128,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, acceleration 10	46	41	0.70691407	0.5019608	0.2930859	0.5294118
+46	101	101	1050	50	800	255,128,0;0,128,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, acceleration 10	46	40	0.70691407	0.5019608	0.2930859	0.7607843
+46	101	101	1050	50	800	255,128,0;0,128,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, acceleration 10	45	35	0	0	0	0
+46	101	101	1050	50	800	255,128,0;0,128,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, acceleration 10	47	43	0	0	0	0
+47	101	101	1050	50	800	255,128,0;0,128,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, acceleration 3.9	50	50	0	0	0	0
+47	101	101	1050	50	800	255,128,0;0,128,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, acceleration 3.9	71	41	0.4288268	0.5019608	0.5711732	0.99607843
+47	101	101	1050	50	800	255,128,0;0,128,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, acceleration 3.9	40	34	0.4288268	0.5019608	0.5711732	0.003921569
+47	101	101	1050	50	800	255,128,0;0,128,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, acceleration 3.9	44	70	0.4288268	0.5019608	0.5711732	0.5058824
+47	101	101	1050	50	800	255,128,0;0,128,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, acceleration 3.9	66	35	0.4288268	0.5019608	0.5711732	0.76862746
+47	101	101	1050	50	800	255,128,0;0,128,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, acceleration 3.9	44	24	0.4288268	0.5019608	0.5711732	0.039215688
+47	101	101	1050	50	800	255,128,0;0,128,255	scale off, blendEdges on, startRadius 0, endRadius 40, startWidth 8, endWidth 8, acceleration 3.9	38	26	0.4288268	0.5019608	0.5711732	0
+48	141	1	200	50	50	255,0,0	scale off, blendEdges off, centerX 0, startRadius 0, endRadius 20, startWidth 5, endWidth 10	3	0	0	0	0	0
+48	141	1	200	50	50	255,0,0	scale off, blendEdges off, centerX 0, startRadius 0, endRadius 20, startWidth 5, endWidth 10	4	0	1	0	0	1
+48	141	1	200	50	50	255,0,0	scale off, blendEdges off, centerX 0, startRadius 0, endRadius 20, startWidth 5, endWidth 10	9	0	1	0	0	1
+48	141	1	200	50	50	255,0,0	scale off, blendEdges off, centerX 0, startRadius 0, endRadius 20, startWidth 5, endWidth 10	10	0	0	0	0	0
+48	141	1	200	50	50	255,0,0	scale off, blendEdges off, centerX 0, startRadius 0, endRadius 20, startWidth 5, endWidth 10	11	0	0	0	0	0
+49	141	1	200	50	100	255,0,0	scale off, blendEdges off, centerX 0, startRadius 0, endRadius 20, startWidth 0, endWidth 8	10	0	0	0	0	0
+49	141	1	200	50	100	255,0,0	scale off, blendEdges off, centerX 0, startRadius 0, endRadius 20, startWidth 0, endWidth 8	11	0	1	0	0	1
+49	141	1	200	50	100	255,0,0	scale off, blendEdges off, centerX 0, startRadius 0, endRadius 20, startWidth 0, endWidth 8	15	0	1	0	0	1
+49	141	1	200	50	100	255,0,0	scale off, blendEdges off, centerX 0, startRadius 0, endRadius 20, startWidth 0, endWidth 8	16	0	0	0	0	0
+49	141	1	200	50	100	255,0,0	scale off, blendEdges off, centerX 0, startRadius 0, endRadius 20, startWidth 0, endWidth 8	17	0	0	0	0	0
+50	141	1	350	50	100	255,0,0	scale off, blendEdges off, centerX 0, startRadius 0, endRadius 20, startWidth 0, endWidth 8	5	0	0	0	0	0
+50	141	1	350	50	100	255,0,0	scale off, blendEdges off, centerX 0, startRadius 0, endRadius 20, startWidth 0, endWidth 8	6	0	1	0	0	1
+50	141	1	350	50	100	255,0,0	scale off, blendEdges off, centerX 0, startRadius 0, endRadius 20, startWidth 0, endWidth 8	7	0	1	0	0	1
+50	141	1	350	50	100	255,0,0	scale off, blendEdges off, centerX 0, startRadius 0, endRadius 20, startWidth 0, endWidth 8	8	0	0	0	0	0
+50	141	1	350	50	100	255,0,0	scale off, blendEdges off, centerX 0, startRadius 0, endRadius 20, startWidth 0, endWidth 8	9	0	0	0	0	0
+51	141	1	1050	50	500	255,0,0	scale off, blendEdges off, centerX 0, startRadius 0, endRadius 20, startWidth 4, endWidth 4	7	0	0	0	0	0
+51	141	1	1050	50	500	255,0,0	scale off, blendEdges off, centerX 0, startRadius 0, endRadius 20, startWidth 4, endWidth 4	8	0	1	0	0	1
+51	141	1	1050	50	500	255,0,0	scale off, blendEdges off, centerX 0, startRadius 0, endRadius 20, startWidth 4, endWidth 4	12	0	1	0	0	1
+51	141	1	1050	50	500	255,0,0	scale off, blendEdges off, centerX 0, startRadius 0, endRadius 20, startWidth 4, endWidth 4	13	0	0	0	0	0
+52	1	1	1000	50	0	255,0,0	(defaults)	0	0	1	0	0	0.9764706
+53	1	1	1000	50	250	255,0,0	(defaults)	0	0	1	0	0	0.45882353
+54	2	2	1000	50	950	255,0,0	(defaults)	0	0	0	0	0	0
+54	2	2	1000	50	950	255,0,0	(defaults)	1	0	1	0	0	1
+54	2	2	1000	50	950	255,0,0	(defaults)	0	1	1	0	0	1
+54	2	2	1000	50	950	255,0,0	(defaults)	1	1	0	0	0	0
+55	3	3	1000	50	750	255,0,0	(defaults)	0	0	1	0	0	0.09019608
+55	3	3	1000	50	750	255,0,0	(defaults)	1	0	1	0	0	0.24705882
+55	3	3	1000	50	750	255,0,0	(defaults)	1	1	0	0	0	0
+55	3	3	1000	50	750	255,0,0	(defaults)	2	1	1	0	0	0.24705882
+55	3	3	1000	50	750	255,0,0	(defaults)	2	2	1	0	0	0.09019608
+56	41	1	1000	50	350	255,0,0	blendEdges off	11	0	1	0	0	1
+56	41	1	1000	50	350	255,0,0	blendEdges off	12	0	1	0	0	1
+56	41	1	1000	50	350	255,0,0	blendEdges off	13	0	1	0	0	1
+56	41	1	1000	50	350	255,0,0	blendEdges off	14	0	0	0	0	0
+56	41	1	1000	50	350	255,0,0	blendEdges off	20	0	0	0	0	0
+56	41	1	1000	50	350	255,0,0	blendEdges off	27	0	1	0	0	1
+56	41	1	1000	50	350	255,0,0	blendEdges off	29	0	1	0	0	1
+56	41	1	1000	50	350	255,0,0	blendEdges off	30	0	0	0	0	0
+57	1	41	1000	50	350	255,0,0	blendEdges off	0	11	1	0	0	1
+57	1	41	1000	50	350	255,0,0	blendEdges off	0	13	1	0	0	1
+57	1	41	1000	50	350	255,0,0	blendEdges off	0	20	0	0	0	0
+57	1	41	1000	50	350	255,0,0	blendEdges off	0	29	1	0	0	1
+57	1	41	1000	50	350	255,0,0	blendEdges off	0	30	0	0	0	0
+58	41	1	1000	50	350	255,0,0	scale off, blendEdges off, startRadius 0, endRadius 20, startWidth 0, endWidth 0	12	0	0	0	0	0
+58	41	1	1000	50	350	255,0,0	scale off, blendEdges off, startRadius 0, endRadius 20, startWidth 0, endWidth 0	13	0	0	0	0	0
+58	41	1	1000	50	350	255,0,0	scale off, blendEdges off, startRadius 0, endRadius 20, startWidth 0, endWidth 0	20	0	0	0	0	0
+58	41	1	1000	50	350	255,0,0	scale off, blendEdges off, startRadius 0, endRadius 20, startWidth 0, endWidth 0	27	0	0	0	0	0
+58	41	1	1000	50	350	255,0,0	scale off, blendEdges off, startRadius 0, endRadius 20, startWidth 0, endWidth 0	28	0	0	0	0	0
+59	41	1	1000	50	150	255,0,0	scale off, blendEdges off, startRadius 0, endRadius 20, startWidth 0, endWidth 0	16	0	0	0	0	0
+59	41	1	1000	50	150	255,0,0	scale off, blendEdges off, startRadius 0, endRadius 20, startWidth 0, endWidth 0	17	0	1	0	0	1
+59	41	1	1000	50	150	255,0,0	scale off, blendEdges off, startRadius 0, endRadius 20, startWidth 0, endWidth 0	23	0	1	0	0	1
+59	41	1	1000	50	150	255,0,0	scale off, blendEdges off, startRadius 0, endRadius 20, startWidth 0, endWidth 0	24	0	0	0	0	0

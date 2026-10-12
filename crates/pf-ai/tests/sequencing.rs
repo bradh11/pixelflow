@@ -961,7 +961,7 @@ fn misspelled_effect_settings_are_refused_through_either_provider() {
         "effect": { "id": pf_sequence::EffectId::new(), "startMs": 0, "endMs": 1000, "params": { "kind": "twinkle", "twinkles": 3 } },
     });
     for (tool, input, key, hint) in [
-        ("place_effects", &place, "sped", "list_effect_kinds"),
+        ("place_effects", &place, "sped", "Its settings: speed, width"),
         ("place_effects", &colour, "colour", "colors"),
         (
             "sequence_add_effect",

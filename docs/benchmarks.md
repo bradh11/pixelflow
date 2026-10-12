@@ -683,6 +683,17 @@ An empty frame (clearing and writing every pixel) takes 0.28 ms; every figure be
 Everything here is drawn on one thread: it measures the work an effect is, not how soon several
 threads get through it.
 
+Pinwheel's rows were measured again, the same way and on the same day, after it was rebuilt to
+work each pixel out from its own place: each figure is the middle one of three runs. Before, it
+took 2.16 ms a frame on every prop (10.8 ns a pixel, with 336 allocations and 3,360 KB a frame)
+and 1.72 ms on the whole-house group (8.6 ns), 0.20 ms of the typical sequence (16.4 ns a pixel
+drawn) and 0.73 ms of the worst (10.6 ns). The other rows, the totals, and the other kinds'
+shares are as first measured. Every Pinwheel here is drawn in the smooth style; the spokes style,
+timed apart over a buffer of 500 by 400 pixels as the effect's own work for a pixel (4.2 ns for
+the smooth wheel these rows draw), takes 4.7 ns a pixel with thin arms, 7 with thin arms twisted
+a full turn, 17 with six shaded arms 30 degrees wide and twisted, and 28 at worst, with twelve
+touching arms, twisted, that reach past the buffer.
+
 #### Each kind alone
 
 | Effect | On every prop, ms a frame | ns a pixel | Allocations a frame | KB allocated a frame | On the whole-house group, ms a frame | ns a pixel |
@@ -690,9 +701,9 @@ threads get through it.
 | Fire | 10.0 | 50.0 | 168 | 168 | 0.79 | 3.9 |
 | Plasma | 3.96 | 19.8 | 336 | 63 | 3.29 | 16.5 |
 | Twinkle | 2.62 | 13.1 | 0 | 0 | 2.57 | 12.8 |
-| Pinwheel | 2.16 | 10.8 | 336 | 3360 | 1.72 | 8.6 |
 | Butterfly | 1.92 | 9.6 | 0 | 0 | 1.48 | 7.4 |
 | Meteors | 1.80 | 9.0 | 168 | 63 | 0.99 | 5.0 |
+| Pinwheel | 1.43 | 7.2 | 0 | 0 | 1.16 | 5.8 |
 | Picture | 1.33 | 6.7 | 233 | 174 | 0.88 | 4.4 |
 | Spiral | 1.14 | 5.7 | 168 | 3351 | 0.71 | 3.5 |
 | Dancer | 1.03 | 5.2 | 168 | 3351 | 0.64 | 3.2 |
@@ -724,8 +735,8 @@ threads get through it.
 | Ripple | 344 | 0.311 | 0.27 | 8% | 4.4 |
 | Fire | 34 | 0.056 | 0.27 | 8% | 23.9 |
 | Color Wash | 364 | 0.174 | 0.26 | 7% | 7.5 |
-| Pinwheel | 76 | 0.061 | 0.20 | 6% | 16.4 |
 | Bars | 321 | 0.168 | 0.18 | 5% | 5.3 |
+| Pinwheel | 76 | 0.061 | 0.13 | 4% | 11.1 |
 | Butterfly | 66 | 0.065 | 0.13 | 4% | 10.4 |
 | Spiral | 74 | 0.090 | 0.13 | 4% | 7.0 |
 | Picture | 17 | 0.063 | 0.086 | 2% | 6.9 |
@@ -749,7 +760,7 @@ Prop rows alone take 2.56 ms a frame and group rows alone 0.85 ms. Of the whole 
 | Fire | 156 | 0.354 | 1.57 | 10% | 22.1 |
 | Spiral | 186 | 0.962 | 1.00 | 6% | 5.2 |
 | Ripple | 678 | 1.071 | 0.91 | 6% | 4.3 |
-| Pinwheel | 156 | 0.344 | 0.73 | 5% | 10.6 |
+| Pinwheel | 156 | 0.344 | 0.53 | 3% | 7.8 |
 | Picture | 64 | 0.292 | 0.39 | 2% | 6.6 |
 | Dancer | 64 | 0.278 | 0.37 | 2% | 6.7 |
 | Text | 64 | 0.274 | 0.29 | 2% | 5.3 |
@@ -908,8 +919,11 @@ send them); none was lost in these runs.
 **Memory is small.** Peak RSS is 22 MB at 20k, 44 MB at 100k, and 78 MB at 200k for the typical
 sequence in real time (125 MB for the worst case, 104 on one thread; 160 MB when the engine
 itself plays it). Rendering allocates 136 times a frame for the typical 200k sequence (0.9 MB)
-and 841 times for the worst case (4.8 MB): Text allocates eight times an effect, and Pinwheel,
-Spiral, VU Meter, and Dancer each take a fresh canvas of 16 bytes a pixel every frame.
+and 841 times for the worst case (4.8 MB): Text allocates eight times an effect, and Spiral, VU
+Meter, and Dancer each take a fresh canvas of 16 bytes a pixel every frame. Pinwheel took one too
+when those runs were made, and now allocates nothing: drawn again on one thread, the first 60
+seconds of the typical sequence allocate 119 times a frame (695 KB) where they allocated 134
+(886 KB), and the worst case 799 times (3.7 MB) where it allocated 838 (4.8 MB).
 
 **The first frame is a frame like any other.** Playback lays out every buffer a sequence draws
 on before it starts: the worst case's first frame at 200k takes 6 to 7 ms, where it took 37 and

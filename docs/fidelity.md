@@ -295,7 +295,9 @@ is: PixelFlow twinkles steadily where xLights is dark between bursts.
 - *Mappings to check.* Few, and small. A half-second On with sparkles that follow the music
   flashes about two thirds as often (sequence B). A Spirals that grows and shrinks on a group of
   outline props starts a turn up to a quarter of a second early on two of them (sequence D,
-  looks of 89 and 90). Under other effects, a Pinwheel changed less from frame to frame. A strobing
+  looks of 89 and 90). One Pinwheel on a small group scores Close (about 70) because of an effect
+  it shares pixels with, not the wheel: xLights shows a blue ramp moving there, PixelFlow a steady
+  blue, and the score moves with how much of that layer the wheel hides. A strobing
   twinkle's share of the pixels is measured at one count and one number of steps, and taken to
   rise with the first and fall with the second; the older way of drawing twinkles hasn't been
   measured strobing and is still shown as soft twinkles.

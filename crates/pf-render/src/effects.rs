@@ -206,6 +206,16 @@ pub(crate) fn accelerate(ratio: f64, accel: f64) -> f64 {
 /// Draws one effect, one pixel at a time.
 pub trait Shade {
     fn shade(&self, px: &Pixel) -> Rgba;
+
+    /// Whether the effect is drawn a run of pixels at a time ([`Shade::shade_run`]) where a run
+    /// is to hand, because that is much the cheaper way for it.
+    const BATCH: bool = false;
+
+    /// The colors of `pixels`, in order, into `colors` (emptied first).
+    fn shade_run(&self, pixels: &[Pixel], colors: &mut Vec<Rgba>) {
+        colors.clear();
+        colors.extend(pixels.iter().map(|px| self.shade(px)));
+    }
 }
 
 /// Pixel position along the target in wiring order, at the pixel's center (0–1).
@@ -1125,6 +1135,8 @@ pub enum Shader {
     Shockwave(Shockwave),
     Fill(Fill),
     Fireworks(Fireworks),
+    /// Spike: drawn by a shader file (see `glsl.rs`).
+    Glsl(crate::glsl::Glsl),
 }
 
 /// When a Shape fires its shapes (ms from the effect's start, while it plays): at each mark on its
@@ -1187,6 +1199,10 @@ impl Shader {
         canvas: Canvas,
         cx: &RenderContext,
     ) -> Self {
+        // Spike: an effect the shader table names is drawn by its shader, whatever its settings.
+        if let Some(setup) = crate::glsl::shader_for(seed) {
+            return Shader::Glsl(crate::glsl::Glsl::new(setup, time, canvas));
+        }
         match &params.sanitized() {
             EffectParams::On(p) => Shader::On(On::new(p, time, colors)),
             EffectParams::Off(_) => Shader::Off(Off),
@@ -1293,6 +1309,7 @@ impl Shader {
             Shader::Shockwave(s) => each.visit(s),
             Shader::Fill(s) => each.visit(s),
             Shader::Fireworks(s) => each.visit(s),
+            Shader::Glsl(s) => each.visit(s),
         }
     }
 }

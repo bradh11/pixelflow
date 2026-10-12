@@ -3448,6 +3448,7 @@ dependencies = [
  "pf-model",
  "pf-output",
  "pf-sequence",
+ "pf-shader",
  "rayon",
  "serde",
  "thiserror 2.0.21",
@@ -3463,6 +3464,13 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.21",
  "uuid",
+]
+
+[[package]]
+name = "pf-shader"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
 ]
 
 [[package]]

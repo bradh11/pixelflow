@@ -79,6 +79,9 @@ pub struct ImportedEffect {
     pub fidelity: Fidelity,
     /// How it's expected to look next to xLights.
     pub verdict: Verdict,
+    /// Spike: for an xLights Shader effect, its settings as the file has them (key and value),
+    /// in key order. Empty for every other effect.
+    pub shader_settings: Vec<(String, String)>,
 }
 
 /// The imported sequence and a plain-language report of anything that doesn't come across the
@@ -563,11 +566,22 @@ impl<'a> Builder<'a> {
             Fidelity::Skipped => {}
         }
         let id = EffectId::new();
+        // Spike: a Shader's settings as the file has them, for whoever can draw it.
+        let mut shader_settings: Vec<(String, String)> = Vec::new();
+        if name == "Shader" {
+            shader_settings.extend(
+                settings
+                    .keys()
+                    .map(|key| (key.to_string(), settings.text(key, "").to_string())),
+            );
+            shader_settings.sort();
+        }
         self.imported.push(ImportedEffect {
             id,
             xlights_name: name.to_string(),
             fidelity: translated.fidelity,
             verdict,
+            shader_settings,
         });
         Some(Effect {
             id,

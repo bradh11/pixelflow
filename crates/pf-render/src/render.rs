@@ -1324,6 +1324,7 @@ impl ShaderVisitor<()> for Cells<'_> {
     #[inline]
     fn visit<S: Shade + Sync>(self, shader: &S) {
         match self.near {
+            None if S::BATCH => shader.shade_run(&self.grid.cells, self.cells),
             None => {
                 self.cells.clear();
                 self.cells
@@ -1341,6 +1342,16 @@ impl ShaderVisitor<()> for Cells<'_> {
                     piece,
                     &|&cell| cell as usize,
                     &|part, out, at| {
+                        if S::BATCH {
+                            let pixels: Vec<Pixel> =
+                                part.iter().map(|&cell| grid.cells[cell as usize]).collect();
+                            let mut colors = Vec::with_capacity(pixels.len());
+                            shader.shade_run(&pixels, &mut colors);
+                            for (&cell, &color) in part.iter().zip(&colors) {
+                                out[cell as usize - at] = color;
+                            }
+                            return;
+                        }
                         for &cell in part {
                             let cell = cell as usize;
                             out[cell - at] = shader.shade(&grid.cells[cell]);
@@ -1366,6 +1377,22 @@ struct Fill<'a> {
 impl ShaderVisitor<()> for Fill<'_> {
     #[inline]
     fn visit<S: Shade + Sync>(self, shader: &S) {
+        if S::BATCH {
+            // The whole run shaded at once, then mixed in as below.
+            let mut colors = Vec::with_capacity(self.pixels.len());
+            shader.shade_run(self.pixels, &mut colors);
+            for ((px, acc), &shaded) in self.pixels.iter().zip(self.acc.iter_mut()).zip(&colors) {
+                let mut color = self.adjust.as_ref().map_or(shaded, |a| a.shift(shaded));
+                if let Some(s) = &self.sparkles {
+                    color = s.apply(color, px.index);
+                }
+                if let Some(a) = &self.adjust {
+                    color = a.level(color);
+                }
+                acc.blend(color, self.blend, self.fade, self.halves.first(px));
+            }
+            return;
+        }
         let Some(adjust) = self.adjust else {
             for (px, acc) in self.pixels.iter().zip(self.acc.iter_mut()) {
                 let mut color: Rgba = shader.shade(px);

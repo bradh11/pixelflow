@@ -30,6 +30,7 @@ pub mod look;
 pub mod metrics;
 pub mod report;
 pub mod scorecard;
+pub mod shaders;
 pub mod strips;
 
 pub use compare::{Options, Prepared, Request, compare};

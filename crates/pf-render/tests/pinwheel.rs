@@ -1825,6 +1825,76 @@ fn goal_the_center_is_placed_by_the_buffers_whole_extent() {
     }
 }
 
+/// On a buffer one row high the setting for the center's height does nothing, and on one a
+/// single column wide the setting across does nothing (sections 5.7 and 6): the row is a line
+/// through the center whatever that setting says, so an arm lying along it lights all of it at
+/// full strength, and every frame is the frame the setting at 0 gives, bit for bit.
+#[test]
+fn goal_the_center_setting_does_nothing_on_a_dimension_one_cell_wide() {
+    let row = Canvas {
+        columns: 200,
+        rows: 1,
+    };
+    let column = Canvas {
+        columns: 1,
+        rows: 200,
+    };
+    // The setting for the dimension the buffer does not have.
+    let moved = |p: PinwheelParams, canvas: Canvas, to: f32| {
+        if canvas.rows == 1 {
+            PinwheelParams { center_y: to, ..p }
+        } else {
+            PinwheelParams { center_x: to, ..p }
+        }
+    };
+    for style in STYLES {
+        for canvas in [row, column] {
+            // Four arms lie along the row and along the column: thin ones, and wide ones.
+            for thickness in [0.0, 20.0] {
+                let p = PinwheelParams {
+                    arms: 4,
+                    thickness,
+                    speed: 0.0,
+                    style,
+                    ..defaults()
+                };
+                for to in [0.0, 100.0, -100.0, 37.5] {
+                    let frame = Frame::new(moved(p, canvas, to), &ONE, canvas, 0).pixels();
+                    let full = frame.iter().filter(|c| c.a == 1.0).count();
+                    assert_eq!(
+                        full, 200,
+                        "{style:?}, thickness {thickness}, {canvas:?}, the missing dimension's center at {to}"
+                    );
+                }
+            }
+            // A wheel off center along the line, twisted, shaded and turning.
+            let p = PinwheelParams {
+                arms: 3,
+                thickness: 30.0,
+                twist: 200.0,
+                speed: 7.0,
+                shading: PinwheelShading::Sweep,
+                center_x: 31.0,
+                center_y: 31.0,
+                style,
+                ..defaults()
+            };
+            for elapsed in [0, 350, 4200] {
+                let at_0 = all_bits(&Frame::new(moved(p, canvas, 0.0), &PALETTE, canvas, elapsed).pixels());
+                assert!(at_0.iter().any(|c| c[3] != 0), "something is drawn");
+                for to in [100.0, -100.0, 12.5] {
+                    let there =
+                        all_bits(&Frame::new(moved(p, canvas, to), &PALETTE, canvas, elapsed).pixels());
+                    assert_eq!(
+                        there, at_0,
+                        "{style:?}, {canvas:?} at {elapsed} ms, the missing dimension's center at {to}"
+                    );
+                }
+            }
+        }
+    }
+}
+
 /// Arms are evenly spaced, and as wide as each other, for every count, to a fraction of a degree.
 /// (Spokes 40 cells out are their rays: up to a degree wider than their angle, and the cells the
 /// rays' marks fall in, which reach half a cell to 0.71 of one either side.)

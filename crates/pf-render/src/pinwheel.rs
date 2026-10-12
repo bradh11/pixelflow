@@ -170,7 +170,9 @@ pub struct Pinwheel {
     /// target's whole extent, from its left (bottom) edge at -100 to its right (top) edge at
     /// 100, and a target of `n` cells is `n` cells from edge to edge; pixel positions run from
     /// the middle of its first cell to the middle of its last, `n - 1` cells. The two agree in
-    /// the middle of the target and part evenly either way, to half a cell at its edges.
+    /// the middle of the target and part evenly either way, to half a cell at its edges. A
+    /// target one cell across (or one high) has no extent that way for a setting to move the
+    /// center over: its pixels are a line through the center whatever that setting says.
     beyond: [f32; 2],
     /// What a full step across or up the target is in cells: its columns and rows, less one.
     cells: [f32; 2],
@@ -250,7 +252,10 @@ impl Pinwheel {
 
         Self {
             center: [0.5 + moved[0], 0.5 + moved[1]],
-            beyond: moved,
+            beyond: [
+                if columns > 1 { moved[0] } else { 0.0 },
+                if rows > 1 { moved[1] } else { 0.0 },
+            ],
             cells: [(columns - 1) as f32, (rows - 1) as f32],
             length: reach,
             reach_squared: if reach > 0.0 {

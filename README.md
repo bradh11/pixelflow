@@ -165,3 +165,20 @@ For UI-only work in a plain browser, run `pnpm dev` and open `http://localhost:1
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for branching, issues, and release workflow.
+
+## Licence and credit
+
+PixelFlow is free software under the [GNU General Public License, version 3](LICENSE). You may
+use it, study it, change it, and pass it on under that licence. It comes with no warranty.
+
+PixelFlow is an independent project, inspired by [xLights](https://github.com/xLightsSequencer/xLights)
+and able to import its shows and sequences. It is not affiliated with the xLights project. Most
+of PixelFlow is its own design and code. Some parts are derived from xLights' source code and are
+used under xLights' licence (the GPL, version 3), with thanks to its authors: a number of effects,
+the model geometry, value curves, and some tables. [NOTICE](NOTICE) has the full credit, and
+[docs/licensing/provenance.md](docs/licensing/provenance.md) lists the files. That list gets
+shorter as parts are rewritten as PixelFlow's own.
+
+The licences of everything PixelFlow is built from are in
+[docs/licensing/dependencies.md](docs/licensing/dependencies.md), and travel with the app as its
+third-party notices.

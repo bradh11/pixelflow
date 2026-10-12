@@ -102,6 +102,11 @@ Filled in as each lands; the commit that closes a gap adds its line here.
   fits; otherwise (or when asked to be brief) each effect as a line, row by row; and when even
   that is too long, each row's layers with how many effects of which kinds, when. It is never
   cut off in the middle.
+- **Planning a show.** Thirteen show-design topics (the method, reading a song, roles for props,
+  layering and restraint, palettes with Christmas and Halloween sets, motion, intensity and
+  change, vocals, beginnings and endings, common mistakes, flash safety, following the music,
+  changing what is there), fetched like any guide. The standing instructions carry the method in
+  brief and say which topic to read before each decision; they stay inside their 5,300 bytes.
 
 ## Still out of reach
 

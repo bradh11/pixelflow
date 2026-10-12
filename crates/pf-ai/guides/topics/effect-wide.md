@@ -13,7 +13,7 @@ In `place_effects` and `change_effects` the colors are a plain list, `colors`; i
 - An effect takes up to 32 colors, as "#rrggbb". With none it draws white.
 - How the list is used depends on the effect. One-color effects (a `fade`, a `pulse`, a `strobe`) take the first. Striped and banded effects (`bars`, `chase`, `spiral`, `pinwheel`) hand the colors out in turn, so two colors give candy stripes and three give red, white, green. Washes (`colorWash`, `on` with a gradient, `fill`) blend from one to the next.
 - Black in a list is a gap: red, black, red, black gives red stripes with dark between them, which reads cleaner than a second color on thin props.
-- Two or three colors is a look. Five is a rainbow, whatever you meant.
+- Two or three colors is a look. Five is a rainbow, whatever you meant. See topic `palettes`.
 
 ## Fades
 

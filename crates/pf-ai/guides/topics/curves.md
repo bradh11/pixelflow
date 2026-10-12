@@ -65,4 +65,4 @@ An effect works out where its pattern is from the time played times the speed ri
 
 - A curve on a count setting (stripes, arms, blades) redraws the pattern at each whole number, which jumps. Curve the speed, size, or brightness instead.
 - Curves on several settings of one effect at once are hard to read and harder to fix. One curve usually carries the idea.
-- Fast `square` on `brightness` is a strobe. Nothing should flash faster than about three times a second across a large part of the display.
+- Fast `square` on `brightness` is a strobe: topic `safety`.

@@ -450,6 +450,43 @@ fn a_guide_that_falls_behind_its_effect_is_told_what_to_write() {
 }
 
 #[test]
+fn the_instructions_point_at_the_guides_and_the_method_at_every_topic() {
+    // The standing instructions carry the method in brief and say where the rest is: the tool,
+    // the method's own topic, and the topic for each thing a designer decides.
+    let prompt = pf_ai::agent::SYSTEM_PROMPT;
+    assert!(
+        prompt.contains("get_guide") && prompt.contains("topic method"),
+        "{prompt}"
+    );
+    assert!(prompt.contains("an effect's guide before you use it"));
+    let topics = library::topic_keys();
+    let named = prompt
+        .split_once("about to decide (")
+        .and_then(|(_, rest)| rest.split_once(')'))
+        .map(|(list, _)| list.split(", ").collect::<Vec<_>>())
+        .expect("the instructions list the topics to read");
+    assert!(named.len() >= 8, "{named:?}");
+    for topic in named {
+        assert!(
+            topics.contains(&topic),
+            "the instructions name a topic \"{topic}\" that isn't one: {topics:?}"
+        );
+    }
+    // The method names every other topic, so reading it says where everything is.
+    let method = written_topic("method");
+    let missing: Vec<&str> = topics
+        .iter()
+        .copied()
+        .filter(|key| *key != "method" && !method.contains(&format!("`{key}`")))
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "The method (crates/pf-ai/guides/topics/method.md) doesn't say when to read these topics: {}. A topic the method never points to is one the Assistant never reads.",
+        missing.join(", ")
+    );
+}
+
+#[test]
 fn every_topic_is_sound() {
     // Names in backticks are real, generated lists are filled in, looks are real effects, and
     // each topic fits its budget.

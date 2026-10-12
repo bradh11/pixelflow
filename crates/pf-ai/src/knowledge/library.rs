@@ -2,8 +2,28 @@
 
 use pf_sequence::EffectKind;
 
-/// The topics, in the order the index lists them: key, and the guide as Markdown.
+/// The topics, in the order the index lists them: key, and the guide as Markdown. Show design
+/// first (how a designer works), then what every effect shares.
 const TOPICS: &[(&str, &str)] = &[
+    ("method", include_str!("../../guides/topics/method.md")),
+    ("song", include_str!("../../guides/topics/song.md")),
+    ("roles", include_str!("../../guides/topics/roles.md")),
+    ("layering", include_str!("../../guides/topics/layering.md")),
+    ("palettes", include_str!("../../guides/topics/palettes.md")),
+    ("motion", include_str!("../../guides/topics/motion.md")),
+    ("intensity", include_str!("../../guides/topics/intensity.md")),
+    ("vocals", include_str!("../../guides/topics/vocals.md")),
+    (
+        "openings-endings",
+        include_str!("../../guides/topics/openings-endings.md"),
+    ),
+    ("mistakes", include_str!("../../guides/topics/mistakes.md")),
+    ("safety", include_str!("../../guides/topics/safety.md")),
+    (
+        "music-reactive",
+        include_str!("../../guides/topics/music-reactive.md"),
+    ),
+    ("editing", include_str!("../../guides/topics/editing.md")),
     ("effect-wide", include_str!("../../guides/topics/effect-wide.md")),
     ("blends", include_str!("../../guides/topics/blends.md")),
     ("curves", include_str!("../../guides/topics/curves.md")),

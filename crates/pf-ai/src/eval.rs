@@ -9,7 +9,9 @@
 //! [`run`] answers one [`Scenario`] with any [`LlmProvider`]. The tests, and the example without
 //! a provider, use the scripted stand-ins in [`stand_in`]: no network. The example
 //! (`cargo run -p pf-ai --example assistant_eval`) calls a real model only when told to, with a
-//! key from the environment. `docs/dev/assistant-eval.md` says how to run it and what it sends.
+//! key from the environment, and then only within a [`Budget`]: a hard ceiling in dollars, kept
+//! before every request from that request's worst case and after it from the usage the provider
+//! reports. `docs/dev/assistant-eval.md` says how to run it, what it sends, and what it may cost.
 
 pub mod cli;
 pub mod scenarios;
@@ -20,12 +22,13 @@ use crate::draft::{OpenDoc, UiContext, Workspace};
 use crate::error::AiError;
 use crate::knowledge::reference;
 use crate::provider::{
-    AssistantTurn, Cancel, LlmProvider, Message, ModelInfo, ProviderId, StreamEvent, TurnRequest,
+    AssistantTurn, Cancel, LlmProvider, Message, ModelInfo, ProviderId, StreamEvent, TurnRequest, Usage,
 };
 use crate::review::{self, Criteria, Subject};
 use crate::secret::ApiKey;
 use crate::stage::{self, PICTURE, SONG_FILE, Stage};
 use crate::tools::Toolbox;
+use crate::{anthropic, openai};
 use pf_analysis::Analysis;
 use pf_model::PropId;
 use pf_sequence::{Effect, Sequence, Target};
@@ -121,15 +124,20 @@ impl Traffic {
 }
 
 /// What tokens are assumed to cost. These are the caller's figures, not facts PixelFlow knows:
-/// the defaults are placeholders to be set from the provider's own price list.
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// the defaults are placeholders to be set from the provider's own price list (a run that sends
+/// anything takes no defaults: see [`cli`]).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Prices {
     /// Dollars for a million tokens sent.
     pub input: f64,
     /// Dollars for a million tokens received.
     pub output: f64,
-    /// What a token the provider has cached costs, as a share of `input`.
+    /// What a token read from the provider's cache costs, as a share of `input`.
     pub cached: f64,
+    /// What a token written to the provider's cache costs, as a share of `input` (Anthropic
+    /// charges more than `input` for these; OpenAI charges nothing extra and reports none).
+    pub cache_write: f64,
 }
 
 impl Default for Prices {
@@ -138,38 +146,260 @@ impl Default for Prices {
             input: 3.0,
             output: 15.0,
             cached: 0.1,
+            cache_write: 1.25,
         }
     }
 }
 
-/// A provider that counts what goes through it.
+impl Prices {
+    /// What `usage` costs, in dollars.
+    pub fn cost(&self, usage: &Usage) -> f64 {
+        let sent = usage.input as f64
+            + usage.cache_read as f64 * self.cached
+            + usage.cache_write as f64 * self.cache_write;
+        (sent * self.input + usage.output as f64 * self.output) / 1e6
+    }
+
+    /// The most `sent` tokens in and `received` tokens out can cost, in dollars: every token
+    /// sent at the dearest rate a sent token is charged (the full input price, or more where
+    /// writing to a cache costs more), every token received at the output price.
+    pub fn worst_case(&self, sent: u64, received: u64) -> f64 {
+        let rate = 1.0f64.max(self.cached).max(self.cache_write);
+        (sent as f64 * rate * self.input + received as f64 * self.output) / 1e6
+    }
+}
+
+/// Tokens a provider may add around what a request carries (its tool-use preamble, role
+/// markers), allowed for in every request's worst case. Generous: the largest of these is a few
+/// hundred.
+pub const FRAMING_TOKENS: u64 = 4_096;
+
+/// The most tokens one request can be billed for: (sent, received).
+///
+/// Sent is every byte of the body `provider` would send for `request` (no token is shorter than
+/// a byte, and the body's JSON is longer than the text a model reads), plus [`FRAMING_TOKENS`].
+/// Received is the request's own output limit, which both providers send with it and which
+/// counts reasoning and thinking. A model that may hand a declined request on to a fallback model
+/// (Anthropic's server-side fallbacks) could be billed for both, so it counts twice.
+pub fn worst_tokens(provider: ProviderId, request: &TurnRequest<'_>) -> (u64, u64) {
+    let (body, answers) = match provider {
+        ProviderId::Anthropic => (
+            anthropic::request_body(request),
+            if anthropic::takes_fallbacks(request.model) {
+                2
+            } else {
+                1
+            },
+        ),
+        // With the reasoning settings, the larger of the two bodies.
+        ProviderId::Openai => (openai::request_body(request, true), 1),
+    };
+    let sent = body.to_string().len() as u64 + FRAMING_TOKENS;
+    (sent * answers, u64::from(request.max_tokens) * answers)
+}
+
+/// What the provider billed for some requests, as it reported it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Billed {
+    /// Requests whose reply reported its tokens.
+    pub reported: usize,
+    /// Those tokens.
+    pub tokens: Usage,
+    /// Requests that reported nothing (they failed, or the reply left it out). Each is counted
+    /// at its worst case ([`worst_tokens`]).
+    pub unreported: usize,
+    pub unreported_sent: u64,
+    pub unreported_received: u64,
+}
+
+impl Billed {
+    pub fn add(&mut self, other: &Billed) {
+        self.reported += other.reported;
+        self.tokens.add(&other.tokens);
+        self.unreported += other.unreported;
+        self.unreported_sent += other.unreported_sent;
+        self.unreported_received += other.unreported_received;
+    }
+
+    /// What it all costs at `prices`, in dollars: the reported tokens at their rates, and the
+    /// requests that reported nothing at their worst case.
+    pub fn cost(&self, prices: &Prices) -> f64 {
+        prices.cost(&self.tokens) + prices.worst_case(self.unreported_sent, self.unreported_received)
+    }
+}
+
+/// Why a run stopped before it was done.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Stop {
+    /// The next request's worst case would have passed the spending ceiling, so it wasn't sent.
+    Budget,
+    /// The run had made as many requests as it may.
+    RequestLimit,
+}
+
+impl Stop {
+    pub fn label(self) -> &'static str {
+        match self {
+            Stop::Budget => "budget",
+            Stop::RequestLimit => "request limit",
+        }
+    }
+}
+
+/// What a budgeted run has spent so far.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Spending {
+    /// Requests sent.
+    pub requests: usize,
+    pub billed: Billed,
+    /// Dollars: `billed` at the run's prices.
+    pub spent: f64,
+    pub stopped: Option<Stop>,
+    /// The worst case of the request that wasn't sent, when the budget stopped the run.
+    pub refused_worst_case: Option<f64>,
+}
+
+/// A hard ceiling on what a run spends. Before every request, what has been spent plus the most
+/// that request could cost ([`worst_tokens`] at the prices) must stay within the ceiling, or it
+/// isn't sent and the run stops; after it, what the provider reports it used is added (its worst
+/// case when it reports nothing). So the true total never passes the ceiling.
+#[derive(Debug)]
+pub struct Budget {
+    ceiling: f64,
+    prices: Prices,
+    max_requests: Option<usize>,
+    state: Mutex<Spending>,
+}
+
+impl Budget {
+    /// `ceiling` dollars at `prices`, and at most `max_requests` requests when given.
+    pub fn new(ceiling: f64, prices: Prices, max_requests: Option<usize>) -> Self {
+        Self {
+            ceiling,
+            prices,
+            max_requests,
+            state: Mutex::default(),
+        }
+    }
+
+    pub fn ceiling(&self) -> f64 {
+        self.ceiling
+    }
+
+    pub fn prices(&self) -> &Prices {
+        &self.prices
+    }
+
+    pub fn max_requests(&self) -> Option<usize> {
+        self.max_requests
+    }
+
+    pub fn spending(&self) -> Spending {
+        *self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Why the run stopped, once it has.
+    pub fn stopped(&self) -> Option<Stop> {
+        self.spending().stopped
+    }
+
+    /// Whether a request whose worst case is `worst` dollars may be sent. Once one is refused,
+    /// none is.
+    fn admit(&self, worst: f64) -> Result<(), Stop> {
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(stop) = state.stopped {
+            return Err(stop);
+        }
+        if self.max_requests.is_some_and(|most| state.requests >= most) {
+            state.stopped = Some(Stop::RequestLimit);
+            return Err(Stop::RequestLimit);
+        }
+        let fits = state.spent + worst <= self.ceiling;
+        if !fits {
+            state.stopped = Some(Stop::Budget);
+            state.refused_worst_case = Some(worst);
+            return Err(Stop::Budget);
+        }
+        state.requests += 1;
+        Ok(())
+    }
+
+    fn charge(&self, billed: &Billed) {
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        state.billed.add(billed);
+        state.spent = state.billed.cost(&self.prices);
+    }
+}
+
+/// One request through a [`Metered`] provider.
+struct Exchange {
+    sent: usize,
+    replied: usize,
+    billed: Billed,
+}
+
+/// A provider that counts what goes through it, and keeps to a [`Budget`] when given one.
 pub struct Metered<'a> {
     inner: &'a dyn LlmProvider,
-    exchanges: Mutex<Vec<(usize, usize)>>,
+    budget: Option<&'a Budget>,
+    exchanges: Mutex<Vec<Exchange>>,
+    stopped: Mutex<Option<Stop>>,
 }
 
 impl<'a> Metered<'a> {
     pub fn new(inner: &'a dyn LlmProvider) -> Self {
         Self {
             inner,
+            budget: None,
             exchanges: Mutex::default(),
+            stopped: Mutex::default(),
         }
+    }
+
+    /// Sends a request only when `budget` can bear its worst case, and charges it what each
+    /// reply reports.
+    pub fn with_budget(mut self, budget: &'a Budget) -> Self {
+        self.budget = Some(budget);
+        self
     }
 
     pub fn traffic(&self) -> Traffic {
         let exchanges = self.exchanges.lock().unwrap_or_else(PoisonError::into_inner);
         let mut traffic = Traffic::default();
         let mut before = 0;
-        for (sent, replied) in exchanges.iter() {
+        for exchange in exchanges.iter() {
+            let sent = exchange.sent;
             traffic.requests += 1;
             traffic.sent_bytes += sent;
             // A conversation only grows, so what the last request sent starts this one.
-            traffic.repeated_bytes += before.min(*sent);
-            traffic.reply_bytes += replied;
-            traffic.largest_request_bytes = traffic.largest_request_bytes.max(*sent);
-            before = *sent;
+            traffic.repeated_bytes += before.min(sent);
+            traffic.reply_bytes += exchange.replied;
+            traffic.largest_request_bytes = traffic.largest_request_bytes.max(sent);
+            before = sent;
         }
         traffic
+    }
+
+    /// What the provider reported for the requests made.
+    pub fn billed(&self) -> Billed {
+        let mut billed = Billed::default();
+        for exchange in self
+            .exchanges
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+        {
+            billed.add(&exchange.billed);
+        }
+        billed
+    }
+
+    /// Why this meter refused a request, if it did.
+    pub fn stopped(&self) -> Option<Stop> {
+        *self.stopped.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
 
@@ -217,14 +447,55 @@ impl LlmProvider for Metered<'_> {
         cancel: &Cancel,
         on_event: &mut dyn FnMut(StreamEvent),
     ) -> Result<AssistantTurn, AiError> {
+        self.stream_turn_with_usage(key, request, cancel, on_event)
+            .map(|(turn, _)| turn)
+    }
+
+    fn stream_turn_with_usage(
+        &self,
+        key: &ApiKey,
+        request: &TurnRequest<'_>,
+        cancel: &Cancel,
+        on_event: &mut dyn FnMut(StreamEvent),
+    ) -> Result<(AssistantTurn, Option<Usage>), AiError> {
+        let (worst_sent, worst_received) = worst_tokens(self.inner.id(), request);
+        if let Some(budget) = self.budget {
+            let worst = budget.prices().worst_case(worst_sent, worst_received);
+            if let Err(stop) = budget.admit(worst) {
+                *self.stopped.lock().unwrap_or_else(PoisonError::into_inner) = Some(stop);
+                // The chat loop stops as if the user had pressed Stop; nothing was sent.
+                return Err(AiError::Cancelled);
+            }
+        }
         let sent = request_bytes(request);
-        let turn = self.inner.stream_turn(key, request, cancel, on_event);
-        let replied = turn.as_ref().map_or(0, turn_bytes);
+        let answered = self.inner.stream_turn_with_usage(key, request, cancel, on_event);
+        let billed = match &answered {
+            Ok((_, Some(usage))) => Billed {
+                reported: 1,
+                tokens: *usage,
+                ..Billed::default()
+            },
+            // No usage (or no reply): what it may have cost is all that can be said.
+            _ => Billed {
+                unreported: 1,
+                unreported_sent: worst_sent,
+                unreported_received: worst_received,
+                ..Billed::default()
+            },
+        };
+        if let Some(budget) = self.budget {
+            budget.charge(&billed);
+        }
+        let replied = answered.as_ref().map_or(0, |(turn, _)| turn_bytes(turn));
         self.exchanges
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .push((sent, replied));
-        turn
+            .push(Exchange {
+                sent,
+                replied,
+                billed,
+            });
+        answered
     }
 }
 
@@ -369,6 +640,8 @@ pub struct Measures {
     /// The review of what was open before the request, when anything was.
     pub review_before: Option<u32>,
     pub traffic: Traffic,
+    /// The tokens the provider reported for these requests.
+    pub billed: Billed,
 }
 
 /// Everything a scenario's checks can look at.
@@ -391,6 +664,8 @@ pub struct Outcome {
     pub request: String,
     /// Why the chat stopped early, if it did (the provider failing, say).
     pub error: Option<String>,
+    /// Set when the run's budget or request limit stopped this scenario before its next request.
+    pub stopped: Option<Stop>,
     pub reply: String,
     pub checks: Vec<Check>,
     pub measures: Measures,
@@ -514,7 +789,7 @@ fn scored(
     })
 }
 
-fn measure(run: &Run<'_>, proposed: bool, traffic: Traffic, cancel: &Cancel) -> Measures {
+fn measure(run: &Run<'_>, proposed: bool, traffic: Traffic, billed: Billed, cancel: &Cancel) -> Measures {
     let (doc, lights, song) = (run.after, run.lights, run.song);
     let mut tool_calls: BTreeMap<String, usize> = BTreeMap::new();
     let mut guides = Vec::new();
@@ -582,6 +857,7 @@ fn measure(run: &Run<'_>, proposed: bool, traffic: Traffic, cancel: &Cancel) -> 
             .flatten()
             .map(|s| s.score),
         traffic,
+        billed,
     }
 }
 
@@ -621,10 +897,27 @@ pub fn run(
     model: &str,
     cancel: &Cancel,
 ) -> Outcome {
+    run_within(scenario, stage, provider, key, model, cancel, None)
+}
+
+/// [`run`], keeping to `budget` when given: a request it can't bear isn't sent, and the scenario
+/// stops there ([`Outcome::stopped`]).
+pub fn run_within(
+    scenario: &Scenario,
+    stage: &Stage,
+    provider: &dyn LlmProvider,
+    key: &ApiKey,
+    model: &str,
+    cancel: &Cancel,
+    budget: Option<&Budget>,
+) -> Outcome {
     let song = stage::song();
     let before = (scenario.start)(stage);
     let mut session = ChatSession::new().with_analyzer(Arc::new(|_: &Path, _: &Cancel| Ok(stage::song())));
-    let metered = Metered::new(provider);
+    let metered = match budget {
+        Some(budget) => Metered::new(provider).with_budget(budget),
+        None => Metered::new(provider),
+    };
     let answered = session.run_turn(
         &metered,
         key,
@@ -634,10 +927,16 @@ pub fn run(
         cancel,
         &mut |_| {},
     );
+    let stopped = metered.stopped();
     let (reply, proposed, error) = match answered {
         Ok(reply) => (reply.text, reply.proposal.is_some(), None),
         // What was drafted before the failure is still proposed, and still measured.
-        Err(e) => (String::new(), session.proposal().is_some(), Some(e.to_string())),
+        Err(e) => (
+            String::new(),
+            session.proposal().is_some(),
+            // Stopped by the budget: nothing failed.
+            stopped.is_none().then(|| e.to_string()),
+        ),
     };
     let after = session
         .draft()
@@ -655,13 +954,14 @@ pub fn run(
         tools: &tools,
         lights: &lights,
     };
-    let measures = measure(&seen, proposed, metered.traffic(), cancel);
+    let measures = measure(&seen, proposed, metered.traffic(), metered.billed(), cancel);
     let checks = (scenario.judge)(&seen, &measures);
     Outcome {
         scenario: scenario.key.to_string(),
         title: scenario.title.to_string(),
         request: scenario.request.to_string(),
         error,
+        stopped,
         reply,
         checks,
         measures,
@@ -699,6 +999,35 @@ pub fn what_is_sent() -> String {
     )
 }
 
+/// What the provider reported for some requests, and what that costs at `prices`, in a sentence.
+pub fn billed_line(billed: &Billed, prices: &Prices) -> String {
+    let t = &billed.tokens;
+    let mut line = format!(
+        "Billed, as the provider reported it: {} of {} requests reported their tokens: {} sent ({} at the full price, {} read from the cache, {} written to it) and {} received, ${:.4} at the prices.",
+        billed.reported,
+        billed.reported + billed.unreported,
+        t.sent(),
+        t.input,
+        t.cache_read,
+        t.cache_write,
+        t.output,
+        prices.cost(t),
+    );
+    if billed.unreported > 0 {
+        line.push_str(&format!(
+            " {} reported nothing, and {} counted at the most {} could have cost ({} tokens sent, {} received): ${:.4}.",
+            billed.unreported,
+            if billed.unreported == 1 { "is" } else { "are" },
+            if billed.unreported == 1 { "it" } else { "they" },
+            billed.unreported_sent,
+            billed.unreported_received,
+            prices.worst_case(billed.unreported_sent, billed.unreported_received),
+        ));
+    }
+    line.push_str(&format!(" Total: ${:.4}.", billed.cost(prices)));
+    line
+}
+
 /// The outcomes as a report to read: a line per scenario, then each one's checks.
 pub fn report(outcomes: &[Outcome], model: &str, prices: &Prices) -> String {
     let mut out = format!("# Assistant evaluation: {model}\n\n");
@@ -710,34 +1039,47 @@ pub fn report(outcomes: &[Outcome], model: &str, prices: &Prices) -> String {
         .filter_map(|o| o.measures.review.as_ref().map(|r| r.score))
         .collect();
     let mut traffic = Traffic::default();
+    let mut billed = Billed::default();
     for outcome in outcomes {
         traffic.add(&outcome.measures.traffic);
+        billed.add(&outcome.measures.billed);
     }
     let (sent, received) = traffic.tokens();
     let (full, cached) = traffic.cost(prices);
     out.push_str(&format!(
-        "{passed} of {total} checks passed over {} scenarios. Mean review score {}.\n\
-         {} requests, about {sent} tokens sent and {received} received: about ${full:.2} at ${}/${} a million tokens in/out, or ${cached:.2} if the provider caches what each request repeats (at {} of the price). The prices are assumptions: set them with --price-in, --price-out, --price-cached.\n\n",
+        "{passed} of {total} checks passed over {} scenarios. Mean review score {}.\n\n",
         outcomes.len(),
         if scores.is_empty() {
             "n/a".to_string()
         } else {
             format!("{:.0}", scores.iter().sum::<u32>() as f32 / scores.len() as f32)
         },
+    ));
+    // A scripted stand-in reports no usage: then there is nothing billed to show.
+    let reported = billed.reported > 0;
+    if reported {
+        out.push_str(&format!("{}\n\n", billed_line(&billed, prices)));
+    } else {
+        out.push_str("No reply reported the tokens it was billed for.\n\n");
+    }
+    out.push_str(&format!(
+        "Estimated from sizes: {} requests, about {sent} tokens sent and {received} received: about ${full:.2} at ${}/${} a million tokens in/out, or ${cached:.2} if the provider caches what each request repeats (at {} of the price). The prices are assumptions: set them with --price-in, --price-out, --price-cached, --price-cache-write.\n\n",
         traffic.requests,
         prices.input,
         prices.output,
         prices.cached,
     ));
     out.push_str(
-        "| Scenario | Checks | Review | Props | Kinds | Dark | Full | Changes | Moments | Safe | Requests | Tool errors |\n|---|---|---|---|---|---|---|---|---|---|---|---|\n",
+        "| Scenario | Checks | Review | Props | Kinds | Dark | Full | Changes | Moments | Safe | Requests | Tool errors | Cost |\n|---|---|---|---|---|---|---|---|---|---|---|---|---|\n",
     );
     for o in outcomes {
         let m = &o.measures;
         let review = m.review.as_ref();
         out.push_str(&format!(
-            "| {} | {}/{} | {} | {}/{} | {} | {:.0}% | {:.0}% | {}/{} | {} | {} | {} | {} |\n",
+            "| {}{} | {}/{} | {} | {}/{} | {} | {:.0}% | {:.0}% | {}/{} | {} | {} | {} | {} | {} |\n",
             o.scenario,
+            o.stopped
+                .map_or(String::new(), |s| format!(" (stopped: {})", s.label())),
             o.passed(),
             o.checks.len(),
             review.map_or("-".to_string(), |r| r.score.to_string()),
@@ -752,6 +1094,11 @@ pub fn report(outcomes: &[Outcome], model: &str, prices: &Prices) -> String {
             review.map_or("-", |r| if r.flashes_safe { "yes" } else { "NO" }),
             m.requests,
             m.tool_errors.len(),
+            if reported {
+                format!("${:.4}", m.billed.cost(prices))
+            } else {
+                "-".to_string()
+            },
         ));
     }
     for o in outcomes {
@@ -759,8 +1106,20 @@ pub fn report(outcomes: &[Outcome], model: &str, prices: &Prices) -> String {
             "\n## {} ({})\n\n> {}\n\n",
             o.title, o.scenario, o.request
         ));
+        match o.stopped {
+            Some(Stop::Budget) => out.push_str(
+                "Stopped: budget. The next request's worst case would have passed the spending ceiling, so it was not sent, and no later scenario was started.\n\n",
+            ),
+            Some(Stop::RequestLimit) => out.push_str(
+                "Stopped: request limit. The run had made as many requests as --max-requests allows; no later scenario was started.\n\n",
+            ),
+            None => {}
+        }
         if let Some(error) = &o.error {
             out.push_str(&format!("Stopped early: {error}\n\n"));
+        }
+        if reported {
+            out.push_str(&format!("{}\n\n", billed_line(&o.measures.billed, prices)));
         }
         for c in &o.checks {
             out.push_str(&format!(

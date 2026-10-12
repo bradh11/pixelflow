@@ -7,13 +7,17 @@
 //! ```text
 //! cargo run --release -p pf-ai --example assistant_eval
 //! cargo run --release -p pf-ai --example assistant_eval -- --list
-//! cargo run --release -p pf-ai --example assistant_eval -- --provider anthropic --model <id>
+//! cargo run --release -p pf-ai --example assistant_eval -- --provider openai --model <id>
 //! PIXELFLOW_EVAL_KEY=… cargo run --release -p pf-ai --example assistant_eval -- \
-//!     --provider anthropic --model <id> --send --out <a folder outside the repository>
+//!     --provider openai --model <id> --send --max-usd 10 \
+//!     --price-in <usd> --price-out <usd> --price-cached <share> \
+//!     --out <a folder outside the repository>
 //! ```
 //!
-//! A real run needs `--provider`, `--model`, and `--send`; without `--send` it says what it
-//! would send and roughly what that would cost, and stops. The key is read from the
+//! A real run needs `--provider`, `--model`, `--send`, a spending ceiling (`--max-usd`), and the
+//! model's prices given explicitly (plus `--price-cache-write` for Anthropic); without `--send`
+//! it says what it would send and roughly what that would cost, and stops. No request goes whose
+//! worst case would take the run past the ceiling. The key is read from the
 //! `PIXELFLOW_EVAL_KEY` environment variable, here and nowhere else, and only then.
 
 use pf_ai::eval::cli::{self, KEY_VARIABLE};

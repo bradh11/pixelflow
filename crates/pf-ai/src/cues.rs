@@ -56,7 +56,7 @@ pub const CUE_NOTES: [(&str, &str); 14] = [
     ("blackout", "off until `until`, then a hit"),
     (
         "ramp",
-        "brighter, faster, hotter each bar to until; ends on a hit at an impact (or hit:true)",
+        "from dark, props join, brighter, faster, hotter each bar to until; ends on a hit at an impact (or hit:true)",
     ),
     ("sweep", "a wipe across the layout"),
     (
@@ -108,6 +108,8 @@ const DEFAULT_BEAT_MS: u64 = 500;
 
 /// A ramp's colors, cool to hot.
 const HEAT: [&str; 4] = ["#1e3cff", "#8a2be2", "#ff4500", "#ffd700"];
+/// Where a ramp's brightness starts from (it reaches full on its last step).
+const RAMP_FLOOR: f32 = 0.3;
 /// A peak's colors.
 const FESTIVE: [&str; 3] = ["#ff2a2a", "#ffffff", "#2a6bff"];
 /// A breakdown's.
@@ -1323,9 +1325,12 @@ impl<'a> Stager<'a> {
         })
     }
 
-    /// A build from `at` to `until` (2 bars without one), a step up each bar (up to 4): pulses on
-    /// the beat (chases on outlines and arches) getting brighter and faster, through colors from
-    /// cool to hot; then a hit at `until` when one lands there (or `hit`).
+    /// A build from `at` to `until` (2 bars without one), a step up each bar (up to 4), that
+    /// grows whatever was playing under it: the cue's props go dark at `at` and join a few at a
+    /// time from the middle out (all of them by the last step), each step brighter than the one
+    /// before; pulses on the beat (chases on outlines, arches, and windows) getting faster, through
+    /// colors from cool to hot; then a hit at `until` when one lands there (or `hit`). A one-bar
+    /// build swells within its bar instead.
     fn ramp(&mut self, spec: &Spec) {
         let end = spec
             .until
@@ -1339,10 +1344,38 @@ impl<'a> Stager<'a> {
             colors(&HEAT)
         };
         let beats = self.track("Beats").map(|t| t.id);
-        for row in self.rows_for(&spec.props, (spec.at, end)) {
-            let layer = self.layer_for(row, (spec.at, end));
+        let span = (spec.at, end);
+        // Who joins when: the props in the middle of the cue's first, the edges last, a pair
+        // either side of the middle together.
+        let within = self.bounds(&spec.props);
+        let from_middle = |row: usize| -> f32 {
+            let at: Vec<f32> = self.covers[row]
+                .iter()
+                .filter_map(|p| self.props.get(p))
+                .map(|info| self.extent_of(info, "centerOut", within).0)
+                .collect();
+            at.iter().sum::<f32>() / at.len().max(1) as f32
+        };
+        let mut rows: Vec<(f32, usize)> = self
+            .rows_for(&spec.props, span)
+            .into_iter()
+            .map(|row| (from_middle(row), row))
+            .collect();
+        rows.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+        let n = rows.len() as u64;
+        for (place, &(far, row)) in rows.iter().enumerate() {
+            // The step this row joins on: rows spread evenly over the steps (the first never
+            // empty, the last everyone), and rows as far from the middle joining together.
+            let first = rows
+                .iter()
+                .position(|r| (r.0 - far).abs() < 0.02)
+                .unwrap_or(place);
+            let joins = first as u64 * steps / n.max(1);
+            let layer = self.layer_for(row, span);
+            // Dark under the build, so it grows from nothing whatever the look below does.
+            self.put(row, layer, make(EffectKind::Off, json!({}), spec.at, end, &[]));
             let role = self.row_role(row);
-            for k in 0..steps {
+            for k in joins..steps {
                 let from = spec.at + length * k / steps;
                 let to = spec.at + length * (k + 1) / steps;
                 let x = if steps == 1 {
@@ -1351,8 +1384,8 @@ impl<'a> Stager<'a> {
                     k as f32 / (steps - 1) as f32
                 };
                 let tint = heat[((x * (heat.len() - 1) as f32).round() as usize).min(heat.len() - 1)];
-                let level = 0.35 + 0.65 * (k + 1) as f32 / steps as f32;
-                let effect = match (role, beats) {
+                let level = RAMP_FLOOR + (1.0 - RAMP_FLOOR) * (k + 1) as f32 / steps as f32;
+                let mut effect = match (role, beats) {
                     (Role::Outline | Role::Arch | Role::Window, _) => make(
                         EffectKind::Chase,
                         json!({ "speed": 1.0 + 2.5 * k as f32, "bands": 2 + k, "width": 0.4 }),
@@ -1375,13 +1408,19 @@ impl<'a> Stager<'a> {
                     ),
                     (_, None) => make(
                         EffectKind::On,
-                        json!({ "startLevel": level - 0.65 / steps as f32, "endLevel": level }),
+                        json!({ "startLevel": level - (1.0 - RAMP_FLOOR) / steps as f32, "endLevel": level }),
                         from,
                         to,
                         &[tint],
                     ),
                 };
-                self.put(row, layer, effect);
+                if effect.kind() == EffectKind::Chase {
+                    effect.brightness = level;
+                }
+                if steps == 1 && effect.kind() != EffectKind::On {
+                    effect.fade_in_ms = u32::try_from((to - from) * 3 / 4).unwrap_or(0);
+                }
+                self.put(row, layer + 1, effect);
             }
         }
         let lands = spec.until.is_some() && self.impact_at(end);

@@ -616,7 +616,8 @@ pub struct Measures {
     pub tool_calls: BTreeMap<String, usize>,
     /// Tool calls refused, each with the start of the reason.
     pub tool_errors: Vec<String>,
-    /// The guides read, in order.
+    /// The guides asked for in answered calls, in order (a guide asked for again shows twice,
+    /// though the second answer only points back at the first).
     pub guides: Vec<String>,
     pub effects: usize,
     pub effect_kinds: Vec<String>,
@@ -795,7 +796,8 @@ fn measure(run: &Run<'_>, proposed: bool, traffic: Traffic, billed: Billed, canc
     let mut guides = Vec::new();
     for tool in run.tools {
         *tool_calls.entry(tool.name.clone()).or_default() += 1;
-        if tool.name == "get_guide" {
+        // Guides asked for and answered (a refused ask sent none).
+        if tool.name == "get_guide" && !tool.is_error {
             guides.extend(names(&tool.input["topics"]));
             guides.extend(names(&tool.input["effects"]));
         }
@@ -980,6 +982,7 @@ pub fn what_is_sent() -> String {
     let fixed = SYSTEM_PROMPT.len() + tools;
     let props: Vec<&str> = stage.show.props.iter().map(|p| p.name.as_str()).collect();
     let groups: Vec<&str> = stage.show.groups.iter().map(|g| g.name.as_str()).collect();
+    let lines = crate::stage::lyric_tracks().first().map_or(0, |t| t.marks.len());
     format!(
         "What a run sends the model's provider:\n\
          - the Assistant's instructions and its {} tool definitions, with every request ({} bytes, about {} tokens);\n\
@@ -987,7 +990,7 @@ pub fn what_is_sent() -> String {
          - whatever the model looks up with its tools: PixelFlow's own guides, and a made-up show and song that exist only in this harness:\n\
          \x20   props: {};\n\
          \x20   groups: {};\n\
-         \x20   a song called \"Paper Lanterns\" that was never recorded: its tempo, sections, and moments are written by hand, and so are its eight lines of words.\n\
+         \x20   a song called \"Paper Lanterns\" that was never recorded: its tempo, sections, and moments are written by hand, and so are its {} lines of words.\n\
          Nothing of yours is read or sent: no show, no sequence, no song, no lyrics, no file, no device.\n\
          The key is read from the {} environment variable only for a real run, and goes only to the provider, as the sign-in for each request.",
         specs.len(),
@@ -995,6 +998,7 @@ pub fn what_is_sent() -> String {
         (fixed as f64 / BYTES_PER_TOKEN).round(),
         props.join(", "),
         groups.join(", "),
+        lines,
         cli::KEY_VARIABLE,
     )
 }

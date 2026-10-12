@@ -7,6 +7,7 @@ The order a seasoned show designer works in, with the tool for each step and the
 - A small request ("make the arches chase", "add a skeleton to the chorus", "make the tree red in the verses") is one job, done small: read that effect's guide, look at what is there (`get_open_sequence`, `list_sequence_effects` for the stretch), place or change it, `review_draft`, `propose_changes`. Leave the rest of the sequence alone.
 - "Make a sequence for this song" is the whole method below.
 - "Make it better" starts at step 9: review, then fix what the review finds.
+- A request about how the parts feel ("calmer verses, bigger choruses", "it all looks the same") is a job about levels: every section's level follows its own music, the parts nobody named too (topic `intensity`).
 
 ## 1. Understand the song
 

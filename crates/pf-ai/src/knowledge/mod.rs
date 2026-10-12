@@ -207,6 +207,24 @@ fn asked(input: &Value, field: &str) -> Result<Vec<String>, String> {
 /// `get_guide`: the guides asked for (effects by kind, topics by name), or the index of them all.
 /// A name that isn't a guide is refused with the names that are.
 pub fn answer(input: &Value) -> Result<String, String> {
+    answer_once(input, &mut GuidesRead::default())
+}
+
+/// The guides already read in a chat, by key ("topic:method", "effect:bars"): each is in the
+/// conversation, so reading it again only says so.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct GuidesRead(std::collections::BTreeSet<String>);
+
+impl GuidesRead {
+    pub fn contains(&self, key: &str) -> bool {
+        self.0.contains(key)
+    }
+}
+
+/// [`answer`] in a chat that has read the guides in `read` already: those are named, not sent
+/// again, and the ones sent now are added to `read`. More than [`MAX_GUIDES_PER_CALL`] at once
+/// sends the first that many and names the rest to ask for next.
+pub fn answer_once(input: &Value, read: &mut GuidesRead) -> Result<String, String> {
     if let Some(unknown) = input
         .as_object()
         .and_then(|o| o.keys().find(|k| !["effects", "topics"].contains(&k.as_str())))
@@ -220,32 +238,38 @@ pub fn answer(input: &Value) -> Result<String, String> {
     if effects.is_empty() && topics.is_empty() {
         return Ok(index());
     }
-    if effects.len() + topics.len() > MAX_GUIDES_PER_CALL {
-        return Err(format!("Ask for at most {MAX_GUIDES_PER_CALL} guides at once."));
-    }
+    // Every name is checked first, so a wrong one is refused before anything is sent.
     let mut guides: Vec<(String, String)> = Vec::new();
     for key in &topics {
-        let text = topic_text(key).ok_or_else(|| {
-            format!(
+        if !library::topic_keys().contains(&key.as_str()) {
+            return Err(format!(
                 "There's no topic \"{key}\". Topics: {}.",
                 library::topic_keys().join(", ")
-            )
-        })?;
-        guides.push((key.clone(), text));
+            ));
+        }
+        guides.push((key.clone(), format!("topic:{key}")));
     }
     for key in &effects {
-        let kind = reference::kind_named(key).ok_or_else(|| {
-            format!(
+        if reference::kind_named(key).is_none() {
+            return Err(format!(
                 "There's no effect \"{key}\". Effects: {}.",
                 reference::kind_keys().join(", ")
-            )
-        })?;
-        guides.push((key.clone(), effect_text(kind)));
+            ));
+        }
+        guides.push((key.clone(), format!("effect:{key}")));
     }
+    let mut seen = std::collections::BTreeSet::new();
+    guides.retain(|(_, id)| seen.insert(id.clone()));
+    let (again, new): (Vec<_>, Vec<_>) = guides.into_iter().partition(|(_, id)| read.contains(id));
     let mut out = String::new();
-    let mut left_out = Vec::new();
-    for (key, text) in guides {
-        if !out.is_empty() && out.len() + text.len() > ANSWER_BYTES {
+    let mut left_out: Vec<String> = Vec::new();
+    for (i, (key, id)) in new.into_iter().enumerate() {
+        let text = match id.split_once(':') {
+            Some(("topic", _)) => topic_text(&key),
+            _ => reference::kind_named(&key).map(effect_text),
+        }
+        .unwrap_or_default();
+        if i >= MAX_GUIDES_PER_CALL || (!out.is_empty() && out.len() + text.len() > ANSWER_BYTES) {
             left_out.push(key);
             continue;
         }
@@ -253,10 +277,21 @@ pub fn answer(input: &Value) -> Result<String, String> {
             out.push_str("\n\n---\n\n");
         }
         out.push_str(&text);
+        read.0.insert(id);
+    }
+    if !again.is_empty() {
+        let names: Vec<&str> = again.iter().map(|(key, _)| key.as_str()).collect();
+        if !out.is_empty() {
+            out.push_str("\n\n---\n\n");
+        }
+        out.push_str(&format!(
+            "Already read in this chat, and unchanged (look back at them above): {}.",
+            names.join(", ")
+        ));
     }
     if !left_out.is_empty() {
         out.push_str(&format!(
-            "\n\n---\n\nNot included, to keep this answer short (ask again for them): {}.",
+            "\n\n---\n\nNot included, to keep this answer short ({MAX_GUIDES_PER_CALL} at a time): {}. Ask for them next.",
             left_out.join(", ")
         ));
     }

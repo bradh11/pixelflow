@@ -29,6 +29,13 @@
 mod design;
 mod text;
 
+pub(crate) use text::{read_ms, sung_words};
+
+/// The columns and rows words on `prop` are laid out on, when it is a grid (a matrix, a tree).
+pub(crate) fn text_grid(prop: &pf_model::Prop) -> Option<(u32, u32)> {
+    design::grid(prop)
+}
+
 use crate::cues::{Role, role_of, suggested_cue};
 use crate::provider::Cancel;
 use pf_analysis::{Analysis, Moment, MomentKind};
@@ -1153,7 +1160,14 @@ impl Reviewer<'_> {
                 .collect();
             let spans: Vec<(u64, u64)> = sections.iter().map(|s| (s.start, s.end)).collect();
             cues.extend(self.restaged(&spans));
-            self.fixes.cues(rank::ENERGY, at, what, cues);
+            // Said so the part gets fixed though the request may not have named it.
+            let hint = if cue == "minimal" {
+                "Every part's level follows its own music, named in the request or not: the call rests most props there and lets a few breathe dimly (or dim and thin its own effects)."
+            } else {
+                "Every part's level follows its own music, named in the request or not: the call fills it out (or brighten its own effects and light more props)."
+            };
+            self.fixes
+                .add(rank::ENERGY, at, what, vec![stage(cues)], Some(hint.to_string()));
         }
     }
 

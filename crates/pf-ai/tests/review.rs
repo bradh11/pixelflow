@@ -271,6 +271,14 @@ fn a_breakdown_at_full_brightness_is_hotter_than_its_music() {
         cues(fix)[0],
         json!({ "cue": "minimal", "at": 20_000, "until": 28_000 })
     );
+    // Said so the model fixes a part the request didn't name (a run calmed the verses and left
+    // the intro, bridge, and outro lit like the choruses).
+    assert!(
+        fix.hint.as_deref().is_some_and(
+            |h| h.contains("Every part's level follows its own music, named in the request or not")
+        ),
+        "{fix:#?}"
+    );
     assert!(r.criteria.energy.unwrap() < 80, "{r:#?}");
     assert!(
         !r.fixes

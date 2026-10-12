@@ -1,7 +1,8 @@
 //! A made-up display and a made-up song, for tests, the guides' look sheets, and the evaluation
 //! harness: a small house (a roofline, two windows, a matrix, a mega tree with a star, four
 //! arches, a row of candy canes, and a singing face), groups of them, and a 96-second song at
-//! 120 beats a minute with sections, a build, a drop, a breakdown, a stop, and a few sung lines.
+//! 120 beats a minute with sections, a build, a drop, a breakdown, a stop, and sung lines in the
+//! verses and every chorus.
 //! Nothing here is anyone's real show, song, or lyric.
 
 use pf_analysis::{
@@ -530,8 +531,9 @@ const PARTS: [(&str, &str, u64, u64, f32); 8] = [
     ("Outro", "E", 46, 2, 0.3),
 ];
 
-/// The sung lines: the bar each starts on, and its words (made up for the stage).
-const LINES: [(u64, &str); 8] = [
+/// The sung lines: the bar each starts on, and its words (made up for the stage). Every chorus
+/// is sung, the last one too.
+const LINES: [(u64, &str); 10] = [
     (4, "Paper lanterns in the snow"),
     (8, "Every window starts to glow"),
     (12, "Light it up, light it up"),
@@ -540,6 +542,8 @@ const LINES: [(u64, &str); 8] = [
     (24, "Frost is singing on the pane"),
     (28, "Light it up, light it up"),
     (32, "Lanterns high above the town"),
+    (40, "Light it up, light it up"),
+    (44, "Lanterns high above the town"),
 ];
 
 fn moment(
@@ -835,6 +839,33 @@ mod tests {
             .filter(|p| frame[p.offset..p.offset + 3].iter().any(|v| *v > 12))
             .count();
         assert!(lit > 20, "{lit} pixels of the face are lit");
+    }
+
+    #[test]
+    fn every_chorus_is_sung_and_every_line_has_its_words() {
+        // A request about "each chorus" has words for each one to work with, the last too.
+        let song = song();
+        let tracks = lyric_tracks();
+        let (lines, words) = (&tracks[0], &tracks[1]);
+        let choruses: Vec<_> = song.sections.iter().filter(|s| s.label == "Chorus").collect();
+        assert_eq!(choruses.len(), 3);
+        for chorus in choruses {
+            let sung = lines
+                .marks
+                .iter()
+                .filter(|m| m.start_ms >= chorus.start_ms && m.end_ms <= chorus.end_ms)
+                .count();
+            assert_eq!(sung, 2, "the chorus from {} ms", chorus.start_ms);
+        }
+        for line in &lines.marks {
+            let said: Vec<&str> = words
+                .marks
+                .iter()
+                .filter(|w| w.start_ms >= line.start_ms && w.end_ms <= line.end_ms)
+                .map(|w| w.label.as_str())
+                .collect();
+            assert_eq!(said.join(" "), line.label.replace(',', ""));
+        }
     }
 
     #[test]

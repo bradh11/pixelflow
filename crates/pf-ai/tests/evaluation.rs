@@ -382,6 +382,74 @@ fn scenario(key: &str) -> eval::Scenario {
     scenarios().into_iter().find(|s| s.key == key).unwrap()
 }
 
+#[test]
+fn a_ramp_on_the_props_a_model_named_grows_over_a_look_that_lit_everything() {
+    // The call a model made in a real run: a ramp on four of the props over a verse whose look
+    // lights the whole house. The second bar came out barely brighter than the first, every
+    // prop lit in both (0.36 then 0.38). The ramp now takes its props to dark and brings them
+    // back bar by bar, brighter each time.
+    let ramp = json!({ "cues": [{ "at": 20_000, "until": 24_000, "cue": "ramp", "hit": false,
+        "intensity": 0.75, "colors": ["#ff0000", "#00a030"],
+        "targets": ["Roofline", "Mega Tree", "Arches", "Windows"] }] });
+    let provider = ScriptedProvider::new(vec![
+        calls("", &[("stage_cue", ramp)]),
+        calls(
+            "",
+            &[("propose_changes", json!({ "summary": "A two-bar build." }))],
+        ),
+        says("Ready."),
+    ]);
+    let outcome = eval::run(
+        &scenario("build"),
+        &Stage::new(),
+        &provider,
+        &fake_key(),
+        "scripted",
+        &Cancel::new(),
+    );
+    let grows = outcome
+        .checks
+        .iter()
+        .find(|c| c.what.starts_with("It grows"))
+        .unwrap();
+    assert!(grows.passed, "{grows:?}");
+    assert!(failures(&outcome).is_empty(), "{:?}", failures(&outcome));
+}
+
+#[test]
+fn every_chorus_has_sung_words_to_put_up_the_last_one_too() {
+    // A model said the last chorus had no lyric timings and left it without words: the
+    // made-up song now sings it, and the check wants words in it.
+    let song = pf_ai::stage::song();
+    let last = song.sections.iter().rfind(|s| s.label == "Chorus").unwrap();
+    let doc = Stage::new().sequence();
+    let lines = doc.timing_tracks.iter().find(|t| t.name == "Lyrics").unwrap();
+    assert!(
+        lines
+            .marks
+            .iter()
+            .any(|m| m.start_ms >= last.start_ms && m.start_ms < last.end_ms)
+    );
+    let check = &scenario("sing-along");
+    let provider = ScriptedProvider::new(stand_in::idle());
+    let outcome = eval::run(
+        check,
+        &Stage::new(),
+        &provider,
+        &fake_key(),
+        "idle",
+        &Cancel::new(),
+    );
+    assert!(
+        outcome
+            .checks
+            .iter()
+            .any(|c| c.what.contains("the last chorus's too (5 of 6 or more)")),
+        "{:?}",
+        outcome.checks
+    );
+}
+
 /// The request the chat loop sent as `messages`, rebuilt to work out its worst case.
 fn worst_of(provider: ProviderId, model: &str, messages: &[Message]) -> (u64, u64) {
     let tools = Toolbox::default().specs();

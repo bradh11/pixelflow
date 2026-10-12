@@ -31,7 +31,7 @@ Use cues for the moments. Use `place_effects` and the effects' own guides for th
 
 - Impact, drop, crash, restart: `hit`. Give the biggest one of the song an intensity of 1 and the rest 0.6 to 0.8.
 - Stop (the band cuts out): `blackout` to the restart. Dark is the effect; the hit that follows is what people remember.
-- Build: `ramp` over its length, ending on the hit at the top.
+- Build: `ramp` over its length, ending on the hit at the top. It takes its props to dark and brings them back from the middle out, brighter each bar, so it grows whatever the look below was doing: name the props that should build (leave `targets` out for the whole show), and don't lay your own effects over it.
 - Drum fill: `chase` across the props, on the Drums track when there is one.
 - Breakdown: `minimal`. A few props breathing, the rest dark.
 - Peak, final chorus: `full`, opened with a hit.

@@ -113,6 +113,7 @@ pub fn run_tool(toolbox: &Toolbox, call: &ToolCall, draft: &mut Draft, song: &mu
         }
         ToolKind::PlaceEffects => crate::arrange::place(draft, input).map_or_else(err, ok),
         ToolKind::RepeatEffects => crate::arrange::repeat(draft, input).map_or_else(err, ok),
+        ToolKind::ChangeEffects => crate::rearrange::change(draft, input).map_or_else(err, ok),
         ToolKind::StageCue => {
             // The song gives the tempo, moments, and beats; without one, cues go by ms at 120 BPM.
             let analysis = match song.music {
@@ -353,16 +354,55 @@ fn prop_summary(show: &Show, prop: &pf_model::Prop) -> Value {
         .map(|g| g.name.as_str())
         .collect();
     let p = prop.transform.position;
-    json!({
+    let mut summary = json!({
         "id": prop.id,
         "name": prop.name,
         "shape": shape_type(prop),
+        "role": format!("{:?}", crate::cues::role_of(prop)).to_lowercase(),
         "pixels": prop.node_count(),
         "position": [p.x, p.y, p.z],
         "wiredTo": wired,
         "groups": groups,
         "submodels": prop.regions.iter().map(|r| json!({ "id": r.id, "name": r.name })).collect::<Vec<_>>(),
-    })
+    });
+    if let Some((columns, rows)) = grid(prop) {
+        summary["grid"] = json!(format!("{columns}x{rows}"));
+    }
+    let faces: Vec<&str> = prop
+        .regions
+        .iter()
+        .filter(|r| matches!(r.kind, pf_model::RegionKind::Face(_)))
+        .map(|r| r.name.as_str())
+        .collect();
+    if !faces.is_empty() {
+        summary["faces"] = json!(faces);
+    }
+    summary
+}
+
+/// The grid effects draw on for the shapes that are one: columns across and rows up (a tree's
+/// strings and the pixels up each). `None` for a shape that is a single run or an outline.
+fn grid(prop: &pf_model::Prop) -> Option<(u32, u32)> {
+    use pf_model::{Generator, ShapeSource};
+    let ShapeSource::Generator(shape) = &prop.shape else {
+        return None;
+    };
+    match shape {
+        Generator::Matrix { columns, rows, .. } | Generator::Sphere { columns, rows, .. } => {
+            Some((*columns, *rows))
+        }
+        Generator::Tree {
+            strings,
+            nodes_per_string,
+            ..
+        } => Some((*strings, *nodes_per_string)),
+        Generator::CandyCanes {
+            canes,
+            nodes_per_cane,
+            ..
+        } => Some((*canes, *nodes_per_cane)),
+        _ => None,
+    }
 }
 
 /// The most pictures listed (the rest are counted).
@@ -461,20 +501,85 @@ fn effects(show: &Show, doc: &Sequence, input: &Value) -> String {
     let row_filter = input["rowId"].as_str();
     let (from, to) = range(input);
     let mut out = Vec::new();
+    // Row by row: what it lights, each effect briefly, and each layer's count and kinds.
+    let mut brief = Vec::new();
+    let mut outline = Vec::new();
+    let mut count = 0;
     for row in &doc.rows {
         if row_filter.is_some_and(|id| row.id.to_string() != id) {
             continue;
         }
+        let mut lines = Vec::new();
+        let mut layers = Vec::new();
         for (layer, l) in row.layers.iter().enumerate() {
-            for effect in l.effects.iter().filter(|e| e.end_ms > from && e.start_ms < to) {
+            let playing: Vec<&pf_sequence::Effect> = l
+                .effects
+                .iter()
+                .filter(|e| e.end_ms > from && e.start_ms < to)
+                .collect();
+            for effect in &playing {
                 out.push(json!({
                     "rowId": row.id,
                     "lights": target_name(show, row.target),
                     "layer": layer,
                     "effect": effect,
                 }));
+                lines.push(json!([
+                    effect.id,
+                    layer,
+                    effect.kind(),
+                    effect.start_ms,
+                    effect.end_ms
+                ]));
+            }
+            if let (Some(first), Some(last)) = (playing.first(), playing.last()) {
+                let mut kinds: Vec<pf_sequence::EffectKind> = Vec::new();
+                for effect in &playing {
+                    if !kinds.contains(&effect.kind()) {
+                        kinds.push(effect.kind());
+                    }
+                }
+                layers.push(json!({
+                    "layer": layer,
+                    "effects": playing.len(),
+                    "kinds": kinds,
+                    "fromMs": first.start_ms,
+                    "toMs": last.end_ms,
+                }));
             }
         }
+        if lines.is_empty() {
+            continue;
+        }
+        count += lines.len();
+        let lights = target_name(show, row.target);
+        brief.push(json!({ "rowId": row.id, "lights": lights, "effects": lines }));
+        outline.push(json!({ "rowId": row.id, "lights": lights, "layers": layers }));
     }
-    to_json(&out)
+    let full = to_json(&out);
+    let asked = input["brief"].as_bool().unwrap_or(false);
+    if !asked && full.len() <= MAX_RESULT_CHARS {
+        return full;
+    }
+    // Too many to give in full (or asked for briefly): each effect in a line, row by row; and
+    // when even that is too long, each row's layers in a line.
+    let narrow = "ask for one row or a shorter time to see settings";
+    let briefly = json!({
+        "rows": brief,
+        "each": "[id, layer, kind, startMs, endMs]",
+        "note": if asked {
+            format!("{count} effects.")
+        } else {
+            format!("{count} effects: too many to give in full ({narrow}).")
+        },
+    })
+    .to_string();
+    if briefly.len() <= MAX_RESULT_CHARS {
+        return briefly;
+    }
+    json!({
+        "rows": outline,
+        "note": format!("{count} effects: too many to list ({narrow}, or brief: true for each one's id, kind, and times)."),
+    })
+    .to_string()
 }

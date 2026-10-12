@@ -149,7 +149,8 @@ fn setting_line(kind: EffectKind, setting: &SettingInfo) -> String {
             "one of the show's pictures, as get_open_sequence lists them; \"\" is none".to_string()
         }
         SettingValue::TimingTrack { .. } => {
-            "a timing track: its id (in place_effects, its name will do); none by default".to_string()
+            "a timing track: its id (in place_effects and change_effects, its name will do); none by default"
+                .to_string()
         }
     };
     format!(

@@ -150,7 +150,7 @@ impl Spread {
     }
 }
 
-fn text_list(value: &Value, what: &str) -> Result<Vec<String>, String> {
+pub(crate) fn text_list(value: &Value, what: &str) -> Result<Vec<String>, String> {
     match value {
         Value::Null => Ok(Vec::new()),
         Value::Array(items) => items
@@ -166,7 +166,7 @@ fn text_list(value: &Value, what: &str) -> Result<Vec<String>, String> {
 }
 
 /// Refuses fields `what` doesn't take (a misspelled option would otherwise be ignored).
-fn known_keys(value: &Value, known: &[&str], what: &str) -> Result<(), String> {
+pub(crate) fn known_keys(value: &Value, known: &[&str], what: &str) -> Result<(), String> {
     let unknown: Vec<&str> = value
         .as_object()
         .map(|o| {
@@ -204,7 +204,7 @@ fn placed(effect: &Effect, start_ms: u64, end_ms: u64) -> Effect {
     out
 }
 
-fn rows_named<'a>(rows: &'a [Row], ids: &[String]) -> Result<Vec<&'a Row>, String> {
+pub(crate) fn rows_named<'a>(rows: &'a [Row], ids: &[String]) -> Result<Vec<&'a Row>, String> {
     ids.iter()
         .map(|id| {
             rows.iter().find(|r| r.id.to_string() == *id).ok_or_else(|| {
@@ -214,7 +214,7 @@ fn rows_named<'a>(rows: &'a [Row], ids: &[String]) -> Result<Vec<&'a Row>, Strin
         .collect()
 }
 
-fn plural(n: usize, one: &str, many: &str) -> String {
+pub(crate) fn plural(n: usize, one: &str, many: &str) -> String {
     if n == 1 {
         format!("1 {one}")
     } else {

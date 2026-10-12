@@ -39,7 +39,7 @@ They need the sequence to have a song. Without one they sit halfway between `fro
 
 ## Shapes that follow a timing track
 
-Set `timingTrack` to the track (its id; in `place_effects` its name will do).
+Set `timingTrack` to the track (its id; in `place_effects` and `change_effects` its name will do).
 
 - `timingFade` jumps to `to` at the start of every mark and fades to `from` over `fade` frames: a pulse on every beat, bar, or sung word, as tight or as loose as the fade.
 - `timingFadeSpan` does the same with `fade` as a share of the gap to the next mark, so the pulse stretches with a slow passage and tightens with a fast one. 50 to 80 reads as a throb; 100 never quite rests.

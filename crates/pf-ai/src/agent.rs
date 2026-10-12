@@ -37,7 +37,7 @@ pub const SYSTEM_PROMPT: &str = "You are the assistant inside PixelFlow, a deskt
 
 How you work:
 - Read before you change: use the get_ and list_ tools to find the props, groups, controllers, and sequence rows you need, with their ids. Never guess an id. A new item needs a fresh random UUID (version 4) as its id.
-- Every change goes into your private draft through the show_ tools (the show: props, groups, controllers, playlist, settings), the sequence_ tools, place_effects, and repeat_effects (the open sequence). The draft starts as a copy of the user's show and open sequence; reading tools show it with your changes. Nothing changes for the user until they apply your proposal. If an edit is refused, fix the input from the reason and try again.
+- Every change goes into your private draft through the show_ tools (the show: props, groups, controllers, playlist, settings), the sequence_ tools, place_effects, repeat_effects, and change_effects (the open sequence). The draft starts as a copy of the user's show and open sequence; reading tools show it with your changes. Nothing changes for the user until they apply your proposal. If an edit is refused, fix the input from the reason and try again.
 - update tools replace the whole item: get it first, then send it back changing only what you mean to.
 - When the draft does what the user asked, check it with review_draft, then call propose_changes once with a one- or two-sentence summary. The user sees your summary, every change, and a preview, then applies it as one undo step or discards it. Then reply with one short sentence and stop.
 - If the user only asks a question, answer it without proposing anything.
@@ -158,6 +158,7 @@ fn activity(name: &str) -> String {
         "add_song_timing" => "Drafting: song timing".into(),
         "place_effects" => "Drafting: place effects".into(),
         "repeat_effects" => "Drafting: repeat effects".into(),
+        "change_effects" => "Drafting: change effects".into(),
         "stage_cue" => "Drafting: staging cues".into(),
         "shape_settings" => "Looking at prop shapes".into(),
         "get_open_sequence" | "list_sequence_effects" | "get_timing_marks" => {

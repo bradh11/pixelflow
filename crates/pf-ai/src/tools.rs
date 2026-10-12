@@ -34,6 +34,8 @@ pub enum ToolKind {
     PlaceEffects,
     /// Copies a stretch of effects to other times.
     RepeatEffects,
+    /// Changes, retimes, copies, moves, or removes many effects at once.
+    ChangeEffects,
     /// Expands lighting cues (hits, blackouts, ramps, ...) into effects.
     StageCue,
     /// Offers the user a button to start a new sequence from a song.
@@ -828,7 +830,7 @@ fn query_tools() -> Vec<Tool> {
         ),
         query(
             "list_props",
-            "Every prop: id, name, shape type, pixel count, position, the controller port it's wired to, and its groups. Optionally only props whose name contains some text.",
+            "Every prop: id, name, shape type, role (outline, tree, matrix, arch, window, round, other), pixel count, grid (columns x rows, when it is one), position, the controller port it's wired to, its groups, submodels, and faces. Optionally only props whose name contains some text.",
             object(json!({ "nameContains": { "type": "string" } }), &[]),
             Query::ListProps,
         ),
@@ -897,11 +899,12 @@ fn query_tools() -> Vec<Tool> {
         ),
         query(
             "list_sequence_effects",
-            "Effects in the open sequence, in full: optionally one row only, and only those overlapping a time range.",
+            "Effects in the open sequence, in full: optionally one row only, and only those overlapping a time range. brief (or too many to give in full): each as id, row, layer, kind, and times.",
             object(
                 {
                     let mut p = time_range();
                     p["rowId"] = json!({ "type": "string", "description": "Only this row." });
+                    p["brief"] = json!({ "type": "boolean" });
                     p
                 },
                 &[],
@@ -930,7 +933,7 @@ fn guide_tool() -> Tool {
     let topics = crate::knowledge::library::topic_keys();
     tool(
         "get_guide",
-        "PixelFlow's own guides; read the ones you need before you design. An effect's: what it draws on a string, an arch, a matrix, a tree, and the whole house, the settings that matter, ready-made looks to give place_effects, then every setting's range, default, and choices. A topic's: how to design a show, and what every effect shares. With neither: the list of guides.",
+        "PixelFlow's own guides: read the ones you need before you design. An effect's: what it draws on each kind of prop, the settings that matter, ready-made looks for place_effects, and every setting's range and choices. A topic's: how to design a show, and what every effect shares. Neither: the list.",
         object(
             json!({
                 "effects": names(crate::knowledge::reference::kind_keys()),
@@ -953,30 +956,21 @@ fn tool(name: &str, description: &str, input_schema: Value, kind: ToolKind) -> T
     }
 }
 
-/// An effect as `place_effects` and `change_effects` take one (see [`crate::effect_spec`]): its
-/// settings by key, and by name whatever else an effect can have. `fresh`: a new effect, which
-/// names its kind.
-fn effect_description(fresh: bool) -> Value {
+/// An effect as `place_effects` takes one (see [`crate::effect_spec`]): its settings by key, and
+/// by name whatever else an effect can have.
+fn effect_description() -> Value {
     let rest = crate::effect_spec::EFFECT_WIDE[1..].join(", ");
-    let mut properties = json!({
-        "settings": { "type": "object", "description": "The kind's settings by key." },
-        "colors": { "type": "array", "items": { "type": "string" } },
-        "curves": { "type": "object", "description": "A curve by setting key; a timingTrack may be a name." },
-    });
-    let mut description = format!("Also takes {rest} (get_guide topic `effect-wide`).");
-    if fresh {
-        properties["kind"] = json!({ "type": "string" });
-        description = format!("An effect as the guides' looks give one. {description}");
-    } else {
-        description = format!(
-            "What to change, the rest staying: settings and curves by key (a curve of null comes off). {description}"
-        );
-    }
-    let mut effect = json!({ "type": "object", "description": description, "properties": properties });
-    if fresh {
-        effect["required"] = json!(["kind"]);
-    }
-    effect
+    json!({
+        "type": "object",
+        "description": format!("An effect as the guides' looks give one. Also takes {rest} (get_guide topic `effect-wide`)."),
+        "properties": {
+            "kind": { "type": "string" },
+            "settings": { "type": "object", "description": "The kind's settings by key." },
+            "colors": { "type": "array", "items": { "type": "string" } },
+            "curves": { "type": "object", "description": "A curve by setting key; a timingTrack may be a name." },
+        },
+        "required": ["kind"],
+    })
 }
 
 /// Starting a sequence from a song, reading the song, and placing many effects in one call.
@@ -1013,7 +1007,7 @@ fn song_tools() -> Vec<Tool> {
                     "rowIds": ids(),
                     "fromMs": ms(),
                     "toMs": ms(),
-                    "effect": effect_description(true),
+                    "effect": effect_description(),
                     "track": { "type": "string", "description": "Id or name." },
                     "match": { "type": "string", "description": "Only marks with this word, phrase, or regex." },
                     "marksEach": { "type": "integer", "minimum": 1, "description": "Marks per effect." },
@@ -1039,6 +1033,29 @@ fn song_tools() -> Vec<Tool> {
                 &["fromMs", "toMs", "startsMs"],
             ),
             ToolKind::RepeatEffects,
+        ),
+        tool(
+            "change_effects",
+            "Changes many effects there already at once: those with ids, on rowIds, starting from fromMs up to toMs, on layer, of kinds (all you give must hold). Then one of: change, lengthMs, and shiftMs (any together); copyToRowIds (same times and layers); moveTo; remove. Refused where a result overlaps another effect on its layer, unless replace.",
+            object(
+                json!({
+                    "ids": ids(),
+                    "rowIds": ids(),
+                    "fromMs": ms(),
+                    "toMs": ms(),
+                    "layer": ms(),
+                    "kinds": ids(),
+                    "change": { "type": "object", "description": "What changes, the rest staying: as place_effects' effect without kind; settings and curves by key (a curve of null comes off)." },
+                    "lengthMs": { "type": "integer", "minimum": 1, "description": "Each one's length." },
+                    "shiftMs": { "type": "integer", "description": "Later, or (negative) earlier." },
+                    "copyToRowIds": ids(),
+                    "moveTo": { "type": "object", "properties": { "rowId": { "type": "string" }, "layer": ms() } },
+                    "remove": { "type": "boolean" },
+                    "replace": { "type": "boolean" },
+                }),
+                &[],
+            ),
+            ToolKind::ChangeEffects,
         ),
         tool(
             "stage_cue",

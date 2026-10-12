@@ -6,7 +6,7 @@ Colors, fades, sparkles, blur, and color adjustments: the settings every effect 
 
 {{effect-wide}}
 
-In `place_effects` the colors are a plain list, `colors`; in `sequence_add_effect` they are `palette` with its `colors` inside. Everything else has the same name in both.
+In `place_effects` and `change_effects` the colors are a plain list, `colors`; in `sequence_add_effect` they are `palette` with its `colors` inside. Everything else has the same name in all three.
 
 ## Colors
 

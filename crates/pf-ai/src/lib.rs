@@ -27,6 +27,7 @@ pub mod knowledge;
 pub mod lyrics;
 pub mod openai;
 pub mod provider;
+pub mod rearrange;
 pub mod review;
 pub mod run;
 pub mod secret;

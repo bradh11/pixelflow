@@ -90,6 +90,18 @@ Filled in as each lands; the commit that closes a gap adds its line here.
   `crates/pf-ai/src/knowledge/library.rs`) when an effect kind has no guide, and the tests fail,
   saying what to write, when a guide misses a setting or a choice, names one that isn't there,
   or gives a look that isn't a real effect or lights nothing where it says it suits.
+- **Many effects at once.** `change_effects` chooses effects (by id, row, the time they start in,
+  layer, and kind) and does what the editor's multi-edit and clipboard do: changes their
+  settings, colors, mixing, fades, sparkles, and curves, keeping what isn't named; sets each
+  one's length; moves them all earlier or later; copies them to other rows; moves them to
+  another row or layer; removes them. One call, one batch, all or nothing; a result that would
+  overlap another effect is refused unless told to replace it.
+- **Knowing the display.** `list_props` gives each prop's role (the one `stage_cue` casts it in),
+  its grid (a matrix's columns and rows, a tree's strings and pixels up each), and its faces.
+- **Reading a long sequence back.** `list_sequence_effects` gives every effect in full when that
+  fits; otherwise (or when asked to be brief) each effect as a line, row by row; and when even
+  that is too long, each row's layers with how many effects of which kinds, when. It is never
+  cut off in the middle.
 
 ## Still out of reach
 

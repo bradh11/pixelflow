@@ -919,18 +919,18 @@ fn query_tools() -> Vec<Tool> {
         ),
         query(
             "get_open_sequence",
-            "The sequence open in the editor (with your draft changes): name, length, music, rows (what each lights, layers, effect counts), timing tracks, and the show's pictures.",
-            object(json!({}), &[]),
+            "The sequence open in the editor (with your draft changes): name, length, music, rows (what each lights, layers, effect counts; detail: each row's target), timing tracks, and the show's pictures.",
+            object(json!({ "detail": { "type": "boolean" } }), &[]),
             Query::OpenSequence,
         ),
         query(
             "list_sequence_effects",
-            "Effects in the open sequence, in full: optionally one row only, and only those overlapping a time range. brief (or too many to give in full): each as id, row, layer, kind, and times.",
+            "Effects in the open sequence, optionally one row only, and only those overlapping a time range: a line each (id, layer, kind, times, colors), or every setting when full or 12 or fewer.",
             object(
                 {
                     let mut p = time_range();
                     p["rowId"] = json!({ "type": "string", "description": "Only this row." });
-                    p["brief"] = json!({ "type": "boolean" });
+                    p["full"] = json!({ "type": "boolean" });
                     p
                 },
                 &[],
@@ -943,7 +943,7 @@ fn query_tools() -> Vec<Tool> {
             object(
                 {
                     let mut p = time_range();
-                    p["trackId"] = json!({ "type": "string" });
+                    p["trackId"] = json!({ "type": "string", "description": "Id or name." });
                     p
                 },
                 &["trackId"],

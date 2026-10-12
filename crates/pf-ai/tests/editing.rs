@@ -456,22 +456,38 @@ fn props_are_listed_with_their_role_grid_and_faces_and_a_long_sequence_reads_bac
     assert_eq!(prop("Arch 2")["role"], "arch");
     let _ = &s.stage;
 
-    // Sixteen effects come back in full; asked for briefly, as a line each.
+    // Sixteen effects come back a line each, with their colors, so reading a sequence back
+    // doesn't swell every later request; asked for in full, every setting; a few, in full.
     bars_on_the_arches(&mut s);
-    let full: Value = serde_json::from_str(&done(&mut s.draft, "list_sequence_effects", json!({}))).unwrap();
-    assert_eq!(full.as_array().unwrap().len(), 16);
-    assert!(full[0]["effect"]["params"]["count"].is_number());
-    let brief: Value = serde_json::from_str(&done(
-        &mut s.draft,
-        "list_sequence_effects",
-        json!({ "brief": true }),
-    ))
-    .unwrap();
+    let brief: Value = serde_json::from_str(&done(&mut s.draft, "list_sequence_effects", json!({}))).unwrap();
     assert_eq!(brief["rows"].as_array().unwrap().len(), 4);
     assert_eq!(brief["rows"][0]["lights"], "Arch 1");
     assert_eq!(brief["rows"][0]["effects"].as_array().unwrap().len(), 4);
-    assert_eq!(brief["each"], "[id, layer, kind, startMs, endMs]");
+    assert_eq!(brief["each"], "[id, layer, kind, startMs, endMs, colors]");
     assert_eq!(brief["rows"][0]["effects"][0][2], "bars");
+    assert!(brief["rows"][0]["effects"][0][5][0].is_string(), "{brief}");
+    assert_eq!(
+        brief["note"],
+        "16 effects, a line each; full: true gives every setting."
+    );
+    let full: Value = serde_json::from_str(&done(
+        &mut s.draft,
+        "list_sequence_effects",
+        json!({ "full": true }),
+    ))
+    .unwrap();
+    assert_eq!(full.as_array().unwrap().len(), 16);
+    assert!(full[0]["effect"]["params"]["count"].is_number());
+    let row = brief["rows"][0]["rowId"].clone();
+    let few: Value = serde_json::from_str(&done(
+        &mut s.draft,
+        "list_sequence_effects",
+        json!({ "rowId": row }),
+    ))
+    .unwrap();
+    assert_eq!(few.as_array().unwrap().len(), 4, "{few}");
+    assert!(few[0]["effect"]["params"]["count"].is_number());
+    assert!(full.to_string().len() > 2 * brief.to_string().len());
     // More than fits in full is given briefly, saying so, rather than cut off mid-effect.
     for row in [&s.roofline, &s.matrix] {
         done(
@@ -480,7 +496,7 @@ fn props_are_listed_with_their_role_grid_and_faces_and_a_long_sequence_reads_bac
             json!({ "rowIds": [row], "fromMs": 0, "toMs": 96_000, "track": "Beats", "effect": { "kind": "twinkle" } }),
         );
     }
-    let (many, is_error) = call(&mut s.draft, "list_sequence_effects", json!({}));
+    let (many, is_error) = call(&mut s.draft, "list_sequence_effects", json!({ "full": true }));
     assert!(
         !is_error && !many.contains("cut short"),
         "{}",
@@ -510,7 +526,7 @@ fn props_are_listed_with_their_role_grid_and_faces_and_a_long_sequence_reads_bac
             json!({ "rowIds": [s.roofline, s.matrix], "fromMs": 0, "toMs": 96_000, "track": "Beats", "layer": layer, "effect": { "kind": "strobe" } }),
         );
     }
-    let (most, is_error) = call(&mut s.draft, "list_sequence_effects", json!({ "brief": true }));
+    let (most, is_error) = call(&mut s.draft, "list_sequence_effects", json!({}));
     assert!(
         !is_error && !most.contains("cut short"),
         "{}",
@@ -531,4 +547,45 @@ fn props_are_listed_with_their_role_grid_and_faces_and_a_long_sequence_reads_bac
         "{}",
         most["note"]
     );
+}
+
+#[test]
+fn a_long_draft_is_reviewed_with_its_changes_counted_and_the_sequence_reads_back_in_lines() {
+    let mut s = setup();
+    bars_on_the_arches(&mut s);
+    // Sixteen new effects are counted, not listed: the user's proposal lists each.
+    let review = done(&mut s.draft, "review_draft", json!({}));
+    assert!(
+        review.contains("16 effects added") && !review.contains("- Add Effect"),
+        "{review}"
+    );
+    // A row a line: its id, what it lights, the effects on each layer; detail adds its target.
+    let open: Value = serde_json::from_str(&done(&mut s.draft, "get_open_sequence", json!({}))).unwrap();
+    let arch = open["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r[0] == s.arches[0].as_str())
+        .unwrap()
+        .clone();
+    assert_eq!(arch, json!([s.arches[0], "Arch 1", [4]]));
+    assert!(!open.to_string().contains("\"target\""), "{open}");
+    let detail: Value = serde_json::from_str(&done(
+        &mut s.draft,
+        "get_open_sequence",
+        json!({ "detail": true }),
+    ))
+    .unwrap();
+    assert!(detail["rows"][0]["target"].is_object(), "{detail}");
+    // A timing track's marks by its name, a line each.
+    let marks: Value = serde_json::from_str(&done(
+        &mut s.draft,
+        "get_timing_marks",
+        json!({ "trackId": "Bars", "toMs": 4_000 }),
+    ))
+    .unwrap();
+    assert_eq!(marks["track"], "Bars");
+    assert_eq!(marks["each"], "[index, startMs, endMs, label]");
+    assert_eq!(marks["marks"][0][0], 0);
+    assert_eq!(marks["marks"][1][1], 2_000);
 }

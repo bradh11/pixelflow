@@ -306,10 +306,54 @@ fn with_song_tracks(
     }
 }
 
+/// Changes listed one by one in `review_draft`'s answer, at most; past that, counted.
+const LISTED_CHANGES: usize = 12;
+
+/// What the draft changes, for `review_draft`: each change when there are few; when there are
+/// many, how many of each kind, so a long draft doesn't swell every later request (the user's
+/// proposal lists them all, and `list_sequence_effects` shows the effects).
+fn changes_briefly(diff: &crate::diff::Diff) -> String {
+    use crate::diff::{Action, Section};
+    if diff.changes.len() <= LISTED_CHANGES {
+        return diff.describe();
+    }
+    let mut counts: Vec<((Section, Action), usize)> = Vec::new();
+    for change in &diff.changes {
+        let key = (change.section, change.action);
+        match counts.iter_mut().find(|(k, _)| *k == key) {
+            Some((_, n)) => *n += 1,
+            None => counts.push((key, 1)),
+        }
+    }
+    let said: Vec<String> = counts
+        .iter()
+        .map(|((section, action), n)| {
+            let what = match section {
+                Section::TimingTrack => "timing track".to_string(),
+                other => format!("{other:?}").to_lowercase(),
+            };
+            let action = match action {
+                Action::Added => "added",
+                Action::Removed => "removed",
+                Action::Changed => "changed",
+            };
+            format!(
+                "{} {action}",
+                crate::arrange::plural(*n, &what, &format!("{what}s"))
+            )
+        })
+        .collect();
+    format!(
+        "{} changes: {}. The user's proposal lists each; list_sequence_effects shows the effects.",
+        diff.changes.len(),
+        said.join(", ")
+    )
+}
+
 /// `review_draft`: the review of the draft's sequence against the song (see [`crate::review`]),
 /// then what the draft changes.
 fn review_draft(draft: &mut Draft, song: &mut Song<'_>) -> Outcome {
-    let changes = draft.diff().describe();
+    let changes = changes_briefly(&draft.diff());
     if draft.sequence().is_none() {
         return ok(changes);
     }
@@ -448,7 +492,10 @@ fn run_query(query: Query, input: &Value, draft: &Draft) -> Outcome {
             }
         }
         Query::OpenSequence => match draft.sequence() {
-            Some(doc) => ok(with_pictures(sequence_summary(show, doc), draft).to_string()),
+            Some(doc) => {
+                let detail = input["detail"].as_bool().unwrap_or(false);
+                ok(with_pictures(sequence_summary(show, doc, detail), draft).to_string())
+            }
             None => ok("No sequence is open in the editor."),
         },
         Query::SequenceEffects => match draft.sequence() {
@@ -457,9 +504,11 @@ fn run_query(query: Query, input: &Value, draft: &Draft) -> Outcome {
         },
         Query::TimingMarks => match draft.sequence() {
             Some(doc) => {
-                let id = input["trackId"].as_str().unwrap_or_default();
-                let Some(track) = doc.timing_tracks.iter().find(|t| t.id.to_string() == id) else {
-                    return err("There's no timing track with that id. get_open_sequence lists them.");
+                let key = input["trackId"].as_str().unwrap_or_default();
+                let Some(track) = crate::song::find_track(&doc.timing_tracks, key) else {
+                    return err(
+                        "There's no timing track with that id or name. The context block and get_open_sequence list them.",
+                    );
                 };
                 let (from, to) = range(input);
                 let marks: Vec<_> = track
@@ -467,9 +516,14 @@ fn run_query(query: Query, input: &Value, draft: &Draft) -> Outcome {
                     .iter()
                     .enumerate()
                     .filter(|(_, m)| m.end_ms > from && m.start_ms < to)
-                    .map(|(i, m)| json!({ "index": i, "startMs": m.start_ms, "endMs": m.end_ms, "label": m.label }))
+                    .map(|(i, m)| json!([i, m.start_ms, m.end_ms, m.label]))
                     .collect();
-                ok(to_json(&marks))
+                ok(json!({
+                    "track": track.name,
+                    "each": "[index, startMs, endMs, label]",
+                    "marks": marks,
+                })
+                .to_string())
             }
             None => err("No sequence is open in the editor."),
         },
@@ -540,17 +594,29 @@ fn prop_summary(show: &Show, prop: &pf_model::Prop) -> Value {
         .map(|g| g.name.as_str())
         .collect();
     let p = prop.transform.position;
+    // To a hundredth of a layout unit: 4.2, not 4.199999809265137.
+    let at = |x: f32| (f64::from(x) * 100.0).round() / 100.0;
     let mut summary = json!({
         "id": prop.id,
         "name": prop.name,
         "shape": shape_type(prop),
         "role": role_name(prop),
         "pixels": prop.node_count(),
-        "position": [p.x, p.y, p.z],
-        "wiredTo": wired,
+        "position": [at(p.x), at(p.y), at(p.z)],
         "groups": groups,
-        "submodels": prop.regions.iter().map(|r| json!({ "id": r.id, "name": r.name })).collect::<Vec<_>>(),
     });
+    // What it is wired to, and its submodels, when it has any.
+    if !wired.is_empty() {
+        summary["wiredTo"] = json!(wired);
+    }
+    if !prop.regions.is_empty() {
+        summary["submodels"] = json!(
+            prop.regions
+                .iter()
+                .map(|r| json!({ "id": r.id, "name": r.name }))
+                .collect::<Vec<_>>()
+        );
+    }
     if let Some((columns, rows)) = grid(prop) {
         summary["grid"] = json!(format!("{columns}x{rows}"));
     }
@@ -673,23 +739,48 @@ fn selection(draft: &Draft) -> String {
     .to_string()
 }
 
-fn sequence_summary(show: &Show, doc: &Sequence) -> Value {
-    json!({
+/// `get_open_sequence`: a row a line (its id, what it lights, the effects on each layer), and
+/// with `detail` each row's target as the sequence edits take it.
+fn sequence_summary(show: &Show, doc: &Sequence, detail: bool) -> Value {
+    let rows: Vec<Value> = if detail {
+        doc.rows
+            .iter()
+            .map(|row| {
+                json!({
+                    "id": row.id,
+                    "lights": target_name(show, row.target),
+                    "target": row.target,
+                    "layers": row.layers.iter().map(|l| l.effects.len()).collect::<Vec<_>>(),
+                })
+            })
+            .collect()
+    } else {
+        doc.rows
+            .iter()
+            .map(|row| {
+                json!([
+                    row.id,
+                    target_name(show, row.target),
+                    row.layers.iter().map(|l| l.effects.len()).collect::<Vec<_>>(),
+                ])
+            })
+            .collect()
+    };
+    let mut summary = json!({
         "name": doc.name,
         "durationMs": doc.duration_ms,
         "frameMs": doc.frame_ms,
         "music": doc.audio,
         "musicLevelSource": doc.music_level_source,
-        "rows": doc.rows.iter().map(|row| json!({
-            "id": row.id,
-            "lights": target_name(show, row.target),
-            "target": row.target,
-            "layers": row.layers.iter().map(|l| l.effects.len()).collect::<Vec<_>>(),
-        })).collect::<Vec<_>>(),
-        "timingTracks": doc.timing_tracks.iter().map(|t| json!({
-            "id": t.id, "name": t.name, "kind": t.kind, "marks": t.marks.len(),
-        })).collect::<Vec<_>>(),
-    })
+        "rows": rows,
+        "timingTracks": doc.timing_tracks.iter().map(|t| json!([t.id, t.name, t.kind, t.marks.len()])).collect::<Vec<_>>(),
+        "eachTimingTrack": "[id, name, kind, marks]",
+    });
+    if !detail {
+        summary["eachRow"] =
+            json!("[rowId, lights, effects on each layer]; detail: true adds each row's target");
+    }
+    summary
 }
 
 fn effects(show: &Show, doc: &Sequence, input: &Value) -> String {
@@ -724,7 +815,8 @@ fn effects(show: &Show, doc: &Sequence, input: &Value) -> String {
                     layer,
                     effect.kind(),
                     effect.start_ms,
-                    effect.end_ms
+                    effect.end_ms,
+                    effect.palette.colors
                 ]));
             }
             if let (Some(first), Some(last)) = (playing.first(), playing.last()) {
@@ -751,21 +843,25 @@ fn effects(show: &Show, doc: &Sequence, input: &Value) -> String {
         brief.push(json!({ "rowId": row.id, "lights": lights, "effects": lines }));
         outline.push(json!({ "rowId": row.id, "lights": lights, "layers": layers }));
     }
+    // A few come in full; more, a line each unless asked for in full (`full`), so a long
+    // sequence read back doesn't swell every later request.
     let full = to_json(&out);
-    let asked = input["brief"].as_bool().unwrap_or(false);
-    if !asked && full.len() <= MAX_RESULT_CHARS {
+    let asked_full = input["full"].as_bool().unwrap_or(false);
+    let asked_brief = input["brief"].as_bool().unwrap_or(false);
+    let in_full = asked_full || (count <= FULL_EFFECTS && !asked_brief);
+    if in_full && full.len() <= MAX_RESULT_CHARS {
         return full;
     }
-    // Too many to give in full (or asked for briefly): each effect in a line, row by row; and
-    // when even that is too long, each row's layers in a line.
+    // Each effect in a line, row by row; and when even that is too long, each row's layers in
+    // a line.
     let narrow = "ask for one row or a shorter time to see settings";
     let briefly = json!({
         "rows": brief,
-        "each": "[id, layer, kind, startMs, endMs]",
-        "note": if asked {
-            format!("{count} effects.")
-        } else {
+        "each": "[id, layer, kind, startMs, endMs, colors]",
+        "note": if asked_full {
             format!("{count} effects: too many to give in full ({narrow}).")
+        } else {
+            format!("{count} effects, a line each; full: true gives every setting.")
         },
     })
     .to_string();
@@ -774,7 +870,10 @@ fn effects(show: &Show, doc: &Sequence, input: &Value) -> String {
     }
     json!({
         "rows": outline,
-        "note": format!("{count} effects: too many to list ({narrow}, or brief: true for each one's id, kind, and times)."),
+        "note": format!("{count} effects: too many to list ({narrow})."),
     })
     .to_string()
 }
+
+/// Effects `list_sequence_effects` gives in full without being asked to.
+const FULL_EFFECTS: usize = 12;

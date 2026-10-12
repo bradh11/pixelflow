@@ -38,7 +38,7 @@ use crate::sparkles::Sparkles;
 use crate::tiles::{PartSpread, Spread, Tile, Tiles};
 use pf_mapping::ChannelMap;
 use pf_model::{BufferTransform, PropId, RenderStyle, Show};
-use pf_sequence::{Blend, Effect, EffectId, EffectParams, RowBlending, Sequence, Target};
+use pf_sequence::{Blend, Effect, EffectId, EffectParams, OnParams, RowBlending, Sequence, Target};
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -966,12 +966,19 @@ impl Scene<'_> {
         );
         op.draws = !(op.fade <= 0.0 && plain);
         let c = effect.sparkle_color;
+        // An effect's own Transparency hides the effect and not its sparkles: they go by the
+        // effect as it is without it (see `ready_unit`) and take it off where they don't flash.
+        let transparency = match &effect.params {
+            EffectParams::On(p) => p.transparency,
+            _ => 0.0,
+        };
         op.sparkles = Sparkles::new(
             effect.sparkles,
             [c.r, c.g, c.b].map(|v| f32::from(v) / 255.0),
             effect.id.seed(),
             op.time.elapsed_ms / u64::from(frame_ms.max(1)),
-        );
+        )
+        .map(|sparkles| sparkles.see_through(transparency));
         op.adjust = Adjust::new(effect, op.blend);
         op.now = match now {
             Cow::Owned(now) => Some(now),
@@ -1024,14 +1031,28 @@ impl Scene<'_> {
                 Shader::Faces(crate::effects::Faces::new(lit))
             }
             (_, Some(simulated)) => simulated,
-            (params, None) => Shader::in_context(
-                params,
-                &op.time,
-                Colors::new(&effect.palette.colors),
-                effect.id.seed(),
-                canvas,
-                &self.cx.with_members(buffer.members.as_ref()),
-            ),
+            (params, None) => {
+                // Drawn without its own Transparency when its sparkles take that off.
+                let whole;
+                let params = match params {
+                    EffectParams::On(p) if op.sparkles.is_some_and(|s| s.takes_transparency()) => {
+                        whole = EffectParams::On(OnParams {
+                            transparency: 0.0,
+                            ..*p
+                        });
+                        &whole
+                    }
+                    _ => params,
+                };
+                Shader::in_context(
+                    params,
+                    &op.time,
+                    Colors::new(&effect.palette.colors),
+                    effect.id.seed(),
+                    canvas,
+                    &self.cx.with_members(buffer.members.as_ref()),
+                )
+            }
         };
         if let Some(blur) = unit.blur {
             // Blurred: drawn on the grid and blurred there. Only the cells the blur carries to a

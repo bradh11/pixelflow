@@ -20,7 +20,7 @@ pub use decode::{MAX_MUSIC_BYTES, open_music_file};
 pub use error::AudioError;
 pub use find::find_audio;
 pub use metronome::{METRONOME_RATE, Metronome};
-pub use mono::MonoSamples;
+pub use mono::{ChannelSample, ChannelSamples, MonoSamples};
 pub use music::{MusicPlayer, OutputInfo, SLOWEST};
 pub use probe::{AudioInfo, FoundBy, probe};
 pub use progress::{Progress, ReadPosition, no_progress, reported};

@@ -1,0 +1,7 @@
+{
+  "about": "No sequence of the corpus has an xLights reference yet, so there is nothing to hold imports to. Render them (crates/pf-fidelity/corpus/README.md), then make this file with `pf-fidelity regress --accept`. See docs/fidelity.md.",
+  "tool": "pf-fidelity 0.1.0",
+  "margin": 3.0,
+  "runs": 5,
+  "sequences": []
+}

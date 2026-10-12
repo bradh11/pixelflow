@@ -80,12 +80,7 @@ pub fn run(
     let mut card = CorpusCard::new(TOOL);
     let mut scorecards = Vec::new();
     for entry in &manifest.sequences {
-        let label = entry.label.clone().unwrap_or_else(|| {
-            entry
-                .xsq
-                .file_stem()
-                .map_or_else(|| "sequence".to_string(), |s| s.to_string_lossy().into_owned())
-        });
+        let label = label_of(entry);
         let request = Request {
             show: &entry.show,
             xsq: &entry.xsq,
@@ -109,6 +104,16 @@ pub fn run(
         }
     }
     CorpusRun { card, scorecards }
+}
+
+/// What the reports call a sequence: its label, or its file's name.
+pub fn label_of(entry: &Entry) -> String {
+    entry.label.clone().unwrap_or_else(|| {
+        entry
+            .xsq
+            .file_stem()
+            .map_or_else(|| "sequence".to_string(), |s| s.to_string_lossy().into_owned())
+    })
 }
 
 /// A label as a file name: lowercase letters and digits, dashes for everything else.

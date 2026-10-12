@@ -341,22 +341,60 @@ them.
   reaches it on 165.
 
   Reading the left channel alone was tried, and matched: the three flashes looked 100 and the
-  fire reached the roof on the very frames xLights' does. It was not kept, because a song with
-  something on the right alone would go unheard. The level is now the louder channel's: the
-  frame's highest sample on either side, as a share of the song's highest on either
+  fire reached the roof on the very frames xLights' does. It was not kept then, because a song
+  with something on the right alone would go unheard. The level was made the louder channel's:
+  the frame's highest sample on either side, as a share of the song's highest on either
   (`pf_analysis::AudioTrack::peak`). A song with as much on one side as the other reads as it
   does in xLights, and a sound on one side alone is heard whichever side it is on. Beats,
   sections, moments, voices, and how loud a frame sounds are still worked out from the two
   mixed, and a song with one channel reads exactly as it did.
 
-  This song's right channel is the louder on six frames in ten, so the level now reads above
-  xLights' where it read below: 0.027 and 0.92 from it, about a sixth higher on average, and at
-  full level on 67 of those 1,500 frames. Over five runs before and twenty-two after, the three
-  flashes go from 80 to 84, 88 to 89, and 90 to 92 up to 100, 99.8 to 99.9, and 99.8 to 100, as
-  they did on the left channel alone. Two other flashes over the same fire go the other way,
-  from 99.6 to 99.8 down to between 94.2 and 97.1: the fire's sparkles now burst on frames
-  where xLights' don't. And the fire reaches the roof on 211 frames: every one of xLights' 165,
-  and 46 more. Nothing else in the corpus moves outside what it does from run to run.
+  This song's right channel is the louder on six frames in ten, so the louder channel reads
+  above xLights' level where the mix read below: 0.027 and 0.92 from it, about a sixth higher on
+  average, and at full level on 67 of those 1,500 frames. Over five runs before and twenty-two
+  after, the three flashes go from 80 to 84, 88 to 89, and 90 to 92 up to 100, 99.8 to 99.9, and
+  99.8 to 100, as they did on the left channel alone. Two other flashes over the same fire go
+  the other way, from 99.6 to 99.8 down to between 94.2 and 97.1: the fire's sparkles burst on
+  frames where xLights' don't. And the fire reaches the roof on 211 frames: every one of
+  xLights' 165, and 46 more.
+
+  So the channel is now the sequence's to say (`musicLevelSource`, a setting in Sequence
+  settings, "Loudness from"): the louder channel, or the left channel. A sequence made in
+  PixelFlow, and one saved before there was a choice, follows the louder channel, so a sound on
+  either side is heard. A sequence imported from xLights follows the left channel, as xLights
+  does, and its import report says so. The audio track keeps both levels, the left channel's as
+  a share of the left channel's own highest and lowest (`pf_analysis::AudioTrack::peak_from`),
+  so changing the setting reads the song no second time. Only the level changes: the bands, the
+  spectrum, the notes, the onsets, beats, sections, moments, voices, and how loud a frame sounds
+  (which Pulse's level reads) are the two channels mixed, whichever a sequence follows. A song
+  with one channel reads the same either way.
+
+  With imports on the left channel, over twelve runs before (on the louder channel) and twelve
+  after:
+
+  | | Louder channel | Left channel |
+  |---|---|---|
+  | The half-second On whose transparency follows the music | 88.7 to 96.8 | 97.7 to 100 (eleven of twelve 99.9 or more) |
+  | The two flashes the louder channel took down | 95.6 to 96.2; 94.8 to 97.1 | 100; 100 |
+  | The three flashes it put right | 99.85 to 99.99 | 100 |
+  | The fire's own light on the roof prop | 211 of 858 frames | 165, the very frames xLights' reaches it on |
+
+  Frame by frame the music-following Ons come closer too. Over the half-second On, the sparkling
+  pixels follow xLights' frame for frame (a correlation of 1.00, from 0.86), and it flashes on
+  four frames, the four xLights does, where it flashed on six. Over the ten-second On before it,
+  the base's brightness is 2 of 255 from xLights' on average, from 5. That On's look is 80.7 to
+  97.5 before and 79.7 to 91.9 after, about 88 in the middle of both: it is layered with circles
+  that wander at random. One effect's look went the other way: the eighteen-second tendril whose
+  sparkles follow the music was 62.8 to 99.4, half its runs above 76, and is 63.0 to 78.1. Its sparkles match xLights' better than before (the
+  number lit, frame by frame, correlates 0.96 with xLights', from 0.87), and its rhythm part,
+  which is what falls, swings between runs with the tendril's random wandering (0.02 to 0.95
+  before, 0.02 to 0.43 after); twelve runs each don't settle which it is. Nothing else in the
+  corpus moves outside what it does from run to run, and no other sequence in it has an effect
+  that follows the level.
+
+  Pulse and the bands still come from the mix. Nothing in this corpus says whether xLights'
+  are the left channel too: none of its sequences has a Pulse, a VU Meter, a Dancer, or
+  anything else that reads the bass, the spectrum, the notes, or the onsets.
 - *Sparkles on a see-through effect.* xLights flashes an On's sparkles however see-through the
   On is. On the three loudest frames of one half-second On its transparency is 99 to 100% and
   five or six in ten of its pixels flash, each at full strength over a dark prop. PixelFlow
@@ -366,9 +404,10 @@ them.
   An effect's own Transparency now hides the effect and not its sparkles (`pf_render`'s
   `sparkles`), so an On at full Transparency with sparkles is a layer of sparkles alone. Only On
   has such a setting, and a PixelFlow sequence changes only where an On has both sparkles and
-  some Transparency. That On now looks 88 to 97 (seventeen runs). What keeps it from 100 is the
-  level above: on one of its 23 frames the right channel is at full level and the left at two
-  thirds, and PixelFlow flashes six pixels in ten where xLights flashes one in fifteen.
+  some Transparency. That On then looked 88 to 97 (seventeen runs), kept from 100 by the level
+  above: on one of its 23 frames the right channel is at full level and the left at two thirds,
+  and PixelFlow flashed six pixels in ten where xLights flashes one in fifteen. Following the
+  left channel, as an import now does, it looks 97.7 to 100.
 
   A wider rule was tried first, sparkles wherever the effect's own color is lit whatever covers
   it, and xLights' frames don't ask for it. Nothing else was found in them that sparkles look
@@ -482,9 +521,10 @@ and firing from a timing track.
   the score cannot say better than different of bursts at other moments (see Limits). And
   whether a curve should be able to give whole numbers itself, so that an imported Pinwheel
   setting can step and still follow its timing track or the music (see "A wheel on a curve
-  moves a whole unit at a time"): that changes the saved file. The two that were here are made,
-  and measured above: the music an effect follows is the louder of the two channels, and
-  sparkles flash on an effect its own Transparency hides.
+  moves a whole unit at a time"): that changes the saved file. The ones that were here are
+  made, and measured above: the music an effect follows is the louder of the two channels in a
+  sequence made in PixelFlow and the left channel in one imported from xLights, a setting of the
+  sequence's own; and sparkles flash on an effect its own Transparency hides.
 - *What PixelFlow can't show yet.* Shader (ten effects, the largest item by far) and Text in
   the sequence's own font. A Tendril that wanders at random shows less of itself and pulses at
   other moments. A Wave has no square shape. A Fireworks that moves stays where it goes off.

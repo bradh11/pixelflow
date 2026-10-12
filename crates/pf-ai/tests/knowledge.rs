@@ -5,10 +5,12 @@
 
 use pf_ai::effect_spec::{self, Context};
 use pf_ai::knowledge::{self, MAX_GUIDE_BYTES, check, library, reference};
-use pf_ai::provider::ToolCall;
+use pf_ai::provider::{Message, ToolCall};
 use pf_ai::run::{Outcome, run_tool};
 use pf_ai::stage::Stage;
-use pf_ai::{Cancel, Draft, OpenDoc, Toolbox, UiContext, Workspace};
+use pf_ai::testing::{ScriptedProvider, calls, fake_key, says};
+use pf_ai::{Cancel, ChatSession, Draft, OpenDoc, Toolbox, UiContext, Workspace};
+use pf_engine::Engine;
 use pf_model::{GroupLayout, RenderStyle};
 use pf_render::{AudioSource, Pictures};
 use pf_sequence::{Blend, CurveShape, EffectKind, MusicLevelSource, RowBlending, SettingValue};
@@ -318,10 +320,92 @@ fn the_guide_tool_reaches_every_guide_and_teaches_the_names_when_one_is_wrong() 
     );
     let (wrong, is_error) = call(&mut draft, "get_guide", json!({ "effect": "bars" }));
     assert!(is_error && wrong.contains("effects and topics"), "{wrong}");
-    let many: Vec<String> = reference::kind_keys().into_iter().take(9).collect();
-    let (wrong, is_error) = call(&mut draft, "get_guide", json!({ "effects": many }));
-    assert!(is_error && wrong.contains("at most 8"), "{wrong}");
+    // Too many at once: the first eight come (as many as fit), and the rest are named to ask
+    // for next, rather than a refusal that costs a round trip.
+    let many = [
+        "method",
+        "song",
+        "roles",
+        "layering",
+        "palettes",
+        "motion",
+        "intensity",
+        "safety",
+        "vocals",
+    ];
+    let (answer, is_error) = call(&mut draft, "get_guide", json!({ "topics": many }));
+    assert!(!is_error, "{answer}");
+    assert!(
+        answer.contains("# Intensity and change"),
+        "the first eight are sent"
+    );
+    assert!(!answer.contains("# Vocals"));
+    assert!(
+        answer.ends_with("(8 at a time): vocals. Ask for them next."),
+        "{}",
+        &answer[answer.len() - 200..]
+    );
     assert!(!draft.has_edits(), "reading a guide changes nothing");
+}
+
+#[test]
+fn a_guide_read_once_in_a_chat_is_not_sent_again() {
+    let mut read = knowledge::GuidesRead::default();
+    let first = knowledge::answer_once(&json!({ "topics": ["method", "intensity"] }), &mut read).unwrap();
+    assert!(first.starts_with("# How to build a sequence"), "{first}");
+    assert!(read.contains("topic:method") && read.contains("topic:intensity"));
+    // Asked again with one new guide: the new one comes in full, the others are pointed at.
+    let again =
+        knowledge::answer_once(&json!({ "topics": ["method", "intensity", "cues"] }), &mut read).unwrap();
+    assert!(again.starts_with("# Cues"), "{again}");
+    assert!(!again.contains("# How to build a sequence"));
+    assert!(
+        again.ends_with(
+            "Already read in this chat, and unchanged (look back at them above): method, intensity."
+        ),
+        "{again}"
+    );
+    // Only what was asked for twice, alone: a line, not thousands of bytes.
+    let repeat = knowledge::answer_once(&json!({ "effects": [], "topics": ["method"] }), &mut read).unwrap();
+    assert!(repeat.len() < 120, "{repeat}");
+    // An effect and a topic of the same name are different guides.
+    assert!(!read.contains("effect:method"));
+    // A chat does this for the model: the second ask is answered from memory.
+    let provider = ScriptedProvider::new(vec![
+        calls("", &[("get_guide", json!({ "topics": ["method"] }))]),
+        calls("", &[("get_guide", json!({ "topics": ["method", "song"] }))]),
+        says("Read."),
+    ]);
+    let mut session = ChatSession::new();
+    let dir = tempfile::tempdir().unwrap();
+    let workspace = Workspace::from_engine(&Engine::new(dir.path()), UiContext::default());
+    session
+        .run_turn(
+            &provider,
+            &fake_key(),
+            "scripted",
+            "read up",
+            workspace,
+            &Cancel::new(),
+            &mut |_| {},
+        )
+        .unwrap();
+    let answers: Vec<String> = session
+        .messages()
+        .iter()
+        .filter_map(|m| match m {
+            Message::ToolResults(results) => Some(results[0].content.clone()),
+            _ => None,
+        })
+        .collect();
+    assert!(answers[0].starts_with("# How to build a sequence"));
+    assert!(answers[1].starts_with("# Reading a song"), "{}", answers[1]);
+    assert!(!answers[1].contains("# How to build a sequence"));
+    assert!(
+        answers[1].ends_with("(look back at them above): method."),
+        "{}",
+        answers[1]
+    );
 }
 
 #[test]

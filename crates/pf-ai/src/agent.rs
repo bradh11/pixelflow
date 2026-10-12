@@ -5,6 +5,7 @@
 
 use crate::draft::{Draft, Proposal, ProposalView, Workspace};
 use crate::error::AiError;
+use crate::knowledge::GuidesRead;
 use crate::provider::{
     Cancel, LlmProvider, Message, StopReason, StreamEvent, ToolCall, ToolResult, ToolSpec, TurnRequest,
 };
@@ -106,6 +107,9 @@ pub struct ChatSession {
     analyzer: Arc<Analyzer>,
     /// The open song's analysis, by file, kept for the chat.
     song: Option<(PathBuf, Arc<Analysis>)>,
+    /// The guides already sent in this chat: they're in the conversation, so asking again only
+    /// points back at them.
+    guides_read: GuidesRead,
 }
 
 impl Default for ChatSession {
@@ -118,6 +122,7 @@ impl Default for ChatSession {
             toolbox: Toolbox::default(),
             analyzer: default_analyzer(),
             song: None,
+            guides_read: GuidesRead::default(),
         }
     }
 }
@@ -475,6 +480,19 @@ impl ChatSession {
                         call_id: call.id.clone(),
                         content: "Your reply was cut off before this call was complete, so nothing was run. Make smaller changes per call.".into(),
                         is_error: true,
+                    };
+                }
+                // A guide read earlier in the chat is still in the conversation: not sent again.
+                if call.name == "get_guide" && call.input_error.is_none() {
+                    let (content, is_error) =
+                        match crate::knowledge::answer_once(&call.input, &mut self.guides_read) {
+                            Ok(content) => (content, false),
+                            Err(content) => (content, true),
+                        };
+                    return ToolResult {
+                        call_id: call.id.clone(),
+                        content,
+                        is_error,
                     };
                 }
                 match run_tool(&self.toolbox, call, draft, &mut song) {

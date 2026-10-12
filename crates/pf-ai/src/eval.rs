@@ -616,7 +616,8 @@ pub struct Measures {
     pub tool_calls: BTreeMap<String, usize>,
     /// Tool calls refused, each with the start of the reason.
     pub tool_errors: Vec<String>,
-    /// The guides read, in order.
+    /// The guides asked for in answered calls, in order (a guide asked for again shows twice,
+    /// though the second answer only points back at the first).
     pub guides: Vec<String>,
     pub effects: usize,
     pub effect_kinds: Vec<String>,
@@ -795,7 +796,8 @@ fn measure(run: &Run<'_>, proposed: bool, traffic: Traffic, billed: Billed, canc
     let mut guides = Vec::new();
     for tool in run.tools {
         *tool_calls.entry(tool.name.clone()).or_default() += 1;
-        if tool.name == "get_guide" {
+        // Guides asked for and answered (a refused ask sent none).
+        if tool.name == "get_guide" && !tool.is_error {
             guides.extend(names(&tool.input["topics"]));
             guides.extend(names(&tool.input["effects"]));
         }

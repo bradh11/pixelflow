@@ -1131,6 +1131,82 @@ fn vu_meters_and_curves_find_their_timing_tracks() {
     assert_eq!(i.summary.exact, 3, "{:#?}", i.notes);
 }
 
+/// In xLights' frames a Pinwheel's start angle and center move a whole unit at a time, where
+/// PixelFlow's wheel would glide: the import hands the wheel the whole numbers.
+#[test]
+fn a_pinwheels_start_angle_and_center_on_curves_come_across_in_whole_numbers() {
+    let xml = r#"<xsequence FixedPointTiming="1">
+      <head><version>2024.19</version><sequenceTiming>50 ms</sequenceTiming><sequenceDuration>12</sequenceDuration></head>
+      <ElementEffects>
+        <Element type="timing" name="Beats">
+          <EffectLayer><Effect label="" startTime="0" endTime="100"/><Effect label="" startTime="750" endTime="850"/><Effect label="" startTime="1500" endTime="1600"/></EffectLayer>
+        </Element>
+        <Element type="model" name="Window Matrix"><EffectLayer>
+          <Effect name="Pinwheel" startTime="0" endTime="2250">E_SLIDER_Pinwheel_Arms=1,E_SLIDER_Pinwheel_Speed=0,E_VALUECURVE_Pinwheel_Offset=Active=TRUE|Id=ID_VALUECURVE_Pinwheel_Offset|Type=Timing Track Fade Fixed|Min=0.00|Max=360.00|TT=Beats|P2=31.00|P3=10.00|RV=TRUE|</Effect>
+          <Effect name="Pinwheel" startTime="3000" endTime="5000">E_VALUECURVE_PinwheelXC=Active=TRUE|Id=ID_VALUECURVE_PinwheelXC|Type=Ramp|Min=-100.00|Max=100.00|P1=-2.50|P2=7.30|RV=TRUE|,E_VALUECURVE_Pinwheel_Twist=Active=TRUE|Id=ID_VALUECURVE_Pinwheel_Twist|Type=Ramp|Min=-360.00|Max=360.00|P1=0.50|P2=90.25|RV=TRUE|</Effect>
+          <Effect name="Pinwheel" startTime="6000" endTime="8000">E_VALUECURVE_Pinwheel_Offset=Active=TRUE|Id=ID_VALUECURVE_Pinwheel_Offset|Type=Music|Min=0.00|Max=360.00|P1=0.00|P2=31.00|RV=TRUE|</Effect>
+          <Effect name="Pinwheel" startTime="9000" endTime="11000">E_SLIDER_Pinwheel_Offset=45,E_SLIDER_PinwheelXC=-20</Effect>
+        </EffectLayer></Element>
+      </ElementEffects>
+    </xsequence>"#;
+    let show = show();
+    let i = build_sequence(&parse_xsq(xml).unwrap(), &show, "x");
+    assert_opens(&i);
+    let effects = &row(&i, &show, "Window Matrix").layers[0].effects;
+    let inputs = pf_sequence::CurveInputs {
+        peak: None,
+        frame_ms: 50,
+        tracks: &i.sequence.timing_tracks,
+    };
+    // The setting on every frame the effect plays on.
+    let frames = |effect: &Effect, key: &str| -> Vec<f32> {
+        (effect.start_ms..effect.end_ms)
+            .step_by(50)
+            .map(|t| effect.at_with(t, &inputs).params.number(key).unwrap())
+            .collect()
+    };
+    let near = |got: &[f32], want: &[f32]| {
+        got.len() == want.len() && got.iter().zip(want).all(|(g, w)| (g - w).abs() <= 1e-4)
+    };
+
+    // On a timing track: 31 degrees on each mark and back over ten frames, 3.1 a frame with the
+    // fraction dropped, as xLights' frames show it. It's read at the marks it came with.
+    let beat = [
+        31.0, 27.0, 24.0, 21.0, 18.0, 15.0, 12.0, 9.0, 6.0, 3.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+    ];
+    let swung = frames(&effects[0], "offset");
+    assert!(near(&swung, &beat.repeat(3)), "{swung:?}");
+    assert_eq!(effects[0].curves["offset"].timing_track, None);
+
+    // A center sliding from -2.5 to 7.3 stands at -2, -1, 0, 1 … 7, fractions dropped toward
+    // zero on either side of it. The twist beside it glides as it did.
+    let slid = frames(&effects[1], "centerX");
+    let want: Vec<f32> = (0..40)
+        .map(|frame| (-2.5 + 9.8 * f64::from(frame) / 40.0).trunc() as f32)
+        .collect();
+    assert!(near(&slid, &want), "{slid:?}");
+    let twist = &effects[1].curves["twist"];
+    assert_eq!(twist.shape, pf_sequence::CurveShape::Ramp);
+    assert!(near(&[twist.from, twist.to], &[0.5, 90.25]), "{twist:?}");
+
+    // One that follows the music is left to follow it.
+    assert_eq!(
+        effects[2].curves["offset"],
+        pf_sequence::Curve::music(0.0, 31.0, 0.0, false)
+    );
+    // Settings without a curve are whole as they are, and every one of these still looks the
+    // same to the importer.
+    assert!(effects[3].curves.is_empty());
+    assert_eq!(
+        (
+            effects[3].params.number("offset"),
+            effects[3].params.number("centerX")
+        ),
+        (Some(45.0), Some(-20.0))
+    );
+    assert_eq!(i.summary.exact, 4, "{:#?}", i.all_notes());
+}
+
 /// Lightning comes in as PixelFlow's Lightning, and a Single Strand chase on a timing track steps
 /// on its marks.
 #[test]

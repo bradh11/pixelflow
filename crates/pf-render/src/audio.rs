@@ -152,12 +152,14 @@ impl<'a> Audio<'a> {
         self.track.level(self.at(frame))
     }
 
-    /// The frame's highest sample as a share of the song's (xLights' `max`).
+    /// The frame's highest sample, on whichever channel is louder, as a share of the song's
+    /// (xLights' `max`): how loud the music is to the curves, sparkles, and effects that follow it.
     pub fn peak(&self, frame: u64) -> f32 {
         self.track.peak(self.at(frame))
     }
 
-    /// The frame's lowest sample as a share of the song's (xLights' `min`).
+    /// The frame's lowest sample, on whichever channel is louder, as a share of the song's
+    /// (xLights' `min`).
     pub fn trough(&self, frame: u64) -> f32 {
         self.track.trough(self.at(frame))
     }

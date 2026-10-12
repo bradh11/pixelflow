@@ -239,21 +239,21 @@ has no effects. Of the rest, 242 effects could be judged (75% of the effect-time
 
 | Sequence | Matches | Close | Different | No equivalent | Look | As seen |
 |---|---|---|---|---|---|---|
-| A | 94% | 2% | 5% | – | 94 | 96 |
-| B | 72% | 28% | 1% | – | 88 | 94 |
-| C | 100% | – | – | – | 98 | 98 |
+| A | 94% | 2% | 5% | – | 96 | 96 |
+| B | 73% | 27% | – | – | 88 | 96 |
+| C | 100% | – | – | – | 99 | 98 |
 | D | 100% | – | – | – | 100 | 100 |
 | E | 100% | – | – | – | 94 | 93 |
 | G | 53% | – | 17% | 30% | 69 | 72 |
-| All | 91% | 2% | 5% | 2% | 93 | 93 |
+| All | 91% | 2% | 5% | 2% | 94 | 93 |
 
-That is one run of five. The shares move with the random effects, which each import seeds anew.
+That is one run of six. The shares move with the random effects, which each import seeds anew.
 B is mostly fire and circles under short flashes, and three stretches of it sit near the line,
 two of ten seconds under circles that wander at random and eighteen seconds of a tendril that
-does: its share that matches was 72% in two runs and 43%, 57%, and 99% in the others. A has one
-cellular automaton nine minutes long that matched in all five of these runs and was close in two
-of ten others, which alone takes A from 94% to 76%. Hold a change against several runs before
-and after, effect by effect.
+does: its share that matches was 73% in five of these runs and 59% in the other, and anywhere
+from 43% to 100% in the twenty-one before them. A has one cellular automaton nine minutes long
+that matched in all six of these runs and was close in three of those twenty-one, which alone
+takes A from 94% to 76%. Hold a change against several runs before and after, effect by effect.
 
 The first scorecards of this corpus (A at 87%, 4%, and 8%; D as seen at 91) are what the first
 two findings below changed. G's look was 65, and 71 as seen, before Fireworks had an effect of
@@ -318,7 +318,8 @@ progress (a brightness ramp, a setting's curve, a fade-out) still ends where the
 On an effect cut by a large share of its length that would show; this corpus has none.
 
 **What follows the music.** Sequence B has sparkles, and an On's transparency, following the
-music. Three things were found in its frames: one is fixed, and two are decisions to make.
+music. Three things were found in its frames, and all three are now drawn as the frames show
+them.
 
 - *A value curve under the Music checkbox.* The palette's Music checkbox scales the sparkle
   count by the music's peak. The importer carried it over only when the Sparkles slider itself
@@ -330,29 +331,91 @@ music. Three things were found in its frames: one is fixed, and two are decision
 - *Which channel is the music.* The level xLights follows can be read off its frames: an On
   whose transparency follows the music is as bright as the music is quiet. Over 400 frames that
   level is the left channel's highest sample in the frame, as a share of the song's (a mean
-  difference of 0.006, a correlation of 0.99). PixelFlow mixes both channels to one before it
-  looks for the highest sample. On this song that is 0.029 and 0.90 from xLights' level, about a
-  sixth lower on average, and at full level on 17 of the first 1,500 frames where the left
-  channel is on 40. Sparkles that follow the music burst when it is at full level, so PixelFlow
-  shows fewer bursts. A fire's music sparkles over three short flashes are what makes one of
-  them look 79 to 84 ("flashes less often") and the other two 88 to 92. The same fire grows with
-  the music, and reaches a roof prop on 16% of the frames that prop is lit where xLights' fire
-  reaches it on 29%. Reading the left channel alone was tried: the three flashes look 100, the
-  fire reaches the roof on the very frames xLights' does, and no other effect or prop in the
-  corpus moves outside what it does from run to run. It was not kept, because it changes what a
-  PixelFlow sequence's own music curves, music sparkles, and fire follow, and a song with
-  something on the right alone would go unheard.
+  difference of 0.006, a correlation of 0.99). PixelFlow mixed both channels to one before it
+  looked for the highest sample. On this song that was 0.029 and 0.90 from xLights' level, about
+  a sixth lower on average, and at full level on 15 of the first 1,500 frames where the left
+  channel is on 39. Sparkles that follow the music burst when it is at full level, so PixelFlow
+  showed fewer bursts. A fire's music sparkles over three short flashes made one of them look
+  80 to 84 ("flashes less often") and the other two 88 to 92. The same fire grows with the
+  music, and its own light reached a roof prop on 90 of the 858 frames it plays where xLights'
+  reaches it on 165.
+
+  Reading the left channel alone was tried, and matched: the three flashes looked 100 and the
+  fire reached the roof on the very frames xLights' does. It was not kept, because a song with
+  something on the right alone would go unheard. The level is now the louder channel's: the
+  frame's highest sample on either side, as a share of the song's highest on either
+  (`pf_analysis::AudioTrack::peak`). A song with as much on one side as the other reads as it
+  does in xLights, and a sound on one side alone is heard whichever side it is on. Beats,
+  sections, moments, voices, and how loud a frame sounds are still worked out from the two
+  mixed, and a song with one channel reads exactly as it did.
+
+  This song's right channel is the louder on six frames in ten, so the level now reads above
+  xLights' where it read below: 0.027 and 0.92 from it, about a sixth higher on average, and at
+  full level on 67 of those 1,500 frames. Over five runs before and twenty-two after, the three
+  flashes go from 80 to 84, 88 to 89, and 90 to 92 up to 100, 99.8 to 99.9, and 99.8 to 100, as
+  they did on the left channel alone. Two other flashes over the same fire go the other way,
+  from 99.6 to 99.8 down to between 94.2 and 97.1: the fire's sparkles now burst on frames
+  where xLights' don't. And the fire reaches the roof on 211 frames: every one of xLights' 165,
+  and 46 more. Nothing else in the corpus moves outside what it does from run to run.
 - *Sparkles on a see-through effect.* xLights flashes an On's sparkles however see-through the
   On is. On the three loudest frames of one half-second On its transparency is 99 to 100% and
-  five or six in ten of its pixels flash. PixelFlow flashes sparkles only where the effect
-  shows, and is dark on two of those frames. That is the whole of that On's difference: it
-  looks 54, and with sparkles flashing wherever the effect's own color is lit, whatever its
-  transparency, it looked 99 in five runs of six and 100 once the left channel was read too.
-  That was tried and not kept either: it changes how PixelFlow's own sparkles behave.
+  five or six in ten of its pixels flash, each at full strength over a dark prop. PixelFlow
+  flashed sparkles only where the effect showed, and was dark on two of those frames. That was
+  the whole of that On's difference: it looked 54.
+
+  An effect's own Transparency now hides the effect and not its sparkles (`pf_render`'s
+  `sparkles`), so an On at full Transparency with sparkles is a layer of sparkles alone. Only On
+  has such a setting, and a PixelFlow sequence changes only where an On has both sparkles and
+  some Transparency. That On now looks 88 to 97 (seventeen runs). What keeps it from 100 is the
+  level above: on one of its 23 frames the right channel is at full level and the left at two
+  thirds, and PixelFlow flashes six pixels in ten where xLights flashes one in fifteen.
+
+  A wider rule was tried first, sparkles wherever the effect's own color is lit whatever covers
+  it, and xLights' frames don't ask for it. Nothing else was found in them that sparkles look
+  past:
+
+  - *A fade.* Through a plasma's two-second fade-in its sparkles rise with it, in both renders,
+    and show at their three full levels (53%, 75%, and all of the sparkle color) only once the
+    fade is over.
+  - *Faint light.* The faint parts of an effect flash as often as PixelFlow's already do. Of the
+    pixels a fan had lit under a tenth of full a few frames before, 2.98% are flashing in
+    xLights' frames and 3.12% in PixelFlow's; of those it had lit brightly, 3.25% and 3.33%. Of
+    those in a morph's fading tail, 2.6% and 3.0%; of those in its head, 4.6% and 4.5%.
+  - *Nothing at all.* Pixels an effect doesn't reach never flash. A thin wheel's sparkles flash
+    on 1,296 pixels in the course of its sixteen seconds in xLights' frames, and every one is a
+    pixel the wheel itself crosses.
 
 On a group, xLights' sparkles are also wider. On a matrix twelve pixels wide inside a
 layout-wide group, four in ten of its sparkling pixels have the pixel beside them flashing with
 them; PixelFlow's flash one at a time (one in a hundred). As many pixels flash on both sides.
+
+**A wheel on a curve moves a whole unit at a time.** PixelFlow's Pinwheel honours fractions in
+every setting, so a setting on a curve glides. In xLights' frames it steps. Sequence C has a
+still, one-armed wheel whose start angle jumps to 31 degrees on each mark of a timing track and
+falls back over ten frames, 3.1 degrees a frame. It looked 92.9 to 93.4 before the Pinwheel was
+redrawn to honour fractions, and 88.8 to 90.2 after. Drawn with the start angle's fraction
+dropped (31, 27, 24, 21 … 3, 0) it is nearest xLights' frames: a mean error of 3.63 a channel,
+against 3.71 with the fraction kept, 3.73 with the angle rounded, and 3.80 with it raised to the
+next whole number. Sequence A has wheels whose center slides from one side of the middle to the
+other and whose twist winds and unwinds, each on a curve. On the larger group, dropping the
+center's fraction (toward zero) brings the mean error from 11.3 (11.29 to 11.39 in four runs)
+to 10.85; rounded it stays at 11.3, and rounded down it is 11.7. Dropping, rounding, or raising
+the twist's makes no difference that can be told (11.34 to 11.45).
+
+The wheel still glides: the difference is made up in the import
+(`pf_xlights::sequence::whole`). A curve on a Pinwheel's start angle or center comes across as
+a curve through the whole numbers xLights shows, one for each frame the effect plays on. C's
+wheel looks 92.5 to 93.1 (six runs), and the four other Pinwheels are where they were: 100,
+97.3 to 97.9, 99.7 to 99.9, and 66 to 76, against 100, 97.3 to 97.7, 99.5 to 99.9, and 68 to
+74.
+
+What that leaves. A curve that follows a timing track becomes plain points, read at the marks
+the sequence came with: it no longer moves when the marks do. One that follows the music can't
+be read until the music is, and one that turns a corner on more frames than a curve has points
+(512) doesn't fit: both glide as before. And twist, thickness, speed, and arm length are left
+to glide: the frames don't say of twist, and no sequence here has a curve on the others. A
+curve that could give whole numbers itself would cover all of these, and is a change to the
+saved file.
 
 **Where the look and the pixels disagree.** Ranked by pixel error, the kinds to fix were Shader,
 Fan, Color Wash, Spirals, Plasma, Bars, and Butterfly. By look, Spirals, Plasma, Bars, and
@@ -408,18 +471,20 @@ and firing from a timing track.
 **What to improve, by look:**
 
 - *Mappings to check.* None is known in this corpus. What the last list had here is fixed (the
-  Spirals a turn early), is a decision to make (the half-second On: see "What follows the
-  music"), or is the reference's doing (the Pinwheel on a small group that scores Close, and the
+  Spirals a turn early, and the half-second On: see "What follows the music"), or is the
+  reference's doing (the Pinwheel on a small group that scores Close, and the
   wash and the stars under it: the reference has a wheel in two blues there that the sequence
   has no effect for). Not measured, because no sequence here has one: a strobing twinkle's share
   of the pixels at more than one count and number of steps (it is taken to rise with the first
   and fall with the second), and a strobing twinkle in the older way of drawing twinkles, which
   is still shown as soft twinkles.
-- *Decisions to make.* Whether the music an effect follows is the left channel, as in xLights,
-  or both, and whether sparkles flash on an effect that is see-through. Each is a change to
-  PixelFlow's own behavior, tried and measured above. And what an imported Fireworks is called:
-  the importer expects close, and the score cannot say better than different of bursts at other
-  moments (see Limits).
+- *Decisions to make.* What an imported Fireworks is called: the importer expects close, and
+  the score cannot say better than different of bursts at other moments (see Limits). And
+  whether a curve should be able to give whole numbers itself, so that an imported Pinwheel
+  setting can step and still follow its timing track or the music (see "A wheel on a curve
+  moves a whole unit at a time"): that changes the saved file. The two that were here are made,
+  and measured above: the music an effect follows is the louder of the two channels, and
+  sparkles flash on an effect its own Transparency hides.
 - *What PixelFlow can't show yet.* Shader (ten effects, the largest item by far) and Text in
   the sequence's own font. A Tendril that wanders at random shows less of itself and pulses at
   other moments. A Wave has no square shape. A Fireworks that moves stays where it goes off.

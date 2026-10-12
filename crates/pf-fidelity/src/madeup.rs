@@ -310,6 +310,11 @@ impl Xsq {
         }
         for r in &self.rows {
             let _ = writeln!(xml, "    <Element type=\"model\" name=\"{}\">", r.name);
+            // A row has at least one layer of its own, as xLights writes it, even when only its
+            // submodels have effects.
+            if r.layers.is_empty() {
+                xml.push_str("      <EffectLayer/>\n");
+            }
             for layer in &r.layers {
                 xml.push_str("      <EffectLayer>\n");
                 for e in layer {

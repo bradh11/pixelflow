@@ -83,6 +83,7 @@
       </EffectLayer>
     </Element>
     <Element type="model" name="Arches">
+      <EffectLayer/>
       <SubModelEffectLayer name="Middle Arch">
         <Effect ref="17" name="On" palette="6" startTime="0" endTime="12000"/>
       </SubModelEffectLayer>

@@ -115,3 +115,9 @@ read: `GENERATED` in `crates/pf-ai/src/knowledge/mod.rs` has the names. List a n
 A guide the Assistant fetches becomes part of that conversation, like anything else a tool
 answers. The guides are PixelFlow's own text and say nothing about the user's show: see
 [privacy and data flow](../privacy-and-data-flow.md#the-assistant-ai).
+
+## Does it work?
+
+The tests say the guides are complete and true to the catalog. Whether a model that reads them
+makes good shows is measured separately, against a real model with your own key: see
+[assistant-eval.md](assistant-eval.md).

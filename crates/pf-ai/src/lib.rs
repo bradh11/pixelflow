@@ -37,6 +37,8 @@ pub mod summary;
 pub mod tools;
 
 #[cfg(any(test, feature = "test-fixtures"))]
+pub mod eval;
+#[cfg(any(test, feature = "test-fixtures"))]
 pub mod stage;
 #[cfg(any(test, feature = "test-fixtures"))]
 pub mod testing;

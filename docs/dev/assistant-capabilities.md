@@ -117,7 +117,28 @@ Filled in as each lands; the commit that closes a gap adds its line here.
   on screen, from the way text is drawn); and flicker too fast for a frame-by-frame run-through
   to see (an On's shimmer, a fast Shimmer or Strobe over a large area) is caught from the
   effects' settings. The punch list takes one fix of every kind before a second of any, so a
-  dozen missed moments can't crowd out "half the props never light".
+  dozen missed moments can't crowd out "half the props never light". Unsafe flicker and words
+  that can't be read come with the `change_effects` call that cures them (the shimmer off or the
+  rate slowed, for every effect doing it; the letter height and scroll speed that fit the prop
+  and the time), so one more pass fixes them.
+- **Sparkles on their own.** An On's Transparency hides the effect but not its sparkles, so an
+  On with `transparency` 1 and `sparkles` is a layer of glitter over any look. It is a named look
+  in the On guide and in what every effect shares.
+- **Measured against a model.** `cargo run -p pf-ai --example assistant_eval` asks the Assistant
+  for nine things a person would (a whole song, dancers for a chorus, a build, a recolor, a
+  review and fix, scrolling words, a question) on a made-up display and song, and scores each
+  answer by the review and by plain measures: see [assistant-eval.md](assistant-eval.md).
+
+## Possible, but clumsy
+
+- **Nudging lyrics.** Shifting a lyrics track together with its words, syllables, and mouth
+  shapes is still four whole tracks sent back (`sequence_update_timing_track` each). One call for
+  it needs a new engine edit ("shift these tracks' marks by so much"), which would become a tool
+  by itself; none was added here.
+- **Effects that don't suit their prop.** The review names them and the rows they are on, and
+  says to move or replace them; which effect to use instead is left to the Assistant and the
+  effect guides. It judges by kind (does the effect's guide have a look for a single run of
+  pixels?), not by each effect's settings.
 
 ## Still out of reach
 

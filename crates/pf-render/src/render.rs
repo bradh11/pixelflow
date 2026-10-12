@@ -303,7 +303,9 @@ impl Renderer {
         let track = self.audio.track().cloned();
         let pictures = self.pictures.clone();
         let cx = RenderContext::new(
-            track.as_deref().map(|t| Audio::new(t, seq.frame_ms)),
+            track
+                .as_deref()
+                .map(|t| Audio::new(t, seq.frame_ms).following(seq.music_level_source)),
             &seq.timing_tracks,
             seq.frame_ms,
         )

@@ -171,6 +171,7 @@ const edits = each<Edit, "type">("type", {
 const sequenceEdits = each<SequenceEdit, "type">("type", {
   updateInfo: { type: "updateInfo", name: "Carol", audio: `${DIR}/music/Carol.mp3`, durationMs: 60_000, frameMs: 50 },
   setRowBlending: { type: "setRowBlending", rowBlending: "blend" },
+  setMusicLevelSource: { type: "setMusicLevelSource", musicLevelSource: "leftChannel" },
   addRow: { type: "addRow", row, index: 1 },
   removeRow: { type: "removeRow", id: ROW },
   moveRow: { type: "moveRow", id: ROW, index: 2 },

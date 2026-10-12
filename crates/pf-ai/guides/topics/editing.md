@@ -47,6 +47,7 @@ A result that would overlap another effect on its layer is refused unless you ad
 
 - `sequence_update_info`: its name, its length, the time between frames (25 ms is 40 frames a second and the usual choice), and its music. Send all four; get the current ones from `get_open_sequence`. Don't change the music or the length unless asked: effects past a shortened end are lost to view.
 - `sequence_set_row_blending`: how rows meet (topic `blends`). Leave it alone unless the user asks or the sequence was imported and looks wrong.
+- `sequence_set_music_level_source`: which channel of the song is how loud it is to everything that follows the level (topic `music-reactive`). Leave it alone unless the user asks.
 
 ## Timing tracks
 

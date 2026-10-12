@@ -1,9 +1,10 @@
 import { Settings2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import type { RowBlending } from "../../api/sequence";
+import type { MusicLevelSource, RowBlending } from "../../api/sequence";
 import { fileName, shownPath } from "../../lib/format";
+import { MUSIC_LEVEL, MUSIC_LEVEL_HINT, MUSIC_LEVEL_SOURCES } from "../../lib/labels";
 import { useSequencer } from "../../state/sequencer";
-import { Button } from "../ui";
+import { Button, Select } from "../ui";
 
 /** How a row can meet the rows above it. The timeline lists rows in the order they're drawn, so
  * the rows a row is drawn over are the ones above it in the list. Each of xLights' two ways
@@ -29,8 +30,9 @@ function frameTime(frameMs: number): string {
 
 /**
  * The open sequence's own settings, behind a small button beside its name: how its rows meet the
- * rows above them (an edit like any other, so Undo takes it back), and its music and frame time.
- * Escape, or a click outside, closes the panel.
+ * rows above them and which channel of its music is how loud it is (edits like any other, so
+ * Undo takes them back), and its music and frame time. Escape, or a click outside, closes the
+ * panel.
  */
 export function SequenceSettings() {
   const [open, setOpen] = useState(false);
@@ -124,6 +126,27 @@ function SettingsPanel() {
           ) : (
             "None"
           )}
+        </dd>
+        <dt className="text-neutral-600 dark:text-neutral-400">
+          <label htmlFor="sequence-music-level">{MUSIC_LEVEL}</label>
+        </dt>
+        <dd>
+          <Select
+            id="sequence-music-level"
+            className="py-1!"
+            aria-describedby="sequence-music-level-hint"
+            value={doc.musicLevelSource ?? "louderChannel"}
+            onChange={(e) => void useSequencer.getState().edit([{ type: "setMusicLevelSource", musicLevelSource: e.target.value as MusicLevelSource }])}
+          >
+            {MUSIC_LEVEL_SOURCES.map((s) => (
+              <option key={s.value} value={s.value}>
+                {s.label}
+              </option>
+            ))}
+          </Select>
+        </dd>
+        <dd id="sequence-music-level-hint" className="col-span-2 mb-1 text-xs text-neutral-500">
+          {MUSIC_LEVEL_HINT}
         </dd>
         <dt className="text-neutral-600 dark:text-neutral-400">Frames</dt>
         <dd>{frameTime(doc.frameMs)}</dd>

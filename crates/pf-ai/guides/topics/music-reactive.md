@@ -25,6 +25,15 @@ All of these need the sequence to have a song. Without one, they sit still or at
 
 Each effect's own guide says what its music settings look like on real props.
 
+## Which channel is the level
+
+The sequence says which channel of a stereo song is how loud it is (`musicLevelSource` in `get_open_sequence`), set with `sequence_set_music_level_source`:
+
+- `louderChannel`: whichever side is louder at each moment, so a sound on either side is heard. A sequence made in PixelFlow starts with it; keep it.
+- `leftChannel`: the left side alone, as xLights reads it. A sequence imported from xLights has it, so its sparkles, curves, and fires move at the moments they did there. Leave it unless the user asks: changing it changes how every level-driven effect in the sequence plays.
+
+It changes the level only: the bass, notes, onsets, beats, and `pulse` read the whole mix either way. A song with one channel reads the same either way.
+
 ## Level or marks?
 
 - The level follows loudness, not rhythm. In a dense, loud chorus the level is high all the time and level-driven effects sit near full: they stop reading as "in time". Marks are better there.

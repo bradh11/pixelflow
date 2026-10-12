@@ -895,6 +895,7 @@
             "frameMs": 50
           },
           { "type": "setRowBlending", "rowBlending": "blend" },
+          { "type": "setMusicLevelSource", "musicLevelSource": "leftChannel" },
           {
             "type": "addRow",
             "row": {

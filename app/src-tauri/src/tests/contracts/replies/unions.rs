@@ -134,6 +134,10 @@ fn union_members() {
         every!(pf_sequence::RowBlending: Cover, Blend, Replace),
     );
     all(
+        "sequence.MusicLevelSource",
+        every!(pf_sequence::MusicLevelSource: LouderChannel, LeftChannel),
+    );
+    all(
         "sequence.SequenceIssue['severity']",
         every!(pf_model::Severity: Warning, Error),
     );

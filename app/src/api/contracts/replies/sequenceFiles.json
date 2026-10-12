@@ -34,6 +34,7 @@
             "audio": "/fixture/Show/Audio/Carol.wav",
             "durationMs": 2000,
             "frameMs": 25,
+            "musicLevelSource": "louderChannel",
             "name": "Carol",
             "rowBlending": "cover"
           },

@@ -717,7 +717,7 @@ fn every_variant_the_shell_takes_is_sent() {
     let edits: Vec<SequenceEdit> = typed(read(sent("edit_sequence", "edits")));
     covered(
         "sequence edit",
-        28,
+        29,
         edits.iter().map(|edit| match edit {
             SequenceEdit::UpdateInfo { .. } => 0,
             SequenceEdit::AddRow { .. } => 1,
@@ -747,6 +747,7 @@ fn every_variant_the_shell_takes_is_sent() {
             SequenceEdit::LabelMarks { .. } => 25,
             SequenceEdit::BreakIntoWords { .. } => 26,
             SequenceEdit::SetRowBlending { .. } => 27,
+            SequenceEdit::SetMusicLevelSource { .. } => 28,
         }),
     );
     let mut targets = sent("start_output", "target");

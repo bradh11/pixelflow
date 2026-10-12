@@ -16,25 +16,29 @@ pub struct MonoSamples {
 }
 
 /// Every channel's sample at one point in the music, taken together: the channels mixed to one
-/// (averaged), and the highest and the lowest of them.
+/// (averaged), the highest and the lowest of them, and the left one's.
 ///
 /// The mix alone can't say how loud the music is: two channels that differ mix to less than the
 /// louder one, a sound on one side alone to half of it, and two that mirror each other to
-/// nothing. The highest and lowest are the louder channel's.
+/// nothing. The highest and lowest are the louder channel's. The left channel's is what xLights
+/// takes as the music's level.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ChannelSample {
     pub mix: f32,
     pub high: f32,
     pub low: f32,
+    /// The left channel's sample: the first channel's, however many there are.
+    pub left: f32,
 }
 
 impl ChannelSample {
-    /// One channel's sample: the mix, the highest, and the lowest are all it.
+    /// One channel's sample: the mix, the highest, the lowest, and the left are all it.
     pub fn mono(sample: f32) -> Self {
         Self {
             mix: sample,
             high: sample,
             low: sample,
+            left: sample,
         }
     }
 
@@ -44,6 +48,7 @@ impl ChannelSample {
             mix: (left + right) / 2.0,
             high: left.max(right),
             low: left.min(right),
+            left,
         }
     }
 }
@@ -70,7 +75,8 @@ impl MonoSamples {
         self.position.clone()
     }
 
-    /// The same samples, each with the highest and lowest of the channels it was mixed from.
+    /// The same samples, each with the highest and lowest of the channels it was mixed from, and
+    /// the left channel's.
     pub fn with_extremes(self) -> ChannelSamples {
         ChannelSamples(self)
     }
@@ -94,6 +100,7 @@ impl MonoSamples {
             mix: sum / self.channels as f32,
             high,
             low,
+            left: first,
         })
     }
 }
@@ -115,7 +122,7 @@ impl std::fmt::Debug for MonoSamples {
     }
 }
 
-/// A music file's mono samples with the highest and lowest channel beside each (see
+/// A music file's mono samples with the highest, lowest, and left channel beside each (see
 /// [`MonoSamples::with_extremes`]).
 #[derive(Debug)]
 pub struct ChannelSamples(MonoSamples);
@@ -139,7 +146,8 @@ mod tests {
             ChannelSample {
                 mix: -0.25,
                 high: -0.25,
-                low: -0.25
+                low: -0.25,
+                left: -0.25
             }
         );
     }
@@ -152,7 +160,8 @@ mod tests {
             ChannelSample {
                 mix: 0.4,
                 high: 0.8,
-                low: 0.0
+                low: 0.0,
+                left: 0.0
             }
         );
         // Channels that mirror each other mix to nothing.
@@ -161,7 +170,8 @@ mod tests {
             ChannelSample {
                 mix: 0.0,
                 high: 0.5,
-                low: -0.5
+                low: -0.5,
+                left: 0.5
             }
         );
         // The same on both sides is what one channel would be.

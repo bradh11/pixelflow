@@ -2,7 +2,7 @@
   "about": "What an FPP sends to becomes the show's controllers in one step, and only as it was shown.",
   "devices": [
     {
-      "config": { "destinations": [{ "address": "192.0.2.20", "channels": 6147, "ddpRaw": true, "description": "Falcon_F16V5_B9F5", "protocol": "DDP", "startChannel": 1, "startUniverse": null, "unevenUniverses": false, "universeSize": null }], "input": { "type": "ddp" }, "notes": ["This FPP has no light outputs of its own: it passes its sequence on to the controllers it sends to."], "ports": [] },
+      "config": { "destinations": [{ "address": "192.0.2.20", "channels": 6147, "ddpRaw": true, "description": "Falcon_F16V5_A1B2", "protocol": "DDP", "startChannel": 1, "startUniverse": null, "unevenUniverses": false, "universeSize": null }], "input": { "type": "ddp" }, "notes": ["This FPP has no light outputs of its own: it passes its sequence on to the controllers it sends to."], "ports": [] },
       "device": { "address": "192.0.2.10", "firmware": "FPP 9.3-4-g97360ca2", "foundBy": [], "kind": "fpp", "mode": "player", "model": "Pi 3 Model B+", "name": "FPP" },
       "plan": { "alreadyInShow": false, "canImport": false, "controller": { "adapter": "fpp", "address": "192.0.2.10", "id": "00000000-0000-4000-a000-000000000001", "name": "FPP", "ports": [], "protocol": { "type": "ddp" }, "sequenceChannels": null }, "notes": ["This FPP has no light outputs of its own: it passes its sequence on to the controllers it sends to."], "props": [], "suggested": {} }
     },
@@ -12,14 +12,14 @@
         "input": { "type": "ddp" },
         "notes": [],
         "ports": [
-          { "maxPixels": 1024, "number": 1, "strings": [{ "brightness": 40, "colorOrder": "RGB", "gamma": 1.0, "name": "Pillar Right", "nullPixels": 0, "pixels": 600, "reverse": false, "smartReceiver": null }] },
-          { "maxPixels": 1024, "number": 2, "strings": [{ "brightness": 40, "colorOrder": "RGB", "gamma": 1.0, "name": "Pillar Left", "nullPixels": 0, "pixels": 600, "reverse": false, "smartReceiver": null }] },
-          { "maxPixels": 1024, "number": 3, "strings": [{ "brightness": 40, "colorOrder": "RGB", "gamma": 1.0, "name": "Door Frame Front", "nullPixels": 0, "pixels": 340, "reverse": false, "smartReceiver": null }] },
-          { "maxPixels": 1024, "number": 4, "strings": [{ "brightness": 40, "colorOrder": "RGB", "gamma": 1.0, "name": "Roof Door", "nullPixels": 0, "pixels": 238, "reverse": false, "smartReceiver": null }] },
-          { "maxPixels": 1024, "number": 6, "strings": [{ "brightness": 40, "colorOrder": "RGB", "gamma": 1.0, "name": "Door Arch", "nullPixels": 0, "pixels": 271, "reverse": false, "smartReceiver": null }] }
+          { "maxPixels": 1024, "number": 1, "strings": [{ "brightness": 40, "colorOrder": "RGB", "gamma": 1.0, "name": "Pylon Right", "nullPixels": 0, "pixels": 600, "reverse": false, "smartReceiver": null }] },
+          { "maxPixels": 1024, "number": 2, "strings": [{ "brightness": 40, "colorOrder": "RGB", "gamma": 1.0, "name": "Pylon Left", "nullPixels": 0, "pixels": 600, "reverse": false, "smartReceiver": null }] },
+          { "maxPixels": 1024, "number": 3, "strings": [{ "brightness": 40, "colorOrder": "RGB", "gamma": 1.0, "name": "Gate Frame Front", "nullPixels": 0, "pixels": 340, "reverse": false, "smartReceiver": null }] },
+          { "maxPixels": 1024, "number": 4, "strings": [{ "brightness": 40, "colorOrder": "RGB", "gamma": 1.0, "name": "Roof Gate", "nullPixels": 0, "pixels": 238, "reverse": false, "smartReceiver": null }] },
+          { "maxPixels": 1024, "number": 6, "strings": [{ "brightness": 40, "colorOrder": "RGB", "gamma": 1.0, "name": "Gate Arch", "nullPixels": 0, "pixels": 271, "reverse": false, "smartReceiver": null }] }
         ]
       },
-      "device": { "address": "192.0.2.20", "firmware": "F16V5 Bld 32", "foundBy": [], "kind": "falcon", "mode": null, "model": "F16v5", "name": "Falcon_F16V5_B9F5" },
+      "device": { "address": "192.0.2.20", "firmware": "F16V5 Bld 32", "foundBy": [], "kind": "falcon", "mode": null, "model": "F16v5", "name": "Falcon_F16V5_A1B2" },
       "plan": {
         "alreadyInShow": false,
         "canImport": true,
@@ -27,7 +27,7 @@
           "adapter": "falcon",
           "address": "192.0.2.20",
           "id": "00000000-0000-4000-a000-000000000002",
-          "name": "Falcon_F16V5_B9F5",
+          "name": "Falcon_F16V5_A1B2",
           "ports": [
             { "brightness": 100, "gamma": 1.0, "maxPixels": 1024, "number": 1, "slots": [{ "brightness": null, "controllerColorOrder": "RGB", "gamma": null, "nullPixels": 0, "prop": "00000000-0000-4000-a000-000000000003", "reverse": false, "segment": null, "smartReceiver": null }] },
             { "brightness": 100, "gamma": 1.0, "maxPixels": 1024, "number": 2, "slots": [{ "brightness": null, "controllerColorOrder": "RGB", "gamma": null, "nullPixels": 0, "prop": "00000000-0000-4000-a000-000000000004", "reverse": false, "segment": null, "smartReceiver": null }] },
@@ -38,13 +38,13 @@
           "protocol": { "type": "ddp" },
           "sequenceChannels": null
         },
-        "notes": ["The controller applies its own settings (Port 1 \"Pillar Right\": 40% brightness; Port 2 \"Pillar Left\": 40% brightness; Port 3 \"Door Frame Front\": 40% brightness; Port 4 \"Roof Door\": 40% brightness; Port 6 \"Door Arch\": 40% brightness), so PixelFlow sends unadjusted data."],
+        "notes": ["The controller applies its own settings (Port 1 \"Pylon Right\": 40% brightness; Port 2 \"Pylon Left\": 40% brightness; Port 3 \"Gate Frame Front\": 40% brightness; Port 4 \"Roof Gate\": 40% brightness; Port 6 \"Gate Arch\": 40% brightness), so PixelFlow sends unadjusted data."],
         "props": [
-          { "colorOrder": "RGB", "id": "00000000-0000-4000-a000-000000000003", "name": "Pillar Right", "regions": [], "shape": { "length": 30.0, "nodes": 600, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 0.0, "y": -0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } },
-          { "colorOrder": "RGB", "id": "00000000-0000-4000-a000-000000000004", "name": "Pillar Left", "regions": [], "shape": { "length": 30.0, "nodes": 600, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 0.0, "y": -0.5, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } },
-          { "colorOrder": "RGB", "id": "00000000-0000-4000-a000-000000000005", "name": "Door Frame Front", "regions": [], "shape": { "length": 17.0, "nodes": 340, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 0.0, "y": -1.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } },
-          { "colorOrder": "RGB", "id": "00000000-0000-4000-a000-000000000006", "name": "Roof Door", "regions": [], "shape": { "length": 11.900001, "nodes": 238, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 0.0, "y": -1.5, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } },
-          { "colorOrder": "RGB", "id": "00000000-0000-4000-a000-000000000007", "name": "Door Arch", "regions": [], "shape": { "length": 13.55, "nodes": 271, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 0.0, "y": -2.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } }
+          { "colorOrder": "RGB", "id": "00000000-0000-4000-a000-000000000003", "name": "Pylon Right", "regions": [], "shape": { "length": 30.0, "nodes": 600, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 0.0, "y": -0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } },
+          { "colorOrder": "RGB", "id": "00000000-0000-4000-a000-000000000004", "name": "Pylon Left", "regions": [], "shape": { "length": 30.0, "nodes": 600, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 0.0, "y": -0.5, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } },
+          { "colorOrder": "RGB", "id": "00000000-0000-4000-a000-000000000005", "name": "Gate Frame Front", "regions": [], "shape": { "length": 17.0, "nodes": 340, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 0.0, "y": -1.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } },
+          { "colorOrder": "RGB", "id": "00000000-0000-4000-a000-000000000006", "name": "Roof Gate", "regions": [], "shape": { "length": 11.900001, "nodes": 238, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 0.0, "y": -1.5, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } },
+          { "colorOrder": "RGB", "id": "00000000-0000-4000-a000-000000000007", "name": "Gate Arch", "regions": [], "shape": { "length": 13.55, "nodes": 271, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 0.0, "y": -2.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } }
         ],
         "suggested": {}
       }
@@ -64,7 +64,7 @@
     {
       "args": { "address": "192.0.2.10" },
       "command": "fpp_setup_plan",
-      "reply": { "value": { "controllers": [{ "adapter": "generic", "address": "192.0.2.20", "id": "00000000-0000-4000-a000-000000000008", "name": "Falcon_F16V5_B9F5", "ports": [], "protocol": { "type": "ddp" }, "sequenceChannels": { "count": 6147, "rawDdpOffsets": true, "start": 1 } }], "notes": [], "own": null, "skipped": [] } },
+      "reply": { "value": { "controllers": [{ "adapter": "generic", "address": "192.0.2.20", "id": "00000000-0000-4000-a000-000000000008", "name": "Falcon_F16V5_A1B2", "ports": [], "protocol": { "type": "ddp" }, "sequenceChannels": { "count": 6147, "rawDdpOffsets": true, "start": 1 } }], "notes": [], "own": null, "skipped": [] } },
       "sequence": null,
       "show": { "canRedo": false, "canUndo": false, "dirty": false, "path": null, "revision": 0 }
     },
@@ -78,7 +78,7 @@
       "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 },
       "showNow": {
         "background": null,
-        "controllers": [{ "adapter": "generic", "address": "192.0.2.20", "id": "00000000-0000-4000-a000-000000000009", "name": "Falcon_F16V5_B9F5", "ports": [], "protocol": { "type": "ddp" }, "sequenceChannels": { "count": 6147, "rawDdpOffsets": true, "start": 1 } }],
+        "controllers": [{ "adapter": "generic", "address": "192.0.2.20", "id": "00000000-0000-4000-a000-000000000009", "name": "Falcon_F16V5_A1B2", "ports": [], "protocol": { "type": "ddp" }, "sequenceChannels": { "count": 6147, "rawDdpOffsets": true, "start": 1 } }],
         "groups": [],
         "name": "Untitled Show",
         "props": [],
@@ -88,7 +88,7 @@
       },
       "summaryNow": { "controllers": 1, "pixels": 0, "props": 0, "universes": 0 }
     },
-    { "args": { "address": "192.0.2.10" }, "command": "fpp_setup_plan", "reply": { "value": { "controllers": [], "notes": [], "own": null, "skipped": [{ "address": "192.0.2.20", "name": "Falcon_F16V5_B9F5", "reason": "Already in your show as Falcon_F16V5_B9F5." }] } }, "sequence": null, "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 } },
+    { "args": { "address": "192.0.2.10" }, "command": "fpp_setup_plan", "reply": { "value": { "controllers": [], "notes": [], "own": null, "skipped": [{ "address": "192.0.2.20", "name": "Falcon_F16V5_A1B2", "reason": "Already in your show as Falcon_F16V5_A1B2." }] } }, "sequence": null, "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 } },
     { "args": { "address": "192.0.2.10", "expected": [] }, "command": "fpp_set_up_show", "reply": { "error": "Your show already has everything this FPP sends to." }, "sequence": null, "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 } },
     {
       "args": {},
@@ -103,7 +103,7 @@
     {
       "args": { "address": "192.0.2.10" },
       "command": "fpp_setup_plan",
-      "reply": { "value": { "controllers": [{ "adapter": "generic", "address": "192.0.2.20", "id": "00000000-0000-4000-a000-000000000010", "name": "Falcon_F16V5_B9F5", "ports": [], "protocol": { "type": "ddp" }, "sequenceChannels": { "count": 6147, "rawDdpOffsets": true, "start": 1 } }], "notes": [], "own": null, "skipped": [] } },
+      "reply": { "value": { "controllers": [{ "adapter": "generic", "address": "192.0.2.20", "id": "00000000-0000-4000-a000-000000000010", "name": "Falcon_F16V5_A1B2", "ports": [], "protocol": { "type": "ddp" }, "sequenceChannels": { "count": 6147, "rawDdpOffsets": true, "start": 1 } }], "notes": [], "own": null, "skipped": [] } },
       "sequence": null,
       "show": { "canRedo": true, "canUndo": false, "dirty": true, "path": null, "revision": 2 }
     }

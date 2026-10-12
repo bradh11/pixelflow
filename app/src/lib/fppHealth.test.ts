@@ -4,7 +4,7 @@ import { describeWarning } from "./fppHealth";
 
 const falcon: Destination = {
   address: "10.0.0.175",
-  description: "Falcon_F16V5_B9F5",
+  description: "Falcon_F16V5_A1B2",
   protocol: "DDP",
   channels: 6147,
   startChannel: 1,
@@ -16,7 +16,7 @@ const falcon: Destination = {
 
 describe("FPP warnings in plain words", () => {
   it("names the controller it can't reach, and says what to do", () => {
-    expect(describeWarning("Cannot Ping DDP Channel Data Target 10.0.0.175 Falcon_F16V5_B9F5", [falcon], [])).toEqual({
+    expect(describeWarning("Cannot Ping DDP Channel Data Target 10.0.0.175 Falcon_F16V5_A1B2", [falcon], [])).toEqual({
       title: "Can't reach the Falcon at 10.0.0.175 that this FPP sends to.",
       advice: "Check it's powered on and plugged into the network.",
       fppSays: null,

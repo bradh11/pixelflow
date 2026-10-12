@@ -430,3 +430,79 @@ fn frames_with_music_are_the_same_however_they_are_reached() {
         assert_eq!(&out, frame, "frame {i}");
     }
 }
+
+/// A song whose left channel is loud for its first second and silent after, and whose right
+/// channel is the other way round: the louder channel is loud throughout.
+fn left_then_right() -> Arc<AudioTrack> {
+    let tone = |i: usize| (TAU * 440.0 * i as f32 / RATE as f32).sin();
+    let samples = (0..2 * RATE as usize).map(|i| {
+        if i < RATE as usize {
+            pf_analysis::ChannelSample::stereo(tone(i), 0.0)
+        } else {
+            pf_analysis::ChannelSample::stereo(0.0, tone(i))
+        }
+    });
+    let track = pf_analysis::audio_track_from_channels(samples, RATE, FRAME_MS, &|| false);
+    Arc::new(track.expect("never stopped"))
+}
+
+#[test]
+fn a_sequence_follows_the_channel_it_names() {
+    let show = strip(4);
+    let mut on = Effect::new(EffectKind::On, 0, 2000).with_palette([Rgb::RED]);
+    on.curves
+        .insert("startLevel".into(), Curve::music(0.0, 1.0, 0.0, false));
+    on.curves
+        .insert("endLevel".into(), Curve::music(0.0, 1.0, 0.0, false));
+    let mut seq = sequence(&show, vec![on]);
+    let mut r = renderer(&show, AudioSource::ready(left_then_right()));
+    // A sequence made in PixelFlow hears the music on either side.
+    assert_eq!(seq.music_level_source, MusicLevelSource::LouderChannel);
+    assert_eq!(render(&mut r, &seq, 500)[0], 255);
+    assert_eq!(render(&mut r, &seq, 1500)[0], 255);
+    // One that follows the left channel, as xLights does, hears nothing of the second on the
+    // right; the same renderer and the same music draw it from the next frame.
+    seq.music_level_source = MusicLevelSource::LeftChannel;
+    assert_eq!(render(&mut r, &seq, 500)[0], 255);
+    assert_eq!(render(&mut r, &seq, 1500)[0], 0);
+    seq.music_level_source = MusicLevelSource::LouderChannel;
+    assert_eq!(render(&mut r, &seq, 1500)[0], 255);
+
+    // Music with one channel reads the same either way.
+    let mut one = renderer(&show, AudioSource::ready(loud_then_quiet()));
+    let louder = [render(&mut one, &seq, 500), render(&mut one, &seq, 1500)];
+    seq.music_level_source = MusicLevelSource::LeftChannel;
+    assert_eq!(
+        [render(&mut one, &seq, 500), render(&mut one, &seq, 1500)],
+        louder
+    );
+}
+
+#[test]
+fn an_effect_worked_out_frame_by_frame_starts_again_when_the_channel_changes() {
+    // A meter that flashes when the level passes half and fades over six frames.
+    let show = matrix();
+    let vu = Effect::new(EffectKind::VuMeter, 0, 2000)
+        .with_palette([Rgb::RED])
+        .with_params(EffectParams::VuMeter(VuMeterParams {
+            meter: VuMeterType::LevelPulse,
+            bars: 6,
+            sensitivity: 50,
+            ..VuMeterParams::default()
+        }));
+    let mut seq = sequence(&show, vec![vu]);
+    let audio = AudioSource::ready(left_then_right());
+    let lit = |frame: &[u8]| frame.iter().any(|&v| v > 0);
+    // Played to the middle of the second second, where only the right channel sounds.
+    let mut r = renderer(&show, audio.clone());
+    let louder: Vec<Vec<u8>> = (0..=60).map(|i| render(&mut r, &seq, i * 25)).collect();
+    assert!(lit(&louder[60]), "the louder channel is still flashing it");
+    // Following the left channel from here, the frame is the one a renderer that never drew
+    // the other would draw: the last flash was half a second ago, and has faded.
+    seq.music_level_source = MusicLevelSource::LeftChannel;
+    let left = render(&mut r, &seq, 1500);
+    let mut fresh = renderer(&show, audio);
+    assert_eq!(left, render(&mut fresh, &seq, 1500));
+    assert!(!lit(&left));
+    assert!(lit(&render(&mut r, &seq, 500)));
+}

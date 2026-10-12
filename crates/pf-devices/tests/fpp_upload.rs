@@ -549,8 +549,8 @@ fn sequence_names_takes_one_request() {
 #[test]
 fn file_names_are_ones_fpp_keeps_as_they_are() {
     assert_eq!(
-        fpp_file_name("Christmas Medley 2017", "fseq"),
-        "Christmas Medley 2017.fseq"
+        fpp_file_name("Chimes Medley 2020", "fseq"),
+        "Chimes Medley 2020.fseq"
     );
     assert_eq!(
         fpp_file_name("Rock'n \"Roll\"/Mix?", "fseq"),

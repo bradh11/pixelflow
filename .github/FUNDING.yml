@@ -1,0 +1,15 @@
+# The Sponsor button on the repository's page. GitHub shows it once at least one line below has a
+# value (and "Sponsorships" is ticked in the repository's settings).
+#
+# Each value is an account name, written on the same line as its service. Leave a line empty
+# until its account exists: an empty line shows nothing. Keep app/support.json the same as this
+# file; a test fails if they disagree (app/src/lib/support.test.ts).
+
+# GitHub Sponsors: the GitHub user name. Only after enrolling at https://github.com/sponsors.
+github:
+# Ko-fi: the page name, as in ko-fi.com/NAME.
+ko_fi:
+# Buy Me a Coffee: the page name, as in buymeacoffee.com/NAME.
+buy_me_a_coffee:
+# PayPal: the whole PayPal.Me link, in quotes and square brackets: ["https://paypal.me/NAME"]
+custom:

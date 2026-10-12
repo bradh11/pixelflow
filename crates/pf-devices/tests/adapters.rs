@@ -21,7 +21,7 @@ fn identifies_each_kind_from_its_home_page() {
     let falcon = identify(&http, FALCON, None).unwrap();
     assert_eq!(
         (falcon.kind, falcon.name.as_str(), falcon.model.as_str()),
-        (DeviceKind::Falcon, "Falcon_F16V5_B9F5", "F16v5")
+        (DeviceKind::Falcon, "Falcon_F16V5_A1B2", "F16v5")
     );
     assert_eq!(falcon.firmware, "F16V5 Bld 32");
     let wled = identify(&http, WLED, None).unwrap();
@@ -123,11 +123,11 @@ fn a_real_f16v5_is_recognized_and_imported_as_its_web_ui_shows_it() {
             .map(|(port, s)| (*port, s.name.as_deref().unwrap_or(""), s.pixels))
             .collect::<Vec<_>>(),
         vec![
-            (1, "Pillar Right", 600),
-            (2, "Pillar Left", 600),
-            (3, "Door Frame Front", 340),
-            (4, "Roof Door", 238),
-            (6, "Door Arch", 271),
+            (1, "Pylon Right", 600),
+            (2, "Pylon Left", 600),
+            (3, "Gate Frame Front", 340),
+            (4, "Roof Gate", 238),
+            (6, "Gate Arch", 271),
         ],
         "p is 0-based; empty ports 5 and 7–32 are skipped"
     );
@@ -384,7 +384,7 @@ fn discovery_expands_fpp_peers_and_reports_silent_ones() {
     assert_eq!(found.devices.len(), 1);
     assert_eq!(found.silent.len(), 1);
     assert_eq!(found.silent[0].address, FALCON);
-    assert_eq!(found.silent[0].description, "Falcon_F16V5_B9F5");
+    assert_eq!(found.silent[0].description, "Falcon_F16V5_A1B2");
     assert_eq!(found.silent[0].listed_by, "FPP");
     assert_no_secret_endpoints(&http);
 }
@@ -811,7 +811,7 @@ fn fpp_peers_keep_the_description() {
     let sync = r#"{"systems":[{"address":"192.0.2.20","hostname":"","local":0}]}"#;
     let http = fpp_only().with_get(FPP, "/api/fppd/multiSyncSystems", sync);
     let peers = pf_devices::fpp::peers(&http, FPP);
-    assert_eq!(peers, vec![(FALCON.to_string(), "Falcon_F16V5_B9F5".to_string())]);
+    assert_eq!(peers, vec![(FALCON.to_string(), "Falcon_F16V5_A1B2".to_string())]);
     assert_no_secret_endpoints(&http);
 }
 

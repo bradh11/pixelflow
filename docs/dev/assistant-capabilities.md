@@ -41,6 +41,7 @@ engine edit, so a new edit becomes a tool by itself.
 | Add, remove, reorder rows; target a prop, a group, or a submodel | `rows`, `Target` | Yes (`sequence_add_row` and friends). |
 | Add and remove layers | `layers` | Yes. |
 | How rows meet (cover, blend, replace) | `rowBlending` | Yes (`sequence_set_row_blending`). |
+| Which channel the music's loudness comes from (the louder, or the left as xLights) | `musicLevelSource` | Yes (`sequence_set_music_level_source`; `get_open_sequence` says which). |
 | **Timing tracks** | | |
 | Create, rename, reorder, delete tracks of any kind | `timingTracks` | Yes. |
 | Add, move, resize, relabel, split, merge, delete marks; generate marks; copy every nth mark | marks | Yes. |

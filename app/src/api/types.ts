@@ -483,7 +483,7 @@ export type FileRole =
 /** A file that isn't where the show (or the open sequence) says it is. */
 export interface MissingFile {
   file: FileRole;
-  /** The file's name ("Christmas Medley 2017.mp3"). */
+  /** The file's name ("Chimes Medley 2020.mp3"). */
   name: string;
   /** Where the show looks for it now. */
   path: string;
@@ -491,7 +491,7 @@ export interface MissingFile {
   wasAt: string;
   /** What it belongs to ("Music for Medley", "Background photo"). */
   owner: string;
-  /** "Christmas Medley 2017.mp3 isn't where it was." */
+  /** "Chimes Medley 2020.mp3 isn't where it was." */
   message: string;
 }
 
@@ -1261,7 +1261,17 @@ export interface RecentShow {
   status: "here" | "missing" | "unknown";
 }
 
-/** A File menu item chosen in the menu bar (macOS). */
+/** A way to support the project (an account for each is set, or not, in app/support.json). */
+export type SupportWay = "githubSponsors" | "koFi" | "buyMeACoffee" | "payPal";
+
+/**
+ * A link the shell opens outside the window, by name: the project's page, xLights' page, the
+ * licence, the credits, and the third-party notices that come inside the app, or a way to
+ * support the project.
+ */
+export type ProjectLink = "source" | "xlights" | "licence" | "credits" | "notices" | SupportWay;
+
+/** An item chosen in the menu bar (macOS). */
 export type MenuAction =
   | { action: "newShow" }
   | { action: "openShow" }
@@ -1271,7 +1281,9 @@ export type MenuAction =
   | { action: "save" }
   | { action: "saveAs" }
   | { action: "undo" }
-  | { action: "redo" };
+  | { action: "redo" }
+  | { action: "about" }
+  | { action: "support" };
 
 /** Which of the app's two windows is asking: the main one, or the preview's own (popped out). */
 export type PreviewSide = "main" | "preview";

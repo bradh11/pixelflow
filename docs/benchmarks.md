@@ -694,6 +694,21 @@ the smooth wheel these rows draw), takes 4.7 ns a pixel with thin arms, 7 with t
 a full turn, 17 with six shaded arms 30 degrees wide and twisted, and 28 at worst, with twelve
 touching arms, twisted, that reach past the buffer.
 
+Plasma's rows were measured again the same way after it was rebuilt to work each pixel out from
+its own cell, with nothing kept for a row, a column, or a frame: each figure is the middle one of
+three runs, in which the rows around it came out close to what stands here (an empty frame
+0.28 ms, On 3.3 ns a pixel, Pinwheel 7.5, Butterfly 9.7, Twinkle 13.1). Before, it took 3.96 ms a
+frame on every prop (19.8 ns a pixel, with 336 allocations and 63 KB a frame) and 3.29 ms on the
+whole-house group (16.5 ns), 0.41 ms of the typical sequence (19.6 ns a pixel drawn) and 4.34 ms
+of the worst (19.6 ns, 27% of it). The four rows that add something to a Plasma were 22.1 ns a
+pixel with sparkles, 29.9 and 32.1 with blur 2 and blur 8, and 19.8 with a curve on its speed.
+The other rows, the totals, and the other kinds' shares are as first measured. Half the
+Plasmas here are colored from the palette and half are rainbows. Timed apart over a buffer of
+500 by 400 pixels as the effect's own work for a pixel (4.2 ns for the smooth Pinwheel), a
+palette of three colors takes 7.8 ns, the rainbow 7.6, red and green 6.5, shades of white 6.2,
+and a palette of one color, which is a flat fill, 0.4. Making one ready for a frame takes 70
+nanoseconds.
+
 Fireworks was added after these tables, and neither timed sequence has one. Timed the same way,
 each figure the middle one of three runs, with five of the tables' kinds timed beside it (Twinkle
 2.61 ms, Meteors 1.77, Pinwheel 1.44, Ripple 0.72, and On 0.70 on every prop), a Fireworks as
@@ -711,8 +726,8 @@ buffer its bursts reach and how many sparks a pixel there has to look at: 5 burs
 | Effect | On every prop, ms a frame | ns a pixel | Allocations a frame | KB allocated a frame | On the whole-house group, ms a frame | ns a pixel |
 | --- | --- | --- | --- | --- | --- | --- |
 | Fire | 10.0 | 50.0 | 168 | 168 | 0.79 | 3.9 |
-| Plasma | 3.96 | 19.8 | 336 | 63 | 3.29 | 16.5 |
 | Twinkle | 2.62 | 13.1 | 0 | 0 | 2.57 | 12.8 |
+| Plasma | 2.30 | 11.5 | 0 | 0 | 2.30 | 11.5 |
 | Butterfly | 1.92 | 9.6 | 0 | 0 | 1.48 | 7.4 |
 | Meteors | 1.80 | 9.0 | 168 | 63 | 0.99 | 5.0 |
 | Pinwheel | 1.43 | 7.2 | 0 | 0 | 1.16 | 5.8 |
@@ -731,21 +746,21 @@ buffer its bursts reach and how many sparks a pixel there has to look at: 5 burs
 
 | Effect | ms a frame | ns a pixel |
 | --- | --- | --- |
-| Plasma | 3.99 | 19.9 |
-| Plasma with sparkles | 4.42 | 22.1 |
-| Plasma with blur 2 | 5.98 | 29.9 |
-| Plasma with blur 8 | 6.41 | 32.1 |
-| Plasma with a curve on its speed | 3.96 | 19.8 |
+| Plasma | 2.34 | 11.7 |
+| Plasma with sparkles | 2.73 | 13.7 |
+| Plasma with blur 2 | 4.61 | 23.0 |
+| Plasma with blur 8 | 4.81 | 24.1 |
+| Plasma with a curve on its speed | 2.35 | 11.7 |
 
 #### The typical sequence, first 60 s: 3.39 ms a frame
 
 | Effect | Effects | Layers a pixel | Alone, ms a frame | Share | ns a pixel drawn |
 | --- | --- | --- | --- | --- | --- |
 | Twinkle | 358 | 0.323 | 0.87 | 25% | 13.4 |
-| Plasma | 32 | 0.103 | 0.41 | 12% | 19.6 |
 | Meteors | 325 | 0.160 | 0.38 | 11% | 11.9 |
 | Ripple | 344 | 0.311 | 0.27 | 8% | 4.4 |
 | Fire | 34 | 0.056 | 0.27 | 8% | 23.9 |
+| Plasma | 32 | 0.103 | 0.26 | 8% | 12.6 |
 | Color Wash | 364 | 0.174 | 0.26 | 7% | 7.5 |
 | Bars | 321 | 0.168 | 0.18 | 5% | 5.3 |
 | Pinwheel | 76 | 0.061 | 0.13 | 4% | 11.1 |
@@ -765,7 +780,7 @@ Prop rows alone take 2.56 ms a frame and group rows alone 0.85 ms. Of the whole 
 
 | Effect | Effects | Layers a pixel | Alone, ms a frame | Share | ns a pixel drawn |
 | --- | --- | --- | --- | --- | --- |
-| Plasma | 678 | 1.108 | 4.34 | 27% | 19.6 |
+| Plasma | 678 | 1.108 | 2.93 | 20% | 13.2 |
 | Butterfly | 678 | 1.124 | 2.29 | 14% | 10.2 |
 | Meteors | 678 | 1.050 | 1.81 | 11% | 8.6 |
 | Twinkle | 614 | 0.722 | 1.76 | 11% | 12.1 |
@@ -899,11 +914,12 @@ are 0.12 to 0.14 ms together, on one thread however many there are
 **No one effect dominates; the cost is pixels times layers.** On one thread at 200k the typical
 sequence draws each pixel 1.86 times a frame for 3.39 ms; the worst case draws each 8 times for
 16.0 ms. That is 9 to 10 ns for each pixel of each layer either way. The effects range from 3 to
-4 ns a pixel (Pulse, On, Ripple, Color Wash, Bars) to 13 (Twinkle) and 20 (Plasma). In the
+4 ns a pixel (Pulse, On, Ripple, Color Wash, Bars) to 12 (Plasma) and 13 (Twinkle). In the
 typical sequence Twinkle is the largest share (25%) only because it is on the most pixels; in
-the worst case Plasma is (27%). Group rows cost about what prop rows do for the same pixels: in
-the worst case, with four layers of each on every pixel, the six group rows are 7.2 ms and the
-168 prop rows 8.8 ms.
+the worst case Plasma is, with a fifth of it (27% when these runs were made, at 20 ns a pixel:
+drawn again with Plasma as it is now, the typical sequence takes 3.21 ms a frame and the worst
+14.3). Group rows cost about what prop rows do for the same pixels: in the worst case, with four
+layers of each on every pixel, the six group rows are 7.2 ms and the 168 prop rows 8.8 ms.
 
 **Fire is the one outlier.** Alone on every prop it costs 50 ns a pixel, more than twice the next
 effect, but only 4 ns on the whole-house group. Each Fire effect simulates its 32 x 32 grid from
@@ -912,8 +928,8 @@ cold for 56 steps every frame, whatever the size of what it is drawn on: about 0
 Skipping the cells of the grid that are cold whatever they roll, which is as far as it can be
 sped up without drawing a different fire, made no difference that shows here.
 
-**Blur and sparkles are modest.** Blur adds 10 to 12 ns a pixel to an effect (Plasma 19.9 to
-29.9 and 32.1), about a third of a millisecond a frame to either sequence. Sparkles add 2 ns a
+**Blur and sparkles are modest.** Blur adds 11 to 12 ns a pixel to an effect (Plasma 11.7 to
+23.0 and 24.1), about a third of a millisecond a frame to either sequence. Sparkles add 2 ns a
 pixel, 0.07 ms and 1.2 ms. Curves cost nothing measurable.
 
 **The output thread is cheap until it reaches the socket, and sending is now the largest thing
@@ -935,7 +951,10 @@ and 841 times for the worst case (4.8 MB): Text allocates eight times an effect,
 Meter, and Dancer each take a fresh canvas of 16 bytes a pixel every frame. Pinwheel took one too
 when those runs were made, and now allocates nothing: drawn again on one thread, the first 60
 seconds of the typical sequence allocate 119 times a frame (695 KB) where they allocated 134
-(886 KB), and the worst case 799 times (3.7 MB) where it allocated 838 (4.8 MB).
+(886 KB), and the worst case 799 times (3.7 MB) where it allocated 838 (4.8 MB). Plasma asked
+for memory twice for every effect on every buffer, about 190 bytes at a time, and now asks for
+none: with both rebuilt, the typical sequence allocates 113 times a frame (693 KB) and the worst
+case 619 times (3.7 MB).
 
 **The first frame is a frame like any other.** Playback lays out every buffer a sequence draws
 on before it starts: the worst case's first frame at 200k takes 6 to 7 ms, where it took 37 and

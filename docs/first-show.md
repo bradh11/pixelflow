@@ -118,6 +118,13 @@ shown for those). The effects that differ are listed with what you would notice.
 opens on the **Sequence** screen as an unsaved sequence. Choose
 **Save** to keep it.
 
+A sequence with music also says "Effects that follow the music follow its left channel, as they
+do in xLights". Sparkles, curves, and effects set to follow the music take how loud it is from
+the left channel alone, as xLights does, so they flash and grow at the same moments. A sequence
+you make in PixelFlow takes it from whichever channel is louder, so a sound on the right alone is
+heard too. To change it, choose **Sequence settings** (the small button beside the sequence's
+name) and set **Loudness from**. Undo takes it back.
+
 **If it doesn't:** see [A sequence import says effects look close or
 different](troubleshooting.md#a-sequence-import-says-effects-look-close-or-different).
 
@@ -259,7 +266,8 @@ Choose **Save** often. The **Sequence** screen offers back any unsaved sequence 
 
 Beside the sequence's name, **Sequence settings** (the small sliders button) holds how the rows
 combine where they light the same pixels (**Cover**, **Blend with the rows above**, or
-**Replace**), plus the sequence's music and frame time.
+**Replace**), the sequence's music, where effects that follow the music take its loudness from
+(**Loudness from**: the louder channel, or the left channel as xLights does), and the frame time.
 
 ### B7. Detect beats
 

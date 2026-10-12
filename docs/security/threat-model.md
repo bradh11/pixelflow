@@ -379,9 +379,9 @@ Not fixed:
   the HTTP client's buffers, and the window's input are not. Checking whether a key is set reads
   it from the keychain.
 - **Test fixtures** under `crates/pf-devices/fixtures/` were recorded from the owner's devices.
-  They hold no credentials (addresses, MAC, and serial were replaced), but still name props, a
-  sequence, and a controller whose name's suffix may derive from a MAC. Scrubbing them is
-  optional; they were not changed.
+  They hold no credentials (addresses, MAC, and serial were replaced). The prop names, the
+  sequence name, and the controller name they carried have since been replaced with made-up
+  ones; the earlier values are still in the repository's history.
 - **GitHub's private vulnerability reporting** is not turned on for the repository, and
   `SECURITY.md` points to it. Turning it on is a repository setting.
 

@@ -344,8 +344,9 @@ fn every_call_names_a_command_and_its_parameters() {
 }
 
 /// Commands that can't be run even against fakes, and why. Their names are still checked.
-const NOT_RUN: [(&str, &str); 3] = [
+const NOT_RUN: [(&str, &str); 4] = [
     ("open_device_page", "opens the system's browser"),
+    ("open_project_link", "opens the system's browser, or a text file"),
     ("download_alignment_models", "downloads from the internet"),
     (
         "video_export_choices",
@@ -716,7 +717,7 @@ fn every_variant_the_shell_takes_is_sent() {
     let edits: Vec<SequenceEdit> = typed(read(sent("edit_sequence", "edits")));
     covered(
         "sequence edit",
-        28,
+        29,
         edits.iter().map(|edit| match edit {
             SequenceEdit::UpdateInfo { .. } => 0,
             SequenceEdit::AddRow { .. } => 1,
@@ -746,6 +747,7 @@ fn every_variant_the_shell_takes_is_sent() {
             SequenceEdit::LabelMarks { .. } => 25,
             SequenceEdit::BreakIntoWords { .. } => 26,
             SequenceEdit::SetRowBlending { .. } => 27,
+            SequenceEdit::SetMusicLevelSource { .. } => 28,
         }),
     );
     let mut targets = sent("start_output", "target");

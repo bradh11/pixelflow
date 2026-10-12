@@ -153,7 +153,7 @@ export function placedInView(prop: Prop, show: Show, preview: PreviewProp[], vis
   return { ...prop, transform: { ...prop.transform, position: { ...position, x: tidy(position.x + cx - at.cx), y: tidy(position.y + cy - at.cy) } } };
 }
 
-/** "Port 2 on Falcon_F16V5_B9F5", one entry per place the prop is wired; empty when it isn't. */
+/** "Port 2 on Falcon_F16V5_A1B2", one entry per place the prop is wired; empty when it isn't. */
 /** The ports where other props come after `propId` (so their channels move when its pixel count
  * changes), as "Port 3", or "Port 3 on Garage" when the show has more than one controller. */
 export function portsWithPropsAfter(show: Show, propId: string): string[] {

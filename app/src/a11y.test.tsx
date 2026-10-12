@@ -386,12 +386,12 @@ describe("every control has a name, and icon-only buttons have tooltips", { time
     await user.click(screen.getByRole("button", { name: "Scan network" }));
     await screen.findAllByRole("row");
     await user.click(screen.getAllByRole("button", { name: /^Open FPP/ })[0]);
-    await screen.findByRole("button", { name: "Play Christmas Medley 2017" });
+    await screen.findByRole("button", { name: "Play Chimes Medley 2020" });
     found.push(...problems("FPP page"));
     await user.click(screen.getByRole("button", { name: /^Send a sequence/ }));
     found.push(...problems("FPP page, send menu"));
     await user.keyboard("{Escape}");
-    await user.click(screen.getByRole("button", { name: "Download Christmas Medley 2017" }));
+    await user.click(screen.getByRole("button", { name: "Download Chimes Medley 2020" }));
     const download = await screen.findByRole("dialog", { name: "Download from FPP" });
     found.push(...problems("FPP page, download (unsaved show)"));
     backend.nextDownloadFolder = "/Shows/FPP copies";

@@ -37,6 +37,7 @@ import type {
   Edit,
   FileRole,
   MenuAction,
+  ProjectLink,
   RecentShow,
   FilesFound,
   HistoryEntry,
@@ -159,6 +160,10 @@ export interface Backend {
   /** Opens a controller's own web page in the system browser (or its About page, where the user
    * upgrades FPP). */
   openDevicePage(address: string, page?: "about.php"): Promise<void>;
+  /** Opens one of the project's links outside the window: a page in the system browser, or a
+   * text file that comes inside the app. The shell has the address for each name; a way to
+   * support the project that isn't set up is refused. */
+  openProjectLink(link: ProjectLink): Promise<void>;
   /** The sequence files on an FPP, with ".fseq" (one quick request; changes nothing). */
   fppSequenceNames(address: string): Promise<string[]>;
   /** What sending `source` (and `music`) to an FPP would do: names taken, playlists, free space.

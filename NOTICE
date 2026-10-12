@@ -1,0 +1,76 @@
+PixelFlow
+Copyright (C) 2026 Brad Haas
+
+PixelFlow is free software: you can redistribute it and/or modify it under the
+terms of the GNU General Public License, version 3, as published by the Free
+Software Foundation.
+
+PixelFlow is distributed in the hope that it will be useful, but WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+PARTICULAR PURPOSE. See the GNU General Public License for more details.
+
+A copy of the GNU General Public License comes with PixelFlow: the file LICENSE
+in its source, and LICENSE.txt inside the app. If it is missing, see
+<https://www.gnu.org/licenses/>.
+
+The source code is at <https://github.com/bradh11/pixelflow>.
+
+
+Credit: xLights
+===============
+
+PixelFlow is an independent project. It was inspired by xLights, the sequencer
+the holiday lighting community has built and relied on for many years, and it
+can import xLights shows and sequences. It is not xLights and is not affiliated
+with or endorsed by the xLights project. Its design, its engine, and most of
+its code are its own.
+
+Some parts of PixelFlow are derived from xLights' source code, and are not only
+inspired by it. They are: a number of the renderer's effects; rules every layer
+passes through, such as blending, blur, and line drawing; the model geometry
+that puts each pixel of a prop where xLights puts it, for imported props and
+for several of PixelFlow's own shapes; value curves; and tables of defaults,
+ranges, and shapes. Those parts are used under xLights'
+licence, the GNU General Public License, version 3, and that is why PixelFlow
+as a whole is offered under the same licence.
+
+    xLights
+    https://github.com/xLightsSequencer/xLights
+    Copyright (C) the xLights authors and contributors
+    Licensed under the GNU General Public License, version 3
+
+The file-by-file record of what is derived, with the xLights file each one
+follows, is docs/licensing/provenance.md in PixelFlow's source. Each of those
+files also names the xLights file it follows in its opening comment.
+
+Thank you to everyone who has written and maintained xLights. PixelFlow could
+not have been made without their work.
+
+The list gets shorter over time. Where PixelFlow can do a part better with a
+design of its own, that part is rewritten from a description of what it shows
+and moves out of the derived list: Pinwheel, Shockwave and Plasma so far. The
+rest stays, credited here.
+
+
+Other borrowed work
+===================
+
+The mouth-shape table (which mouth a sound is sung with) is the one xLights
+uses, which came to xLights from Papagayo:
+
+    Papagayo
+    Copyright (C) 2005 Mike Clifton
+    Licensed under the GNU General Public License, version 2 or any later
+    version; used in PixelFlow under version 3
+
+Two ways of resizing a picture follow wxWidgets, so that a picture imported
+from an xLights sequence is sized as it was there:
+
+    wxWidgets
+    https://github.com/wxWidgets/wxWidgets
+    Copyright (C) the wxWidgets authors
+    Licensed under the wxWindows Library Licence, version 3.1
+
+The packages PixelFlow is built from, and the CMU Pronouncing Dictionary that
+is built into it, are listed with their licences in THIRD-PARTY-NOTICES.txt,
+which comes with the app.

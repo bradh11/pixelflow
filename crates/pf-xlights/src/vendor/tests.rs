@@ -15,16 +15,16 @@ const HOUSE: &str = r#"<?xml version="1.0"?>
   <model name="Window Master" DisplayAs="Window Frame" parm1="10" parm2="20" parm3="10" StringType="RGB Nodes" StartChannel="1"/>
   <model name="Candy Canes 1-12" DisplayAs="Candy Canes" parm1="12" parm2="18" parm3="1" StringType="RGB Nodes" StartChannel="1"/>
   <model name="Tree" DisplayAs="Tree 360" parm1="16" parm2="50" parm3="1" StringType="RGB Nodes" StartChannel="1"/>
-  <model name="Pillar Left" DisplayAs="Vert Matrix" parm1="4" parm2="30" parm3="1" StringType="RGB Nodes" StartChannel="1"/>
-  <model name="Pillar Right" DisplayAs="Vert Matrix" parm1="4" parm2="30" parm3="1" StringType="RGB Nodes" StartChannel="1"/>
-  <model name="Door Arch" DisplayAs="Arches" parm1="1" parm2="50" StringType="RGB Nodes" StartChannel="1">
+  <model name="Pylon Left" DisplayAs="Vert Matrix" parm1="4" parm2="30" parm3="1" StringType="RGB Nodes" StartChannel="1"/>
+  <model name="Pylon Right" DisplayAs="Vert Matrix" parm1="4" parm2="30" parm3="1" StringType="RGB Nodes" StartChannel="1"/>
+  <model name="Gate Arch" DisplayAs="Arches" parm1="1" parm2="50" StringType="RGB Nodes" StartChannel="1">
     <subModel name="Left Half" layout="horizontal" type="ranges" line0="1-25"/>
   </model>
 </models><modelGroups>
   <modelGroup name="House Outline" models="Outline Left,Outline Right,Roof Top"/>
   <modelGroup name="Windows" models="Window Dining Room,Window Master"/>
-  <modelGroup name="Pillars" models="Pillar Left,Pillar Right"/>
-  <modelGroup name="Whole House" models="Outline Left,Outline Right,Roof Top,Window Dining Room,Window Master,Candy Canes 1-12,Tree,Pillar Left,Pillar Right,Door Arch"/>
+  <modelGroup name="Pylons" models="Pylon Left,Pylon Right"/>
+  <modelGroup name="Whole House" models="Outline Left,Outline Right,Roof Top,Window Dining Room,Window Master,Candy Canes 1-12,Tree,Pylon Left,Pylon Right,Gate Arch"/>
 </modelGroups></xrgb>"#;
 
 /// The vendor's layout: their names, their props.
@@ -44,7 +44,7 @@ const VENDOR: &str = r#"<?xml version="1.0"?>
   <model name="Flood 1" DisplayAs="Single Line" parm1="1" parm2="1" StringType="RGB Nodes" StartChannel="1"/>
   <model name="Spinner" DisplayAs="Spinner" parm1="6" parm2="20" StringType="RGB Nodes" StartChannel="1"/>
   <model name="Old Name Prop" DisplayAs="Single Line" parm1="1" parm2="10" StringType="RGB Nodes" StartChannel="1">
-    <Aliases><alias name="oldname:Pillar Right"/></Aliases>
+    <Aliases><alias name="oldname:Pylon Right"/></Aliases>
   </model>
 </models><modelGroups>
   <modelGroup name="Group - Eaves" models="Eave 1,Eave 2"/>
@@ -173,26 +173,26 @@ fn auto_map_matches_like_with_like() {
     // Lines to lines (the closest in size), arches to the arch, canes to canes, windows to windows.
     assert_eq!(mapped(&x, "Eave 2"), Some(&["Outline Right".to_string()][..]));
     assert_eq!(mapped(&x, "Eave 1"), Some(&["Outline Left".to_string()][..]));
-    assert_eq!(mapped(&x, "Big Arch"), Some(&["Door Arch".to_string()][..]));
+    assert_eq!(mapped(&x, "Big Arch"), Some(&["Gate Arch".to_string()][..]));
     assert_eq!(mapped(&x, "Canes"), Some(&["Candy Canes 1-12".to_string()][..]));
     assert_eq!(reason("Canes"), MatchReason::Type);
     assert!(mapped(&x, "Front Window").is_some_and(|t| t[0].starts_with("Window ")));
     // The submodel goes to the arch's submodel of the same name.
     assert_eq!(
         mapped(&x, "Big Arch/Left Half"),
-        Some(&["Door Arch/Left Half".to_string()][..])
+        Some(&["Gate Arch/Left Half".to_string()][..])
     );
     // An alias (xLights' "oldname:") names a prop.
     assert_eq!(
         mapped(&x, "Old Name Prop"),
-        Some(&["Pillar Right".to_string()][..])
+        Some(&["Pylon Right".to_string()][..])
     );
     assert_eq!(reason("Old Name Prop"), MatchReason::Alias);
     // Nothing like a flood or a spinner in the house; a P10 panel is far bigger than a pillar.
     assert_eq!(mapped(&x, "Flood 1"), None);
     assert_eq!(mapped(&x, "Spinner"), None);
     assert_eq!(mapped(&x, "P10 Panel"), None);
-    assert_eq!(suggestion(&x, "P10 Panel").targets, ["Pillar Left"]);
+    assert_eq!(suggestion(&x, "P10 Panel").targets, ["Pylon Left"]);
 
     // Types and sizes come from the vendor's layout; targets list the house's.
     let tree = x.items.iter().find(|i| i.name == "Mega Tree").unwrap();
@@ -207,7 +207,7 @@ fn auto_map_matches_like_with_like() {
     assert!(
         x.targets
             .iter()
-            .any(|t| t.name == "Door Arch/Left Half" && t.kind == ItemKind::Submodel)
+            .any(|t| t.name == "Gate Arch/Left Half" && t.kind == ItemKind::Submodel)
     );
 }
 
@@ -217,7 +217,7 @@ fn a_saved_mapping_comes_first_and_keeps_skips() {
     let mut saved = Mapping::default();
     saved.items.insert(
         "Mega Tree".into(),
-        vec!["Pillar Left".into(), "Pillar Right".into()],
+        vec!["Pylon Left".into(), "Pylon Right".into()],
     );
     saved.items.insert("Canes".into(), vec![]);
     saved.items.insert("Spinner".into(), vec!["Gone Prop".into()]);
@@ -226,7 +226,7 @@ fn a_saved_mapping_comes_first_and_keeps_skips() {
     assert!(x.key.starts_with("layout:"));
     assert_eq!(
         mapped(&x, "Mega Tree"),
-        Some(&["Pillar Left".to_string(), "Pillar Right".to_string()][..])
+        Some(&["Pylon Left".to_string(), "Pylon Right".to_string()][..])
     );
     assert_eq!(suggestion(&x, "Mega Tree").reason, MatchReason::Saved);
     assert_eq!(
@@ -306,7 +306,7 @@ fn one_item_copies_to_several_targets_and_several_layer_onto_one() {
     let file = two_models();
     let mut mapping = Mapping::default();
     mapping.add("A", "Tree");
-    mapping.add("A", "Door Arch");
+    mapping.add("A", "Gate Arch");
     mapping.add("B", "Tree");
     mapping.add("A/Strand 2", "Outline Left");
     let import = build_sequence_mapped(&file, &show, "Test", &mapping);
@@ -318,7 +318,7 @@ fn one_item_copies_to_several_targets_and_several_layer_onto_one() {
         vec![vec!["Shimmer"], vec!["Twinkle"], vec!["On"]]
     );
     assert_eq!(
-        row_effects(&import, &show, "Door Arch"),
+        row_effects(&import, &show, "Gate Arch"),
         vec![vec!["Twinkle"], vec!["On"]]
     );
     // The strand's own effects go where it's mapped; its node's don't come in.

@@ -106,7 +106,7 @@ pub fn display_text(text: &str) -> String {
     shown
 }
 
-/// The file name at the end of a path's text, for messages ("Christmas Medley 2017.mp3"). Both
+/// The file name at the end of a path's text, for messages ("Chimes Medley 2020.mp3"). Both
 /// `/` and `\` count as folder separators, so a path written on Windows reads well anywhere.
 pub fn file_name_of(text: &str) -> String {
     let trimmed = text.trim_end_matches(['/', '\\']);
@@ -206,7 +206,7 @@ mod tests {
 
     #[test]
     fn relative_paths_stay_inside_their_folder() {
-        let folder = Path::new("/Shows/Haas");
+        let folder = Path::new("/Shows/Home");
         assert_eq!(
             resolve_text("Music/../Song.mp3", folder),
             below(folder, &["Song.mp3"])
@@ -227,18 +227,18 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn drive_and_root_parts_never_replace_the_folder() {
-        let folder = Path::new("C:\\Shows\\Haas");
+        let folder = Path::new("C:\\Shows\\Home");
         assert_eq!(
             resolve_text("D:x/Song.mp3", folder),
-            "C:\\Shows\\Haas\\x\\Song.mp3"
+            "C:\\Shows\\Home\\x\\Song.mp3"
         );
     }
 
     #[test]
     fn utf8_paths_are_written_as_they_are() {
-        let path = Path::new("/Shows/Haas 2024/Música/Christmas Medley 2017.mp3");
+        let path = Path::new("/Shows/Home 2024/Música/Chimes Medley 2020.mp3");
         let text = path_to_text(path);
-        assert_eq!(text, "/Shows/Haas 2024/Música/Christmas Medley 2017.mp3");
+        assert_eq!(text, "/Shows/Home 2024/Música/Chimes Medley 2020.mp3");
         assert_eq!(path_from_text(&text), path);
         assert_eq!(display_text(&text), text);
     }
@@ -279,8 +279,8 @@ mod tests {
     #[test]
     fn file_names_read_plainly_whoever_wrote_the_path() {
         assert_eq!(
-            file_name_of("/Shows/Christmas Medley 2017.mp3"),
-            "Christmas Medley 2017.mp3"
+            file_name_of("/Shows/Chimes Medley 2020.mp3"),
+            "Chimes Medley 2020.mp3"
         );
         assert_eq!(file_name_of("C:\\xLights\\Music\\Wizards.mp3"), "Wizards.mp3");
         assert_eq!(file_name_of("Music/Song.mp3"), "Song.mp3");
@@ -305,18 +305,18 @@ mod tests {
 
     #[test]
     fn files_inside_the_folder_become_relative() {
-        let folder = Path::new("/Shows/Haas 2024");
-        assert_eq!(relative_text("/Shows/Haas 2024/Song.fseq", folder), "Song.fseq");
+        let folder = Path::new("/Shows/Home 2024");
+        assert_eq!(relative_text("/Shows/Home 2024/Song.fseq", folder), "Song.fseq");
         assert_eq!(
-            relative_text("/Shows/Haas 2024/MP3 Music/Christmas Medley 2017.mp3", folder),
-            "MP3 Music/Christmas Medley 2017.mp3"
+            relative_text("/Shows/Home 2024/MP3 Music/Chimes Medley 2020.mp3", folder),
+            "MP3 Music/Chimes Medley 2020.mp3"
         );
         // Outside the folder (even one named like it), or the folder itself: kept in full.
         for kept in [
-            "/Shows/Haas 2024 old/Song.mp3",
+            "/Shows/Home 2024 old/Song.mp3",
             "/Shows/Other/Song.mp3",
-            "/Shows/Haas 2024",
-            "/Shows/Haas 2024/../Other/Song.mp3",
+            "/Shows/Home 2024",
+            "/Shows/Home 2024/../Other/Song.mp3",
             "C:\\Music\\Song.mp3",
             "already/relative.mp3",
             "",
@@ -328,10 +328,10 @@ mod tests {
 
     #[test]
     fn relative_paths_resolve_against_the_folder() {
-        let folder = Path::new("/Users/me/Shows/Haas 2024");
+        let folder = Path::new("/Users/me/Shows/Home 2024");
         assert_eq!(
-            resolve_text("MP3 Music/Christmas Medley 2017.mp3", folder),
-            path_to_text(&folder.join("MP3 Music").join("Christmas Medley 2017.mp3"))
+            resolve_text("MP3 Music/Chimes Medley 2020.mp3", folder),
+            path_to_text(&folder.join("MP3 Music").join("Chimes Medley 2020.mp3"))
         );
         assert_eq!(
             resolve_text("./Song.fseq", folder),
@@ -345,7 +345,7 @@ mod tests {
 
     #[test]
     fn relative_and_back_is_the_same_file() {
-        let folder = Path::new("/Shows/Haas 2024");
+        let folder = Path::new("/Shows/Home 2024");
         for full in [
             below(folder, &["a", "b", "c.mp3"]),
             "/Shows/Other/c.mp3".to_string(),

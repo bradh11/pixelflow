@@ -54,7 +54,7 @@ describe("what the screen says", () => {
     expect(isDemoShow(demoShow())).toBe(true);
     expect(isDemoShow(sampleShow())).toBe(true);
     const own = demoShow();
-    own.controllers[0] = { ...own.controllers[0], name: "Garage FPP", address: "10.28.128.177" };
+    own.controllers[0] = { ...own.controllers[0], name: "Garage FPP", address: "10.20.130.177" };
     expect(isDemoShow(own)).toBe(false);
     expect(isDemoShow({ ...own, controllers: [] })).toBe(false);
   });

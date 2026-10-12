@@ -19,8 +19,8 @@ describe("show files", () => {
       ["music", "Music for Medley"],
       ["photo", "Background photo"],
     ]);
-    expect(missingFile({ kind: "music", id: ID }, "C:\\Music\\Christmas Medley 2017.mp3", "Music for Medley").message).toBe(
-      "Christmas Medley 2017.mp3 isn't where it was.",
+    expect(missingFile({ kind: "music", id: ID }, "C:\\Music\\Chimes Medley 2020.mp3", "Music for Medley").message).toBe(
+      "Chimes Medley 2020.mp3 isn't where it was.",
     );
   });
 

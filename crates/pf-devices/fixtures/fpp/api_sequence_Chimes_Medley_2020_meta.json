@@ -1,5 +1,5 @@
 {
-    "Name": "Christmas Medley 2017.fseq",
+    "Name": "Chimes Medley 2020.fseq",
     "Version": "2.2",
     "ID": "1734740354454575",
     "StepTime": 50,
@@ -7,7 +7,7 @@
     "MaxChannel": 6148,
     "ChannelCount": 6148,
     "variableHeaders": {
-        "mf": "/Shows/Audio/Christmas Medley 2017.mp3",
+        "mf": "/Shows/Audio/Chimes Medley 2020.mp3",
         "sp": "xLights Macintosh 2024.19"
     },
     "Ranges": [

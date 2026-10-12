@@ -158,7 +158,7 @@
               "adapter": "generic",
               "address": "192.0.2.20",
               "id": "00000000-0000-4000-a000-000000000001",
-              "name": "Falcon_F16V5_B9F5",
+              "name": "Falcon_F16V5_A1B2",
               "ports": [
                 {
                   "brightness": 100,
@@ -1730,6 +1730,6 @@
   {
     "name": "an xLights mapping file read",
     "ts": "types.XmapRead",
-    "value": { "mapping": { "items": { "Mega Tree": ["Pillars", "Tree"] } }, "nodesSkipped": 0 }
+    "value": { "mapping": { "items": { "Mega Tree": ["Pylons", "Tree"] } }, "nodesSkipped": 0 }
   }
 ]

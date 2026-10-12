@@ -27,9 +27,14 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "license": "GPL-3.0-only",
+    "copyright": "Copyright (C) 2026 Brad Haas. Free software under the GNU General Public License, version 3.",
+    "homepage": "https://github.com/bradh11/pixelflow",
     "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
     "resources": {
-      "resources/THIRD-PARTY-NOTICES.txt": "THIRD-PARTY-NOTICES.txt"
+      "resources/THIRD-PARTY-NOTICES.txt": "THIRD-PARTY-NOTICES.txt",
+      "../../LICENSE": "LICENSE.txt",
+      "../../NOTICE": "NOTICE.txt"
     }
   }
 }

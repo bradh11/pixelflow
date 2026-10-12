@@ -20,7 +20,7 @@
           "kind": "falcon",
           "mode": null,
           "model": "F16v5",
-          "name": "Falcon_F16V5_B9F5"
+          "name": "Falcon_F16V5_A1B2"
         },
         {
           "address": "192.0.2.40",
@@ -62,7 +62,7 @@
                 "brightness": 40,
                 "colorOrder": "RGB",
                 "gamma": 1.0,
-                "name": "Pillar Right",
+                "name": "Pylon Right",
                 "nullPixels": 0,
                 "pixels": 600,
                 "reverse": false,
@@ -78,7 +78,7 @@
                 "brightness": 40,
                 "colorOrder": "RGB",
                 "gamma": 1.0,
-                "name": "Pillar Left",
+                "name": "Pylon Left",
                 "nullPixels": 0,
                 "pixels": 600,
                 "reverse": false,
@@ -94,7 +94,7 @@
                 "brightness": 40,
                 "colorOrder": "RGB",
                 "gamma": 1.0,
-                "name": "Door Frame Front",
+                "name": "Gate Frame Front",
                 "nullPixels": 0,
                 "pixels": 340,
                 "reverse": false,
@@ -110,7 +110,7 @@
                 "brightness": 40,
                 "colorOrder": "RGB",
                 "gamma": 1.0,
-                "name": "Roof Door",
+                "name": "Roof Gate",
                 "nullPixels": 0,
                 "pixels": 238,
                 "reverse": false,
@@ -126,7 +126,7 @@
                 "brightness": 40,
                 "colorOrder": "RGB",
                 "gamma": 1.0,
-                "name": "Door Arch",
+                "name": "Gate Arch",
                 "nullPixels": 0,
                 "pixels": 271,
                 "reverse": false,
@@ -143,7 +143,7 @@
         "kind": "falcon",
         "mode": null,
         "model": "F16v5",
-        "name": "Falcon_F16V5_B9F5"
+        "name": "Falcon_F16V5_A1B2"
       },
       "plan": {
         "alreadyInShow": false,
@@ -152,7 +152,7 @@
           "adapter": "falcon",
           "address": "192.0.2.20",
           "id": "00000000-0000-4000-a000-000000000001",
-          "name": "Falcon_F16V5_B9F5",
+          "name": "Falcon_F16V5_A1B2",
           "ports": [
             {
               "brightness": 100,
@@ -249,13 +249,13 @@
           "sequenceChannels": null
         },
         "notes": [
-          "The controller applies its own settings (Port 1 \"Pillar Right\": 40% brightness; Port 2 \"Pillar Left\": 40% brightness; Port 3 \"Door Frame Front\": 40% brightness; Port 4 \"Roof Door\": 40% brightness; Port 6 \"Door Arch\": 40% brightness), so PixelFlow sends unadjusted data."
+          "The controller applies its own settings (Port 1 \"Pylon Right\": 40% brightness; Port 2 \"Pylon Left\": 40% brightness; Port 3 \"Gate Frame Front\": 40% brightness; Port 4 \"Roof Gate\": 40% brightness; Port 6 \"Gate Arch\": 40% brightness), so PixelFlow sends unadjusted data."
         ],
         "props": [
           {
             "colorOrder": "RGB",
             "id": "00000000-0000-4000-a000-000000000002",
-            "name": "Pillar Right",
+            "name": "Pylon Right",
             "regions": [],
             "shape": { "length": 30.0, "nodes": 600, "source": "generator", "type": "line" },
             "tags": [],
@@ -268,7 +268,7 @@
           {
             "colorOrder": "RGB",
             "id": "00000000-0000-4000-a000-000000000003",
-            "name": "Pillar Left",
+            "name": "Pylon Left",
             "regions": [],
             "shape": { "length": 30.0, "nodes": 600, "source": "generator", "type": "line" },
             "tags": [],
@@ -281,7 +281,7 @@
           {
             "colorOrder": "RGB",
             "id": "00000000-0000-4000-a000-000000000004",
-            "name": "Door Frame Front",
+            "name": "Gate Frame Front",
             "regions": [],
             "shape": { "length": 17.0, "nodes": 340, "source": "generator", "type": "line" },
             "tags": [],
@@ -294,7 +294,7 @@
           {
             "colorOrder": "RGB",
             "id": "00000000-0000-4000-a000-000000000005",
-            "name": "Roof Door",
+            "name": "Roof Gate",
             "regions": [],
             "shape": { "length": 11.900001, "nodes": 238, "source": "generator", "type": "line" },
             "tags": [],
@@ -307,7 +307,7 @@
           {
             "colorOrder": "RGB",
             "id": "00000000-0000-4000-a000-000000000006",
-            "name": "Door Arch",
+            "name": "Gate Arch",
             "regions": [],
             "shape": { "length": 13.55, "nodes": 271, "source": "generator", "type": "line" },
             "tags": [],
@@ -332,7 +332,7 @@
             "address": "192.0.2.20",
             "channels": 6147,
             "ddpRaw": true,
-            "description": "Falcon_F16V5_B9F5",
+            "description": "Falcon_F16V5_A1B2",
             "protocol": "DDP",
             "startChannel": 1,
             "startUniverse": null,
@@ -540,7 +540,7 @@
                 "brightness": 40,
                 "colorOrder": "RGB",
                 "gamma": 1.0,
-                "name": "Pillar Right",
+                "name": "Pylon Right",
                 "nullPixels": 0,
                 "pixels": 600,
                 "reverse": false,
@@ -556,7 +556,7 @@
                 "brightness": 40,
                 "colorOrder": "RGB",
                 "gamma": 1.0,
-                "name": "Pillar Left",
+                "name": "Pylon Left",
                 "nullPixels": 0,
                 "pixels": 600,
                 "reverse": false,
@@ -572,7 +572,7 @@
                 "brightness": 40,
                 "colorOrder": "RGB",
                 "gamma": 1.0,
-                "name": "Door Frame Front",
+                "name": "Gate Frame Front",
                 "nullPixels": 0,
                 "pixels": 340,
                 "reverse": false,
@@ -588,7 +588,7 @@
                 "brightness": 40,
                 "colorOrder": "RGB",
                 "gamma": 1.0,
-                "name": "Roof Door",
+                "name": "Roof Gate",
                 "nullPixels": 0,
                 "pixels": 238,
                 "reverse": false,
@@ -604,7 +604,7 @@
                 "brightness": 40,
                 "colorOrder": "RGB",
                 "gamma": 1.0,
-                "name": "Door Arch",
+                "name": "Gate Arch",
                 "nullPixels": 0,
                 "pixels": 271,
                 "reverse": false,
@@ -621,7 +621,7 @@
         "kind": "falcon",
         "mode": null,
         "model": "F16v5",
-        "name": "Falcon_F16V5_B9F5"
+        "name": "Falcon_F16V5_A1B2"
       },
       "plan": {
         "alreadyInShow": false,
@@ -630,7 +630,7 @@
           "adapter": "falcon",
           "address": "192.0.2.20",
           "id": "00000000-0000-4000-a000-000000000011",
-          "name": "Falcon_F16V5_B9F5",
+          "name": "Falcon_F16V5_A1B2",
           "ports": [
             {
               "brightness": 100,
@@ -727,13 +727,13 @@
           "sequenceChannels": null
         },
         "notes": [
-          "The controller applies its own settings (Port 1 \"Pillar Right 2\": 40% brightness; Port 2 \"Pillar Left\": 40% brightness; Port 3 \"Door Frame Front\": 40% brightness; Port 4 \"Roof Door\": 40% brightness; Port 6 \"Door Arch\": 40% brightness), so PixelFlow sends unadjusted data."
+          "The controller applies its own settings (Port 1 \"Pylon Right 2\": 40% brightness; Port 2 \"Pylon Left\": 40% brightness; Port 3 \"Gate Frame Front\": 40% brightness; Port 4 \"Roof Gate\": 40% brightness; Port 6 \"Gate Arch\": 40% brightness), so PixelFlow sends unadjusted data."
         ],
         "props": [
           {
             "colorOrder": "RGB",
             "id": "00000000-0000-4000-a000-000000000012",
-            "name": "Pillar Right 2",
+            "name": "Pylon Right 2",
             "regions": [],
             "shape": { "length": 30.0, "nodes": 600, "source": "generator", "type": "line" },
             "tags": [],
@@ -746,7 +746,7 @@
           {
             "colorOrder": "RGB",
             "id": "00000000-0000-4000-a000-000000000013",
-            "name": "Pillar Left",
+            "name": "Pylon Left",
             "regions": [],
             "shape": { "length": 30.0, "nodes": 600, "source": "generator", "type": "line" },
             "tags": [],
@@ -759,7 +759,7 @@
           {
             "colorOrder": "RGB",
             "id": "00000000-0000-4000-a000-000000000014",
-            "name": "Door Frame Front",
+            "name": "Gate Frame Front",
             "regions": [],
             "shape": { "length": 17.0, "nodes": 340, "source": "generator", "type": "line" },
             "tags": [],
@@ -772,7 +772,7 @@
           {
             "colorOrder": "RGB",
             "id": "00000000-0000-4000-a000-000000000015",
-            "name": "Roof Door",
+            "name": "Roof Gate",
             "regions": [],
             "shape": { "length": 11.900001, "nodes": 238, "source": "generator", "type": "line" },
             "tags": [],
@@ -785,7 +785,7 @@
           {
             "colorOrder": "RGB",
             "id": "00000000-0000-4000-a000-000000000016",
-            "name": "Door Arch",
+            "name": "Gate Arch",
             "regions": [],
             "shape": { "length": 13.55, "nodes": 271, "source": "generator", "type": "line" },
             "tags": [],
@@ -816,14 +816,14 @@
     "name": "an FPP playing",
     "ts": "types.PlayerStatus",
     "value": {
-      "nextPlaylist": "Christmas Medley 2017.fseq",
+      "nextPlaylist": "Chimes Medley 2020.fseq",
       "nextStart": "Mon Oct  5 @ 06:48 PM - (Everyday)",
-      "playlist": "Christmas Medley 2017.fseq",
+      "playlist": "Chimes Medley 2020.fseq",
       "secondsElapsed": 109,
       "secondsRemaining": 456,
-      "sequence": "Christmas Medley 2017.fseq",
+      "sequence": "Chimes Medley 2020.fseq",
       "state": "playing",
-      "warnings": ["Cannot Ping DDP Channel Data Target 192.0.2.20 Falcon_F16V5_B9F5"]
+      "warnings": ["Cannot Ping DDP Channel Data Target 192.0.2.20 Falcon_F16V5_A1B2"]
     }
   },
   {
@@ -843,9 +843,9 @@
   {
     "name": "an FPP's sequences",
     "ts": "types.FppSequence[]",
-    "value": [{ "channels": 6148, "frames": 11332, "name": "Christmas Medley 2017", "stepMs": 50 }]
+    "value": [{ "channels": 6148, "frames": 11332, "name": "Chimes Medley 2020", "stepMs": 50 }]
   },
-  { "name": "an FPP's sequence file names", "ts": "string[]", "value": ["Christmas Medley 2017.fseq"] },
+  { "name": "an FPP's sequence file names", "ts": "string[]", "value": ["Chimes Medley 2020.fseq"] },
   {
     "name": "an FPP's sequences folder",
     "ts": "types.FppFile[]",
@@ -973,7 +973,7 @@
           "adapter": "generic",
           "address": "192.0.2.20",
           "id": "00000000-0000-4000-a000-000000000017",
-          "name": "Falcon_F16V5_B9F5",
+          "name": "Falcon_F16V5_A1B2",
           "ports": [],
           "protocol": { "type": "ddp" },
           "sequenceChannels": { "count": 6147, "rawDdpOffsets": true, "start": 1 }
@@ -993,7 +993,7 @@
           "adapter": "generic",
           "address": "192.0.2.20",
           "id": "00000000-0000-4000-a000-000000000018",
-          "name": "Falcon_F16V5_B9F5",
+          "name": "Falcon_F16V5_A1B2",
           "ports": [],
           "protocol": { "type": "ddp" },
           "sequenceChannels": { "count": 6147, "rawDdpOffsets": true, "start": 1 }
@@ -1089,8 +1089,8 @@
       "skipped": [
         {
           "address": "192.0.2.20",
-          "name": "Falcon_F16V5_B9F5",
-          "reason": "Already in your show as Falcon_F16V5_B9F5."
+          "name": "Falcon_F16V5_A1B2",
+          "reason": "Already in your show as Falcon_F16V5_A1B2."
         }
       ]
     }

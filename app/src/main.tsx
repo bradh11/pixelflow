@@ -57,7 +57,7 @@ if (inTauri()) {
     backend.probeFromHeader = !new URLSearchParams(location.search).has("slowmusic");
     // Camera mapping offers a made-up video of the lights flashing.
     backend.cameraMapSamples = true;
-    backend.nextSequencePath = "/Shows/Christmas Medley 2017.fseq";
+    backend.nextSequencePath = "/Shows/Chimes Medley 2020.fseq";
     backend.images.set(DEMO_PHOTO, demoHousePhoto());
     backend.nextImagePath = DEMO_PHOTO;
     // `?demo&missing`: the show as if its folder had moved, with files to find again.

@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { AboutDialog } from "./components/About";
 import { AppShell } from "./components/AppShell";
 import { AiSettings } from "./components/assistant/AiSettings";
 import { DraftPreview } from "./components/assistant/DraftPreview";
@@ -44,7 +45,7 @@ export function App() {
       stop?.();
     };
   }, [backend]);
-  // The menu bar's File menu (macOS) runs the same actions as the show menu.
+  // The menu bar (macOS) runs the same actions as the show menu, and opens the app's About.
   useEffect(() => {
     if (!backend) return;
     let stop: (() => void) | null = null;
@@ -81,6 +82,7 @@ export function App() {
       {started ? <AppShell /> : <Welcome />}
       <CommandPalette />
       <ShortcutSheet />
+      <AboutDialog />
       <ConfirmDiscard />
       <ConfirmReplaceSequence />
       <ConfirmClose />

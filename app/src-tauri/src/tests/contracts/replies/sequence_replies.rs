@@ -550,7 +550,10 @@ fn xlights_replies() {
 
     // An xLights mapping file.
     let xmap = dir.join("vendor.xmap");
-    shell.ok("write_xmap", json!({ "path": xmap, "mapping": { "items": { "Mega Tree": ["Tree", "Pillars"], "Arch/Left": [] } } }));
+    shell.ok(
+        "write_xmap",
+        json!({ "path": xmap, "mapping": { "items": { "Mega Tree": ["Tree", "Pylons"], "Arch/Left": [] } } }),
+    );
     fixtures.reply(
         "an xLights mapping file read",
         "types.XmapRead",

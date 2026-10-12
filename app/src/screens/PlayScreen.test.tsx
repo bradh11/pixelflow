@@ -20,7 +20,7 @@ async function openPlay(known: boolean) {
   const backend = new MemoryBackend(show);
   backend.deviceNetwork = demoDevices();
   backend.fppPlayers = demoPlayers();
-  backend.nextSequencePath = "/Shows/Christmas Medley 2017.fseq";
+  backend.nextSequencePath = "/Shows/Chimes Medley 2020.fseq";
   await useApp.getState().connect(backend);
   useApp.setState({ started: true });
   const user = userEvent.setup();
@@ -96,10 +96,10 @@ describe("play, with nothing to play yet", () => {
   it("adds a rendered sequence, which then shows ready to play with the playlist open", async () => {
     const { user, backend } = await openPlay(true);
     await user.click(screen.getByRole("button", { name: "Add a rendered sequence (.fseq)" }));
-    expect(backend.calls).toContain("addSequence:/Shows/Christmas Medley 2017.fseq");
-    expect(await within(transport()).findByRole("heading", { name: "Christmas Medley 2017" })).toBeInTheDocument();
+    expect(backend.calls).toContain("addSequence:/Shows/Chimes Medley 2020.fseq");
+    expect(await within(transport()).findByRole("heading", { name: "Chimes Medley 2020" })).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Nothing to play yet" })).not.toBeInTheDocument();
-    expect(within(rendered()).getByRole("button", { name: "Christmas Medley 2017" })).toHaveAttribute("aria-current", "true");
+    expect(within(rendered()).getByRole("button", { name: "Chimes Medley 2020" })).toHaveAttribute("aria-current", "true");
     // Added, not started.
     expect(backend.calls.some((c) => c.startsWith("playSequence"))).toBe(false);
   });
@@ -347,13 +347,13 @@ describe("play, with the preview in its own window", () => {
 describe("play, rendered sequences", () => {
   it("adds a sequence with its music, plays it, and lines the lights up with the music", async () => {
     const { user, backend } = await openPlay(true);
-    await addSequences(user, backend, ["Christmas Medley 2017"]);
-    expect(await within(rendered()).findByText("Christmas Medley 2017")).toBeInTheDocument();
-    expect(within(music()).getByText("Christmas Medley 2017.mp3")).toBeInTheDocument();
+    await addSequences(user, backend, ["Chimes Medley 2020"]);
+    expect(await within(rendered()).findByText("Chimes Medley 2020")).toBeInTheDocument();
+    expect(within(music()).getByText("Chimes Medley 2020.mp3")).toBeInTheDocument();
     expect(within(music()).getByRole("img", { name: /music waveform/i })).toBeInTheDocument();
 
     await user.click(within(transport()).getByRole("button", { name: "Play" }));
-    expect(backend.calls).toContain("playSequence:Christmas Medley 2017@0");
+    expect(backend.calls).toContain("playSequence:Chimes Medley 2020@0");
     expect(await within(transport()).findByRole("button", { name: "Pause" })).toBeInTheDocument();
     expect(within(transport()).getByText(/\/ 1:00$/)).toBeInTheDocument();
 
@@ -543,7 +543,7 @@ describe("play, with an FPP", () => {
     const { user, backend } = await openPlayWithSequence();
     await act(() => useApp.getState().scan());
     const warning = await screen.findByRole("alert", { name: "FPP is playing" });
-    expect(within(warning).getByText(/FPP is playing Christmas Medley 2017.fseq/)).toBeInTheDocument();
+    expect(within(warning).getByText(/FPP is playing Chimes Medley 2020.fseq/)).toBeInTheDocument();
     // In the main view, with the playlist put away.
     expect(screen.queryByRole("complementary", { name: "Playlist" })).not.toBeInTheDocument();
     await user.click(within(warning).getByRole("button", { name: "Stop FPP" }));
@@ -552,13 +552,13 @@ describe("play, with an FPP", () => {
 
   it("shows which sequences are on the FPP and sends a missing one", async () => {
     const { user, backend } = await openPlay(true);
-    await addSequences(user, backend, ["Christmas Medley 2017", "Wizards in Winter"]);
+    await addSequences(user, backend, ["Chimes Medley 2020", "Wizards in Winter"]);
     // Until the FPP is known, there's nothing to say.
     expect(screen.queryByRole("region", { name: "On your FPP" })).not.toBeInTheDocument();
     await useApp.getState().scan();
     const panel = await within(drawer()).findByRole("region", { name: "On your FPP" });
     expect(await within(panel).findByText("1 of 2 sequences are on FPP.")).toBeInTheDocument();
-    const medley = within(panel).getByRole("listitem", { name: "Christmas Medley 2017" });
+    const medley = within(panel).getByRole("listitem", { name: "Chimes Medley 2020" });
     // Only the name is compared, and it says so.
     expect(medley).toHaveTextContent("Same name on the FPP");
     expect(within(medley).getByTitle(/doesn't check that it's the same version/)).toBeInTheDocument();

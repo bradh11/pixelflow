@@ -46,7 +46,7 @@ const FEED: PreviewFeed = {
   stamp: "1:1:0",
   only: null,
   showRevision: 0,
-  title: "Christmas Medley 2017",
+  title: "Chimes Medley 2020",
   transport: true,
   mode: "2d",
   glow: 0,
@@ -92,7 +92,7 @@ describe("the preview's own window", () => {
     const { backend, seq, frames } = await openWindow();
     expect(await screen.findByRole("img", { name: "Preview of the show at the playhead" })).toBeInTheDocument();
     await waitFor(() => expect(frames).toHaveBeenCalledWith(12_000));
-    expect(screen.getByRole("heading", { name: "Christmas Medley 2017" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Chimes Medley 2020" })).toBeInTheDocument();
     expect(screen.getByText("0:12 / 1:00")).toBeInTheDocument();
     // None of the app around it.
     expect(screen.queryByRole("navigation")).not.toBeInTheDocument();

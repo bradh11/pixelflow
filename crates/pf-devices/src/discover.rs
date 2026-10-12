@@ -159,7 +159,7 @@ pub fn sweep_hosts(ip: Ipv4Addr, netmask: Ipv4Addr) -> Vec<Ipv4Addr> {
 #[serde(rename_all = "camelCase")]
 pub struct SilentPeer {
     pub address: String,
-    /// How the listing device describes it (e.g. "Falcon_F16V5_B9F5").
+    /// How the listing device describes it (e.g. "Falcon_F16V5_A1B2").
     pub description: String,
     /// Name of the device that listed it.
     pub listed_by: String,

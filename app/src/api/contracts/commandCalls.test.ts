@@ -60,6 +60,7 @@ import type {
   FppSendRequest,
   Group,
   PatternKind,
+  ProjectLink,
   PickKind,
   PlaylistChoice,
   Prop,
@@ -309,6 +310,9 @@ async function callTheBackend(backend: Backend) {
   await backend.fppSoftware(FPP);
   await backend.openDevicePage(FPP);
   await backend.openDevicePage(FPP, "about.php");
+  for (const link of all<ProjectLink>({ source: true, xlights: true, licence: true, credits: true, notices: true, githubSponsors: true, koFi: true, buyMeACoffee: true, payPal: true })) {
+    await backend.openProjectLink(link);
+  }
   await backend.fppSequenceNames(FPP);
   await backend.fppSendPlan(FPP, sources[0], `${DIR}/music/Carol.mp3`);
   await backend.fppSendPlan(FPP, sources[1], null);

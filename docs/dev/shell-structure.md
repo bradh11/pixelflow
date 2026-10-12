@@ -10,7 +10,7 @@ Stage 0 is done. The rest is to do, one small pull request per step.
 ## What no step may change
 
 - **Command names.** The window calls each command by name (`app/src/api`).
-  `commands::tests::the_window_calls_the_commands_by_these_names` pins all 152. Moving a command
+  `commands::tests::the_window_calls_the_commands_by_these_names` pins all 154. Moving a command
   leaves that test alone. A step that has to edit it has renamed, added, or dropped a command.
 - **Arguments, replies, messages, and event names** (`audio-progress`, `sequence-export-progress`,
   `video-export-progress`, `lyrics-progress`, `align-models-progress`, `fpp-send-progress`,

@@ -69,9 +69,9 @@ describe("Sequence settings", () => {
   it("shows the frame time and the music, which Locate… points at the file chosen", async () => {
     const { backend, seq, user } = await openSettings();
     expect(within(panel()).getByText("25 ms apart (40 a second)")).toBeInTheDocument();
-    expect(within(panel()).getByText("Christmas Medley 2017.mp3")).toBeInTheDocument();
+    expect(within(panel()).getByText("Chimes Medley 2020.mp3")).toBeInTheDocument();
     backend.nextLocatePath = "/Music/Medley.mp3";
-    await user.click(within(panel()).getByRole("button", { name: "Locate Christmas Medley 2017.mp3" }));
+    await user.click(within(panel()).getByRole("button", { name: "Locate Chimes Medley 2020.mp3" }));
     await waitFor(() => expect(seq.doc!.audio).toBe("/Music/Medley.mp3"));
     expect(within(panel()).getByText("Medley.mp3")).toBeInTheDocument();
   });

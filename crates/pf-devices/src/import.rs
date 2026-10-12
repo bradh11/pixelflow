@@ -748,7 +748,7 @@ mod tests {
     fn destination(protocol: &str) -> Destination {
         Destination {
             address: "192.0.2.20".into(),
-            description: "Falcon_F16V5_B9F5".into(),
+            description: "Falcon_F16V5_A1B2".into(),
             protocol: protocol.into(),
             channels: 6147,
             start_channel: 1,
@@ -763,7 +763,7 @@ mod tests {
     fn an_fpp_destination_becomes_a_controller_without_ports() {
         let plan = plan_destination_import(&destination("DDP"), &Show::new("t"));
         assert!(plan.can_import && !plan.already_in_show);
-        assert_eq!(plan.controller.name, "Falcon_F16V5_B9F5");
+        assert_eq!(plan.controller.name, "Falcon_F16V5_A1B2");
         assert_eq!(plan.controller.address, "192.0.2.20");
         assert_eq!(plan.controller.protocol, Protocol::Ddp);
         assert!(plan.controller.ports.is_empty() && plan.props.is_empty());
@@ -795,10 +795,10 @@ mod tests {
     fn a_destination_already_in_the_show_is_flagged_and_unnamed_ones_use_the_address() {
         let mut show = Show::new("t");
         show.controllers
-            .push(Controller::new("Falcon_F16V5_B9F5", "192.0.2.20", Protocol::Ddp));
+            .push(Controller::new("Falcon_F16V5_A1B2", "192.0.2.20", Protocol::Ddp));
         let plan = plan_destination_import(&destination("DDP"), &show);
         assert!(plan.already_in_show);
-        assert_eq!(plan.controller.name, "Falcon_F16V5_B9F5 2");
+        assert_eq!(plan.controller.name, "Falcon_F16V5_A1B2 2");
         let unnamed = Destination {
             description: String::new(),
             ..destination("DDP")
@@ -907,7 +907,7 @@ mod tests {
     #[test]
     fn importing_over_a_placeholder_says_it_fills_it_in() {
         let mut show = Show::new("t");
-        let mut placeholder = Controller::new("Falcon_F16V5_B9F5", "192.0.2.20", Protocol::Ddp);
+        let mut placeholder = Controller::new("Falcon_F16V5_A1B2", "192.0.2.20", Protocol::Ddp);
         placeholder.sequence_channels = Some(SequenceChannels {
             start: 1,
             count: 6147,
@@ -916,8 +916,8 @@ mod tests {
         show.controllers.push(placeholder);
         let plan = plan_import(&device(), &config(), &show);
         assert!(!plan.already_in_show);
-        let fills_in = "Fills in Falcon_F16V5_B9F5, added from your FPP's output list.";
-        let idle = "An FPP sends its sequence to Falcon_F16V5_B9F5: while a playlist or sequence is running \
+        let fills_in = "Fills in Falcon_F16V5_A1B2, added from your FPP's output list.";
+        let idle = "An FPP sends its sequence to Falcon_F16V5_A1B2: while a playlist or sequence is running \
                     on that FPP, it overrides PixelFlow's live output, so stop it while using PixelFlow.";
         assert_eq!(plan.notes[plan.notes.len() - 2..], [fills_in, idle]);
 
@@ -967,7 +967,7 @@ mod tests {
         let (fpp, config) = player();
         let mut show = Show::new("t");
         show.controllers
-            .push(Controller::new("Falcon_F16V5_B9F5", "192.0.2.99", Protocol::Ddp));
+            .push(Controller::new("Falcon_F16V5_A1B2", "192.0.2.99", Protocol::Ddp));
         let plan = plan_fpp_setup(&fpp, &config, &show);
         assert!(plan.own.is_none());
         let added: Vec<_> = plan
@@ -985,7 +985,7 @@ mod tests {
             added,
             vec![
                 // Named apart from the show's controller of that name.
-                ("Falcon_F16V5_B9F5 2", "192.0.2.20", Some((1, 6147))),
+                ("Falcon_F16V5_A1B2 2", "192.0.2.20", Some((1, 6147))),
                 ("192.0.2.21", "192.0.2.21", Some((6148, 900))),
             ]
         );
@@ -1013,7 +1013,7 @@ mod tests {
         assert_eq!(again.addresses(), vec!["192.0.2.21"]);
         assert_eq!(
             again.skipped[0].reason,
-            "Already in your show as Falcon_F16V5_B9F5 2."
+            "Already in your show as Falcon_F16V5_A1B2 2."
         );
     }
 

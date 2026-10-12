@@ -57,7 +57,7 @@ describe("progress while music is read", () => {
     await user.click(screen.getByText("Start from a song.").closest("button")!);
     const dialog = screen.getByRole("dialog", { name: "New sequence" });
     await user.click(within(dialog).getByRole("button", { name: "Choose music…" }));
-    expect(await within(dialog).findByText(/Christmas Medley 2017.mp3 · 1:00/)).toBeInTheDocument();
+    expect(await within(dialog).findByText(/Chimes Medley 2020.mp3 · 1:00/)).toBeInTheDocument();
     expect(backend.calls).toContain(`probeAudio:${DEMO_MUSIC}`);
     expect(seen).toEqual([]);
     expect(within(dialog).queryByRole("progressbar")).toBeNull();
@@ -75,7 +75,7 @@ describe("progress while music is read", () => {
     const bar = await within(dialog).findByRole("progressbar", { name: "Reading the music" });
     await waitFor(() => expect(Number(bar.getAttribute("aria-valuenow"))).toBeGreaterThan(0));
     expect(within(dialog).getByRole("button", { name: "Create" })).toBeDisabled();
-    expect(await within(dialog).findByText(/Christmas Medley 2017.mp3 · 1:00/, {}, { timeout: 2000 })).toBeInTheDocument();
+    expect(await within(dialog).findByText(/Chimes Medley 2020.mp3 · 1:00/, {}, { timeout: 2000 })).toBeInTheDocument();
     expect(within(dialog).queryByRole("progressbar")).toBeNull();
     expect(within(dialog).getByRole("button", { name: "Create" })).toBeEnabled();
   });

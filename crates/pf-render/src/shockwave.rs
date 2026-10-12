@@ -75,10 +75,15 @@ impl Shockwave {
         // How far through its travel the ring is: its radius, its width and its color alike.
         let rings = f64::from(p.cycles.max(1));
         let progress = accelerate(time.cycle_position(rings), whole(p.acceleration));
+        // Written this way and no other. Where an edge falls exactly on a cell, the last bit of
+        // this sum decides whether the cell is lit, and the picture is held to which ones are.
         let between = |start: f64, end: f64| start + (end - start) * progress;
 
         // Sizes in cells. In percent, a radius is a share of half the grid's longer side and
-        // keeps its fraction; a width is a share of all of it, in whole cells.
+        // keeps its fraction; a width is a share of all of it, in whole cells. One percent of
+        // the side is worked out first, and is seldom a round number in binary: so a width that
+        // should come to a whole number of cells exactly is now and then a cell less (50 percent
+        // of 58 cells is 28). That is part of the picture too.
         let one_percent = f64::from(columns.max(rows)) / 100.0;
         let radius = |setting: f32| match p.scale {
             true => one_percent * whole(setting) / 2.0,
@@ -89,6 +94,7 @@ impl Shockwave {
             false => whole(setting),
         };
         let at = between(radius(p.start_radius), radius(p.end_radius));
+        // The least width applies to the width of this frame, not to its start and its end.
         let half = between(width(p.start_width), width(p.end_width)).max(THINNEST) / 2.0;
 
         // The center cell: the setting's percent of the number of columns (or rows), rounded

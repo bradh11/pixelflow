@@ -29,7 +29,8 @@ In `place_effects` and `change_effects` the colors are a plain list, `colors`; i
 - 20 to 60 is a glint on a steady look: the cheapest way to make an `on` or a slow wash feel alive.
 - 120 and up is a snowstorm of white. Keep it for peaks and endings, a bar or two at a time.
 - `musicSparkles` makes the count follow the music's loudness, up to `sparkles`: quiet passages glint, loud ones glitter. Set `sparkles` to the most you want at the loudest moment (120 to 200), because quiet music scales it right down. Without music it stays at the steady count.
-- Sparkles go where the effect draws, so a sparse effect sparkles sparsely. For glitter over a whole prop, put them on something that covers the whole prop (an `on`, a `colorWash`).
+- Sparkles go where the effect draws, so a sparse effect sparkles sparsely, and pixels it never reaches never sparkle. For glitter over a whole prop, put them on something that covers the whole prop (an `on`, a `colorWash`).
+- For glitter with nothing under it of its own, use an `on` with its `transparency` at 1: that hides the On but not its sparkles, so the layer is sparkles alone, riding over whatever is below. A fade still dims sparkles with their effect.
 - A curve on `sparkles` builds glitter through a rise: see topic `curves`.
 
 ## Blur

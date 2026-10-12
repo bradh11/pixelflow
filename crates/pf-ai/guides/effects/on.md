@@ -17,7 +17,7 @@ Every pixel lit in the first palette color, at one brightness that can ramp from
 - `gradient`: `none` uses the first color only. `horizontal` spreads the palette left to right, `vertical` bottom to top. With two colors it is a blend from one to the other; with three, through the middle one.
 - `startLevel` and `endLevel`: brightness at the start and at the end of the effect, each from 0 to 1, with a straight ramp between. 1 and 1 is steady. 0 to 1 swells in over the whole effect; 1 to 0 dies away. For a level that does anything other than one straight ramp, leave these at 1 and put a curve on `brightness`.
 - `solid`: when on, a dimmed On still hides the layers under it. Left off (the default), the dimmer it is the more of what is below shows through, so a fading On uncovers the layer beneath rather than fading to black.
-- `transparency`: lets what is below show through whatever the brightness: 0 hides it, 1 shows it all. Around 0.5 it tints the layer under it with its color instead of covering it.
+- `transparency`: lets what is below show through whatever the brightness: 0 hides it, 1 shows it all. Around 0.5 it tints the layer under it with its color instead of covering it. It hides the On but not its sparkles: at 1 with `sparkles` set, the On is a layer of sparkles and nothing else, glittering over whatever is below without tinting or covering it. Give that On any color but black (a black On is unlit, and unlit pixels never sparkle); `sparkleColor` sets the color of the glints.
 - `shimmer`: every other frame is drawn in the second palette color, or dark when there is only one color. It is a very fast flicker (twenty times a second at the usual frame rate), which reads as a buzz or a blend of the two colors, not as a twinkle. Keep it to one small prop for a moment; never the whole house.
 
 ## When to use it
@@ -26,7 +26,7 @@ Every pixel lit in the first palette color, at one brightness that can ramp from
 - A swell or a fade: `startLevel` and `endLevel`, or fades, across a held chord or the last bar.
 - Color blocking: a different solid color on each group for a section, changed at the next. Simple, and it reads from across the street.
 - A two-tone tree or a house washed warm at the bottom and cool at the top: `vertical` gradient on the group.
-- Glitter: On in a dark color with `sparkles` (and `musicSparkles`) turns a plain prop into a field of glints.
+- Glitter: On in a dark color with `sparkles` (and `musicSparkles`) turns a plain prop into a field of glints. To add glitter to a look that is already there, put an On with `transparency` at 1 and `sparkles` on a layer above it: the look stays as it was and sparkles ride over it. It is the one way to sparkle pixels another effect leaves dark, since an effect's own sparkles only show where that effect draws.
 - A beat pulse without another effect: a `timingFade` curve on `brightness` (topic `curves`).
 - Avoid leaving a full-brightness white On under everything: it flattens the show and there is nowhere to go for the big moments. Avoid `shimmer` across large areas.
 
@@ -60,4 +60,10 @@ Every pixel lit in the first palette color, at one brightness that can ramp from
 {"name": "Night sky glitter", "suits": ["matrix", "tree", "house"],
  "note": "Deep blue with white glints that come and go.",
  "effect": {"kind": "on", "colors": ["#001a66"], "sparkles": 60}}
+```
+
+```look
+{"name": "Sparkles alone, over any look", "suits": ["string", "arch", "matrix", "tree", "house"],
+ "note": "Nothing but white glints coming and going across the whole target; whatever is on the layers below shows untouched between them.",
+ "effect": {"kind": "on", "settings": {"transparency": 1}, "colors": ["#ffffff"], "sparkles": 140}}
 ```

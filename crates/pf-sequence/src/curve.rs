@@ -87,7 +87,8 @@ pub const MAX_CURVE_FADE: f32 = 1000.0;
 /// has neither: such curves sit halfway between their values.
 #[derive(Clone, Copy, Default)]
 pub struct CurveInputs<'a> {
-    /// The music's peak in frame `n` (0–1, xLights' `FrameData::max`); `None` without music.
+    /// The music's peak in frame `n` (0–1, xLights' `FrameData::max`, on whichever channel is
+    /// louder); `None` without music.
     pub peak: Option<&'a dyn Fn(u64) -> f32>,
     /// The sequence's frame time (50 ms when 0).
     pub frame_ms: u32,

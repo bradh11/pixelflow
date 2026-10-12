@@ -244,9 +244,9 @@ That is one run of five. The shares move with the random effects, which each imp
 B is mostly fire and circles under short flashes, and three stretches of it sit near the line,
 two of ten seconds under circles that wander at random and eighteen seconds of a tendril that
 does: its share that matches was 72% in two runs and 43%, 57%, and 99% in the others. A has one
-cellular automaton nine minutes long that matched in all five of these runs and was close in one
-of an earlier five, which alone took A from 94% to 76%. Hold a change against several runs
-before and after, effect by effect.
+cellular automaton nine minutes long that matched in all five of these runs and was close in two
+of ten others, which alone takes A from 94% to 76%. Hold a change against several runs before
+and after, effect by effect.
 
 The first scorecards of this corpus (A at 87%, 4%, and 8%; D as seen at 91) are what the first
 two findings below changed.

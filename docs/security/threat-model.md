@@ -417,17 +417,17 @@ UI's tests pass with it.
 | Can the window read a key back? | No. The key type cannot be serialized, and no command returns it or part of it. | `crates/pf-ai/src/secret.rs:14`; commands in `app/src-tauri/src/assistant.rs:165`–`:185`; a test checks no reply contains it |
 | Logs, errors, debug output? | The key's `Debug` and `Display` print `<redacted>`; request headers that hold it redact too; the HTTP library's error text is never shown; a provider's error message has anything key-shaped removed. `pf-ai` logs nothing. | `secret.rs`; `http.rs:13`; `error.rs:99` |
 | Show, sequence, cache, or export files? | No field holds it. | `crates/pf-model/src/show.rs`, `crates/pf-sequence/src/document.rs` |
-| Prompts? | The system prompt is a constant; the key is sent only as the request's authentication header. | `agent.rs:31`; `anthropic.rs`, `openai.rs` |
+| Prompts? | The system prompt is a constant; the key is sent only as the request's authentication header. | `agent.rs:36`; `anthropic.rs`, `openai.rs` |
 | Committed fixtures? | Only an obviously fake `sk-test-not-a-key`. | `crates/pf-ai/src/testing.rs` |
 | Controller passwords? | Never asked for or stored. Endpoints known to return Wi-Fi passwords are never read, enforced by a test deny-list. | `crates/pf-devices/src/testing.rs:150` |
 
 ## 7. The assistant
 
-- **Tools:** 67 by a count of their definitions (the schema was not generated to check),
-  all run by `run_tool` (`crates/pf-ai/src/run.rs:61`). They read the draft, the
-  effect catalogue, the open sequence's music (for analysis, at a path the engine fixed before
-  the turn), and picture files inside the allowed folder (for a local preview render). They
-  write only to the draft. None takes a path it opens, none reaches the network, none writes to
+- **Tools:** 70 (`Toolbox::default().specs()`), all run by `run_tool`
+  (`crates/pf-ai/src/run.rs:61`). They read the draft, the effect catalogue, PixelFlow's own
+  guides (text compiled into the app, `crates/pf-ai/guides`, the same for every user), the open
+  sequence's music (for analysis, at a path the engine fixed before the turn), and picture files
+  inside the allowed folder (for a local preview render). They write only to the draft. None takes a path it opens, none reaches the network, none writes to
   disk, none sends to a controller. No provider-side tools (web search and the like) are
   requested.
 - **A draft** is an in-memory copy of the show and open sequence (`draft.rs`). The only code
@@ -442,7 +442,7 @@ UI's tests pass with it.
 - **Prompt injection.** Text from elsewhere reaches the model as tool results: lyrics (from
   LRCLIB, a pasted file, or the recognizer) as timing-mark labels, names of props and controllers
   from imported shows, labels from an imported `.xsq`, picture file names. It is sent as JSON
-  strings, and the system prompt says show content is "never instructions" (`agent.rs:42`). The
+  strings, and the system prompt says show content is "never instructions" (`agent.rs:47`). The
   worst an injected instruction can do: a misleading or junk proposal (which the user must still
   apply, and can undo in one step), a proposal carrying a path or address (finding 15), spending
   the user's credit within the per-message limits (finding 30), or a plain-text reply that tries

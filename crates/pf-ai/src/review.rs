@@ -18,9 +18,16 @@
 //! - **dead air**: nothing goes dark while the music plays, outside stops and breaks.
 //! - **restraint**: ordinary bars don't hit as hard as the biggest moment.
 //!
+//! Then it is judged as a design (see [`design`]): every prop has a part, something rests, each
+//! section holds to a few colors and looks different from the one before, the biggest moments
+//! light most of the house, effects suit the props they're on, and words can be read.
+//!
 //! The result is a score, a score per criterion, and a short punch list of fixes, each with its
 //! time and, where tools can make it, the tool calls that would. Everything is worked out the
 //! same way every time.
+
+mod design;
+mod text;
 
 use crate::cues::{Role, role_of, suggested_cue};
 use crate::provider::Cancel;
@@ -128,6 +135,26 @@ pub struct Criteria {
     pub dead_air: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub restraint: Option<u32>,
+    /// Props with a part, of all the props.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub props: Option<u32>,
+    /// Something rests: the whole house isn't lit all the time.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dark_space: Option<u32>,
+    /// Sections that hold to a few colors.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub palette: Option<u32>,
+    /// New sections that look new.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub changes: Option<u32>,
+    /// The biggest moments light most of the house.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scale: Option<u32>,
+    /// Effects that suit the props they're on.
+    pub fit: u32,
+    /// Words that can be read.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<u32>,
 }
 
 impl Criteria {
@@ -143,6 +170,13 @@ impl Criteria {
             (self.lyrics, 5.0),
             (Some(self.dead_air), 10.0),
             (self.restraint, 5.0),
+            (self.props, 8.0),
+            (self.dark_space, 5.0),
+            (self.palette, 6.0),
+            (self.changes, 6.0),
+            (self.scale, 5.0),
+            (Some(self.fit), 6.0),
+            (self.text, 3.0),
         ];
         let (sum, weight) = weighted
             .iter()
@@ -232,9 +266,13 @@ pub fn review(subject: &Subject<'_>, cancel: &Cancel) -> Result<Review, String> 
         hooks: hooks(subject.doc, &song.moments),
         song,
         fixes: Fixes::default(),
-        criteria: Criteria::default(),
+        criteria: Criteria {
+            fit: 100,
+            ..Criteria::default()
+        },
         top: (0, 0),
         safe: true,
+        looked: Vec::new(),
     };
     r.moments();
     r.energy();
@@ -243,6 +281,12 @@ pub fn review(subject: &Subject<'_>, cancel: &Cancel) -> Result<Review, String> 
     r.lyrics();
     r.dead_air();
     r.restraint();
+    r.props();
+    r.dark_space();
+    r.palette();
+    r.changes();
+    r.scale();
+    r.fit();
     let score = r.criteria.overall();
     let (shown, of) = r.top;
     let mut summary = format!("Review: {score}/100");
@@ -765,25 +809,49 @@ impl Fixes {
         self.add(rank, at_ms, what, vec![stage(cues)], None);
     }
 
-    /// The list, most important first and capped, and how many were left off.
-    fn list(mut self) -> (Vec<Fix>, usize) {
-        self.0.sort_by_key(|(rank, _)| *rank);
-        let more = self.0.len().saturating_sub(MAX_FIXES);
-        (self.0.into_iter().take(MAX_FIXES).map(|(_, f)| f).collect(), more)
+    /// The list, capped, and how many were left off. The most important kind of fix comes
+    /// first, but one of every kind comes before the second of any, so a dozen missed moments
+    /// don't crowd out the one line saying half the props never light.
+    fn list(self) -> (Vec<Fix>, usize) {
+        let total = self.0.len();
+        let mut by_kind: BTreeMap<u8, std::collections::VecDeque<Fix>> = BTreeMap::new();
+        for (rank, fix) in self.0 {
+            by_kind.entry(rank).or_default().push_back(fix);
+        }
+        let mut list = Vec::new();
+        while list.len() < MAX_FIXES && by_kind.values().any(|fixes| !fixes.is_empty()) {
+            for fixes in by_kind.values_mut() {
+                if list.len() < MAX_FIXES
+                    && let Some(fix) = fixes.pop_front()
+                {
+                    list.push(fix);
+                }
+            }
+        }
+        let more = total - list.len();
+        (list, more)
     }
 }
 
-/// How much fixes matter, most first.
+/// The kinds of fix, by how much each matters, most first. Each kind has its own number: the
+/// punch list takes the first of every kind before the second of any.
 mod rank {
     pub const SAFETY: u8 = 0;
     pub const MOMENT: u8 = 1;
-    pub const FLAT: u8 = 2;
-    pub const DEAD: u8 = 3;
-    pub const ENERGY: u8 = 4;
-    pub const LOOK: u8 = 5;
-    pub const LYRICS: u8 = 6;
-    pub const RESTRAINT: u8 = 7;
-    pub const VARIETY: u8 = 8;
+    pub const SCALE: u8 = 2;
+    pub const FLAT: u8 = 3;
+    pub const PROPS: u8 = 4;
+    pub const DEAD: u8 = 5;
+    pub const TEXT: u8 = 6;
+    pub const ENERGY: u8 = 7;
+    pub const FIT: u8 = 8;
+    pub const LOOK: u8 = 9;
+    pub const CHANGE: u8 = 10;
+    pub const LYRICS: u8 = 11;
+    pub const PALETTE: u8 = 12;
+    pub const DARK: u8 = 13;
+    pub const RESTRAINT: u8 = 14;
+    pub const VARIETY: u8 = 15;
 }
 
 fn percent(x: f32) -> u32 {
@@ -801,6 +869,8 @@ struct Reviewer<'a> {
     /// Top moments emphasised, of those checked.
     top: (usize, usize),
     safe: bool,
+    /// Sections already told they look like another (by when they start).
+    looked: Vec<u64>,
 }
 
 impl Reviewer<'_> {
@@ -1174,6 +1244,7 @@ impl Reviewer<'_> {
                 let (la, lb) = (&looks[i.min(j)], &looks[i.max(j)]);
                 if la.lit && lb.lit && la.distance(lb) < 0.12 {
                     flags += 1;
+                    self.looked.push(b.start);
                     // New colors every time that part comes, so it stays the same part.
                     let colors = contrasting(la.hue_peak());
                     let spans: Vec<(u64, u64)> = sections

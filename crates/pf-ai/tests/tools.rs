@@ -926,4 +926,35 @@ fn settings_a_shape_or_effect_doesnt_have_are_refused_by_name() {
     let mut plain = serde_json::to_value(controller(&rich_prop())).unwrap();
     plain.as_object_mut().unwrap().retain(|_, v| !v.is_null());
     assert!(show_edit("addController", &json!({ "controller": plain })).is_ok());
+
+    // So is spelling out a setting at its neutral value, which isn't written back either: the
+    // name is still one the edit has.
+    let mut spelled = effect.clone();
+    for (key, neutral) in [
+        ("brightness", json!(1)),
+        ("contrast", json!(0)),
+        ("hueAdjust", json!(0.0)),
+        ("renderStyle", json!("default")),
+        ("bufferTransform", json!("none")),
+        ("curves", json!({})),
+    ] {
+        spelled[key] = neutral;
+    }
+    spelled["curves"] = json!({ "speed": { "shape": "ramp", "from": 0, "to": 2, "cycles": 1, "gain": 0 } });
+    let input = json!({ "row": pf_sequence::RowId::new(), "layer": 0, "effect": spelled });
+    assert_eq!(sequence_edit("addEffect", &input).map(|_| ()), Ok(()));
+    // But a name the effect doesn't have is refused wherever it is, also beside those.
+    let mut wrong = input.clone();
+    wrong["effect"]["curves"]["speed"]["cycle"] = json!(2);
+    wrong["effect"]["glow"] = json!(3);
+    let err = sequence_edit("addEffect", &wrong).unwrap_err();
+    assert!(
+        err.contains("effect.curves.speed.cycle")
+            && err.contains("effect.glow")
+            && !err.contains("brightness"),
+        "{err}"
+    );
+    let mut own = serde_json::to_value(rich_prop()).unwrap();
+    own["ownLayout"] = json!({ "kind": "shape" });
+    assert_eq!(show_edit("addProp", &json!({ "prop": own })).map(|_| ()), Ok(()));
 }

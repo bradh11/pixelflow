@@ -52,9 +52,9 @@ description.
 
 | Category | Files | Where |
 |---|---|---|
-| Direct port (the whole file, or most of it) | 33 | 15 effects in `pf-render`; 7 files in `pf-xlights` (model geometry and value curves); 10 shape generators in `pf-geometry`; `app/src/lib/geometry.ts` |
+| Direct port (the whole file, or most of it) | 33 | 14 effects and the two timing rules they share (`carried.rs`) in `pf-render`; 7 files in `pf-xlights` (model geometry and value curves); 10 shape generators in `pf-geometry`; `app/src/lib/geometry.ts` |
 | Mixed: a direct-port function group inside an otherwise independent file | 12 | 10 in `pf-render` (text, raster, blur, color, geometry, styles, sparkles, effects, adjust, picture/resample); `pf-xlights/src/geometry.rs`; `pf-sequence/src/curve.rs` |
-| Behaviour-matching | 29 | effect default tables, the model-to-shape converter, the mouth-shape table, controller tables, Pinwheel (rebuilt from a description of its behaviour), and smaller pieces |
+| Behaviour-matching | 30 | effect default tables, the model-to-shape converter, the mouth-shape table, controller tables, Pinwheel and Shockwave (rebuilt from descriptions of their behaviour), and smaller pieces |
 | Format reading only | 27 | the rest of the xLights importer, the FPP REST client, the `.fseq` reader |
 | Independent | the rest | including the engine, output, audio analysis, the assistant, camera mapping, video export, the desktop shell, and nearly all of the UI |
 
@@ -62,7 +62,7 @@ Approximate implementation lines by category, for the crates with the most:
 
 | Crate | Impl lines | Direct port | Behaviour-matching | Format reading | Independent |
 |---|---|---|---|---|---|
-| `pf-render` (45 files) | about 15,500 | about 5,000 | about 600 | 0 | about 9,900 |
+| `pf-render` (46 files) | about 15,600 | about 4,900 | about 700 | 0 | about 10,000 |
 | `pf-xlights`, `pf-sequence`, `pf-model` (53 files) | about 23,100 | about 3,400 | about 5,800 | about 5,600 | about 8,300 |
 | `pf-geometry` (17 files) | about 1,620 | about 900 | about 330 | 0 | about 400 |
 | `app/src/lib/geometry.ts` | 691 | 691 | | | |
@@ -72,16 +72,16 @@ roughly 9,000 to 10,000 of those, and are concentrated in three places: the effe
 xLights effect's name, the model geometry (where each pixel of an imported prop sits), and value
 curves.
 
-**The renderer.** About a third of `pf-render`'s implementation lines follow xLights source. Fifteen
+**The renderer.** About a third of `pf-render`'s implementation lines follow xLights source. Fourteen
 effects (Plasma, Morph, Tendril, Snowflakes, Garlands, Circles, Fan, Butterfly, Life,
-Lines, Shape, VU Meter, Shockwave, Fill, and Fire's flickering flames) are ports of the xLights
+Lines, Shape, VU Meter, Fill, and Fire's flickering flames) are ports of the xLights
 effect of the same name: 80 to 95% of each
 file, except Circles and Life, where about half is ported and the rest is PixelFlow's own
 arrangement of xLights' constants or the ordinary algorithm. So are the pieces every layer passes through: line and circle drawing, blur, the xLights layer
 blend modes and HSV conversion, sparkles, a layer's color adjustments, submodel and group buffer
 layout, and Text's movement.
-Pinwheel was a sixteenth until it was rebuilt from a description of its behaviour; it is now
-listed under behaviour-matching.
+Pinwheel and Shockwave were among them until each was rebuilt from a description of its
+behaviour; they are now listed under behaviour-matching.
 The rest is PixelFlow's own: the render pipeline, the picture loader, the closed-form
 effects in `effects.rs` (On, Color Wash, Fade, Chase, Bars, Wave, Twinkle, Shimmer, Strobe,
 Spiral, Meteors, Ripple, and Fire's rolling flames), and Wipe, Impact, Pulse, Sing, Color Shift,
@@ -123,7 +123,6 @@ Except where a row says so, these files have no test module, so impl equals tota
 | `lines.rs` | 204 | `effects/LinesEffect.cpp`; `RenderBuffer.cpp` `DrawThickLine`, `DrawLine` | about 90% | Bounce tests in the same order, trail trimming, alpha `255*i/size`. | **S** |
 | `life.rs` | 132 | `effects/LifeEffect.cpp`; `ispc/LifeFunctions.ispc` | about 50% (likely) | Seeding count `W*H*density/200 + 1`, pacing, the five rule sets in order. The generation step is ordinary Game of Life. | **S** |
 | `garlands.rs` | 89 | `effects/GarlandsEffect.cpp` `Render`; `ispc/GarlandsFunctions.ispc` | about 90% | Spacing, direction folding, ring position step for step; four swag patterns. | **S** |
-| `shockwave.rs` | 236 (impl 75, with a test module) | `effects/ShockwaveEffect.cpp` `Render`, read at tag `2024.19` (defaults from `master`) | about 90% | Radius and width worked out in the same order (`/ 200` and `/ 100` when scaled, the 0.25 least half-width), the whole-cell center `x * width / 100`, the palette blend by position, and the `255 × (1 − off / half)` edge fade. | **S** |
 | `fill.rs` | 315 (impl 116, with a test module) | `effects/FillEffect.cpp` (`Render`, `UpdateFillColor`, `GetColorFromPosition`), read at tag `2024.19` | about 90% | The four directions' loops with their targets in xLights' arithmetic (truncated), the offset as cells or `(size − 1) × offset / 100`, the palette position `line / (size + offset − 1)`, and the band and gap counter. One loop serves each pair of directions. | **S** |
 | `fire.rs` | 382 (impl 158, with a test module) | `effects/FireEffect.cpp` (`Render`, `FirePaletteClass`), read at tag `2024.19` | about 90% | The edge row seeded `190 + rand % 10` and `100 + rand % 50` in turn, the mean of the row before with the cell straight behind counted twice, the one-in-five step of `255 * 100 / height / percent`, the 200-shade palette (hue step `0.00166666`), the hue shift stopped at 1, `10 + 90 × peak` for the music, and the four locations. Random numbers come from the effect's seed and the frame rather than `rand()`. | **S** |
 
@@ -137,7 +136,8 @@ Except where a row says so, these files have no test module, so impl equals tota
 | `color.rs` | 617 (377) | `effects/ispc/LayerBlendingFunctions.ispc` | about 165 | `to_hsv` and `from_hsv` (both `1e-20` epsilons), and 16 blend arms branch for branch (`/ 5.0` shadow, `/ 2.0` shadow below). Normal, Add, Max, Multiply, and coverage are PixelFlow's. | **S** |
 | `raster.rs` | 340 (269) | `render/RenderBuffer.cpp` (`SetPixel`, `DrawLine`, `DrawThickLine`, `DrawCircle`, `DrawFadingCircle`) | about 150 | The gap-filling thick line case for case, the eight-point circle, and the `> width` wrap quirk (asserted by a test). The underlying algorithms are textbook. | **S** |
 | `blur.rs` | 577 (420) | `render/PixelBuffer.cpp` (`boxesForGauss`, `gaussBlur_4`, `Blur`) | about 130 | The box-size table and the thresholds that pick a blur. The box passes are organised differently. | **S** |
-| `effects.rs` | 1,169 (1,169) | `RenderBuffer.cpp` `calcAccel`, `GetEffectTimeIntervalPosition`; `ShapeEffect.cpp` music trigger | about 63 | Three small helpers. The effects themselves are closed-form and PixelFlow's (see the note on what was compared, below). | **S** |
+| `carried.rs` | 36 (36) | `RenderBuffer.cpp` `calcAccel`, `GetEffectTimeIntervalPosition` | about 25 | The two timing rules nine effects share (where an effect is in its cycle, and acceleration), kept apart from the effects that call them until they are replaced. | **S** |
+| `effects.rs` | 1,169 (1,169) | `ShapeEffect.cpp` music trigger | about 35 | One small helper. The effects themselves are closed-form and PixelFlow's (see the note on what was compared, below). | **S** |
 | `picture/resample.rs` | 458 (279) | wxWidgets `src/common/image.cpp` (`wxImage::Scale`, `ResampleNearest`, `ResampleBilinear`, `ShrinkBy`), read at tags `xlights_2024.06` to `xlights_2026.02` of xLights' wxWidgets (wxWindows Library Licence 3.1); xLights `effects/PicturesEffect.cpp` | about 45 | The two oldest ways xLights resized a picture: the `(old << 16) / new` stride from the corner, and the `(old − 1) / (new − 1)` placing with the two nearest pixels mixed, colour and alpha each on its own; which applies when (shrinking, a whole-number shrink). PixelFlow's own averaging and the rest of the file are independent. | **S** |
 | `adjust.rs` | 247 (98) | `render/PixelBuffer.cpp` (`GetMixedColor`, `LayerInfo::calculateNodeOutputParams`), read at tag `2024.19` | about 60 | The order (hue, saturation, and value before the sparkles; brightness and contrast after), the hue wrap and the clamps, contrast's split at a value of 0.5 after brightness, and an unlit pixel counting as black on a layer that isn't blended Normal. | **S** |
 | `sparkles.rs` | 119 (60) | `LayerBlendingFunctions.ispc` `ApplySparkles`; `PixelBuffer.cpp` | about 25 | `% (208 - count)`, the brightness steps 0.53 / 0.75 / 1.0, phase `% 10000`. | **S** |
@@ -204,6 +204,7 @@ of the same name does.
 
 | PixelFlow file | Lines (impl) | Source it draws on | What was taken | Clean-room |
 |---|---|---|---|---|
+| `crates/pf-render/src/shockwave.rs` | 326 (222) | A written description of what the effect shows ([../dev/effect-specs/shockwave.md](../dev/effect-specs/shockwave.md)), measured from frames the earlier port of `effects/ShockwaveEffect.cpp` drew and checked against frames xLights itself rendered | What a setting's number means in cells and frames, to the cell and the frame: whole-cell sizes and centre, percent of the longer side, the half-cell least width, the soft edge in 255ths, the palette by progress. It calls the two timing rules in `carried.rs`, which are still carried-over code. No code or structure was carried over: a pixel off the ring is answered from two whole numbers worked out once a frame. See "Rebuilt from a description of its behaviour". | done |
 | `crates/pf-render/src/pinwheel.rs` | 989 (764) | A written description of what the effect shows ([../dev/effect-specs/pinwheel.md](../dev/effect-specs/pinwheel.md)), drawn up from the earlier port of `effects/PinwheelEffect.cpp` and `ispc/PinwheelFunctions.ispc`; and frames xLights itself rendered | About 200 lines carry what an import relies on: where the first arm points and which way arms are numbered in each style, 20 degrees a second for each unit of speed, which palette colour each arm takes, what an arm length of 100 reaches, and, for the older "spokes" style, where xLights' light falls as measured in its frames (whole-degree rays, marks half a cell apart, shading by ray). No code, formula, or structure was carried over: directions are whole-number steps of a turn, each pixel is answered from its own place, and nothing is drawn into a buffer. See "Rebuilt from a description of its behaviour". | done |
 | `crates/pf-xlights/src/sequence/effects.rs` | 3,564 (2,158) | The static defaults, ranges, and divisors in `effects/*Effect.cpp`; each effect's `adjustSettings` | A translator PixelFlow organised itself. The setting key names are format. The per-key defaults, ranges, divisors, and slider-to-behaviour conversions are more than format: 136 of 138 numeric defaults and 92 of 93 ranges compared are identical to the `.cpp` statics. About 137 numeric keys, 41 choice keys with their value lists, 61 checkbox keys, 18 divisors, for 31 effects. | **M** |
 | `crates/pf-sequence/src/effect.rs` | 2,884 (2,754) | The same statics | About 1,070 lines: the settings (defaults and ranges) of 14 effects mirror xLights', as do the choice lists (44 VU Meter types, 18 VU shapes, 15 Shape objects, 10 tendril movements) and the names of 16 blend modes. The other effects' settings, and the file's structure, are PixelFlow's. | **M** |
@@ -340,6 +341,17 @@ independently and shares no code with the old one or with xLights, and it is lis
 behaviour-matching, not independent, because the conventions it keeps reached it by way of a
 description drawn up from the port. Whether that makes it free of xLights' licence is the same
 legal question as for every other row, and this inventory doesn't answer it.
+
+Shockwave followed, with the method tightened so that the output stays the same. Its description
+was measured, not read: the old effect was drawn through the renderer's public interface across
+its settings, sizes and times, every rounding was pinned (with the measured cases kept as numbers
+where no rule could be stated), and the result was checked against xLights' frames. The new file,
+written from that description alone, reproduced every measured number at the first attempt. Drawn
+side by side with the old file on 303,780,289 frames it is the same to the bit on every buffer a
+show can have; the only difference is on a single row of 439,804,673 cells or more, where the old
+centre overflowed. It is listed as behaviour-matching for the same reason as Pinwheel, and it
+still calls the two shared timing rules in `carried.rs`, which are carried-over code until they
+are replaced in turn.
 
 Attribute names, setting keys, choice strings, value-curve keys, phoneme names, and the values
 xLights assumes when a key is missing from a file are needed to read its files at all, however

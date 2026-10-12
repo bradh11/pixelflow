@@ -668,7 +668,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let job = job(dir.path(), None);
         let out = dir.path().join("Song.mp4");
+        // Dots wide enough for their color to come through the encoder.
         let big = VideoOptions {
+            width: 320,
+            height: 192,
             pixel_size: 4.0,
             glow: 0.0,
             ..options()

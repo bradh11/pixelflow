@@ -11,6 +11,7 @@ mod curves;
 mod effects;
 pub mod look;
 mod settings;
+mod whole;
 mod xsq;
 
 pub use settings::{ParsedPalette, Settings, leading_number, parse_palette, unxml_safe};
@@ -1154,6 +1155,16 @@ fn build(file: &XsqFile, show: &Show, fallback_name: &str, mapping: Option<&Mapp
         }
     }
     b.summary.rows = sequence.rows.len();
+
+    // Settings xLights shows in whole numbers, now that the timing tracks their curves follow
+    // are all there.
+    let tracks = &sequence.timing_tracks;
+    let mut reads = whole::MOST_READS;
+    for layer in sequence.rows.iter_mut().flat_map(|row| &mut row.layers) {
+        for effect in &mut layer.effects {
+            whole::whole_settings(effect, frame_ms, tracks, &mut reads);
+        }
+    }
 
     // Notes, most important first.
     (b.summary.look, b.summary.look_ms) = b.tally.counts();

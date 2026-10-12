@@ -44,9 +44,29 @@ The repository has three parts, each with its own tests:
 | The window (React, TypeScript) | `app/src/` | from `app/`: `pnpm typecheck`, `pnpm test`, `pnpm build` |
 
 CI runs exactly those, on Linux and Windows for the engine and on macOS and Windows for the app,
-and must pass before a change is merged. Two more workflows run on every push and pull request:
-a scan for committed secrets, and a check of the dependencies against the advisory databases
-(`make audit`).
+and must pass before a change is merged. A third job, on Linux, holds the xLights import to the
+fidelity corpus (`crates/pf-fidelity/corpus`, below). Two more workflows run on every push and
+pull request: a scan for committed secrets, and a check of the dependencies against the advisory
+databases (`make audit`).
+
+**The fidelity corpus** is a made-up xLights show and three short sequences kept in the
+repository, and CI holds imports to it two ways ([docs/fidelity.md](docs/fidelity.md), "The
+corpus in CI"):
+
+- *What PixelFlow draws for it*, held to a fingerprint (`corpus/fingerprint.json`): any change to
+  how an xLights sequence is imported or drawn that shows on the lights fails it, on every
+  system (`cargo test -p pf-fidelity --test corpus` runs it too). A change meant to do that is
+  accepted with `cargo run --release -p pf-fidelity -- fingerprint --accept`, and the new
+  fingerprint is committed with it.
+- *How the imports look next to xLights' own renders*, held to a baseline
+  (`corpus/baseline.json`): an effect whose look falls by more than the margin, or whose verdict
+  gets worse, fails it. An import made better on purpose is accepted with `cargo run --release
+  -p pf-fidelity -- regress --accept`. Until the references are rendered in xLights
+  (`corpus/README.md`), this check passes and says that nothing was held against xLights.
+
+The corpus's files are written by `crates/pf-fidelity/src/madeup.rs`
+(`cargo run -p pf-fidelity -- corpus-files`), never by hand, and hold nothing from a real show:
+no third-party sequence, music, picture, layout, or shader, and no name from anyone's display.
 
 Some files are generated and committed. A test fails when one is stale, and says how to
 regenerate it:
@@ -102,7 +122,8 @@ An effect has four parts, and a pull request that adds one brings all four:
    them: anything a person can do by hand, the Assistant can draft.
 4. **Its import from xLights**, if xLights has an effect it should stand in for
    (`crates/pf-xlights/src/sequence/effects.rs`), judged by whether the import looks the same
-   ([docs/fidelity.md](docs/fidelity.md)).
+   ([docs/fidelity.md](docs/fidelity.md)). A kind xLights shows often belongs in the fidelity
+   corpus too: add it to `madeup.rs`, and ask the maintainer to render the references again.
 
 Then regenerate the effect catalog (above), and run the scale benchmark if the effect may be
 slow on a large display ([docs/benchmarks.md](docs/benchmarks.md)).

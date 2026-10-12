@@ -16,13 +16,14 @@ use crate::playback::{
 };
 use crate::recovery::{self, SequenceRecovery};
 use crate::sequence_doc::{self, OpenSequence, SequenceEdit, SequenceEditResult, SequenceSnapshot};
+use crate::shaders::ShaderFiles;
 use crate::snapshot::{PreviewProp, ShowSnapshot, Summary};
 use pf_mapping::ChannelMap;
 use pf_model::{SequenceId, Severity, Show, ValidationReport, path_from_text, path_to_text};
 use pf_output::{OutputSettings, Transport, UdpTransport};
 use pf_patterns::{Target, TargetRange, resolve_target};
 use pf_render::export::{ExportLayout, ExportSummary};
-use pf_render::{AudioSource, Pictures, Renderer, follows_music};
+use pf_render::{AudioSource, Pictures, Renderer, Shaders, follows_music};
 use pf_sequence::Sequence;
 use std::collections::{HashMap, HashSet};
 use std::io;
@@ -126,6 +127,9 @@ pub struct Engine {
     /// renderers draw them (see [`PictureFiles`]).
     picture_files: Arc<PictureFiles>,
     pictures: Pictures,
+    /// Where the show's shader files are and which may be read (see [`ShaderFiles`]). The
+    /// shaders themselves, as renderers run them, go with `pictures`.
+    shader_files: Arc<ShaderFiles>,
     /// The open sequence's pictures the last check found can't be drawn, by what their effects
     /// store. Snapshots read this, never the disk (see [`Engine::sequence_picture_check`]).
     pictures_missing: Vec<(String, MissingFile)>,
@@ -265,6 +269,8 @@ impl Engine {
     pub fn new(data_dir: impl Into<PathBuf>) -> Self {
         let picture_files = Arc::new(PictureFiles::default());
         let reader = Arc::clone(&picture_files);
+        let shader_files = Arc::new(ShaderFiles::default());
+        let shader_reader = Arc::clone(&shader_files);
         Self {
             show: Show::new("Untitled Show"),
             path: None,
@@ -303,8 +309,10 @@ impl Engine {
                 .map(PathBuf::from)
                 .filter(|p| p.is_absolute()),
             audio: Arc::default(),
-            pictures: Pictures::new(move |file| reader.read(file)),
+            pictures: Pictures::new(move |file| reader.read(file))
+                .with_shaders(Shaders::new(move |file| shader_reader.read(file))),
             picture_files,
+            shader_files,
             pictures_missing: Vec::new(),
             pictures_read_for: None,
         }
@@ -1271,14 +1279,40 @@ impl Engine {
         Arc::clone(&self.picture_files)
     }
 
-    /// The show's folder changed (saved somewhere else, or another show): pictures stored
-    /// relative to it are other files now.
+    /// The show's folder changed (saved somewhere else, or another show): pictures and shader
+    /// files stored relative to it are other files now.
     fn show_folder_changed(&mut self) {
         if self.picture_files.set_folder(self.show_folder()) {
             self.pictures.clear();
             self.pictures_missing.clear();
             self.pictures_read_for = None;
         }
+        if self.shader_files.set_folder(self.show_folder()) {
+            self.pictures.shaders().clear();
+        }
+    }
+
+    // --- Shader files the open sequence's Shader effects run -----------------------------------
+
+    /// The show's shader files for rendering: each is read and compiled the first time it's
+    /// drawn, on a thread of its own. They go wherever [`Engine::pictures`] go, so there is no
+    /// need to hand them to a renderer that has those.
+    pub fn shaders(&self) -> Shaders {
+        self.pictures.shaders()
+    }
+
+    /// Where the show's shader files are and which may be read (see [`ShaderFiles`]). Reading
+    /// and copying go through it without holding the engine.
+    pub fn shader_files(&self) -> Arc<ShaderFiles> {
+        Arc::clone(&self.shader_files)
+    }
+
+    /// Why the open sequence's Shader effect `effect` drew nothing the last time it was drawn,
+    /// if it was stopped for doing more than a shader may (reads nothing).
+    pub fn shader_stopped(&self, effect: pf_sequence::EffectId) -> Option<String> {
+        self.shaders()
+            .stopped(effect.seed())
+            .map(|stopped| stopped.message())
     }
 
     /// Which of the open sequence's pictures are there, copied out to run without holding the

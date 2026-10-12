@@ -24,6 +24,7 @@ mod pictures;
 mod playback;
 mod recovery;
 mod sequence_doc;
+mod shaders;
 mod snapshot;
 
 pub use audio::{AudioTracks, TrackProgress};
@@ -54,5 +55,8 @@ pub use recovery::SequenceRecovery;
 pub use sequence_doc::{
     PlacedEffect, SequenceChanges, SequenceEdit, SequenceEditResult, SequenceInfo, SequenceSnapshot,
     load_sequence, save_sequence_atomic,
+};
+pub use shaders::{
+    MAX_SHADER_BYTES, SHADER_EXTENSIONS, SHADERS_FOLDER, ShaderFiles, list_shaders, read_shader_file,
 };
 pub use snapshot::{PreviewProp, ShowSnapshot, Summary};

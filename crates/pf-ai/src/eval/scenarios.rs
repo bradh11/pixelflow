@@ -442,16 +442,27 @@ fn sing_along(run: &Run<'_>, m: &Measures) -> Vec<Check> {
         .filter(|line| covered(run.after, EffectKind::Text, run.stage.matrix, ***line) > 0)
         .count();
     let text = m.review.as_ref().and_then(|r| r.criteria.text);
+    // Most lines sung (three in four), and words for every chorus line but one at most.
+    let (most_lines, most_chorus) = (
+        (lines.len() * 3).div_ceil(4).max(1),
+        chorus_lines.len().saturating_sub(1).max(1),
+    );
     vec![
         proposes(m),
         check(
-            "The Singing Face sings most of the lines (6 of 8 or more)",
-            sung >= 6,
+            &format!(
+                "The Singing Face sings most of the lines ({most_lines} of {} or more)",
+                lines.len()
+            ),
+            sung >= most_lines,
             format!("{sung} of {}", lines.len()),
         ),
         check(
-            "Words are on the Matrix while the chorus lines are sung (3 of 4 or more)",
-            shown >= 3,
+            &format!(
+                "Words are on the Matrix while the chorus lines are sung, the last chorus's too ({most_chorus} of {} or more)",
+                chorus_lines.len()
+            ),
+            shown >= most_chorus,
             format!("{shown} of {}", chorus_lines.len()),
         ),
         check(

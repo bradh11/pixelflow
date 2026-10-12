@@ -27,7 +27,8 @@ would send it, with the Assistant's real instructions, tools, and guides:
 The display is `pf_ai::stage`: a roofline, two windows, a 40×20 matrix, a mega tree with a star,
 four arches, candy canes, and a singing face, with three groups. The song is "Paper Lanterns",
 96 seconds at 120 beats a minute, whose sections, loudness, and moments (a build, a drop, a stop
-before the last chorus) are written by hand in the same file, as are its eight lines of words.
+before the last chorus) are written by hand in the same file, as are its ten lines of words
+(two in each verse and each chorus, the last chorus too).
 No audio is analyzed: `analyze_song` is answered with that hand-written analysis.
 
 ## How an answer is scored
@@ -41,8 +42,10 @@ No audio is analyzed: `analyze_song` is answered with that hand-written analysis
   verses are against the choruses.
 - **Checks for the request itself**: the skeletons are skeletons and are on the matrix for the
   first chorus; the rest of the song was left alone; a recolor kept every effect where it was;
-  the words can be read; a question was answered without changing anything; a small job took few
-  steps; the method guide was read before the first effect was placed.
+  the words of every chorus are up as they are sung, and can be read (by the review's rule: 300
+  ms and 60 ms a letter); a build's second bar is brighter, or lights more props, than its
+  first; a question was answered without changing anything; a small job took few steps; the
+  method guide was read before the first effect was placed.
 - **What it took**: model requests, tool calls by name, tool calls refused (with the reason),
   guides read, the size of everything sent and received, and (on a real run) the tokens the
   provider billed and what they cost.

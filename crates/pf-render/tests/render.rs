@@ -1299,6 +1299,105 @@ fn drawn(renderer: &mut Renderer, seq: &Sequence) -> Vec<Vec<u8>> {
         .collect()
 }
 
+/// Two groups, each of a small matrix and a line well away from it, so that each group's grid has
+/// gaps between its pixels: the props of the first, then of the second.
+fn gappy_groups() -> Show {
+    let mut show = Show::new("t");
+    for (n, x) in [0.0, 20.0].into_iter().enumerate() {
+        let mut matrix = Prop::new(
+            format!("Matrix {n}"),
+            ShapeSource::Generator(Generator::Matrix {
+                columns: 12,
+                rows: 10,
+                width: 1.2,
+                height: 1.0,
+                wiring: pf_model::MatrixWiring::default(),
+            }),
+        );
+        matrix.transform.position = Vec3::new(x, 0.0, 0.0);
+        show.props.push(matrix);
+        show.props.push(line(&format!("Line {n}"), 20, x + 6.0));
+        let mut group = Group::new(format!("Group {n}"));
+        let members = &show.props[show.props.len() - 2..];
+        group.members = members.iter().map(|p| p.id.into()).collect();
+        show.groups.push(group);
+    }
+    show
+}
+
+/// Blurred effects on the second of [`gappy_groups`] all the way through, under blends that ask
+/// whether a pixel is lit and with color adjustments that light unlit ones; and, while
+/// `earlier` says (its start, end, and how bright), a blurred effect on the first group.
+fn after_another_blur(show: &Show, earlier: Option<(u64, u64, u8)>) -> Sequence {
+    let mut seq = Sequence::new("s", 3000);
+    if let Some((start, end, level)) = earlier {
+        let mut plasma = Effect::new(EffectKind::Plasma, start, end)
+            .with_palette([Rgb::new(level, 40, level), Rgb::new(0, level, 90)]);
+        plasma.blur = 9;
+        plasma.curves.insert("blur".into(), Curve::ramp(3.0, 12.0));
+        seq.rows
+            .push(row(Target::Group(show.groups[0].id), vec![vec![plasma]]));
+    }
+    let blends = [
+        Blend::Over,
+        Blend::Reveal,
+        Blend::Mask,
+        Blend::Average,
+        Blend::Behind,
+        Blend::Highlight,
+        Blend::Clip,
+        Blend::Subtract,
+    ];
+    let mut layers = vec![vec![on(Rgb::new(30, 0, 60), 0, 3000)]];
+    for (n, blend) in blends.into_iter().enumerate() {
+        let kind = [EffectKind::Plasma, EffectKind::Butterfly, EffectKind::Bars][n % 3];
+        let mut effect = Effect::new(kind, 0, 3000).with_palette([Rgb::RED, Rgb::BLACK, Rgb::BLUE]);
+        effect.blend = blend;
+        effect.blur = 4 + n as u32;
+        effect.value_adjust = if n % 2 == 0 { 0.2 } else { 0.0 };
+        layers.push(vec![effect]);
+    }
+    seq.rows.push(row(Target::Group(show.groups[1].id), layers));
+    seq
+}
+
+#[test]
+fn a_blurred_effect_draws_the_same_whatever_was_blurred_before_it() {
+    // What one blur leaves in the blurs' shared working space never shows in another's pixels:
+    // the second group's pixels are the same bytes whether or not the first group's blurred
+    // effect played before them (in this frame or in earlier ones), however bright it was, and
+    // whether the frame was played up to or jumped to.
+    let show = gappy_groups();
+    let first = show.props[0].node_count() + show.props[1].node_count();
+    let second = |frame: &[u8]| frame[3 * first as usize..].to_vec();
+    let played = |seq: &Sequence, frames: u64| {
+        let mut r = renderer(&show);
+        let mut frame = vec![0; r.frame_len()];
+        (0..frames)
+            .map(|i| {
+                r.render_frame(seq, i, &mut frame);
+                second(&frame)
+            })
+            .collect::<Vec<_>>()
+    };
+    let frames = 40;
+    let alone = played(&after_another_blur(&show, None), frames);
+    assert!(alone.windows(2).all(|w| w[0] != w[1]), "it moves");
+    for earlier in [(0, 1000, 255), (0, 1000, 254), (0, 3000, 255), (0, 3000, 254)] {
+        let seq = after_another_blur(&show, Some(earlier));
+        assert!(played(&seq, frames) == alone, "after {earlier:?}");
+        let mut jumped = renderer(&show);
+        let mut frame = vec![0; jumped.frame_len()];
+        for i in [frames - 1, 25, 3] {
+            jumped.render_frame(&seq, i, &mut frame);
+            assert!(
+                second(&frame) == alone[i as usize],
+                "after {earlier:?}, jumped to {i}"
+            );
+        }
+    }
+}
+
 #[test]
 fn a_frame_is_the_same_bytes_on_any_number_of_threads_and_tiles() {
     let show = tiled_show();

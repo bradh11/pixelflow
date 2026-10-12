@@ -133,7 +133,7 @@ few threads kept for the purpose draw it. A frame is drawn in four steps
 | --- | --- | --- |
 | Plan | Finds the rows and effects playing at this moment, the buffer each draws on, and which tiles each row has pixels in | The thread that asked |
 | Make ready | For each effect: its settings at this moment, its shader, and for a blurred effect its colors on the buffer's grid, blurred there when the grid is all pixels | Every effect at once |
-| Blur in turn | The blurs of grids with gaps between their pixels (a group's, a line's) | One blur after another, a large one's passes shared out |
+| Blur in turn | The blurs of grids with gaps between their pixels (a group's, a line's), which share one working space | One blur after another, a large one's passes shared out |
 | Draw | For each tile of the show: every row with pixels there, in the sequence's order, its layers mixed from the bottom up and the row laid over the frame; then the tile's bytes | Every tile at once |
 
 - **Tiles.** The show's pixels are cut into runs of up to 2,048: a large prop into several, small
@@ -167,40 +167,47 @@ few threads kept for the purpose draw it. A frame is drawn in four steps
 A frame is the same bytes however many threads draw it, and the same as the renderer drew on one
 thread before it used more. Each pixel goes through the same arithmetic in the same order
 whichever thread draws its tile; the effects made ready at the same time don't look at one
-another; and the one thing that does depend on order, blur, keeps its order.
+another; and the blurs that take turns in one working space don't see what one another left
+there ([below](#a-blur-depends-on-its-own-effect-alone)).
 
 Three things check it:
 
 - `crates/pf-bench/tests/render_threads.rs` draws the typical and worst-case sequences, and a
-  third with [a little of everything](#the-sequences) in it, on 1, 2, 4, and as many threads as
-  the machine would use, with the show cut into tiles of 3, 61, and a million pixels, and three
-  renderers drawing at the same moment, and compares every byte of every frame. It runs in CI.
-- `pf-bench --digest` prints a hash of every frame of five sequences at any tier. The renderer as
-  it was on one thread and as it is now print the same twenty hashes for 3,000, 20,000, 100,000,
-  and 200,000 pixels, on 1, 2, 4, 5, and 12 threads. A digest belongs to the machine it was made
-  on (the system's sines and cosines differ in their last bit from one system to another), so it
-  compares builds, not machines.
+  third with [a little of everything](#the-sequences) in it, on 1, 2, 4, 8, and as many threads
+  as the machine would use, with the show cut into tiles of 3, 61, and a million pixels, and three
+  renderers drawing at the same moment, and compares every byte of every frame. It also draws
+  every fifth frame of each again with a renderer that has drawn nothing before it, as a jump
+  does, and compares it with the frame played up to. It runs in CI.
+- `pf-bench --digest` prints a hash of every frame of five sequences at any tier. When frames
+  were first shared out, the renderer as it was on one thread and as it was then printed the same
+  twenty hashes for 3,000, 20,000, 100,000, and 200,000 pixels, on 1, 2, 4, 5, and 12 threads
+  (the change [below](#a-blur-depends-on-its-own-effect-alone) since moved some of the worst
+  case's and the varied sequence's frames, and so their hashes). A digest belongs to the machine
+  it was made on (the system's sines and cosines differ in their last bit from one system to
+  another), so it compares builds, not machines.
 - A corpus of imported xLights sequences scores the same on the [fidelity](fidelity.md)
   scorecard to every digit, before and after, with the ids an import makes up held fixed for
   the comparison (they seed effects, so two runs of one build score a little differently
   without that).
 
-**Blur is the reason one step is done in turn.** A blur works in a space shared by all of them.
-For a grid that is all pixels (a matrix, a tree) it writes every cell it reads, and what the
-space held before doesn't matter: those blurs run at the same time, each in a space of its own,
-and what each left is copied into the shared one afterwards. A grid with gaps (a group's, a
-line's) is blurred only near its pixels, and each sum takes in, with the cells just past the ends
-of each run, whatever the blur before left there. In exact arithmetic that goes out again as the
-sum moves on; in floating point a trace stays in its last decimal place. Most of the time that
-never reaches a byte. But a few things that are drawn after a blur ask a yes-or-no question of a
-color (is this pixel lit at all?), and those turn a trace into a pixel on or off. So today's
-frames depend on the order blurs were done in, back to when the renderer was made, and the
-renderer keeps that order rather than draw different frames.
+#### A blur depends on its own effect alone
 
-That dependence is older than this change, and it is a flaw: a frame reached by a jump can differ
-from the same frame reached by playing, in the pixels of blurred effects on grids with gaps.
-Twenty frames over the first five seconds of each sequence, drawn after playing up to them and
-again by a renderer made for that frame alone, on the renderer as it was:
+**Why one step is done in turn.** A blur of a grid that is all pixels (a matrix, a tree) works
+in a space of its own, as large as the grid, and those blurs run at the same time when their
+effects are made ready. A grid with gaps (a group's, a line's) can be many times larger than the
+cells near its pixels, which are all it blurs; those blurs share one working space, as large as
+the largest, and take turns in it.
+
+**What they used to leave each other.** Each sum along a run of cells near the pixels takes in
+the cells just past the run's ends, which aren't near a pixel and which the blur never writes.
+They held whatever an earlier blur left there: another effect's, in this frame or any frame
+before it. In exact arithmetic that goes out of the sum again before it reaches a pixel; in
+floating point a trace stays in its last bits. A few things drawn after a blur ask a yes-or-no
+question of a color (is this pixel lit?), and those turned a trace into a pixel on or off, or a
+blend of two layers into one of them. So a frame depended on blurred effects that weren't in it,
+and a frame reached by a jump could differ from the same frame reached by playing. Twenty frames
+over the first five seconds of each sequence, drawn after playing up to them and again by a
+renderer made for that frame alone, on the renderer as it was:
 
 | Tier | Typical | Worst case | Varied | Varied, blur off |
 | --- | --- | --- | --- | --- |
@@ -208,12 +215,37 @@ again by a renderer made for that frame alone, on the renderer as it was:
 | 100k | the same | the same | 4 frames differ, in 582 bytes of 6,000,000 | the same |
 | 200k | the same | the same | 5 frames differ, in 2,317 bytes of 12,000,000 | the same |
 
-Where a byte differs it can differ by its whole range (245 to 255 at each tier): a pixel lit one
-way and dark the other. The varied sequence is built to find such things (every blend on every
-kind of buffer); the other two, which are closer to what a show does, don't show it in these
-frames. Clearing the cells a blur reads past its runs would make every frame depend on the
-document alone and let every blur run at once, at the price of changing those pixels once. It has
-not been done here: this change draws the frames the renderer drew before, bit for bit.
+Where a byte differed it could differ by its whole range (245 to 255 at each tier). Nothing in
+xLights works this way: it blurs each layer's whole buffer, every cell of which the effect drew.
+Nor did the traces bring PixelFlow nearer xLights' frames: a corpus of seven imported xLights
+sequences scores the same on the [fidelity](fidelity.md) look score before and after, within
+what one build's runs vary by (three runs of each, nine of the sequence with the most effects:
+96.87 before and 96.85 after on average, its runs ranging 96.66 to 96.96 and 96.74 to 97.10), and
+no effect's score in any of them moves outside the range of its runs.
+
+**Now** a blur first clears those cells, the ones its sums read past each run's ends and no
+others, so it works as it would in a clear space (`blur_near` in `crates/pf-render/src/blur.rs`).
+A blurred effect's pixels depend on what that effect drew and nothing else, and a frame on its
+own effects and the moment. Nothing is allocated for it, and the blurs of grids that are all
+pixels, whose runs have no ends but the grid's edges, draw exactly what they drew before. A frame
+every quarter of a second over the first 20 seconds of each sequence at 20k, and every half
+second over the first 10 at 200k, jumped to, is now the frame played up to in every sequence;
+before, 20 of the 240 varied frames checked at 20k differed, and 5 of 60 at 200k.
+
+Frames that changed, played from the start (20k: 800 frames of each sequence; 200k: 400):
+
+| Tier | Typical | Worst case | Varied, rows cover | Varied, rows blend | Varied, rows replace |
+| --- | --- | --- | --- | --- | --- |
+| 20k | none | 2, in 4 bytes, each by one level | 114, in 65,304 bytes | 52, in 27,702 bytes | 49, in 66,720 bytes |
+| 200k | none | 23, in 98 bytes, each by one level | 42, in 13,291 bytes | 4, in 57 bytes | 8, in 7,102 bytes |
+
+About four bytes in five that changed changed by one level; the rest are pixels whose yes-or-no
+question now gets the answer the effect alone gives it (by up to 222 levels). Rendering takes as
+long as it did (flat out, the median of three runs each way, in milliseconds a frame before and
+after: 20k typical 0.35 and 0.36, worst case 0.62 and 0.62; 200k typical 1.22 and 1.22, worst
+case 3.83 and 3.90, where single runs ranged over 3.83 to 3.92 before and 3.81 to 3.92 after). The blurs done in turn take less, as
+there is no longer anything to copy between them: at 200k 0.017 ms to 0.000 (typical) and 0.038 ms
+to 0.019 (worst case).
 
 ### Where sharing a frame out starts to pay
 
@@ -1093,13 +1125,12 @@ What is left, in rough order of what it would buy:
    are threads waiting their turn behind other programs: a worst-case run dropped nothing one
    time and 61 frames the next on one thread, and a frame shared out waits on several. Playback
    of a show should not lose to a compiler.
-5. **Make a blur independent of the blurs before it.** A blur on a grid with gaps takes in what
-   the last blur left in their shared working space
-   ([above](#the-same-frames-on-any-number-of-threads)), so a frame reached by a jump can differ
-   from the same frame reached by playing, and those blurs have to be done one after another.
-   Clearing the cells past each run first would make a frame depend on the document alone and
-   let every blur be made ready at once. It changes some pixels of some blurred effects, once,
-   which is why it was not done with a change that had to draw the same frames.
+5. **Make every blur ready at once.** A blur no longer depends on the blurs before it
+   ([above](#a-blur-depends-on-its-own-effect-alone)), so the blurs of grids with gaps take turns
+   only because they share one working space, as large as the largest grid. A space for each
+   that holds only the cells near its pixels, rather than the whole grid's worth, would let them
+   be blurred with their effects, at the same time. At 200k they are 0.019 ms of a worst-case
+   frame, so this is worth doing only if they grow.
 6. **Give an export more threads than playback has.** Flat out, twelve threads draw the worst
    case 6.7 times as fast as one and four 3.7 times. `Renderer::set_pool` is there for it; what
    else is running during an export is the question.

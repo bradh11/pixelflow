@@ -63,6 +63,27 @@ engine edit, so a new edit becomes a tool by itself.
 
 Filled in as each lands; the commit that closes a gap adds its line here.
 
+- **Seeing every effect.** `list_effect_kinds` without a kind now answers every kind with its
+  settings' keys (it fits); with a kind, that kind in full, as before.
+- **Knowing what things do.** `get_guide` answers a guide for any effect kind or topic: see
+  [assistant-guides.md](assistant-guides.md). Every effect's reference (each setting's range,
+  default, choices, and what the code's own comments say of it) is generated from the catalog.
+- **Everything an effect has, in `place_effects`.** Its `effect` now takes sparkles, sparkle
+  color, music sparkles, blur, the five color adjustments, render style, turn or flip, and curves,
+  by the same names the document uses (`crates/pf-ai/src/effect_spec.rs`).
+- **Timing tracks by name.** In `place_effects`, a `timingTrack` setting or a curve's
+  `timingTrack` may be a track's name ("Beats"); it is drafted as the id.
+- **Refusals that teach.** A setting the kind doesn't have is answered with the settings it does
+  have; a number out of range with its range and default; a wrong choice with the choices; a curve
+  on something curves can't drive with what they can; a track that isn't there with the tracks
+  that are.
+- **A false refusal fixed.** `sequence_add_effect` (and every other generated tool) refused an
+  input that spelled out a setting at its neutral value (`"brightness": 1`, `"renderStyle":
+  "default"`, `"curves": {}`), calling it a setting PixelFlow doesn't know. Those names are now
+  checked against the edit's schema.
+- **Budgets.** `sequence_add_effect` went from 7,960 to about 4,950 of its 8,000 bytes: what each
+  blend and curve shape does moved to the guides, generated from the same comments.
+
 ## Still out of reach
 
 By design (these stay behind the person's own clicks, and no test should ever let them in):

@@ -84,6 +84,7 @@ pub fn run_tool(toolbox: &Toolbox, call: &ToolCall, draft: &mut Draft, song: &mu
             },
             Err(e) => err(e),
         },
+        ToolKind::Guide => crate::knowledge::answer(input).map_or_else(err, ok),
         ToolKind::AnalyzeSong => match song.analysis(draft) {
             Ok(analysis) => {
                 let user = draft.base().sequence.as_ref().map(|s| &s.doc);
@@ -224,13 +225,28 @@ fn run_query(query: Query, input: &Value, draft: &Draft) -> Outcome {
         Query::Selection => ok(selection(draft)),
         Query::EffectKinds => {
             let mut catalog = pf_sequence::effect_catalog();
-            if let Some(kind) = input["kind"].as_str() {
-                catalog.retain(|info| serde_json::to_value(info.kind).is_ok_and(|k| k == kind));
-                if catalog.is_empty() {
-                    return err(
-                        "There's no effect kind by that name. list_effect_kinds without a kind lists them all.",
-                    );
-                }
+            let Some(kind) = input["kind"].as_str() else {
+                // Every kind in full is more than one answer holds: each one's settings by key.
+                let kinds: Vec<Value> = catalog
+                    .iter()
+                    .map(|info| {
+                        json!({
+                            "kind": info.kind,
+                            "label": info.label,
+                            "description": info.description,
+                            "settings": info.settings.iter().map(|s| s.key).collect::<Vec<_>>(),
+                        })
+                    })
+                    .collect();
+                return ok(to_json(&kinds));
+            };
+            catalog.retain(|info| serde_json::to_value(info.kind).is_ok_and(|k| k == kind));
+            if catalog.is_empty() {
+                return err(format!(
+                    "There's no effect kind \"{}\". The kinds: {}.",
+                    kind.chars().take(40).collect::<String>(),
+                    crate::knowledge::reference::kind_keys().join(", ")
+                ));
             }
             ok(to_json(&catalog))
         }

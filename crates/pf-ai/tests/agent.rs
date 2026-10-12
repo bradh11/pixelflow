@@ -648,7 +648,13 @@ fn the_prompt_says_to_act_on_defaults_and_stays_short() {
     assert!(prompt.contains("picture effects on matrices, file one of get_open_sequence's pictures"));
     // It's sent with every request: new rules come out of what's there. Guidance for using tools
     // is said here once rather than in each tool's description (see `tool_definitions_stay_small`).
-    assert!(prompt.len() <= 5_300, "{} bytes", prompt.len());
+    assert!(
+        prompt.len() <= pf_ai::agent::INSTRUCTIONS_BUDGET_BYTES,
+        "the instructions are {} bytes, over their budget of {}: what the Assistant needs to know about effects and design goes in the guides it fetches (crates/pf-ai/guides), not here",
+        prompt.len(),
+        pf_ai::agent::INSTRUCTIONS_BUDGET_BYTES
+    );
+    assert!(prompt.contains("get_guide"));
 }
 
 #[test]

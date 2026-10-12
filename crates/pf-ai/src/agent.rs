@@ -26,6 +26,11 @@ pub const MAX_MESSAGE_CHARS: usize = 8_000;
 /// Output tokens per reply (well within every current model's limit; replies stream).
 pub const MAX_OUTPUT_TOKENS: u32 = 32_000;
 
+/// The most the standing instructions may weigh (bytes). They ride along with every request;
+/// what the Assistant needs to know about effects and design is in the guides it fetches
+/// ([`crate::knowledge`]), not here.
+pub const INSTRUCTIONS_BUDGET_BYTES: usize = 5_300;
+
 /// The assistant's standing instructions. Never changes within a chat (what the user is
 /// looking at goes into each message instead), so providers can cache it.
 pub const SYSTEM_PROMPT: &str = "You are the assistant inside PixelFlow, a desktop app for designing Christmas light shows: props (strings of addressable pixels shaped as lines, arches, trees, matrices, ...) placed in a layout, wired to controllers, grouped, and brought to life by sequences of timed effects.
@@ -56,7 +61,7 @@ Making a sequence: work like a lighting designer.
 - place_effects: match on a lyrics track finds its words (on a syllables track, the syllables in them); spread is together, alternate, sweep, or build. The Moments track labels each moment (\"Shout: word\"); Drums marks kicks, snares, and crashes.
 - When analyze_song says sectionsFrom or accentsFrom \"user\", those are the user's own marks: follow them. Before the user sees your proposal, PixelFlow moves new effect edges within a beat onto the nearest section start, moment, accent, sung word, bar, or beat, so aim close.
 
-Units: positions and sizes are layout units (+X right, +Y up, +Z toward the viewer); times are milliseconds; colors are \"#rrggbb\". Effect settings are listed by list_effect_kinds.
+Units: positions and sizes are layout units (+X right, +Y up, +Z toward the viewer); times are milliseconds; colors are \"#rrggbb\". Read an effect's guide (get_guide) before you use it.
 
 Write for someone who knows their display but not software: short, plain sentences, no ids or JSON in what you tell them.";
 
@@ -147,6 +152,7 @@ fn activity(name: &str) -> String {
         "list_playlist" => "Looking at your playlist".into(),
         "get_selection" => "Looking at what you selected".into(),
         "list_effect_kinds" => "Looking at the effects".into(),
+        "get_guide" => "Reading the guides".into(),
         "ask_for_song" => "Asking for a song".into(),
         "analyze_song" => "Listening to the song".into(),
         "add_song_timing" => "Drafting: song timing".into(),

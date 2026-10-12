@@ -46,6 +46,43 @@ pub const CUES: [&str; 14] = [
     "dance",
 ];
 
+/// What each cue stages, in [`CUES`]' order: said once, to the `stage_cue` tool's description
+/// and to the `cues` guide.
+pub const CUE_NOTES: [(&str, &str); 14] = [
+    (
+        "hit",
+        "½ beat dark, then a punch decaying 1-2 beats (strobe and lightning when intensity ≥0.85)",
+    ),
+    ("blackout", "off until `until`, then a hit"),
+    (
+        "ramp",
+        "brighter, faster, hotter each bar to until; ends on a hit at an impact (or hit:true)",
+    ),
+    ("sweep", "a wipe across the layout"),
+    (
+        "chase",
+        "props flash one by one in layout order on track marks (else drum hits, else eighths)",
+    ),
+    (
+        "call_response",
+        "targets and with (else left and right halves) alternate on track marks (else bars)",
+    ),
+    (
+        "word_pop",
+        "a pop on each sung word matching match (a moment's word); ≥0.85 pops everything and sets faces singing",
+    ),
+    ("sing", "talking props sing"),
+    ("minimal", "a few props breathe dimly, the rest dark"),
+    ("full", "meters, spirals, chases, bass pulses"),
+    ("sustain", "hold, then fade out"),
+    ("color_shift", "to colors, travelling across"),
+    ("breathe", "a pulse with the bass, or on track"),
+    (
+        "dance",
+        "a dancing character (match: skeleton, ghost, witch, santa, snowman, elf) on each matrix, pairs facing each other",
+    ),
+];
+
 /// The characters a dance cue's `match` takes: the Dancer effect's.
 pub const CHARACTERS: [&str; 6] = ["skeleton", "ghost", "witch", "santa", "snowman", "elf"];
 

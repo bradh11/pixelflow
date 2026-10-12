@@ -19,9 +19,11 @@ pub mod arrange;
 pub mod cues;
 pub mod diff;
 pub mod draft;
+pub mod effect_spec;
 pub mod error;
 pub mod http;
 pub mod keys;
+pub mod knowledge;
 pub mod lyrics;
 pub mod openai;
 pub mod provider;
@@ -33,6 +35,8 @@ pub mod sse;
 pub mod summary;
 pub mod tools;
 
+#[cfg(any(test, feature = "test-fixtures"))]
+pub mod stage;
 #[cfg(any(test, feature = "test-fixtures"))]
 pub mod testing;
 

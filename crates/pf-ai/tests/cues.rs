@@ -455,14 +455,60 @@ fn a_ramp_climbs_bar_by_bar_and_lands_on_the_drop() {
     )
     .unwrap();
     let added = staged(&d);
-    // Two bars, two steps: outlines and arches chase faster, the rest pulse on the beats higher.
-    let roof: Vec<f64> = on(&added, "Left Roof")
-        .iter()
+    // Two bars, two steps. Every prop goes dark under the build (whatever the look below was
+    // doing), and they join from the middle out: the tree and its neighbours in the first bar,
+    // the arches out at the sides in the second.
+    for prop in PROPS {
+        let dark: Vec<&Added> = on(&added, prop)
+            .into_iter()
+            .filter(|a| a.effect.kind() == EffectKind::Off)
+            .collect();
+        assert_eq!(dark.len(), 1, "{prop}");
+        assert_eq!(
+            (dark[0].effect.start_ms, dark[0].effect.end_ms, dark[0].layer),
+            (4_000, 8_000, 1)
+        );
+    }
+    let joining = |at: u64| {
+        added
+            .iter()
+            .filter(|a| a.layer == 2 && a.effect.start_ms == at)
+            .filter(|a| matches!(a.effect.kind(), EffectKind::Chase | EffectKind::Pulse))
+            .count()
+    };
+    assert_eq!((joining(4_000), joining(6_000)), (5, 7));
+    let joins = |prop: &str| {
+        on(&added, prop)
+            .iter()
+            .filter(|a| a.layer == 2)
+            .map(|a| a.effect.start_ms)
+            .min()
+    };
+    assert_eq!(joins("Mega Tree"), Some(4_000));
+    // A pair either side of the middle joins together.
+    assert_eq!(joins("Left Roof"), joins("Right Roof"));
+    assert_eq!(
+        (joins("Left Arch"), joins("Right Arch")),
+        (Some(6_000), Some(6_000))
+    );
+    let arch: Vec<&Added> = on(&added, "Left Arch")
+        .into_iter()
         .filter(|a| a.effect.kind() == EffectKind::Chase)
-        .map(|a| params(&a.effect)["speed"].as_f64().unwrap())
         .collect();
-    assert_eq!(roof.len(), 2);
-    assert!(roof[1] > roof[0], "{roof:?}");
+    assert_eq!(arch.len(), 1);
+    assert_eq!(arch[0].effect.brightness, 1.0);
+    // Outlines and arches chase faster and brighter each bar, the rest pulse on the beats higher.
+    for prop in PROPS {
+        let chases: Vec<&Added> = on(&added, prop)
+            .into_iter()
+            .filter(|a| a.effect.kind() == EffectKind::Chase)
+            .collect();
+        if let [first, second] = chases[..] {
+            let speed = |a: &Added| params(&a.effect)["speed"].as_f64().unwrap();
+            assert!(speed(second) > speed(first), "{prop}");
+            assert!(second.effect.brightness > first.effect.brightness, "{prop}");
+        }
+    }
     let tree: Vec<&Added> = on(&added, "Mega Tree")
         .into_iter()
         .filter(|a| a.effect.kind() == EffectKind::Pulse)

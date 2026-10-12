@@ -62,6 +62,7 @@ pf-xlights = { path = "crates/pf-xlights" }
 pf-audio = { path = "crates/pf-audio" }
 pf-sequence = { path = "crates/pf-sequence" }
 pf-render = { path = "crates/pf-render" }
+pf-shader = { path = "crates/pf-shader" }
 pf-analysis = { path = "crates/pf-analysis" }
 pf-camera-map = { path = "crates/pf-camera-map" }
 pf-lexicon = { path = "crates/pf-lexicon" }

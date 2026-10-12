@@ -43,17 +43,17 @@ pub(crate) struct Grid {
     near: Vec<(usize, Near)>,
 }
 
-/// What a blur does with its working space (the two grids' worth [`blur_near`] works in).
+/// How much of its working space (the two grids' worth [`blur_near`] works in) a blur uses.
+/// Whatever the space held before, the blur's pixels come out the same.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Working {
-    /// Nothing: there is nothing to blur.
+    /// None: there is nothing to blur.
     Untouched,
-    /// It writes all of both grids and reads only what it wrote, so what the space held before
-    /// doesn't matter, and it can be blurred in any space and what it leaves copied over.
+    /// All of it: every cell is near a pixel (a matrix's grid, a tree's).
     Filled,
-    /// It writes the cells near the pixels and, past the ends of each run of them, reads what
-    /// was there before: it has to be blurred in the space the blurs before it used.
-    Read,
+    /// Only the cells near the pixels, on a grid with gaps between its pixels (a group's, a
+    /// line's), which can be far larger than they are.
+    Gaps,
 }
 
 /// The cells within some reach of a pixel: the only cells a blur that far needs to draw and blur
@@ -168,10 +168,9 @@ impl Grid {
             return Working::Untouched;
         }
         match self.near(amount) {
-            // Every cell is blurred: each is written before it's read, in both of the space's
-            // grids, and no sum starts or ends anywhere but at the grid's edge.
+            // Every cell is blurred.
             Some(near) if near.cells.len() == total => Working::Filled,
-            _ => Working::Read,
+            _ => Working::Gaps,
         }
     }
 
@@ -284,6 +283,8 @@ fn boxes_for_gauss(d: u32) -> [usize; 3] {
 
 type Px = [f32; 4];
 
+const CLEAR: Px = [0.0; 4];
+
 fn to_px(c: Rgba, premultiplied: bool) -> Px {
     let k = if premultiplied { c.a } else { 1.0 };
     [c.r * k, c.g * k, c.b * k, c.a]
@@ -352,6 +353,14 @@ pub(crate) fn blur(
 /// [`blur`], worked out only at the `near` cells (the grid's [`Grid::near_pixels`] for the same
 /// amount) when given: the pixels come out the same, and the other cells are left as they were.
 ///
+/// What `scratch` held before never shows: the pixels come out as they would in a space that was
+/// clear. A sum along a run of near cells takes in the cells just past the run's ends, which
+/// aren't near a pixel and which nothing here writes. In exact arithmetic their colors would go
+/// out of the sum again before it reached a pixel; in floating point they would leave a trace in
+/// its last bits, and a pixel would depend on what an earlier blur, of another effect or in
+/// another frame, left in the space. So those cells, and only those, are cleared first, and the
+/// pixels depend on the near cells of `cells` alone.
+///
 /// With `turned` (more working space), the passes over a large grid are shared out among the
 /// threads of the pool this is called in. Every run of cells is still summed from its start to
 /// its end by one thread, so the cells, and what's left in `scratch`, are the same to the last
@@ -386,12 +395,22 @@ pub(crate) fn blur_near(
         }
     };
     // Two grids' worth of working space: the grid, and a pass's output. Cells away from the
-    // pixels keep whatever they held; their colors never reach a pixel.
+    // pixels keep whatever they held, and a pixel's color is never worked out from them.
     let total = cells.len();
     if scratch.len() < 2 * total {
         scratch.resize(2 * total, [0.0; 4]);
     }
     let (grid, pass) = scratch[..2 * total].split_at_mut(total);
+    let gauss = amount > 2 && columns > 6 && rows > 6;
+    if gauss {
+        // The sums read past the ends of their runs, as far as the widest box reaches: those
+        // cells are cleared, in the grid each pass reads (see above). Any that are near a pixel
+        // (in the next run along) are written afresh below; nothing writes the rest after this.
+        let reach = boxes_for_gauss(amount - 1).map(|size| (size - 1) / 2);
+        let reach = reach.into_iter().max().unwrap_or(0);
+        clear_past_runs(grid, &near.across, columns, reach, |row, x| row * columns + x);
+        clear_past_runs(pass, &near.up, rows, reach, |column, y| y * columns + column);
+    }
     // Shared out among threads only when there's another grid's worth of space to do it in, and
     // enough cells to be worth it.
     let turned = turned.filter(|_| near.cells.len() >= SHARE_FROM_CELLS);
@@ -406,7 +425,7 @@ pub(crate) fn blur_near(
             out[c as usize - at] = to_px(source[c as usize], premultiplied);
         }
     });
-    let blurred = if amount > 2 && columns > 6 && rows > 6 {
+    let blurred = if gauss {
         let mut turned = turned;
         if let Some(turned) = &mut turned
             && turned.len() < total
@@ -474,6 +493,25 @@ pub(crate) fn blur_near(
             out[c as usize - at] = from_px(blurred[c as usize], premultiplied);
         }
     });
+}
+
+/// Clears the `reach` cells (or as many as there are) past each end of each run of cells in
+/// `runs` (line, first, last) along lines `len` cells long; `place` is where a line's cell is in
+/// `space`.
+fn clear_past_runs(
+    space: &mut [Px],
+    runs: &[(u32, u32, u32)],
+    len: usize,
+    reach: usize,
+    place: impl Fn(usize, usize) -> usize,
+) {
+    for &(line, first, last) in runs {
+        let (line, first, last) = (line as usize, first as usize, last as usize);
+        let after = last + 1..(last + 1 + reach).min(len);
+        for i in (first.saturating_sub(reach)..first).chain(after) {
+            space[place(line, i)] = CLEAR;
+        }
+    }
 }
 
 fn add(sum: &mut Px, px: Px, k: f32) {
@@ -732,6 +770,80 @@ mod tests {
                     close(a.r, b.r) && close(a.g, b.g) && close(a.b, b.b) && close(a.a, b.a),
                     "blur {amount}, cell {cell}: {a:?} vs {b:?}"
                 );
+            }
+        }
+    }
+
+    #[test]
+    fn a_blur_owes_nothing_to_the_blurs_before_it_in_its_working_space() {
+        // A grid with gaps between its pixels (two short lines far apart, as a group's), blurred
+        // in a working space that's fresh, that another blur used, and that the same blur of
+        // colors one level dimmer used: its cells come out the same to the last bit.
+        let (columns, rows) = (64, 40);
+        let pixels: Vec<u32> = (10..30)
+            .map(|x| (8 * columns + x) as u32)
+            .chain((20..50).map(|x| (30 * columns + x) as u32))
+            .collect();
+        let drawn = |level: f32| -> Vec<Rgba> {
+            (0..columns * rows)
+                .map(|c| {
+                    let x = (c % columns) as f32;
+                    Rgba::new(
+                        level * (x * 0.37).sin().abs(),
+                        0.6,
+                        level * 0.3,
+                        (x * 0.11).cos().abs(),
+                    )
+                })
+                .collect()
+        };
+        for amount in [2, 3, 5, 9, 15] {
+            let mut grid = Grid {
+                columns,
+                rows,
+                cell_of: pixels.clone(),
+                cells: Vec::new(),
+                near: Vec::new(),
+            };
+            let near = grid.near_pixels(amount).clone();
+            assert!(near.cells.len() < columns * rows);
+            for premultiplied in [false, true] {
+                let blurred = |space: &mut Vec<Px>| {
+                    let mut cells = drawn(1.0);
+                    let mut turned = Vec::new();
+                    blur_near(
+                        &mut cells,
+                        columns,
+                        rows,
+                        amount,
+                        premultiplied,
+                        space,
+                        Some(&near),
+                        Some(&mut turned),
+                    );
+                    pixels
+                        .iter()
+                        .map(|&c| cells[c as usize])
+                        .map(|c| [c.r, c.g, c.b, c.a].map(f32::to_bits))
+                        .collect::<Vec<_>>()
+                };
+                let fresh = blurred(&mut Vec::new());
+                // What an earlier blur of large, bright cells everywhere left behind.
+                let after = |level: f32| {
+                    let mut space = Vec::new();
+                    let mut earlier: Vec<Rgba> = drawn(level)
+                        .iter()
+                        .map(|c| Rgba::new(c.r * 900.0, 7.0, 3.0, 1.0))
+                        .collect();
+                    blur(&mut earlier, columns, rows, 9, true, &mut space);
+                    blurred(&mut space)
+                };
+                for level in [1.0, 254.0 / 255.0] {
+                    assert!(
+                        after(level) == fresh,
+                        "blur {amount}, premultiplied {premultiplied}, after a blur at level {level}"
+                    );
+                }
             }
         }
     }

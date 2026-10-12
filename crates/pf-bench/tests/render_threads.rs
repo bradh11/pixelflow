@@ -73,7 +73,7 @@ fn assert_same(name: &str, how: &str, frames: &[u64], drawn: &[Vec<u8>], referen
     for ((index, frame), wanted) in frames.iter().zip(drawn).zip(reference) {
         if let Some(at) = frame.iter().zip(wanted).position(|(a, b)| a != b) {
             panic!(
-                "{name}, {how}: frame {index} differs from the one drawn on one thread, first at byte {at} ({} for {})",
+                "{name}, {how}: frame {index} differs from the reference, first at byte {at} ({} for {})",
                 frame[at], wanted[at]
             );
         }
@@ -84,9 +84,10 @@ fn assert_same(name: &str, how: &str, frames: &[u64], drawn: &[Vec<u8>], referen
 #[test]
 fn frames_are_the_same_on_one_thread_and_on_many() {
     let frames = frames();
-    // As many as the engine would use on this machine, and at least three.
-    let most = default_threads().max(3);
-    let pools: Vec<Arc<RenderPool>> = [2, 4, most]
+    // Two, four, eight, and as many as the engine would use on this machine.
+    let mut counts = vec![2, 4, 8, default_threads().max(3)];
+    counts.dedup();
+    let pools: Vec<Arc<RenderPool>> = counts
         .into_iter()
         .map(|threads| RenderPool::new(threads).expect("threads to draw on"))
         .collect();
@@ -167,6 +168,23 @@ fn the_same_frames_drawn_at_once_are_the_same() {
         for (n, drawn) in drawn.iter().enumerate() {
             let how = format!("drawn at once ({n})");
             assert_same(&name, &how, &frames, drawn, &reference);
+        }
+    }
+}
+
+#[test]
+fn a_frame_jumped_to_is_the_frame_played_up_to() {
+    // Played from the start, then every fifth frame drawn by a renderer that has drawn nothing
+    // before it: with blurs on every kind of grid among them, the same bytes.
+    for (name, renderer, seq) in everything() {
+        let played: Vec<u64> = (0..seq.frame_count()).collect();
+        let mut one = renderer();
+        let reference = draw(&mut one, &seq, &played);
+        for jump in played.iter().copied().step_by(5) {
+            let mut fresh = renderer();
+            let drawn = draw(&mut fresh, &seq, &[jump]);
+            let wanted = &reference[jump as usize..=jump as usize];
+            assert_same(&name, "jumped to", &[jump], &drawn, wanted);
         }
     }
 }

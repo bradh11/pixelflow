@@ -10,9 +10,9 @@
 //!    settings at this moment, its shader (the effects that carry on from the frame before move
 //!    on a frame, each behind a lock of its own), and for a blurred effect its colors on the
 //!    buffer's grid, blurred there when the grid is all pixels. No effect looks at another here.
-//! 3. **Blur in turn** (one blur after another, a large one's passes shared out). A blur of a
-//!    grid with gaps between its pixels reads what the blurs before it left in their working
-//!    space, so those are done in the sequence's order, as they always were (see `Scene::blur`).
+//! 3. **Blur in turn** (one blur after another, a large one's passes shared out). The blurs of
+//!    grids with gaps between their pixels share one working space, as large as the largest
+//!    grid's, so they take turns in it; none sees what another left there (see `Scene::blur`).
 //! 4. **Draw** (every tile at once). The show's pixels are cut into tiles (see `tiles.rs`). For
 //!    each tile, each row with pixels there is drawn in the sequence's order: it starts clear (or
 //!    from what the rows before left), its effects are mixed in from the bottom layer up, and
@@ -119,7 +119,7 @@ pub struct Renderer {
     /// first time a blurred effect draws on it, like the buffers).
     grids: Vec<Grid>,
     grid_ids: HashMap<(u32, usize), u32>,
-    /// The blurs' working space, used by every blurred effect in turn (see `Scene::blur`).
+    /// The working space the blurs of grids with gaps share (see `Scene::blur`).
     blur_space: BlurSpace,
     /// The frame being built, one entry per show pixel.
     show_acc: Vec<Acc>,
@@ -679,8 +679,8 @@ struct Blurred {
     grid: u32,
     /// By how much (xLights' Blur setting).
     amount: u32,
-    /// What the blur does with its working space, which decides when it's blurred (see
-    /// `Scene::blur`).
+    /// How much of its working space the blur uses, which decides where and when it's blurred
+    /// (see `Scene::blur`).
     working: Working,
 }
 
@@ -696,8 +696,8 @@ struct Unit {
     halves: Halves,
     /// A blurred effect's color in each cell of its grid.
     cells: Vec<Rgba>,
-    /// The working space of a blur that fills it ([`Working::Filled`]), as the blur left it, and
-    /// more for its passes to be shared out among threads.
+    /// The working space of a blur that fills it ([`Working::Filled`]), and more for its passes
+    /// to be shared out among threads.
     working: Vec<[f32; 4]>,
     turned: Vec<[f32; 4]>,
     /// A Faces effect's lit pixels, until its shader takes them.
@@ -822,37 +822,14 @@ struct RowSpace {
     part: Vec<Acc>,
 }
 
-/// The blurs' working space.
+/// The working space the blurs of grids with gaps share, one after another (see `Scene::blur`),
+/// kept from frame to frame. What it held never shows: only its memory is kept.
 #[derive(Debug, Clone, Default)]
 struct BlurSpace {
-    /// Two grids' worth, which every blur works in. What one blur leaves here the next ones take
-    /// in (see `Scene::blur`), so there is one of these, never emptied.
+    /// Two grids' worth, the largest grid's.
     grids: Vec<[f32; 4]>,
-    /// A third grid's worth, for a pass shared out among threads. What it held never shows.
+    /// A third grid's worth, for a pass shared out among threads.
     turned: Vec<[f32; 4]>,
-    /// The blurs that worked in a space of their own and whose leavings aren't in `grids` yet,
-    /// in the order they're drawn: the unit, and how much of the start of its space it filled.
-    left: Vec<(usize, usize)>,
-}
-
-impl BlurSpace {
-    /// Takes in what the blurs in `left` left in their own spaces, as if each had worked here in
-    /// turn. Each filled the start of the space, so what's left of one is what the ones after it
-    /// didn't cover.
-    fn take_in(&mut self, units: &[Unit]) {
-        let most = self.left.iter().map(|&(_, filled)| filled).max().unwrap_or(0);
-        if self.grids.len() < most {
-            self.grids.resize(most, [0.0; 4]);
-        }
-        let mut covered = 0;
-        for &(unit, filled) in self.left.iter().rev() {
-            if filled > covered {
-                self.grids[covered..filled].copy_from_slice(&units[unit].working[covered..filled]);
-                covered = filled;
-            }
-        }
-        self.left.clear();
-    }
 }
 
 /// Working space the threads drawing a frame borrow and give back. What it holds from one use
@@ -889,9 +866,9 @@ impl Workspace {
 pub struct FrameTimes {
     /// Working out what the frame draws.
     pub plan: Duration,
-    /// Making its effects ready, with the blurs that don't have to wait their turn.
+    /// Making its effects ready, with the blurs of grids that are all pixels.
     pub ready: Duration,
-    /// The blurs that have to be done in turn.
+    /// The blurs of grids with gaps, which take turns in one working space.
     pub blur: Duration,
     /// Drawing the tiles and writing their bytes.
     pub tiles: Duration,
@@ -1097,8 +1074,7 @@ impl Scene<'_> {
                 cells: &mut unit.cells,
                 shared,
             });
-            // A blur that fills its working space needn't wait its turn (see `blur`): it's
-            // blurred here, in a space of its own.
+            // A grid that's all pixels is blurred here, in a space of its own (see `blur`).
             if blur.working == Working::Filled {
                 crate::blur::blur_near(
                     &mut unit.cells,
@@ -1115,51 +1091,40 @@ impl Scene<'_> {
         unit.shader = Some(shader);
     }
 
-    /// Blurs the blurred effects' grids that have to be blurred in turn, and leaves the blurs'
-    /// one working space as it would be had every blur worked in it, one after another in the
-    /// order they're drawn. With threads to share with (`shared`), the passes over a large grid
-    /// are shared out among them.
+    /// Blurs the blurred effects' grids that have gaps between their pixels, one after another
+    /// in the one working space they share. With threads to share with (`shared`), the passes
+    /// over a large grid are shared out among them.
     ///
-    /// The order matters to a blur of a grid with gaps between its pixels. With the cells just
-    /// past the ends of each run of cells it works on, it takes in whatever the blur before it
-    /// left there. In exact arithmetic that goes out again as the sum moves along; in floating
-    /// point a trace stays, and some of what's drawn after (a blend that asks whether a pixel is
-    /// lit at all, a color adjustment that lights unlit pixels) turns a trace into a pixel on or
-    /// off. So a frame's bytes depend on what each of those blurs finds in the space, and they
-    /// find what they always did.
+    /// Such a grid (a group's, a line's) can be many times larger than the cells near its pixels
+    /// that are blurred, and a blur's working space is two of its grids: one space, as large as
+    /// the largest, saves each its own. The blurs don't depend on one another: what one leaves
+    /// in the space never shows in the pixels of the next, in this frame or a later one (see
+    /// [`crate::blur::blur_near`]). So a frame's bytes depend on its own effects and the moment
+    /// alone, whether it was played up to or jumped to, and the order here is only the order the
+    /// effects are drawn in.
     ///
-    /// A blur of a grid that's all pixels reads nothing it didn't write, so it was blurred when
-    /// its effect was made ready, at the same time as the others. All it owes is what it left:
-    /// it filled the start of its own space, twice its grid's cells, and that's copied into the
-    /// one space before the next blur that reads it (and at the end, for the next frame's).
+    /// A blur of a grid that's all pixels (a matrix's, a tree's) needs only as much space as it
+    /// uses, so it was blurred in a space of its own when its effect was made ready, at the same
+    /// time as the others.
     fn blur(&self, ops: &[Op], units: &mut [Unit], space: &mut BlurSpace, shared: bool) {
-        space.left.clear();
         for op in ops.iter().filter(|op| op.draws) {
-            for index in op.units.0 as usize..op.units.1 as usize {
-                let Some(blur) = units[index].blur else {
+            for unit in &mut units[op.units.0 as usize..op.units.1 as usize] {
+                let Some(blur) = unit.blur.filter(|blur| blur.working == Working::Gaps) else {
                     continue;
                 };
                 let grid = &self.grids[blur.grid as usize];
-                match blur.working {
-                    Working::Untouched => {}
-                    Working::Filled => space.left.push((index, 2 * grid.cells.len())),
-                    Working::Read => {
-                        space.take_in(units);
-                        crate::blur::blur_near(
-                            &mut units[index].cells,
-                            grid.columns,
-                            grid.rows,
-                            blur.amount,
-                            op.blend != Blend::Normal,
-                            &mut space.grids,
-                            grid.near(blur.amount),
-                            shared.then_some(&mut space.turned),
-                        );
-                    }
-                }
+                crate::blur::blur_near(
+                    &mut unit.cells,
+                    grid.columns,
+                    grid.rows,
+                    blur.amount,
+                    op.blend != Blend::Normal,
+                    &mut space.grids,
+                    grid.near(blur.amount),
+                    shared.then_some(&mut space.turned),
+                );
             }
         }
-        space.take_in(units);
     }
 
     /// Draws tiles `tiles`, whose pixels are `show` and whose bytes start at place `at` of the

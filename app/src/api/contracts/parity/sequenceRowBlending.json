@@ -52,7 +52,7 @@
         "frameMs": 25,
         "name": "Song",
         "rows": [{ "id": "44444444-0000-4000-8000-000000000001", "layers": [{ "effects": [] }], "target": { "prop": "11111111-0000-4000-8000-000000000001" } }, { "id": "44444444-0000-4000-8000-000000000002", "layers": [{ "effects": [] }], "target": { "prop": "11111111-0000-4000-8000-000000000002" } }],
-        "schemaVersion": 12,
+        "schemaVersion": 13,
         "timingTracks": []
       },
       "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }
@@ -60,7 +60,7 @@
     {
       "args": { "edits": [{ "rowBlending": "blend", "type": "setRowBlending" }] },
       "command": "edit_sequence",
-      "reply": { "changed": true, "changes": { "info": { "audio": null, "durationMs": 20000, "frameMs": 25, "name": "Song", "rowBlending": "blend" } } },
+      "reply": { "changed": true, "changes": { "info": { "audio": null, "durationMs": 20000, "frameMs": 25, "musicLevelSource": "louderChannel", "name": "Song", "rowBlending": "blend" } } },
       "sequence": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 2 },
       "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }
     },
@@ -68,7 +68,7 @@
     {
       "args": { "edits": [{ "rowBlending": "replace", "type": "setRowBlending" }] },
       "command": "edit_sequence",
-      "reply": { "changed": true, "changes": { "info": { "audio": null, "durationMs": 20000, "frameMs": 25, "name": "Song", "rowBlending": "replace" } } },
+      "reply": { "changed": true, "changes": { "info": { "audio": null, "durationMs": 20000, "frameMs": 25, "musicLevelSource": "louderChannel", "name": "Song", "rowBlending": "replace" } } },
       "sequence": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 3 },
       "sequenceNow": {
         "audio": null,
@@ -77,16 +77,22 @@
         "name": "Song",
         "rowBlending": "replace",
         "rows": [{ "id": "44444444-0000-4000-8000-000000000001", "layers": [{ "effects": [] }], "target": { "prop": "11111111-0000-4000-8000-000000000001" } }, { "id": "44444444-0000-4000-8000-000000000002", "layers": [{ "effects": [] }], "target": { "prop": "11111111-0000-4000-8000-000000000002" } }],
-        "schemaVersion": 12,
+        "schemaVersion": 13,
         "timingTracks": []
       },
       "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }
     },
-    { "args": {}, "command": "undo_sequence", "reply": { "changed": true, "changes": { "info": { "audio": null, "durationMs": 20000, "frameMs": 25, "name": "Song", "rowBlending": "blend" } } }, "sequence": { "canRedo": true, "canUndo": true, "dirty": true, "path": null, "revision": 4 }, "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 } },
     {
       "args": {},
       "command": "undo_sequence",
-      "reply": { "changed": true, "changes": { "info": { "audio": null, "durationMs": 20000, "frameMs": 25, "name": "Song", "rowBlending": "cover" } } },
+      "reply": { "changed": true, "changes": { "info": { "audio": null, "durationMs": 20000, "frameMs": 25, "musicLevelSource": "louderChannel", "name": "Song", "rowBlending": "blend" } } },
+      "sequence": { "canRedo": true, "canUndo": true, "dirty": true, "path": null, "revision": 4 },
+      "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }
+    },
+    {
+      "args": {},
+      "command": "undo_sequence",
+      "reply": { "changed": true, "changes": { "info": { "audio": null, "durationMs": 20000, "frameMs": 25, "musicLevelSource": "louderChannel", "name": "Song", "rowBlending": "cover" } } },
       "sequence": { "canRedo": true, "canUndo": false, "dirty": true, "path": null, "revision": 5 },
       "sequenceNow": {
         "audio": null,
@@ -94,7 +100,7 @@
         "frameMs": 25,
         "name": "Song",
         "rows": [{ "id": "44444444-0000-4000-8000-000000000001", "layers": [{ "effects": [] }], "target": { "prop": "11111111-0000-4000-8000-000000000001" } }, { "id": "44444444-0000-4000-8000-000000000002", "layers": [{ "effects": [] }], "target": { "prop": "11111111-0000-4000-8000-000000000002" } }],
-        "schemaVersion": 12,
+        "schemaVersion": 13,
         "timingTracks": []
       },
       "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }
@@ -102,7 +108,7 @@
     {
       "args": {},
       "command": "redo_sequence",
-      "reply": { "changed": true, "changes": { "info": { "audio": null, "durationMs": 20000, "frameMs": 25, "name": "Song", "rowBlending": "blend" } } },
+      "reply": { "changed": true, "changes": { "info": { "audio": null, "durationMs": 20000, "frameMs": 25, "musicLevelSource": "louderChannel", "name": "Song", "rowBlending": "blend" } } },
       "sequence": { "canRedo": true, "canUndo": true, "dirty": true, "path": null, "revision": 6 },
       "sequenceNow": {
         "audio": null,
@@ -111,7 +117,7 @@
         "name": "Song",
         "rowBlending": "blend",
         "rows": [{ "id": "44444444-0000-4000-8000-000000000001", "layers": [{ "effects": [] }], "target": { "prop": "11111111-0000-4000-8000-000000000001" } }, { "id": "44444444-0000-4000-8000-000000000002", "layers": [{ "effects": [] }], "target": { "prop": "11111111-0000-4000-8000-000000000002" } }],
-        "schemaVersion": 12,
+        "schemaVersion": 13,
         "timingTracks": []
       },
       "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }

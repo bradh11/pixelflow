@@ -6,8 +6,8 @@ use crate::error::EngineError;
 use crate::persist::write_atomic;
 use pf_model::Show;
 use pf_sequence::{
-    Effect, EffectId, EffectParams, MAX_SEQUENCE_BYTES, Mark, Row, RowBlending, RowId, Sequence,
-    SequenceIssue, TimingKind, TimingTrack, TimingTrackId,
+    Effect, EffectId, EffectParams, MAX_SEQUENCE_BYTES, Mark, MusicLevelSource, Row, RowBlending, RowId,
+    Sequence, SequenceIssue, TimingKind, TimingTrack, TimingTrackId,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -34,6 +34,10 @@ pub enum SequenceEdit {
     /// Sets how each row meets the rows before it.
     SetRowBlending {
         row_blending: RowBlending,
+    },
+    /// Sets which channel is how loud the music is to effects that follow it (xLights: leftChannel).
+    SetMusicLevelSource {
+        music_level_source: MusicLevelSource,
     },
     /// Adds a row at `index` (or at the end).
     AddRow {
@@ -305,6 +309,9 @@ impl SequenceEdit {
                 doc.frame_ms = *frame_ms;
             }
             SequenceEdit::SetRowBlending { row_blending } => doc.row_blending = *row_blending,
+            SequenceEdit::SetMusicLevelSource { music_level_source } => {
+                doc.music_level_source = *music_level_source;
+            }
             SequenceEdit::AddRow { row, index } => {
                 if doc.row(row.id).is_some() {
                     return Err(EngineError::DuplicateId { kind: "row" });
@@ -620,7 +627,8 @@ pub struct SequenceEditResult {
     pub show_revision: u64,
 }
 
-/// The sequence's name, music, length, frame time, and how its rows meet the rows before them.
+/// The sequence's name, music, length, frame time, how its rows meet the rows before them, and
+/// which channel of its music is how loud it is.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SequenceInfo {
@@ -629,6 +637,7 @@ pub struct SequenceInfo {
     pub duration_ms: u64,
     pub frame_ms: u32,
     pub row_blending: RowBlending,
+    pub music_level_source: MusicLevelSource,
 }
 
 impl SequenceInfo {
@@ -639,6 +648,7 @@ impl SequenceInfo {
             duration_ms: doc.duration_ms,
             frame_ms: doc.frame_ms,
             row_blending: doc.row_blending,
+            music_level_source: doc.music_level_source,
         }
     }
 }
@@ -872,6 +882,7 @@ impl Parts {
             doc.duration_ms = info.duration_ms;
             doc.frame_ms = info.frame_ms;
             doc.row_blending = info.row_blending;
+            doc.music_level_source = info.music_level_source;
         }
         self.rows.restore(&mut doc.rows);
         self.tracks.restore(&mut doc.timing_tracks);
@@ -961,7 +972,9 @@ fn row_of_effect(doc: &Sequence, id: EffectId) -> Option<RowId> {
 fn touch(edit: &SequenceEdit, doc: &Sequence, parts: &mut Parts, touched: &mut Touched) {
     let rows = &doc.rows;
     match edit {
-        SequenceEdit::UpdateInfo { .. } | SequenceEdit::SetRowBlending { .. } => parts.capture_info(doc),
+        SequenceEdit::UpdateInfo { .. }
+        | SequenceEdit::SetRowBlending { .. }
+        | SequenceEdit::SetMusicLevelSource { .. } => parts.capture_info(doc),
         SequenceEdit::AddRow { row, .. } => {
             parts.rows.capture(rows, row.id);
             parts.rows.capture_order(rows);
@@ -1722,6 +1735,7 @@ mod tests {
             doc.duration_ms = info.duration_ms;
             doc.frame_ms = info.frame_ms;
             doc.row_blending = info.row_blending;
+            doc.music_level_source = info.music_level_source;
         }
         doc.rows.retain(|r| !c.removed_rows.contains(&r.id));
         for row in &c.rows {
@@ -1837,6 +1851,9 @@ mod tests {
             }],
             vec![SequenceEdit::SetRowBlending {
                 row_blending: RowBlending::Blend,
+            }],
+            vec![SequenceEdit::SetMusicLevelSource {
+                music_level_source: MusicLevelSource::LeftChannel,
             }],
             vec![SequenceEdit::RemoveTimingTrack { id: track_id }],
             vec![SequenceEdit::RemoveRow { id: first }],

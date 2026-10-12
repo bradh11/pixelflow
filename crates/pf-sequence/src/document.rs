@@ -23,8 +23,9 @@ use serde::{Deserialize, Serialize};
 /// flickering flames (`location`, `style`, `hueShift`, `growthCycles`, `growWithMusic`), the
 /// Shockwave and Fill effects, every effect has color adjustments (`hueAdjust`,
 /// `saturationAdjust`, `valueAdjust`, `brightness`, `contrast`), and a Picture can be resized as
-/// an older xLights resized it (`resize`); 12 = the Fireworks effect.
-pub const CURRENT_SCHEMA_VERSION: u32 = 12;
+/// an older xLights resized it (`resize`); 12 = the Fireworks effect; 13 = the sequence says which
+/// channel of its music is how loud the music is (`musicLevelSource`).
+pub const CURRENT_SCHEMA_VERSION: u32 = 13;
 
 fn default_frame_ms() -> u32 {
     25
@@ -69,6 +70,33 @@ impl RowBlending {
     }
 }
 
+/// Which channel of the music says how loud the music is, to everything that follows its level:
+/// music sparkles, curves that follow the music, and the effects that fire, grow, or measure by
+/// it.
+///
+/// `LouderChannel` is PixelFlow's own. `LeftChannel` is xLights' way, which an imported sequence
+/// keeps so that it plays as it did there. Music with one channel reads the same either way.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(description = ""))]
+#[serde(rename_all = "camelCase")]
+pub enum MusicLevelSource {
+    /// Whichever channel is louder at each moment, so a sound on either side is heard.
+    #[cfg_attr(feature = "schema", schemars(description = ""))]
+    #[default]
+    LouderChannel,
+    /// The left channel alone (the first, of more than two): a sound on the right alone goes
+    /// unheard.
+    #[cfg_attr(feature = "schema", schemars(description = ""))]
+    LeftChannel,
+}
+
+impl MusicLevelSource {
+    fn is_louder_channel(&self) -> bool {
+        *self == MusicLevelSource::LouderChannel
+    }
+}
+
 /// An authored sequence: effects on the show's props and groups, timed to music.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -88,6 +116,10 @@ pub struct Sequence {
     /// How each row meets the rows before it (left out of the file when rows cover).
     #[serde(default, skip_serializing_if = "RowBlending::is_cover")]
     pub row_blending: RowBlending,
+    /// Which channel of the music is how loud it is (left out of the file when it's the louder
+    /// one).
+    #[serde(default, skip_serializing_if = "MusicLevelSource::is_louder_channel")]
+    pub music_level_source: MusicLevelSource,
     /// Drawn in order: a later row covers an earlier one where both light the same pixels (or
     /// mixes with it, or replaces it: see [`RowBlending`]).
     #[serde(default)]
@@ -105,6 +137,7 @@ impl Sequence {
             frame_ms: default_frame_ms(),
             timing_tracks: Vec::new(),
             row_blending: RowBlending::default(),
+            music_level_source: MusicLevelSource::default(),
             rows: Vec::new(),
         }
     }

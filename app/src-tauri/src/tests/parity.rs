@@ -18,7 +18,7 @@ use pf_devices::testing::{FALCON, FPP};
 const WIDE: usize = 400;
 
 /// The files of `parity/`, one per scenario.
-const SCENARIOS: [&str; 18] = [
+const SCENARIOS: [&str; 19] = [
     "showEdits",
     "showSaving",
     "showRejectedEdits",
@@ -36,6 +36,7 @@ const SCENARIOS: [&str; 18] = [
     "sequenceSaving",
     "sequenceTracks",
     "sequenceRowBlending",
+    "sequenceMusicLevel",
     "sequenceInShow",
 ];
 
@@ -816,6 +817,30 @@ fn how_rows_meet_the_rows_above_is_an_edit_like_any_other() {
     scenario(
         "sequenceRowBlending",
         "How rows meet the rows above them is set, set again to the same, and undone.",
+        &[],
+        steps,
+    );
+}
+
+#[test]
+fn which_channel_is_how_loud_the_music_is_is_an_edit_like_any_other() {
+    let level =
+        |from: &str| sequence_edits(json!([{ "type": "setMusicLevelSource", "musicLevelSource": from }]));
+    let file = "/fixture/Song.pfseq.json";
+    let mut steps = two_rows();
+    steps.extend([
+        level("louderChannel"),
+        level("leftChannel"),
+        level("leftChannel"),
+        ("save_sequence_doc_as", json!({ "path": file })),
+        plain("undo_sequence"),
+        plain("redo_sequence"),
+        plain("close_sequence_doc"),
+        ("open_sequence_doc", json!({ "path": file })),
+    ]);
+    scenario(
+        "sequenceMusicLevel",
+        "Which channel of the music is how loud it is: set, set again to the same, saved, undone, and opened again.",
         &[],
         steps,
     );

@@ -4,8 +4,9 @@
 
 use pf_ai::Toolbox;
 use pf_ai::tools::{
-    FILE_OPERATIONS, ONE_TOOL_BUDGET_BYTES, TOOL_BUDGET_BYTES, TOOL_HEADROOM_BYTES, ToolKind, sequence_edit,
-    sequence_tool_name, shape_settings, show_edit, show_tool_name,
+    CORE, FILE_OPERATIONS, FIXED_REQUEST_BUDGET_BYTES, GROUPS, ONE_TOOL_BUDGET_BYTES, TOOL_BUDGET_BYTES,
+    TOOL_HEADROOM_BYTES, ToolKind, group_for_screen, group_of, sequence_edit, sequence_tool_name,
+    shape_settings, show_edit, show_tool_name,
 };
 use pf_engine::{Edit, SequenceEdit};
 use pf_model::{
@@ -839,6 +840,95 @@ fn tool_definitions_stay_small() {
         update["properties"]["prop"]["description"],
         "A Prop, exactly as `prop` in the show_add_prop tool's input."
     );
+}
+
+#[test]
+fn the_fixed_part_of_every_request_stays_small() {
+    // What every request starts with and never changes: the instructions and the core tools,
+    // as each provider's request carries them. The rest of the tools come in groups.
+    let core = Toolbox::new().core_specs();
+    let request = pf_ai::provider::TurnRequest {
+        model: "any",
+        system: pf_ai::agent::SYSTEM_PROMPT,
+        tools: &core,
+        messages: &[],
+        max_tokens: 1,
+    };
+    let anthropic = pf_ai::anthropic::request_body(&request);
+    let openai = pf_ai::openai::request_body(&request, true);
+    for (provider, fixed) in [
+        (
+            "Anthropic",
+            anthropic["system"].to_string().len() + anthropic["tools"].to_string().len(),
+        ),
+        (
+            "OpenAI",
+            openai["instructions"].to_string().len() + openai["tools"].to_string().len(),
+        ),
+    ] {
+        println!("{provider}: {fixed} bytes fixed, {} core tools", core.len());
+        assert!(
+            fixed <= FIXED_REQUEST_BUDGET_BYTES,
+            "{provider}: the instructions and core tools are {fixed} bytes, over their {FIXED_REQUEST_BUDGET_BYTES}-byte budget: put a tool a sequencing job rarely needs in a group (tools::GROUPS) rather than the core"
+        );
+    }
+    // Every tool is still there for a job that needs it, the whole toolbox within its budget.
+    assert!(Toolbox::new().specs().len() > core.len() + 30);
+}
+
+#[test]
+fn every_tool_is_in_the_core_or_a_group_a_chat_can_add() {
+    let toolbox = Toolbox::new();
+    let names: BTreeSet<String> = toolbox.tools().iter().map(|t| t.spec.name.clone()).collect();
+    for name in CORE {
+        assert!(names.contains(*name), "the core names {name}, which isn't a tool");
+        assert_eq!(group_of(name), None);
+    }
+    let keys: Vec<&str> = GROUPS.iter().map(|(g, _)| *g).collect();
+    let more = toolbox.find("use_tools").unwrap().spec.clone();
+    assert_eq!(
+        more.input_schema["properties"]["groups"]["items"]["enum"],
+        json!(keys)
+    );
+    for name in &names {
+        match group_of(name) {
+            None => assert!(
+                CORE.contains(&name.as_str()),
+                "{name} is in no group and not in the core"
+            ),
+            Some(group) => {
+                assert!(keys.contains(&group), "{name}: {group}");
+                // use_tools names every tool it can add, so one can be called straight away.
+                assert!(
+                    more.description.contains(&format!(" {name},"))
+                        || more.description.contains(&format!(" {name}."))
+                        || more.description.contains(&format!(": {name}")),
+                    "use_tools doesn't name {name}"
+                );
+            }
+        }
+    }
+    for group in &keys {
+        assert!(
+            names.iter().any(|n| group_of(n) == Some(group)),
+            "the {group} group is empty"
+        );
+    }
+    // A sequencing job needs only the core; a layout job gets its group from the screen.
+    for name in [
+        "place_effects",
+        "change_effects",
+        "stage_cue",
+        "get_guide",
+        "review_draft",
+    ] {
+        assert_eq!(group_of(name), None, "{name}");
+    }
+    assert_eq!(group_of("show_add_prop"), Some("layout"));
+    assert_eq!(group_of("sequence_add_marks"), Some("timing"));
+    assert_eq!(group_of("sequence_add_row"), Some("rows"));
+    assert_eq!(group_for_screen("layout"), Some("layout"));
+    assert_eq!(group_for_screen("sequence"), None);
 }
 
 #[test]

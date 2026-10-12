@@ -111,7 +111,8 @@ from the app's saved key, and it is not written anywhere.
 To the provider you name, over HTTPS, with your key as the sign-in, exactly what the app sends
 for a chat:
 
-- the Assistant's instructions and tool definitions (about 51 KB, with every request);
+- the Assistant's instructions and core tool definitions (about 20 KB, with every request), and
+  the rest of the tools, a group at a time, when the model asks for them with `use_tools`;
 - each scenario's request, as written above, with the made-up show, sequence, and song in
   outline in its context block, as the app sends them with a first message;
 - whatever the model looks up with its tools: PixelFlow's own guides, and the made-up show,

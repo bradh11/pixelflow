@@ -174,12 +174,19 @@ fn what_goes_to_the_model_is_counted() {
     );
     assert!(report.contains(&row), "{row}\n{report}");
     assert!(traffic.first_request_bytes > 0 && traffic.first_request_bytes < traffic.largest_request_bytes);
-    // Every request carries the instructions and the tools; the second repeats the first and
-    // adds the two guides it asked for.
-    let fixed = pf_ai::agent::SYSTEM_PROMPT.len();
-    assert!(traffic.largest_request_bytes > fixed + 40_000, "{traffic:?}");
+    // Every request carries the instructions and the core tools; the second repeats the first
+    // and adds the two guides it asked for.
+    let core: usize = Toolbox::default()
+        .core_specs()
+        .iter()
+        .map(|t| t.name.len() + t.description.len() + t.input_schema.to_string().len())
+        .sum();
+    let fixed = pf_ai::agent::SYSTEM_PROMPT.len() + core;
+    assert!(traffic.first_request_bytes > fixed, "{traffic:?}");
+    assert!(traffic.largest_request_bytes > fixed + 10_000, "{traffic:?}");
     assert!(
-        traffic.repeated_bytes > fixed + 40_000 && traffic.repeated_bytes < traffic.sent_bytes / 2 + 1_000
+        traffic.repeated_bytes == traffic.first_request_bytes
+            && traffic.repeated_bytes < traffic.sent_bytes / 2 + 1_000
     );
     assert!(
         traffic.reply_bytes > 300 && traffic.reply_bytes < 1_000,
@@ -461,9 +468,10 @@ fn every_chorus_has_sung_words_to_put_up_the_last_one_too() {
     );
 }
 
-/// The request the chat loop sent as `messages`, rebuilt to work out its worst case.
+/// The request the chat loop sent as `messages` (with the core tools: the scripts add no
+/// group), rebuilt to work out its worst case.
 fn worst_of(provider: ProviderId, model: &str, messages: &[Message]) -> (u64, u64) {
-    let tools = Toolbox::default().specs();
+    let tools = Toolbox::default().core_specs();
     let request = TurnRequest {
         model,
         system: SYSTEM_PROMPT,

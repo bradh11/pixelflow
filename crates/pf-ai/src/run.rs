@@ -24,6 +24,8 @@ pub enum Outcome {
     Propose { summary: String },
     /// The model asked the user to choose a song for a new sequence.
     AskForSong,
+    /// The model asked for these groups of tools (each one of [`crate::tools::GROUPS`]).
+    UseTools { groups: Vec<String> },
 }
 
 fn ok(content: impl Into<String>) -> Outcome {
@@ -132,6 +134,21 @@ pub fn run_tool(toolbox: &Toolbox, call: &ToolCall, draft: &mut Draft, song: &mu
             crate::cues::stage(draft, analysis.as_deref(), input).map_or_else(err, ok)
         }
         ToolKind::AskForSong => Outcome::AskForSong,
+        ToolKind::UseTools => {
+            let keys: Vec<&str> = crate::tools::GROUPS.iter().map(|(g, _)| *g).collect();
+            let asked = match crate::arrange::text_list(&input["groups"], "groups") {
+                Ok(asked) if !asked.is_empty() => asked,
+                _ => return err(format!("Name the groups you need: {}.", keys.join(", "))),
+            };
+            match asked.iter().find(|g| !keys.contains(&g.as_str())) {
+                Some(unknown) => err(format!(
+                    "There's no group \"{}\". Groups: {}.",
+                    unknown.chars().take(40).collect::<String>(),
+                    keys.join(", ")
+                )),
+                None => Outcome::UseTools { groups: asked },
+            }
+        }
         ToolKind::ReviewDraft => review_draft(draft, song),
         ToolKind::ResetDraft => {
             draft.reset();

@@ -1035,7 +1035,7 @@ pub fn run_within(
 /// What a run sends a model, in words, with the sizes that never change.
 pub fn what_is_sent() -> String {
     let stage = Stage::new();
-    let specs = Toolbox::default().specs();
+    let specs = Toolbox::default().core_specs();
     let tools: usize = specs
         .iter()
         .map(|t| t.name.len() + t.description.len() + t.input_schema.to_string().len())
@@ -1046,7 +1046,8 @@ pub fn what_is_sent() -> String {
     let lines = crate::stage::lyric_tracks().first().map_or(0, |t| t.marks.len());
     format!(
         "What a run sends the model's provider:\n\
-         - the Assistant's instructions and its {} tool definitions, with every request ({} bytes, about {} tokens);\n\
+         - the Assistant's instructions and its {} core tool definitions, with every request ({} bytes, about {} tokens), and more tools in groups when the model asks for them;\n\
+         - with the request, the made-up show, sequence, and song below in outline;\n\
          - each scenario's request, as a user would type it;\n\
          - whatever the model looks up with its tools: PixelFlow's own guides, and a made-up show and song that exist only in this harness:\n\
          \x20   props: {};\n\

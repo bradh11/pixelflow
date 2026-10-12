@@ -16,6 +16,7 @@ use crate::tools::Toolbox;
 use pf_analysis::Analysis;
 use pf_sequence::format_ms;
 use serde::Serialize;
+use std::collections::BTreeSet;
 use std::fmt;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -38,7 +39,7 @@ pub const SYSTEM_PROMPT: &str = "You are the assistant inside PixelFlow, a deskt
 
 How you work:
 - Never guess an id: the context block and the get_ and list_ tools give them. A new item needs a fresh random UUID (version 4) as its id.
-- Every change goes into your private draft through the show_ tools (the show: props, groups, controllers, playlist, settings), the sequence_ tools, place_effects, repeat_effects, and change_effects (the open sequence). The draft starts as a copy of the user's show and open sequence; reading tools show it with your changes. Nothing changes for the user until they apply your proposal. If an edit is refused, fix the input from the reason and try again.
+- Every change goes into your private draft: place_effects, repeat_effects, change_effects, stage_cue for the open sequence; use_tools adds the show_ and sequence_ tools by group (props, controllers, rows, timing). The draft starts as a copy of the user's show and open sequence; reading tools show it with your changes. Nothing changes for the user until they apply your proposal. If an edit is refused, fix the input from the reason and try again.
 - update tools replace the whole item: get it first, then send it back changing only what you mean to.
 - When the draft does what the user asked, check it with review_draft, then call propose_changes once with a one- or two-sentence summary. The user sees your summary, every change, and a preview, then applies it as one undo step or discards it. Then reply with one short sentence and stop.
 - If the user only asks a question, answer it without proposing anything.
@@ -113,6 +114,9 @@ pub struct ChatSession {
     /// The show, sequence, and song as last given in a message's context block: given again
     /// only when they change.
     context_sent: Option<String>,
+    /// The groups of tools this chat has added to the core (see [`crate::tools::GROUPS`]):
+    /// they stay for the rest of the chat, so the tool list only ever grows.
+    tool_groups: BTreeSet<String>,
 }
 
 impl Default for ChatSession {
@@ -127,6 +131,7 @@ impl Default for ChatSession {
             song: None,
             guides_read: GuidesRead::default(),
             context_sent: None,
+            tool_groups: BTreeSet::new(),
         }
     }
 }
@@ -176,6 +181,7 @@ fn activity(name: &str) -> String {
         "review_draft" => "Checking the draft".into(),
         "reset_draft" => "Starting the draft over".into(),
         "propose_changes" => "Preparing the proposal".into(),
+        "use_tools" => "Getting more tools ready".into(),
         _ => match name
             .strip_prefix("show_")
             .or_else(|| name.strip_prefix("sequence_"))
@@ -209,8 +215,9 @@ impl ChatSession {
         self.draft.as_ref()
     }
 
+    /// The tools the next request carries: the core, and the groups this chat has added.
     pub fn tool_specs(&self) -> Vec<ToolSpec> {
-        self.toolbox.specs()
+        self.toolbox.specs_for(&self.tool_groups)
     }
 
     /// The user applied the proposal: the draft is done with.
@@ -428,7 +435,15 @@ impl ChatSession {
         let content = self.compose(&text, &workspace, analysis.as_deref());
         let checkpoint = self.messages.len();
         self.messages.push(Message::User(content));
-        let specs = self.toolbox.specs();
+        // The screen's own tools from the start (props on the Layout screen, say).
+        if let Some(group) = workspace
+            .context
+            .screen
+            .as_deref()
+            .and_then(crate::tools::group_for_screen)
+        {
+            self.tool_groups.insert(group.to_string());
+        }
         let mut said: Vec<String> = Vec::new();
         let mut proposed_now = false;
         let mut choose_song = false;
@@ -436,6 +451,8 @@ impl ChatSession {
 
         for step in 0..MAX_STEPS {
             cancel.check()?;
+            // Changes only when a group is added: then a provider's cache is rebuilt once.
+            let specs = self.tool_specs();
             let request = TurnRequest {
                 model,
                 system: SYSTEM_PROMPT,
@@ -556,6 +573,13 @@ impl ChatSession {
                         label: format!("{} ({n} at once)", activity(&call.name)),
                     });
                 }
+                // A tool of a group not added yet (its name is in use_tools' list) runs all the
+                // same, and its group comes with the next request.
+                if self.toolbox.find(&call.name).is_some()
+                    && let Some(group) = crate::tools::group_of(&call.name)
+                {
+                    self.tool_groups.insert(group.to_string());
+                }
                 match run_tool(&self.toolbox, call, draft, &mut song) {
                     Outcome::Answer { content, is_error } => ToolResult {
                         call_id: call.id.clone(),
@@ -589,6 +613,17 @@ impl ChatSession {
                         ToolResult {
                             call_id: call.id.clone(),
                             content: "The user now sees a Choose a song button. Say in one short sentence that you'll build the sequence once they pick a song, and don't call more tools: their next message says when the new sequence is open.".into(),
+                            is_error: false,
+                        }
+                    }
+                    Outcome::UseTools { groups } => {
+                        self.tool_groups.extend(groups.iter().cloned());
+                        ToolResult {
+                            call_id: call.id.clone(),
+                            content: format!(
+                                "Added for the rest of this chat: {}. Their tools are yours from your next step.",
+                                groups.join(", ")
+                            ),
                             is_error: false,
                         }
                     }

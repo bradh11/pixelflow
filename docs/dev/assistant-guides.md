@@ -6,8 +6,17 @@ What the Assistant knows about making light shows, where it lives, and how to ad
 
 The Assistant's instructions and tool definitions ride along with every request, so they are
 kept small (`INSTRUCTIONS_BUDGET_BYTES` in `crates/pf-ai/src/agent.rs`, the tool budgets in
-`crates/pf-ai/src/tools.rs`; tests hold both). Everything else it knows it **fetches when it
-needs it**, with the `get_guide` tool:
+`crates/pf-ai/src/tools.rs`; tests hold both). Only the core tools ride along (`CORE` in
+`tools.rs`: reading the show and sequence, the guides, the song, placing and changing many
+effects at once, cues, and the draft's tools); the rest come in groups (`GROUPS`: layout,
+show, rows, effects one at a time, timing) that a chat adds with `use_tools` when a job needs
+them, and keeps. Both Anthropic's and OpenAI's prompt caches cover the tool list as part of the
+prefix, so changing it means the cache is rebuilt once: the list only ever grows, a group at a
+time, and the sequencing jobs need none of the groups. `FIXED_REQUEST_BUDGET_BYTES` holds the
+instructions and the core together. What every job looks up first (the props, groups, rows,
+timing tracks, and the song's analysis) comes in the first message's context block instead
+(`crates/pf-ai/src/context.rs`). Everything else it knows it **fetches when it needs it**, with
+the `get_guide` tool:
 
 | | What | Where it comes from |
 |---|---|---|

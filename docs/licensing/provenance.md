@@ -21,8 +21,7 @@ licence covers every file below, so the inventory is not a list of problems to c
 - **a guide to what is worth rewriting.** A part is rewritten as PixelFlow's own where there is a
   real gain (speed, simplicity, or a closer match to what xLights draws), not to get out from
   under the licence. A rewritten part moves to "behaviour-matching" and the list of direct ports
-  gets shorter. Pinwheel and Shockwave are done, Plasma is in progress, and the rest stays,
-  credited.
+  gets shorter. Pinwheel, Shockwave and Plasma are done, and the rest stays, credited.
 
 ## How this was made
 
@@ -73,9 +72,9 @@ their cost.
 
 | Category | Files | Where |
 |---|---|---|
-| Direct port (the whole file, or most of it) | 33 | 14 effects and the two timing rules they share (`carried.rs`) in `pf-render`; 7 files in `pf-xlights` (model geometry and value curves); 10 shape generators in `pf-geometry`; `app/src/lib/geometry.ts` |
+| Direct port (the whole file, or most of it) | 32 | 13 effects and the two timing rules they share (`carried.rs`) in `pf-render`; 7 files in `pf-xlights` (model geometry and value curves); 10 shape generators in `pf-geometry`; `app/src/lib/geometry.ts` |
 | Mixed: a direct-port function group inside an otherwise independent file | 12 | 10 in `pf-render` (text, raster, blur, color, geometry, styles, sparkles, effects, adjust, picture/resample); `pf-xlights/src/geometry.rs`; `pf-sequence/src/curve.rs` |
-| Behaviour-matching | 30 | effect default tables, the model-to-shape converter, the mouth-shape table, controller tables, Pinwheel and Shockwave (rebuilt from descriptions of their behaviour), and smaller pieces |
+| Behaviour-matching | 31 | effect default tables, the model-to-shape converter, the mouth-shape table, controller tables, Pinwheel, Shockwave and Plasma (rebuilt from descriptions of their behaviour), and smaller pieces |
 | Format reading only | 27 | the rest of the xLights importer, the FPP REST client, the `.fseq` reader |
 | Independent | the rest | including the engine, output, audio analysis, the assistant, camera mapping, video export, the desktop shell, and nearly all of the UI |
 
@@ -83,7 +82,7 @@ Approximate implementation lines by category, for the crates with the most:
 
 | Crate | Impl lines | Direct port | Behaviour-matching | Format reading | Independent |
 |---|---|---|---|---|---|
-| `pf-render` (46 files) | about 15,600 | about 4,900 | about 700 | 0 | about 10,000 |
+| `pf-render` (46 files) | about 16,000 | about 4,800 | about 1,200 | 0 | about 10,000 |
 | `pf-xlights`, `pf-sequence`, `pf-model` (53 files) | about 23,100 | about 3,400 | about 5,800 | about 5,600 | about 8,300 |
 | `pf-geometry` (17 files) | about 1,620 | about 900 | about 330 | 0 | about 400 |
 | `app/src/lib/geometry.ts` | 691 | 691 | | | |
@@ -93,16 +92,16 @@ roughly 9,000 to 10,000 of those, and are concentrated in three places: the effe
 xLights effect's name, the model geometry (where each pixel of an imported prop sits), and value
 curves.
 
-**The renderer.** About a third of `pf-render`'s implementation lines follow xLights source. Fourteen
-effects (Plasma, Morph, Tendril, Snowflakes, Garlands, Circles, Fan, Butterfly, Life,
+**The renderer.** About a third of `pf-render`'s implementation lines follow xLights source. Thirteen
+effects (Morph, Tendril, Snowflakes, Garlands, Circles, Fan, Butterfly, Life,
 Lines, Shape, VU Meter, Fill, and Fire's flickering flames) are ports of the xLights
 effect of the same name: 80 to 95% of each
 file, except Circles and Life, where about half is ported and the rest is PixelFlow's own
 arrangement of xLights' constants or the ordinary algorithm. So are the pieces every layer passes through: line and circle drawing, blur, the xLights layer
 blend modes and HSV conversion, sparkles, a layer's color adjustments, submodel and group buffer
 layout, and Text's movement.
-Pinwheel and Shockwave were among them until each was rebuilt from a description of its
-behaviour; they are now listed under behaviour-matching.
+Pinwheel, Shockwave and Plasma were among them until each was rebuilt from a description of
+its behaviour; they are now listed under behaviour-matching.
 The rest is PixelFlow's own: the render pipeline, the picture loader, the closed-form
 effects in `effects.rs` (On, Color Wash, Fade, Chase, Bars, Wave, Twinkle, Shimmer, Strobe,
 Spiral, Meteors, Ripple, and Fire's rolling flames), and Wipe, Impact, Pulse, Sing, Color Shift,
@@ -225,6 +224,7 @@ of the same name does.
 
 | PixelFlow file | Lines (impl) | Source it draws on | What was taken | Clean-room |
 |---|---|---|---|---|
+| `crates/pf-render/src/plasma.rs` | 530 | A written description of what the effect shows ([../dev/effect-specs/plasma.md](../dev/effect-specs/plasma.md)), measured from frames the earlier port of `effects/PlasmaEffect.cpp` drew and checked against frames xLights itself rendered | The picture: the seven waves the field is made of, as measured (their directions, wavelengths and speeds), the five colourings, the pace counted in frames, each pixel taking its cell's colour. No code or structure was carried over: wave angles are whole-number steps of a turn and sines come from a parabola across one of 512 arcs. See "Rebuilt from a description of its behaviour". | done |
 | `crates/pf-render/src/shockwave.rs` | 326 (222) | A written description of what the effect shows ([../dev/effect-specs/shockwave.md](../dev/effect-specs/shockwave.md)), measured from frames the earlier port of `effects/ShockwaveEffect.cpp` drew and checked against frames xLights itself rendered | What a setting's number means in cells and frames, to the cell and the frame: whole-cell sizes and centre, percent of the longer side, the half-cell least width, the soft edge in 255ths, the palette by progress. It calls the two timing rules in `carried.rs`, which are still carried-over code. No code or structure was carried over: a pixel off the ring is answered from two whole numbers worked out once a frame. See "Rebuilt from a description of its behaviour". | done |
 | `crates/pf-render/src/pinwheel.rs` | 989 (764) | A written description of what the effect shows ([../dev/effect-specs/pinwheel.md](../dev/effect-specs/pinwheel.md)), drawn up from the earlier port of `effects/PinwheelEffect.cpp` and `ispc/PinwheelFunctions.ispc`; and frames xLights itself rendered | About 200 lines carry what an import relies on: where the first arm points and which way arms are numbered in each style, 20 degrees a second for each unit of speed, which palette colour each arm takes, what an arm length of 100 reaches, and, for the older "spokes" style, where xLights' light falls as measured in its frames (whole-degree rays, marks half a cell apart, shading by ray). No code, formula, or structure was carried over: directions are whole-number steps of a turn, each pixel is answered from its own place, and nothing is drawn into a buffer. See "Rebuilt from a description of its behaviour". | done |
 | `crates/pf-xlights/src/sequence/effects.rs` | 3,564 (2,158) | The static defaults, ranges, and divisors in `effects/*Effect.cpp`; each effect's `adjustSettings` | A translator PixelFlow organised itself. The setting key names are format. The per-key defaults, ranges, divisors, and slider-to-behaviour conversions are more than format: 136 of 138 numeric defaults and 92 of 93 ranges compared are identical to the `.cpp` statics. About 137 numeric keys, 41 choice keys with their value lists, 61 checkbox keys, 18 divisors, for 31 effects. | **M** |
@@ -380,6 +380,14 @@ show can have; the only difference is on a single row of 439,804,673 cells or mo
 centre overflowed. It is listed as behaviour-matching for the same reason as Pinwheel, and it
 still calls the two shared timing rules in `carried.rs`, which are carried-over code until they
 are replaced in turn.
+
+Plasma followed the same way. Its picture is a smooth field, so its description says what the
+field is made of as measured from the output (seven waves, each with a direction, a wavelength
+and a speed, fitted to within 0.000004) rather than as the old code wrote it; a build from the
+description alone matched the reference table at the first attempt. Drawn side by side with the
+old file on 9,188,584,667 pixel-frames, the two differ only by the old file's single-precision
+speckle, which grows as an effect runs and which the new file does not copy; on the real
+sequences' designs 99.979% of pixel-frames are identical and the rest one step of 255.
 
 Attribute names, setting keys, choice strings, value-curve keys, phoneme names, and the values
 xLights assumes when a key is missing from a file are needed to read its files at all, however

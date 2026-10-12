@@ -50,6 +50,12 @@ No audio is analyzed: `analyze_song` is answered with that hand-written analysis
   guides read, the size of everything sent and received, and (on a real run) the tokens the
   provider billed and what they cost.
 
+The report opens with what a person waits through, a row per scenario: the requests (each a
+round trip to the model), the tool calls, and the tokens sent with the first request and with a
+request on average (as billed when the provider reported them; marked `~` when estimated from
+sizes, as for the stand-in), and the largest request. Those columns compare directly with an
+earlier run's.
+
 `crates/pf-ai/src/eval/scenarios.rs` has each scenario's checks; adding a scenario is adding an
 entry there (and a scripted answer in `stand_in.rs`, which the tests require to pass it).
 

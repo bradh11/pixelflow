@@ -1,5 +1,6 @@
-//! Snowflakes, Plasma, Butterfly, Garlands, Lines, Life, Tendril, and Text, drawn as xLights
-//! draws them on the target's grid. (Pinwheel is PixelFlow's own: see `tests/pinwheel.rs`.)
+//! Snowflakes, Butterfly, Garlands, Lines, Life, Tendril, and Text, drawn as xLights draws them
+//! on the target's grid. (Pinwheel and Plasma are PixelFlow's own: see `tests/pinwheel.rs` and
+//! `tests/plasma.rs`.)
 
 use pf_render::{Canvas, Colors, EffectTime, Pixel, Rgba, Shade, Shader};
 use pf_sequence::*;
@@ -155,51 +156,6 @@ fn slow_snow_moves_every_few_frames() {
         shown(&draw(&slow, time(1000, 60_000))),
         shown(&draw(&slow, time(1500, 60_000)))
     );
-}
-
-// ---------------------------------------------------------------------------------------------
-// Plasma
-
-#[test]
-fn plasma_fills_every_cell_and_flows_with_the_frames() {
-    let p = EffectParams::Plasma(PlasmaParams::default());
-    let first = draw(&p, time(0, 10_000));
-    assert_eq!(lit_count(&first), first.len());
-    assert!(first.iter().all(|c| c.a == 1.0));
-    let later = draw(&p, time(1000, 10_000));
-    assert_ne!(shown(&first), shown(&later));
-    assert_eq!(shown(&later), shown(&draw(&p, time(1000, 10_000))));
-    // xLights moves plasma a step a frame: half the frame time, twice the pace.
-    let fast_frames = draw(&p, time(500, 10_000).with_frame_ms(25));
-    assert_eq!(shown(&fast_frames), shown(&later));
-    // The palette blends across it; the fixed schemes ignore it.
-    let palette_colors: std::collections::BTreeSet<[u8; 3]> = first.iter().map(|c| c.to_rgb8()).collect();
-    assert!(palette_colors.len() > 20);
-    assert!(
-        first
-            .iter()
-            .all(|c| c.to_rgb8().iter().filter(|&&v| v > 0).count() <= 2),
-        "between neighbouring palette colors"
-    );
-    let white = draw(
-        &EffectParams::Plasma(PlasmaParams {
-            colors: PlasmaColors::White,
-            ..Default::default()
-        }),
-        time(0, 10_000),
-    );
-    assert!(white.iter().all(|c| {
-        let [r, g, b] = c.to_rgb8();
-        r == g && g == b
-    }));
-    let denser = draw(
-        &EffectParams::Plasma(PlasmaParams {
-            density: 5,
-            ..Default::default()
-        }),
-        time(0, 10_000),
-    );
-    assert_ne!(shown(&denser), shown(&first));
 }
 
 // ---------------------------------------------------------------------------------------------

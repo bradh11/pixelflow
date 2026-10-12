@@ -65,8 +65,8 @@ not have been made without their work.
 
 The list gets shorter over time. Where PixelFlow can do a part better with a
 design of its own, that part is rewritten from a description of what it shows
-and moves out of the derived list: Pinwheel and Shockwave so far. The rest
-stays, credited here.
+and moves out of the derived list: Pinwheel, Shockwave and Plasma so far. The
+rest stays, credited here.
 
 
 Other borrowed work

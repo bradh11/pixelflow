@@ -116,7 +116,13 @@ When you send the assistant a message, the AI company receives:
     account name);
   - the open sequence: its effects and timing marks, **including lyrics** if it has them;
   - the names (not the contents) of pictures in your show's `images` folder;
-  - PixelFlow's own analysis of the song (where the beats and sections are).
+  - PixelFlow's own analysis of the song (where the beats and sections are);
+- **PixelFlow's own guides**, when the assistant looks something up: how each effect behaves and
+  how a show is designed. They are the same for everyone and say nothing about you or your show.
+
+What it reads about a prop includes its name, shape, size (a matrix's columns and rows), where
+it sits, the part PixelFlow would give it in a show (outline, matrix, tree, and so on), and the
+names of any faces set up on it.
 
 It does **not** receive your key (except as the sign-in for the request itself), the audio of
 your music, the contents of your photos or pictures, your controllers' passwords, or anything
@@ -132,6 +138,11 @@ files, browse the web, or talk to your controllers.
 What the AI company does with what it receives is governed by your agreement with them, not by
 PixelFlow. PixelFlow asks OpenAI not to store the conversation. If you switch from one company
 to the other in the middle of a chat, the conversation so far is sent to the new one.
+
+If you build PixelFlow from its source, there is also a developer's tool that measures how well
+a model designs shows ([dev/assistant-eval.md](dev/assistant-eval.md)). It is not part of the
+app. It contacts an AI company only when you run it yourself, tell it to send, and give it a
+key, and what it sends is a made-up show and a made-up song, never yours.
 
 ## Lyrics
 

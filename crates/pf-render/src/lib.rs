@@ -19,6 +19,7 @@ mod adjust;
 pub mod audio;
 mod blur;
 mod butterfly;
+mod carried;
 mod circles;
 mod color;
 mod color_shift;

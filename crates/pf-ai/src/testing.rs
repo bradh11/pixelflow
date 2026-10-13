@@ -142,7 +142,7 @@ pub struct ScriptedProvider {
     /// What each reply reports it used, in order (none once these run out).
     usage: Mutex<VecDeque<Option<Usage>>>,
     seen: Mutex<Vec<Vec<Message>>>,
-    tools_seen: Mutex<Vec<String>>,
+    tools_seen: Mutex<Vec<Vec<String>>>,
     max_tokens_seen: Mutex<Vec<u32>>,
 }
 
@@ -176,6 +176,11 @@ impl ScriptedProvider {
 
     /// Tool names offered with the last request.
     pub fn tools_offered(&self) -> Vec<String> {
+        self.tools_offered_each().pop().unwrap_or_default()
+    }
+
+    /// Tool names offered with each request, in order.
+    pub fn tools_offered_each(&self) -> Vec<Vec<String>> {
         self.tools_seen
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -258,8 +263,10 @@ impl LlmProvider for ScriptedProvider {
             .unwrap_or_else(PoisonError::into_inner)
             .pop_front()
             .flatten();
-        *self.tools_seen.lock().unwrap_or_else(PoisonError::into_inner) =
-            request.tools.iter().map(|t| t.name.clone()).collect();
+        self.tools_seen
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(request.tools.iter().map(|t| t.name.clone()).collect());
         let turn = self
             .turns
             .lock()

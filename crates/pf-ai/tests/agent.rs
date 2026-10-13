@@ -295,6 +295,74 @@ fn guardrails_no_files_output_or_devices() {
 }
 
 #[test]
+fn a_chat_starts_with_the_core_tools_and_adds_a_group_when_a_job_needs_it() {
+    let (engine, _dir, _) = engine();
+    let provider = ScriptedProvider::new(vec![
+        calls(
+            "",
+            &[
+                ("use_tools", json!({ "groups": ["layout"] })),
+                ("use_tools", json!({ "groups": ["lights"] })),
+            ],
+        ),
+        // A tool of a group not added yet: run all the same, its group added for next time.
+        calls("", &[("show_rename_show", json!({ "name": "Lit" }))]),
+        says("Renamed."),
+    ]);
+    let mut session = ChatSession::new();
+    let (reply, events) = ask(&mut session, &provider, &engine, "Rename it Lit");
+    reply.unwrap();
+    let offered = provider.tools_offered_each();
+    let has = |n: usize, name: &str| offered[n].iter().any(|t| t == name);
+    // The core: what a sequencing job needs, and use_tools for the rest.
+    assert!(has(0, "place_effects") && has(0, "use_tools") && has(0, "get_guide"));
+    assert!(!has(0, "show_add_prop") && !has(0, "show_rename_show") && !has(0, "sequence_add_effect"));
+    // The group asked for comes with the next request, and stays.
+    assert!(has(1, "show_add_prop") && has(1, "get_prop") && !has(1, "show_rename_show"));
+    assert!(has(2, "show_add_prop") && has(2, "show_rename_show"));
+    let results = results_in(&provider, 1);
+    assert!(
+        !results[0].1
+            && results[0]
+                .0
+                .starts_with("Added for the rest of this chat: layout.")
+    );
+    assert!(
+        results[1].1 && results[1].0.contains("no group \"lights\""),
+        "{results:?}"
+    );
+    assert!(!results_in(&provider, 2)[0].1, "the rename ran");
+    assert_eq!(session.proposal().unwrap().diff.changes.len(), 1);
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, ChatEvent::Activity { label } if label == "Getting more tools ready"))
+    );
+
+    // On the Layout screen, a chat starts with the layout tools.
+    let provider = ScriptedProvider::new(vec![says("Hello.")]);
+    let workspace = Workspace::from_engine(
+        &engine,
+        UiContext {
+            screen: Some("layout".into()),
+            ..UiContext::default()
+        },
+    );
+    ChatSession::new()
+        .run_turn(
+            &provider,
+            &fake_key(),
+            "scripted",
+            "hi",
+            workspace,
+            &Cancel::new(),
+            &mut |_| {},
+        )
+        .unwrap();
+    assert!(provider.tools_offered().contains(&"show_add_prop".to_string()));
+}
+
+#[test]
 fn refused_edits_are_explained_and_the_model_can_fix_them() {
     let (engine, _dir, _) = engine();
     let roof = engine.show().props[0].clone();
@@ -645,7 +713,21 @@ fn the_prompt_says_to_act_on_defaults_and_stays_short() {
     assert!(prompt.contains("stage_cue dance") && prompt.contains("dancer effects on the matrices"));
     assert!(prompt.contains("mirror on the right-hand one of a pair"));
     // The user's own artwork is a picture effect, with a file from the ones listed.
-    assert!(prompt.contains("picture effects on matrices, file one of get_open_sequence's pictures"));
+    assert!(prompt.contains("picture effects on matrices, file one of the context block's pictures"));
+    // What a real model's runs showed matters, said where every request carries it: the method
+    // read first, every part's level following its music, builds that grow, words up long
+    // enough to read, a review before the proposal, and a whole step in one call.
+    for words in [
+        "Read topic method before your first sequence in a chat",
+        "Every part's level follows its own music, the parts nobody named too",
+        "A build grows bar by bar",
+        "Words stay up long enough to read",
+        "Review before you propose",
+        "the whole base in one place_effects with items",
+        "The context block gives the song",
+    ] {
+        assert!(prompt.contains(words), "{words}");
+    }
     // It's sent with every request: new rules come out of what's there. Guidance for using tools
     // is said here once rather than in each tool's description (see `tool_definitions_stay_small`).
     assert!(
@@ -809,7 +891,9 @@ fn what_the_user_is_looking_at_goes_with_the_message() {
     let Message::User(text) = &provider.requests()[0][0] else {
         panic!()
     };
-    assert!(text.starts_with("<context>\nScreen: \"sequence\"\nSelected props (1): \"Roofline\"\nOpen sequence: \"Wizards\" (3:12.000, no song)\nPlayhead: 0:31.200\n</context>"), "{text}");
+    assert!(text.starts_with("<context>\nScreen: \"sequence\"\nSelected props (1): \"Roofline\"\nOpen sequence: \"Wizards\" (3:12.000, no song)\nPlayhead: 0:31.200\nProps (1), each [name, role, shape, grid, pixels, x, y, faces]:\n[\"Roofline\","), "{text}");
+    // No song, so nothing about one.
+    assert!(!text.contains(pf_ai::context::SONG_LINE), "{text}");
     assert!(text.ends_with("What's this?"));
     assert!(results_in(&provider, 1)[0].0.contains("Roofline"));
 

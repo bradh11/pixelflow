@@ -108,6 +108,17 @@ When you send the assistant a message, the AI company receives:
 - **your message**, and the rest of that conversation;
 - **a little about what you're looking at**: which screen, the names of the props you've
   selected, the open sequence's name and length;
+- **an outline of your show and the open sequence, with your first message** (and again when
+  it has changed): each prop's name, the part it plays (outline, matrix, tree, and so on), its
+  shape, its size (a matrix's columns and rows), how many pixels it has, where it sits, and the
+  names of any faces on it; your groups and who is in them; the open sequence's rows (what each
+  lights, and how many effects of which kinds it has), its timing tracks by name, and the names
+  of the pictures in your show's `images` folder; and, when the sequence has music, PixelFlow's
+  own analysis of the song (tempo, bars, sections, loudness, its big moments, and, if the
+  sequence has lyrics, its sung lines). The song is analyzed on your computer first; the audio
+  itself is never sent. This is what the assistant would otherwise look up before anything
+  else, so it goes with the message instead of costing a round trip each. A large show is cut
+  short (the first 80 props and 80 rows);
 - **whatever the assistant looks up to answer you.** It can read the show and sequence you have
   open, so, depending on what you ask, this can include:
   - the names, shapes, positions, and wiring of your props and groups;

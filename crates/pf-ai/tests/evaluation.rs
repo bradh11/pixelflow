@@ -164,12 +164,29 @@ fn what_goes_to_the_model_is_counted() {
     );
     let traffic = outcome.measures.traffic;
     assert_eq!(traffic.requests, 2);
-    // Every request carries the instructions and the tools; the second repeats the first and
-    // adds the two guides it asked for.
-    let fixed = pf_ai::agent::SYSTEM_PROMPT.len();
-    assert!(traffic.largest_request_bytes > fixed + 40_000, "{traffic:?}");
+    // The report sets the stand-in's first request and mean request side by side, estimated.
+    let report = eval::report(std::slice::from_ref(&outcome), "stand-in", &Prices::default());
+    let row = format!(
+        "| question | 2 | 1 | ~{} | ~{} | ~{} |",
+        eval::tokens_of(traffic.first_request_bytes),
+        traffic.mean_request_tokens(),
+        eval::tokens_of(traffic.largest_request_bytes)
+    );
+    assert!(report.contains(&row), "{row}\n{report}");
+    assert!(traffic.first_request_bytes > 0 && traffic.first_request_bytes < traffic.largest_request_bytes);
+    // Every request carries the instructions and the core tools; the second repeats the first
+    // and adds the two guides it asked for.
+    let core: usize = Toolbox::default()
+        .core_specs()
+        .iter()
+        .map(|t| t.name.len() + t.description.len() + t.input_schema.to_string().len())
+        .sum();
+    let fixed = pf_ai::agent::SYSTEM_PROMPT.len() + core;
+    assert!(traffic.first_request_bytes > fixed, "{traffic:?}");
+    assert!(traffic.largest_request_bytes > fixed + 10_000, "{traffic:?}");
     assert!(
-        traffic.repeated_bytes > fixed + 40_000 && traffic.repeated_bytes < traffic.sent_bytes / 2 + 1_000
+        traffic.repeated_bytes == traffic.first_request_bytes
+            && traffic.repeated_bytes < traffic.sent_bytes / 2 + 1_000
     );
     assert!(
         traffic.reply_bytes > 300 && traffic.reply_bytes < 1_000,
@@ -183,6 +200,7 @@ fn what_goes_to_the_model_is_counted() {
         repeated_bytes: 1_750_000,
         reply_bytes: 3_500_000,
         largest_request_bytes: 0,
+        first_request_bytes: 0,
     };
     let prices = Prices {
         input: 2.0,
@@ -450,9 +468,10 @@ fn every_chorus_has_sung_words_to_put_up_the_last_one_too() {
     );
 }
 
-/// The request the chat loop sent as `messages`, rebuilt to work out its worst case.
+/// The request the chat loop sent as `messages` (with the core tools: the scripts add no
+/// group), rebuilt to work out its worst case.
 fn worst_of(provider: ProviderId, model: &str, messages: &[Message]) -> (u64, u64) {
-    let tools = Toolbox::default().specs();
+    let tools = Toolbox::default().core_specs();
     let request = TurnRequest {
         model,
         system: SYSTEM_PROMPT,
@@ -770,6 +789,10 @@ fn the_report_and_results_show_the_tokens_billed_and_what_they_cost() {
         "Final total: $0.0028 of the $10.00 ceiling, from what Anthropic reported (2 of 2 requests",
         "written to the cache $1.2500 (a share of 1.25)",
         "Estimated from sizes:",
+        // The round trips a person waits through, and what each request carried: the first
+        // as billed (1,000 + 500 + 200), and the mean of the two (3,400 / 2).
+        "| Scenario | Requests | Tool calls | First request | Mean request | Largest request |",
+        "| question | 2 | 1 | 1700 | 1700 | ~",
     ] {
         assert!(said.contains(words), "{words}:\n{said}");
     }

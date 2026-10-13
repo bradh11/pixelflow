@@ -40,6 +40,8 @@ pub enum ToolKind {
     StageCue,
     /// Offers the user a button to start a new sequence from a song.
     AskForSong,
+    /// Adds groups of tools to the chat (see [`GROUPS`]).
+    UseTools,
     ReviewDraft,
     ResetDraft,
     Propose,
@@ -93,11 +95,29 @@ impl Toolbox {
         compact_large_unions(&mut tools);
         inline_ids(&mut tools);
         share_large_definitions(&mut tools);
+        let more = use_tools_tool(&tools);
+        tools.push(more);
         Self { tools }
     }
 
+    /// Every tool, every group loaded.
     pub fn specs(&self) -> Vec<ToolSpec> {
         self.tools.iter().map(|t| t.spec.clone()).collect()
+    }
+
+    /// The tools a request carries: the core ([`CORE`]) and the tools of each group in
+    /// `groups`, in the toolbox's order.
+    pub fn specs_for(&self, groups: &BTreeSet<String>) -> Vec<ToolSpec> {
+        self.tools
+            .iter()
+            .filter(|t| group_of(&t.spec.name).is_none_or(|g| groups.contains(g)))
+            .map(|t| t.spec.clone())
+            .collect()
+    }
+
+    /// The tools every chat starts with.
+    pub fn core_specs(&self) -> Vec<ToolSpec> {
+        self.specs_for(&BTreeSet::new())
     }
 
     pub fn find(&self, name: &str) -> Option<&Tool> {
@@ -360,6 +380,9 @@ const SHARED_DEFINITIONS: &[(&str, &str, &str)] = &[
     ("Group", "show_add_group", "group"),
     ("Effect", "sequence_add_effect", "effect"),
     ("EffectParams", "sequence_add_effect", "effect.params"),
+    ("TimingTrack", "sequence_add_timing_track", "track"),
+    ("SequenceEntry", "show_add_sequence", "sequence"),
+    ("Mark", "sequence_add_marks", "marks[]"),
 ];
 
 /// A doc comment as a model reads it: on one line, with rustdoc links as plain names
@@ -896,18 +919,18 @@ fn query_tools() -> Vec<Tool> {
         ),
         query(
             "get_open_sequence",
-            "The sequence open in the editor (with your draft changes): name, length, music, rows (what each lights, layers, effect counts), timing tracks, and the show's pictures.",
-            object(json!({}), &[]),
+            "The sequence open in the editor (with your draft changes): name, length, music, rows (what each lights, layers, effect counts; detail: each row's target), timing tracks, and the show's pictures.",
+            object(json!({ "detail": { "type": "boolean" } }), &[]),
             Query::OpenSequence,
         ),
         query(
             "list_sequence_effects",
-            "Effects in the open sequence, in full: optionally one row only, and only those overlapping a time range. brief (or too many to give in full): each as id, row, layer, kind, and times.",
+            "Effects in the open sequence, optionally one row only, and only those overlapping a time range: a line each (id, layer, kind, times, colors), or every setting when full or 12 or fewer.",
             object(
                 {
                     let mut p = time_range();
                     p["rowId"] = json!({ "type": "string", "description": "Only this row." });
-                    p["brief"] = json!({ "type": "boolean" });
+                    p["full"] = json!({ "type": "boolean" });
                     p
                 },
                 &[],
@@ -920,7 +943,7 @@ fn query_tools() -> Vec<Tool> {
             object(
                 {
                     let mut p = time_range();
-                    p["trackId"] = json!({ "type": "string" });
+                    p["trackId"] = json!({ "type": "string", "description": "Id or name." });
                     p
                 },
                 &["trackId"],
@@ -936,11 +959,12 @@ fn guide_tool() -> Tool {
     let topics = crate::knowledge::library::topic_keys();
     tool(
         "get_guide",
-        "PixelFlow's own guides: read the ones you need before you design. An effect's: what it draws on each kind of prop, the settings that matter, ready-made looks for place_effects, and every setting's range and choices. A topic's: how to design a show, and what every effect shares. Neither: the list.",
+        "PixelFlow's own guides: read the ones you need before you design. An effect's: what it draws on each kind of prop, the settings that matter, ready-made looks for place_effects, and every setting's range and choices (parts: only those). A topic's: how to design a show, and what every effect shares. Neither: the list.",
         object(
             json!({
                 "effects": names(crate::knowledge::reference::kind_keys()),
                 "topics": names(topics.into_iter().map(String::from).collect()),
+                "parts": names(crate::knowledge::PARTS.iter().map(|(p, _)| p.to_string()).collect()),
             }),
             &[],
         ),
@@ -976,6 +1000,17 @@ fn effect_description() -> Value {
     })
 }
 
+/// What the tools that take `items` say of them.
+const BATCH: &str = "A whole step in one call: items, each these fields (those beside it are defaults).";
+
+/// What the other tools that take `items` say of them.
+const BATCH_TOO: &str = "Many at once: items, as in place_effects.";
+
+/// The `items` of a tool that does many at once (see [`crate::run`]'s batches).
+fn items() -> Value {
+    json!({ "type": "array", "items": { "type": "object" } })
+}
+
 /// Starting a sequence from a song, reading the song, and placing many effects in one call.
 fn song_tools() -> Vec<Tool> {
     let ms = || json!({ "type": "integer", "minimum": 0 });
@@ -1004,7 +1039,9 @@ fn song_tools() -> Vec<Tool> {
         ),
         tool(
             "place_effects",
-            "Puts one effect on many rows from fromMs to toMs: one each, or cut at a timing track's marks, shared out by spread. Refused where it overlaps effects on that layer, unless replace.",
+            &format!(
+                "Puts one effect on many rows from fromMs to toMs: one each, or cut at a timing track's marks, shared out by spread. Refused over effects on its layer unless replace. {BATCH}"
+            ),
             object(
                 json!({
                     "rowIds": ids(),
@@ -1017,14 +1054,17 @@ fn song_tools() -> Vec<Tool> {
                     "spread": { "enum": crate::arrange::SPREADS },
                     "layer": { "type": "integer", "minimum": 0, "description": "Default 0, the bottom; one past the top adds a layer." },
                     "replace": { "type": "boolean" },
+                    "items": items(),
                 }),
-                &["rowIds", "fromMs", "toMs", "effect"],
+                &[],
             ),
             ToolKind::PlaceEffects,
         ),
         tool(
             "repeat_effects",
-            "Copies every effect starting from fromMs to toMs (on all rows, or rowIds) to each time in startsMs, keeping rows, layers, and lengths. Refused where a copy overlaps effects, unless replace.",
+            &format!(
+                "Copies every effect starting from fromMs to toMs (on all rows, or rowIds) to each time in startsMs, keeping rows, layers, and lengths. Refused over other effects unless replace. {BATCH_TOO}"
+            ),
             object(
                 json!({
                     "fromMs": ms(),
@@ -1032,14 +1072,17 @@ fn song_tools() -> Vec<Tool> {
                     "startsMs": { "type": "array", "items": ms() },
                     "rowIds": ids(),
                     "replace": { "type": "boolean" },
+                    "items": items(),
                 }),
-                &["fromMs", "toMs", "startsMs"],
+                &[],
             ),
             ToolKind::RepeatEffects,
         ),
         tool(
             "change_effects",
-            "Changes many effects there already at once: those with ids, on rowIds, starting from fromMs up to toMs, on layer, of kinds (all you give must hold). Then one of: change, lengthMs, and shiftMs (any together); copyToRowIds (same times and layers); moveTo; remove. Refused where a result overlaps another effect on its layer, unless replace.",
+            &format!(
+                "Changes many effects there already at once: those with ids, on rowIds, starting from fromMs up to toMs, on layer, of kinds (all you give must hold). Then one of: change, lengthMs, and shiftMs (any together); copyToRowIds (same times and layers); moveTo; remove. Refused over other effects on a layer unless replace. {BATCH_TOO}"
+            ),
             object(
                 json!({
                     "ids": ids(),
@@ -1055,6 +1098,7 @@ fn song_tools() -> Vec<Tool> {
                     "moveTo": { "type": "object", "properties": { "rowId": { "type": "string" }, "layer": ms() } },
                     "remove": { "type": "boolean" },
                     "replace": { "type": "boolean" },
+                    "items": items(),
                 }),
                 &[],
             ),
@@ -1105,6 +1149,146 @@ fn song_tools() -> Vec<Tool> {
             ToolKind::StageCue,
         ),
     ]
+}
+
+/// The most the part of a request that never changes may weigh, as each provider's request
+/// carries it (bytes): the instructions and the core tools' definitions.
+pub const FIXED_REQUEST_BUDGET_BYTES: usize = 22_000;
+
+/// The tools every request carries: what a sequencing job uses (reading the show and the
+/// sequence, the guides, the song, placing and changing many effects at once, cues, the
+/// draft's), and `use_tools` for the rest. A fixed list, so the part of every request that
+/// never changes stays small and a provider's cache stays warm.
+pub const CORE: &[&str] = &[
+    "get_show_overview",
+    "list_props",
+    "list_groups",
+    "get_selection",
+    "list_effect_kinds",
+    "get_open_sequence",
+    "list_sequence_effects",
+    "get_timing_marks",
+    "get_guide",
+    "ask_for_song",
+    "analyze_song",
+    "add_song_timing",
+    "place_effects",
+    "repeat_effects",
+    "change_effects",
+    "stage_cue",
+    "sequence_set_effect_timing",
+    "review_draft",
+    "reset_draft",
+    "propose_changes",
+    "use_tools",
+];
+
+/// The rest, in groups a chat adds with `use_tools` when a job needs them: each group's key and
+/// what it is for. Its tools are listed in [`GROUP_TOOLS`]; an edit listed nowhere goes by its
+/// name (see [`group_of`]).
+pub const GROUPS: &[(&str, &str)] = &[
+    ("layout", "props, groups, shapes, background, house model"),
+    ("show", "controllers, playlist, show name and frame rate"),
+    ("rows", "rows, layers, how rows mix, music level, sequence info"),
+    ("effects", "one effect at a time"),
+    ("timing", "timing tracks and marks one by one, lyrics into words"),
+];
+
+/// Tools whose group their name doesn't say.
+const GROUP_TOOLS: &[(&str, &[&str])] = &[
+    (
+        "layout",
+        &[
+            "get_prop",
+            "get_group",
+            "shape_settings",
+            "show_add_prop",
+            "show_update_prop",
+            "show_remove_prop",
+            "show_add_group",
+            "show_update_group",
+            "show_remove_group",
+            "show_set_background",
+            "show_set_house_model",
+        ],
+    ),
+    ("show", &["list_controllers", "get_controller", "list_playlist"]),
+    (
+        "effects",
+        &[
+            "sequence_add_effect",
+            "sequence_update_effect",
+            "sequence_set_effect_params",
+            "sequence_move_effect",
+            "sequence_remove_effect",
+        ],
+    ),
+    ("timing", &["sequence_break_into_words", "sequence_spread_lyrics"]),
+];
+
+/// The group a tool comes in, or `None` for one of the [`CORE`] tools. An edit not listed in
+/// [`GROUP_TOOLS`] goes by its name: a show edit is in "show"; a sequence edit on timing tracks
+/// or marks in "timing", any other in "rows". Any other tool is core.
+pub fn group_of(name: &str) -> Option<&'static str> {
+    if CORE.contains(&name) {
+        return None;
+    }
+    if let Some((group, _)) = GROUP_TOOLS.iter().find(|(_, names)| names.contains(&name)) {
+        return Some(group);
+    }
+    if name.starts_with("show_") {
+        Some("show")
+    } else if name.starts_with("sequence_") {
+        Some(if name.contains("timing_track") || name.contains("mark") {
+            "timing"
+        } else {
+            "rows"
+        })
+    } else {
+        None
+    }
+}
+
+/// The group a screen's work needs from the start (the Layout screen's props and groups, the
+/// Wiring and Devices screens' controllers).
+pub fn group_for_screen(screen: &str) -> Option<&'static str> {
+    match screen {
+        "layout" => Some("layout"),
+        "wiring" | "devices" => Some("show"),
+        _ => None,
+    }
+}
+
+/// `use_tools`: each group, what it is for, and its tools by name.
+fn use_tools_tool(tools: &[Tool]) -> Tool {
+    let groups: Vec<String> = GROUPS
+        .iter()
+        .map(|(group, what)| {
+            let names: Vec<&str> = tools
+                .iter()
+                .map(|t| t.spec.name.as_str())
+                .filter(|name| group_of(name) == Some(*group))
+                .collect();
+            format!("{group} ({what}): {}", names.join(", "))
+        })
+        .collect();
+    tool(
+        "use_tools",
+        &format!(
+            "More tools, by group, for the rest of the chat; any listed can also be called straight away. {}.",
+            groups.join(". ")
+        ),
+        object(
+            json!({
+                "groups": {
+                    "type": "array",
+                    "items": { "enum": GROUPS.iter().map(|(g, _)| *g).collect::<Vec<_>>() },
+                },
+            }),
+            &["groups"],
+        ),
+        ToolKind::UseTools,
+    )
 }
 
 fn draft_tools() -> Vec<Tool> {

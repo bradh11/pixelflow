@@ -76,8 +76,12 @@ impl Rows<'_> {
     }
 
     /// A look for every part of the song: little and dim where it is quiet, the whole house
-    /// where it is loud, dark through the stop before the last chorus.
-    fn base(&self) -> Vec<Call> {
+    /// where it is loud, dark through the stop before the last chorus. All of it in one call.
+    fn base(&self) -> Call {
+        batch(self.looks())
+    }
+
+    fn looks(&self) -> Vec<Call> {
         let mut out = vec![
             self.place(
                 &["Roofline"],
@@ -154,58 +158,75 @@ impl Rows<'_> {
     }
 }
 
+/// Calls to one tool as one call doing them all, with `items`.
+fn batch(calls: Vec<Call>) -> Call {
+    let name = calls.first().map_or("place_effects", |(name, _)| *name);
+    let items: Vec<Value> = calls.into_iter().map(|(_, input)| input).collect();
+    (name, json!({ "items": items }))
+}
+
 fn guides(topics: &[&str], effects: &[&str]) -> Call {
     ("get_guide", json!({ "topics": topics, "effects": effects }))
+}
+
+/// Topics whole, and only some `parts` of each effect's guide.
+fn guide_parts(topics: &[&str], effects: &[&str], parts: &[&str]) -> Call {
+    (
+        "get_guide",
+        json!({ "topics": topics, "effects": effects, "parts": parts }),
+    )
 }
 
 fn propose(summary: &str) -> Turn {
     calls("", &[("propose_changes", json!({ "summary": summary }))])
 }
 
+/// The effects the base is made of.
+const BASE_EFFECTS: [&str; 7] = [
+    "on",
+    "colorWash",
+    "twinkle",
+    "chase",
+    "bars",
+    "spiral",
+    "butterfly",
+];
+
 fn whole_song(on: &Rows<'_>) -> Vec<Turn> {
+    let mut effects = BASE_EFFECTS.to_vec();
+    effects.push("faces");
     vec![
-        calls("", &[guides(&["method"], &[])]),
-        calls(
-            "",
-            &[
-                ("analyze_song", json!({})),
-                ("get_open_sequence", json!({})),
-                ("list_props", json!({})),
-            ],
-        ),
+        // The method and the design topics in one read; the effects chosen from the overview
+        // and the rest of the topics in a second.
         calls(
             "",
             &[guides(
-                &["song", "roles", "layering", "palettes", "motion", "intensity"],
-                &[],
-            )],
-        ),
-        calls(
-            "",
-            &[guides(
-                &[],
                 &[
-                    "on",
-                    "colorWash",
-                    "twinkle",
-                    "chase",
-                    "bars",
-                    "spiral",
-                    "butterfly",
+                    "method",
+                    "song",
+                    "roles",
+                    "layering",
+                    "palettes",
+                    "motion",
+                    "intensity",
+                    "choosing",
                 ],
+                &[],
             )],
         ),
-        calls("", &on.base()),
         calls(
             "",
-            &[guides(
+            &[guide_parts(
                 &["vocals", "openings-endings", "safety", "cues"],
-                &["faces"],
+                &effects,
+                &["draws", "looks"],
             )],
         ),
+        // The whole base in one call, and the moments and the singing beside it.
         calls(
             "",
             &[
+                on.base(),
                 ("stage_cue", json!({ "stageMoments": { "minImportance": 0.5 } })),
                 (
                     "stage_cue",
@@ -223,7 +244,7 @@ fn whole_song(on: &Rows<'_>) -> Vec<Turn> {
 
 fn dancers(on: &Rows<'_>) -> Vec<Turn> {
     vec![
-        calls("", &[guides(&[], &["dancer"]), ("get_open_sequence", json!({}))]),
+        calls("", &[guides(&[], &["dancer"])]),
         calls(
             "",
             &[on.place(
@@ -239,30 +260,31 @@ fn dancers(on: &Rows<'_>) -> Vec<Turn> {
 }
 
 fn sing_along(on: &Rows<'_>) -> Vec<Turn> {
-    let mut placed: Vec<Call> = vec![(
-        "stage_cue",
-        json!({ "cues": [{ "cue": "sing", "at": 8_000, "until": 92_000, "targets": ["Singing Face"] }] }),
-    )];
     // Each chorus's words as they are sung: no text of their own, so each says the sung words,
-    // held long enough to read.
-    placed.extend(CHORUSES.iter().map(|&(from, to)| {
-        let (name, mut input) = on.place(
-            &["Matrix"],
-            (from, to),
-            0,
-            json!({ "kind": "text", "settings": { "movement": "none" }, "colors": [WHITE] }),
-        );
-        input["track"] = json!("Lyrics (words)");
-        (name, input)
-    }));
-    vec![
-        calls(
-            "",
-            &[
-                guides(&["vocals"], &["faces", "text"]),
-                ("analyze_song", json!({})),
-            ],
+    // held long enough to read. One call for the three, the track shared.
+    let (name, mut words) = batch(
+        CHORUSES
+            .iter()
+            .map(|&(from, to)| {
+                on.place(
+                    &["Matrix"],
+                    (from, to),
+                    0,
+                    json!({ "kind": "text", "settings": { "movement": "none" }, "colors": [WHITE] }),
+                )
+            })
+            .collect(),
+    );
+    words["track"] = json!("Lyrics (words)");
+    let placed: Vec<Call> = vec![
+        (
+            "stage_cue",
+            json!({ "cues": [{ "cue": "sing", "at": 8_000, "until": 92_000, "targets": ["Singing Face"] }] }),
         ),
+        (name, words),
+    ];
+    vec![
+        calls("", &[guides(&["vocals"], &["faces", "text"])]),
         calls("", &placed),
         calls("", &[("review_draft", json!({}))]),
         propose(
@@ -274,10 +296,7 @@ fn sing_along(on: &Rows<'_>) -> Vec<Turn> {
 
 fn build() -> Vec<Turn> {
     vec![
-        calls(
-            "",
-            &[guides(&["intensity", "cues"], &[]), ("analyze_song", json!({}))],
-        ),
+        calls("", &[guides(&["intensity", "cues"], &[])]),
         calls(
             "",
             &[(
@@ -291,31 +310,22 @@ fn build() -> Vec<Turn> {
 }
 
 fn calm_and_big(on: &Rows<'_>) -> Vec<Turn> {
-    let mut placed: Vec<Call> = vec![("change_effects", json!({ "fromMs": 0, "remove": true }))];
-    placed.extend(on.base());
+    let placed: Vec<Call> = vec![
+        ("change_effects", json!({ "fromMs": 0, "remove": true })),
+        on.base(),
+    ];
     vec![
+        // What is there, and everything to read, in one step.
         calls(
             "",
             &[
-                guides(&["intensity", "layering", "roles"], &[]),
-                ("analyze_song", json!({})),
+                guide_parts(
+                    &["intensity", "layering", "roles"],
+                    &BASE_EFFECTS,
+                    &["draws", "looks"],
+                ),
                 ("list_sequence_effects", json!({})),
             ],
-        ),
-        calls(
-            "",
-            &[guides(
-                &[],
-                &[
-                    "on",
-                    "colorWash",
-                    "twinkle",
-                    "chase",
-                    "bars",
-                    "spiral",
-                    "butterfly",
-                ],
-            )],
         ),
         calls("", &placed),
         calls("", &[("review_draft", json!({}))]),
@@ -348,7 +358,7 @@ fn halloween(on: &Rows<'_>) -> Vec<Turn> {
             "",
             &[guides(&["palettes"], &[]), ("list_sequence_effects", json!({}))],
         ),
-        calls("", &changes),
+        calls("", &[batch(changes)]),
         propose("Everything recolored in orange, purple, and a little slime green; nothing else moved."),
         says("It's in Halloween colors now."),
     ]
@@ -380,7 +390,7 @@ fn fixes(on: &Rows<'_>) -> Vec<Call> {
 
 fn review_and_fix(on: &Rows<'_>) -> Vec<Turn> {
     vec![
-        calls("", &[("analyze_song", json!({})), ("review_draft", json!({}))]),
+        calls("", &[("review_draft", json!({}))]),
         calls("", &fixes(on)),
         calls("", &[("review_draft", json!({}))]),
         propose(
@@ -394,7 +404,7 @@ fn scroll_words(on: &Rows<'_>) -> Vec<Turn> {
     vec![
         calls(
             "",
-            &[guides(&[], &["text"]), ("get_open_sequence", json!({}))],
+            &[guides(&[], &["text"])],
         ),
         calls(
             "",
@@ -413,7 +423,7 @@ fn scroll_words(on: &Rows<'_>) -> Vec<Turn> {
 
 fn question() -> Vec<Turn> {
     vec![
-        calls("", &[guides(&[], &["chase", "bars"])]),
+        calls("", &[guide_parts(&[], &["chase", "bars"], &["draws", "use"])]),
         says(
             "On your arches a Chase sends one band of light running along each arch and round again, so it reads as something travelling. Bars lays several stripes along the arch and slides them all together, so the whole arch is striped and the stripes drift. Use Chase for a pulse that moves, Bars for a candy-stripe that fills the arch.",
         ),

@@ -6,8 +6,9 @@ Working on a sequence that already has effects: finding them, changing many at o
 
 The user's sequence is theirs. Read what is there before touching it.
 
-- `get_open_sequence`: the rows (what each lights, how many effects on each layer), the timing tracks, the pictures.
-- `list_sequence_effects`: the effects themselves, for one row or a stretch of time. Ask with `brief` for a long stretch: each effect as its id, layer, kind, and times; then ask in full for the row and time you mean to change.
+- The first message's context block, or `get_open_sequence`: the rows (what each lights, how many effects on each layer, of which kinds), the timing tracks, the pictures.
+- `list_sequence_effects`: the effects themselves, for one row or a stretch of time, each in a line (its id, layer, kind, times, and colors); a dozen or fewer come with every setting. Ask with `full` for every setting of more; ask for the row and time you mean to change, rather than the whole song in full.
+- Changing many at once needs no settings read first: `change_effects` changes only what you give it.
 - `get_selection`: what the user has selected, when they say "these" or "this one".
 - Change only what was asked for. "Make the chorus brighter" is not a licence to redo the verses.
 

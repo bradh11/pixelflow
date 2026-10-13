@@ -94,6 +94,14 @@ pub struct Traffic {
     /// Everything the model wrote back: its words and its tool calls.
     pub reply_bytes: usize,
     pub largest_request_bytes: usize,
+    /// What the first request sent: the fixed part (instructions and tool definitions) and
+    /// the user's message with its context. Summed when traffic is added up.
+    pub first_request_bytes: usize,
+}
+
+/// Bytes as tokens, roughly ([`BYTES_PER_TOKEN`]).
+pub fn tokens_of(bytes: usize) -> u64 {
+    (bytes as f64 / BYTES_PER_TOKEN).round() as u64
 }
 
 impl Traffic {
@@ -103,12 +111,17 @@ impl Traffic {
         self.repeated_bytes += other.repeated_bytes;
         self.reply_bytes += other.reply_bytes;
         self.largest_request_bytes = self.largest_request_bytes.max(other.largest_request_bytes);
+        self.first_request_bytes += other.first_request_bytes;
     }
 
     /// Tokens sent and received, roughly ([`BYTES_PER_TOKEN`]).
     pub fn tokens(&self) -> (u64, u64) {
-        let tokens = |bytes: usize| (bytes as f64 / BYTES_PER_TOKEN).round() as u64;
-        (tokens(self.sent_bytes), tokens(self.reply_bytes))
+        (tokens_of(self.sent_bytes), tokens_of(self.reply_bytes))
+    }
+
+    /// Tokens one request sent on average, roughly.
+    pub fn mean_request_tokens(&self) -> u64 {
+        tokens_of(self.sent_bytes / self.requests.max(1))
     }
 
     /// What it costs at `prices`, in dollars: at full price, and when the provider charges the
@@ -370,6 +383,7 @@ impl<'a> Metered<'a> {
         let exchanges = self.exchanges.lock().unwrap_or_else(PoisonError::into_inner);
         let mut traffic = Traffic::default();
         let mut before = 0;
+        traffic.first_request_bytes = exchanges.first().map_or(0, |e| e.sent);
         for exchange in exchanges.iter() {
             let sent = exchange.sent;
             traffic.requests += 1;
@@ -395,6 +409,13 @@ impl<'a> Metered<'a> {
             billed.add(&exchange.billed);
         }
         billed
+    }
+
+    /// The tokens the first request was billed for, as the provider reported them.
+    pub fn first_billed(&self) -> Option<u64> {
+        let exchanges = self.exchanges.lock().unwrap_or_else(PoisonError::into_inner);
+        let first = exchanges.first()?;
+        (first.billed.reported > 0).then(|| first.billed.tokens.sent())
     }
 
     /// Why this meter refused a request, if it did.
@@ -643,6 +664,33 @@ pub struct Measures {
     pub traffic: Traffic,
     /// The tokens the provider reported for these requests.
     pub billed: Billed,
+    /// The tokens the provider reported for the first request, when it did.
+    pub first_request_billed: Option<u64>,
+    /// The song's analysis came with the request, in its context block.
+    pub song_up_front: bool,
+}
+
+impl Measures {
+    /// Tool calls made, of every kind.
+    pub fn calls(&self) -> usize {
+        self.tool_calls.values().sum()
+    }
+
+    /// Tokens sent with the first request, and with a request on average: as billed when the
+    /// provider reported them, else estimated from sizes. The flag says which.
+    pub fn request_tokens(&self) -> (u64, u64, bool) {
+        let b = &self.billed;
+        match self.first_request_billed {
+            Some(first) if b.reported > 0 && b.unreported == 0 => {
+                (first, b.tokens.sent() / b.reported as u64, true)
+            }
+            _ => (
+                tokens_of(self.traffic.first_request_bytes),
+                self.traffic.mean_request_tokens(),
+                false,
+            ),
+        }
+    }
 }
 
 /// Everything a scenario's checks can look at.
@@ -790,7 +838,18 @@ fn scored(
     })
 }
 
-fn measure(run: &Run<'_>, proposed: bool, traffic: Traffic, billed: Billed, cancel: &Cancel) -> Measures {
+fn measure(
+    run: &Run<'_>,
+    proposed: bool,
+    metered: &Metered<'_>,
+    messages: &[Message],
+    cancel: &Cancel,
+) -> Measures {
+    let (traffic, billed) = (metered.traffic(), metered.billed());
+    let song_up_front = messages.iter().any(|m| match m {
+        Message::User(text) => text.contains(crate::context::SONG_LINE),
+        _ => false,
+    });
     let (doc, lights, song) = (run.after, run.lights, run.song);
     let mut tool_calls: BTreeMap<String, usize> = BTreeMap::new();
     let mut guides = Vec::new();
@@ -860,6 +919,8 @@ fn measure(run: &Run<'_>, proposed: bool, traffic: Traffic, billed: Billed, canc
             .map(|s| s.score),
         traffic,
         billed,
+        first_request_billed: metered.first_billed(),
+        song_up_front,
     }
 }
 
@@ -956,7 +1017,7 @@ pub fn run_within(
         tools: &tools,
         lights: &lights,
     };
-    let measures = measure(&seen, proposed, metered.traffic(), metered.billed(), cancel);
+    let measures = measure(&seen, proposed, &metered, session.messages(), cancel);
     let checks = (scenario.judge)(&seen, &measures);
     Outcome {
         scenario: scenario.key.to_string(),
@@ -974,7 +1035,7 @@ pub fn run_within(
 /// What a run sends a model, in words, with the sizes that never change.
 pub fn what_is_sent() -> String {
     let stage = Stage::new();
-    let specs = Toolbox::default().specs();
+    let specs = Toolbox::default().core_specs();
     let tools: usize = specs
         .iter()
         .map(|t| t.name.len() + t.description.len() + t.input_schema.to_string().len())
@@ -985,7 +1046,8 @@ pub fn what_is_sent() -> String {
     let lines = crate::stage::lyric_tracks().first().map_or(0, |t| t.marks.len());
     format!(
         "What a run sends the model's provider:\n\
-         - the Assistant's instructions and its {} tool definitions, with every request ({} bytes, about {} tokens);\n\
+         - the Assistant's instructions and its {} core tool definitions, with every request ({} bytes, about {} tokens), and more tools in groups when the model asks for them;\n\
+         - with the request, the made-up show, sequence, and song below in outline;\n\
          - each scenario's request, as a user would type it;\n\
          - whatever the model looks up with its tools: PixelFlow's own guides, and a made-up show and song that exist only in this harness:\n\
          \x20   props: {};\n\
@@ -1032,6 +1094,29 @@ pub fn billed_line(billed: &Billed, prices: &Prices) -> String {
     line
 }
 
+/// What a person waits for, per scenario: the round trips to the model, the tool calls, and how
+/// much each request carried (tokens as billed where the provider reported them, else
+/// estimated from sizes and marked `~`).
+fn round_trips(outcomes: &[Outcome]) -> String {
+    let mut out = String::from(
+        "Round trips and request sizes (tokens; ~ estimated from sizes):\n\n| Scenario | Requests | Tool calls | First request | Mean request | Largest request |\n|---|---|---|---|---|---|\n",
+    );
+    for o in outcomes {
+        let m = &o.measures;
+        let (first, mean, billed) = m.request_tokens();
+        let mark = if billed { "" } else { "~" };
+        out.push_str(&format!(
+            "| {} | {} | {} | {mark}{first} | {mark}{mean} | ~{} |\n",
+            o.scenario,
+            m.requests,
+            m.calls(),
+            tokens_of(m.traffic.largest_request_bytes),
+        ));
+    }
+    out.push('\n');
+    out
+}
+
 /// The outcomes as a report to read: a line per scenario, then each one's checks.
 pub fn report(outcomes: &[Outcome], model: &str, prices: &Prices) -> String {
     let mut out = format!("# Assistant evaluation: {model}\n\n");
@@ -1073,6 +1158,7 @@ pub fn report(outcomes: &[Outcome], model: &str, prices: &Prices) -> String {
         prices.output,
         prices.cached,
     ));
+    out.push_str(&round_trips(outcomes));
     out.push_str(
         "| Scenario | Checks | Review | Props | Kinds | Dark | Full | Changes | Moments | Safe | Requests | Tool errors | Cost |\n|---|---|---|---|---|---|---|---|---|---|---|---|---|\n",
     );

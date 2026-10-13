@@ -65,9 +65,39 @@ impl Suit {
 /// in one answer.
 pub const MAX_GUIDE_BYTES: usize = 12_000;
 /// Guides one `get_guide` call may ask for.
-pub const MAX_GUIDES_PER_CALL: usize = 8;
-/// How much one `get_guide` answer may hold (under the limit on every tool answer).
-const ANSWER_BYTES: usize = crate::run::MAX_RESULT_CHARS - 2_000;
+pub const MAX_GUIDES_PER_CALL: usize = 12;
+/// How much one `get_guide` answer may hold: what a design job reads before it starts, in one
+/// round trip rather than two.
+pub const MAX_GUIDE_ANSWER_BYTES: usize = 48_000;
+
+/// The parts of an effect's guide `get_guide` can answer on their own (`parts`): the name it
+/// takes, and the heading the guide gives it.
+pub const PARTS: [(&str, &str); 5] = [
+    ("draws", "What it draws"),
+    ("settings", "Settings"),
+    ("use", "When to use it"),
+    ("looks", "Looks"),
+    ("reference", "Reference"),
+];
+
+/// The guide for `kind`, only the `parts` named (from [`PARTS`], in their order): its title and
+/// summary, then those sections.
+pub fn effect_parts(kind: EffectKind, parts: &[&str]) -> String {
+    let text = effect_text(kind);
+    let mut pieces = text.split("\n## ");
+    let mut out = pieces.next().unwrap_or_default().trim_end().to_string();
+    let sections: Vec<&str> = pieces.collect();
+    for (part, heading) in PARTS {
+        if !parts.contains(&part) {
+            continue;
+        }
+        if let Some(section) = sections.iter().find(|s| s.split('\n').next() == Some(heading)) {
+            out.push_str("\n\n## ");
+            out.push_str(section.trim_end());
+        }
+    }
+    out
+}
 
 /// The written guide for `kind`, read. (`None` only for a guide that can't be read, which the
 /// tests don't let through: the reference then stands alone.)
@@ -79,7 +109,7 @@ pub fn effect_guide(kind: EffectKind) -> Option<Guide> {
 pub fn effect_text(kind: EffectKind) -> String {
     let reference = reference::effect(kind);
     match effect_guide(kind) {
-        Some(guide) => format!("{}\n{reference}", guide.text.trim_end()),
+        Some(guide) => format!("{}\n\n{reference}", guide.text.trim_end()),
         None => format!("# {}\n\n{reference}", reference::info(kind).label),
     }
 }
@@ -95,7 +125,8 @@ pub fn topic_text(key: &str) -> Option<String> {
 }
 
 /// The lists a topic can ask for by `{{name}}` on a line of its own, each generated.
-pub const GENERATED: [&str; 13] = [
+pub const GENERATED: [&str; 14] = [
+    "effect-overview",
     "blends",
     "row-blending",
     "curve-shapes",
@@ -125,6 +156,7 @@ fn generated(name: &str) -> Option<String> {
         "cues" => reference::cues(),
         "effect-wide" => reference::effect_wide(),
         "effects" => effect_index(),
+        "effect-overview" => effect_overview(),
         "looks-by-target" => looks_by_target(),
         _ => return None,
     })
@@ -156,6 +188,26 @@ fn effect_index() -> String {
         .collect()
 }
 
+/// Every effect in a line, for choosing between them without reading every guide: its key,
+/// the kinds of target its looks were written for, and what it's for.
+fn effect_overview() -> String {
+    EffectKind::ALL
+        .iter()
+        .map(|&kind| {
+            let key = reference::key_of(&kind);
+            let Some(guide) = effect_guide(kind) else {
+                return format!("- `{key}`: {}\n", reference::info(kind).description);
+            };
+            let suits: Vec<&str> = Suit::ALL
+                .iter()
+                .filter(|suit| guide.looks.iter().any(|l| l.suits.contains(suit)))
+                .map(|suit| suit.word())
+                .collect();
+            format!("- `{key}` ({}): {}\n", suits.join(", "), guide.summary)
+        })
+        .collect()
+}
+
 /// For each kind of target, the effects with a look written for it.
 fn looks_by_target() -> String {
     Suit::ALL
@@ -176,8 +228,10 @@ fn looks_by_target() -> String {
 /// What `get_guide` answers without being asked for anything: every guide there is, in a line
 /// each.
 pub fn index() -> String {
+    let parts: Vec<&str> = PARTS.iter().map(|(part, _)| *part).collect();
     let mut out = format!(
-        "PixelFlow's guides. Ask for up to {MAX_GUIDES_PER_CALL} at once, e.g. get_guide({{\"effects\": [\"bars\", \"spiral\"], \"topics\": [\"blends\"]}}).\n\nTopics:\n"
+        "PixelFlow's guides. Ask for up to {MAX_GUIDES_PER_CALL} at once, e.g. get_guide({{\"effects\": [\"bars\", \"spiral\"], \"topics\": [\"blends\"]}}). An effect's guide can come in parts, e.g. \"parts\": [\"looks\"] (parts: {}). Topic `choosing` sets every effect side by side.\n\nTopics:\n",
+        parts.join(", ")
     );
     for key in library::topic_keys() {
         let summary = topic_guide(key).map(|g| g.summary).unwrap_or_default();
@@ -225,21 +279,29 @@ impl GuidesRead {
 /// again, and the ones sent now are added to `read`. More than [`MAX_GUIDES_PER_CALL`] at once
 /// sends the first that many and names the rest to ask for next.
 pub fn answer_once(input: &Value, read: &mut GuidesRead) -> Result<String, String> {
-    if let Some(unknown) = input
-        .as_object()
-        .and_then(|o| o.keys().find(|k| !["effects", "topics"].contains(&k.as_str())))
-    {
+    if let Some(unknown) = input.as_object().and_then(|o| {
+        o.keys()
+            .find(|k| !["effects", "topics", "parts"].contains(&k.as_str()))
+    }) {
         return Err(format!(
-            "get_guide has no {unknown}. It takes effects and topics."
+            "get_guide has no {unknown}. It takes effects, topics, and parts."
         ));
     }
     let effects = asked(input, "effects")?;
     let topics = asked(input, "topics")?;
+    let parts = asked(input, "parts")?;
+    let names: Vec<&str> = PARTS.iter().map(|(name, _)| *name).collect();
+    if let Some(unknown) = parts.iter().find(|p| !names.contains(&p.as_str())) {
+        return Err(format!(
+            "An effect's guide has no part \"{}\". Parts: {}.",
+            unknown.chars().take(40).collect::<String>(),
+            names.join(", ")
+        ));
+    }
     if effects.is_empty() && topics.is_empty() {
         return Ok(index());
     }
     // Every name is checked first, so a wrong one is refused before anything is sent.
-    let mut guides: Vec<(String, String)> = Vec::new();
     for key in &topics {
         if !library::topic_keys().contains(&key.as_str()) {
             return Err(format!(
@@ -247,7 +309,6 @@ pub fn answer_once(input: &Value, read: &mut GuidesRead) -> Result<String, Strin
                 library::topic_keys().join(", ")
             ));
         }
-        guides.push((key.clone(), format!("topic:{key}")));
     }
     for key in &effects {
         if reference::kind_named(key).is_none() {
@@ -256,20 +317,46 @@ pub fn answer_once(input: &Value, read: &mut GuidesRead) -> Result<String, Strin
                 reference::kind_keys().join(", ")
             ));
         }
-        guides.push((key.clone(), format!("effect:{key}")));
+    }
+    // Each guide asked for: its name, what it marks read, and its text (`None` when this chat
+    // has read all of it that was asked for). Topics come whole; an effect's guide whole, or
+    // only the parts asked for that haven't been read.
+    let mut guides: Vec<(String, Vec<String>, Option<String>)> = Vec::new();
+    for key in &topics {
+        let id = format!("topic:{key}");
+        let text = (!read.contains(&id)).then(|| topic_text(key).unwrap_or_default());
+        guides.push((key.clone(), vec![id], text));
+    }
+    for key in &effects {
+        let whole = format!("effect:{key}");
+        let kind = reference::kind_named(key);
+        if parts.is_empty() {
+            let text = (!read.contains(&whole)).then(|| kind.map(effect_text).unwrap_or_default());
+            guides.push((key.clone(), vec![whole], text));
+            continue;
+        }
+        let unread: Vec<&str> = PARTS
+            .iter()
+            .map(|(part, _)| *part)
+            .filter(|part| parts.iter().any(|p| p == part))
+            .filter(|part| !read.contains(&whole) && !read.contains(&format!("{whole}#{part}")))
+            .collect();
+        let name = format!("{key} ({})", parts.join(", "));
+        let ids = unread.iter().map(|part| format!("{whole}#{part}")).collect();
+        let text = (!unread.is_empty()).then(|| kind.map(|k| effect_parts(k, &unread)).unwrap_or_default());
+        guides.push((name, ids, text));
     }
     let mut seen = std::collections::BTreeSet::new();
-    guides.retain(|(_, id)| seen.insert(id.clone()));
-    let (again, new): (Vec<_>, Vec<_>) = guides.into_iter().partition(|(_, id)| read.contains(id));
+    guides.retain(|(name, _, _)| seen.insert(name.clone()));
+    let (new, again): (Vec<_>, Vec<_>) = guides.into_iter().partition(|(_, _, text)| text.is_some());
     let mut out = String::new();
     let mut left_out: Vec<String> = Vec::new();
-    for (i, (key, id)) in new.into_iter().enumerate() {
-        let text = match id.split_once(':') {
-            Some(("topic", _)) => topic_text(&key),
-            _ => reference::kind_named(&key).map(effect_text),
-        }
-        .unwrap_or_default();
-        if i >= MAX_GUIDES_PER_CALL || (!out.is_empty() && out.len() + text.len() > ANSWER_BYTES) {
+    for (i, (key, ids, text)) in new.into_iter().enumerate() {
+        let text = text.unwrap_or_default();
+        // Room is kept for the lines saying what was left out and what was read before.
+        if i >= MAX_GUIDES_PER_CALL
+            || (!out.is_empty() && out.len() + text.len() > MAX_GUIDE_ANSWER_BYTES - 1_000)
+        {
             left_out.push(key);
             continue;
         }
@@ -277,10 +364,10 @@ pub fn answer_once(input: &Value, read: &mut GuidesRead) -> Result<String, Strin
             out.push_str("\n\n---\n\n");
         }
         out.push_str(&text);
-        read.0.insert(id);
+        read.0.extend(ids);
     }
     if !again.is_empty() {
-        let names: Vec<&str> = again.iter().map(|(key, _)| key.as_str()).collect();
+        let names: Vec<&str> = again.iter().map(|(key, _, _)| key.as_str()).collect();
         if !out.is_empty() {
             out.push_str("\n\n---\n\n");
         }

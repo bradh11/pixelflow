@@ -62,22 +62,6 @@ fn a_careful_answer_passes_every_check() {
         "{whole:?}"
     );
     assert!(whole.guides.iter().any(|g| g == "method"), "{:?}", whole.guides);
-    // It uses the range, with showpieces on both canvases, read about first.
-    assert!(
-        whole.guides.iter().any(|g| g == "showpieces"),
-        "{:?}",
-        whole.guides
-    );
-    assert!(
-        whole.effect_kinds.len() >= 10 && whole.canvas_showpieces.len() == 2,
-        "{whole:?}"
-    );
-    assert!(
-        whole.showpieces.iter().all(|k| whole.effect_kinds.contains(k)),
-        "{whole:?}"
-    );
-    let range = whole.review.as_ref().and_then(|r| r.criteria.range);
-    assert!(range.is_some_and(|r| r >= 90), "{range:?}");
     let review = whole
         .review
         .as_ref()
@@ -97,9 +81,6 @@ fn a_careful_answer_passes_every_check() {
         "## A whole song from nothing (whole-song)",
         "> Make a light show for this song.",
         "- pass It proposes its changes for the user to apply",
-        "- pass 10 kinds of effect or more, with a showpiece on a canvas (the Matrix or the Mega Tree)",
-        "| Scenario | Checks | Review | Props | Kinds | Showpieces |",
-        "On the canvases: Matrix: ",
         "Guides read: method,",
         "The prices are assumptions",
     ] {
@@ -109,90 +90,40 @@ fn a_careful_answer_passes_every_check() {
 }
 
 #[test]
-fn a_whole_song_from_the_same_few_effects_fails_only_the_range_check() {
-    // What the runs before the range was taught looked like: a sound structure, washes, chases,
-    // and spirals, the matrix only singing, and nothing on a canvas but those.
-    let scenario = scenario("whole-song");
+fn a_report_of_several_runs_says_how_they_differ() {
+    // Two answers to the same request: the careful one and one that recolored the same plan.
     let stage = Stage::new();
-    let doc = eval::scenarios::empty(&stage);
-    let row = |name: &str| stage.row(&doc, stage.named(name).unwrap()).unwrap().to_string();
-    let song = pf_ai::stage::song();
-    let mut items = Vec::new();
-    for section in &song.sections {
-        let loud = section.label == "Chorus";
-        let (from, to) = (section.start_ms, section.end_ms);
-        let place = |rows: &[&str], effect: serde_json::Value| json!({ "rowIds": rows.iter().map(|r| row(r)).collect::<Vec<_>>(), "fromMs": from, "toMs": to, "effect": effect });
-        if section.label == "Bridge" {
-            items.push(json!({ "rowIds": [row("Mega Tree")], "fromMs": from, "toMs": 79_000, "effect": { "kind": "twinkle", "colors": ["#2a6bff"], "brightness": 0.3 } }));
-            continue;
-        }
-        items.push(place(
-            &["Whole House"],
-            json!({ "kind": "colorWash", "colors": if loud { ["#ff2a2a", "#ffd700"] } else { ["#2a6bff", "#ffffff"] }, "brightness": if loud { 1.0 } else { 0.3 } }),
-        ));
-        if loud {
-            items.push(place(
-                &["Arches"],
-                json!({ "kind": "chase", "colors": ["#ffffff"] }),
-            ));
-            items.push(place(
-                &["Mega Tree"],
-                json!({ "kind": "spiral", "colors": ["#ff2a2a", "#ffffff"] }),
-            ));
-            items.push(place(
-                &["Roofline"],
-                json!({ "kind": "wave", "colors": ["#ffd700"] }),
-            ));
-        }
-    }
-    let turns = vec![
-        calls("", &[("get_guide", json!({ "topics": ["method"] }))]),
-        calls(
-            "",
-            &[
-                ("place_effects", json!({ "items": items })),
-                ("stage_cue", json!({ "stageMoments": { "minImportance": 0.5 } })),
-                (
-                    "stage_cue",
-                    json!({ "cues": [{ "cue": "sing", "at": 8_000, "until": 92_000 }] }),
-                ),
-            ],
+    let mut runs = cli::stand_in_outcomes_on(&[scenario("dancers"), scenario("dancers")], &stage);
+    runs[0].scenario = "dancers #1".into();
+    runs[1].scenario = "dancers #2".into();
+    runs[1].measures.effect_kinds.push("plasma".into());
+    runs[1].measures.colors = vec!["#000001".into()];
+    let report = eval::report(&runs, "the stand-in", &Prices::default());
+    let kinds = runs[0].measures.effect_kinds.len();
+    for words in [
+        "How the runs differ, for each request answered more than once:",
+        &format!(
+            "- dancers, 2 runs. Kinds of effect per run {kinds}, {}; in every run ({kinds}): ",
+            kinds + 1
         ),
-        calls("", &[("review_draft", json!({}))]),
-        calls("", &[("propose_changes", json!({ "summary": "A show." }))]),
-        says("Done."),
-    ];
-    let provider = ScriptedProvider::new(turns);
-    let outcome = eval::run(
-        &scenario,
-        &stage,
-        &provider,
-        &fake_key(),
-        "narrow",
-        &Cancel::new(),
-    );
+        "; in only some (1): plasma; shared by each pair of runs: 1 and 2: ",
+        "  Colors per run ",
+        "shared by each pair of runs: 1 and 2: 0%.",
+    ] {
+        assert!(report.contains(words), "{words}:\n{report}");
+    }
+    // One run of each says nothing of the kind.
+    let once = eval::report(&runs[..1], "the stand-in", &Prices::default());
+    assert!(!once.contains("How the runs differ"), "{once}");
+    // Every color a show used is in its results.
     assert!(
-        outcome.measures.tool_errors.is_empty(),
-        "{:?}",
-        outcome.measures.tool_errors
+        runs[0]
+            .measures
+            .colors
+            .iter()
+            .all(|c| c.len() == 7 && c.starts_with('#'))
     );
-    let range = outcome
-        .checks
-        .iter()
-        .find(|c| {
-            c.what
-                .starts_with("10 kinds of effect or more, with a showpiece on a canvas")
-        })
-        .expect("the whole song is checked for its range");
-    assert!(!range.passed, "{range:?}");
-    assert!(range.saw.ends_with("on the canvases: no showpiece"), "{range:?}");
-    assert!(outcome.measures.showpieces.is_empty() || outcome.measures.canvas_showpieces.is_empty());
-    // The structure it got right still passes: every other check.
-    let failed = failures(&outcome);
-    assert_eq!(failed.len(), 1, "{failed:#?}");
-    // And the review tells it where a showpiece would go.
-    let review = outcome.measures.review.as_ref().unwrap();
-    assert!(review.criteria.range.unwrap() < 80, "{review:?}");
+    assert!(!runs[0].measures.colors.is_empty());
 }
 
 #[test]

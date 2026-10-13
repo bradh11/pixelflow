@@ -37,30 +37,22 @@ hand-written analysis.
 - **The design review** (`review_draft`'s own): the score out of 100, each criterion, and the
   fixes it still wants.
 - **Plain measures**, taken from the frames the engine draws for the finished draft: how many of
-  the 12 props have a part, how many kinds of effect, how many of those are showpieces and which
-  canvas has which, the share of the song with nothing lit and with three quarters of the props
-  lit, at how many of the 7 section starts the look changes, how many of the biggest moments are
-  hit, whether anything flashes unsafely, how bright the verses are against the choruses.
-- **Range**: a showpiece is an effect that draws a picture of something rather than a color or
-  a band of light (`pf_ai::knowledge::SHOWPIECES`: plasma, butterfly, fireworks, shader, dancer,
-  picture, meteors, snowflakes, fire, circles, shape, shockwave, fan, pinwheel, garlands, morph,
-  ripple, life, lines, tendril); a canvas is a matrix or a tree of 300 pixels or more (the
-  stage's Matrix and Mega Tree; its 16 × 16 Singing Face is a singer). The report gives each
-  scenario's kinds and showpieces, and the canvases with one on their own rows. A whole show is
-  checked for ten kinds of effect or more (blackouts aside) with a showpiece on a canvas: the
-  review's own measure of what a song asks for, three kinds and one more for each different part
-  of the song and each canvas (never more than the props can show, or than two and one for every
-  ten seconds of song), which for the stage's 96-second song (five different parts: intro,
-  verse, chorus, bridge, outro) with two canvases and twelve props is ten. The runs before the range was
-  taught used eleven, all of them washes, chases, and pulses: the count alone passes, the
-  showpiece is what they lacked.
+  the 12 props have a part, how many kinds of effect, the share of the song with nothing lit and
+  with three quarters of the props lit, at how many of the 7 section starts the look changes,
+  how many of the biggest moments are hit, whether anything flashes unsafely, how bright the
+  verses are against the choruses. Each scenario lists the kinds of effect it used, and
+  `results.json` has every color too.
+- **How runs differ** (with `--runs` above 1): for each request, the kinds of effect and the
+  colors every run used, those only some runs did, and how much each pair of runs has in common.
+  It is information, not a check: no show is marked down for its choice of effects. Watch the
+  videos to judge the variety.
 - **Checks for the request itself**: the skeletons are skeletons and are on the matrix for the
   first chorus; the rest of the song was left alone; a recolor kept every effect where it was;
   the words of every chorus are up as they are sung, and can be read (by the review's rule: 300
   ms and 60 ms a letter); a build's second bar is brighter, or lights more props, than its
   first; a question was answered without changing anything; a small job took few steps; the
   method guide was read before the first effect was placed; the song was listened to (its
-  analysis came with the request, or was asked for); a whole show uses the range (above).
+  analysis came with the request, or was asked for).
 - **What it took**: model requests, tool calls by name, tool calls refused (with the reason),
   guides read, the size of everything sent and received, and (on a real run) the tokens the
   provider billed and what they cost.
@@ -138,9 +130,9 @@ Scores say how a show measures up; only looking says what it is like. With `--ou
 - `videos/<scenario>.mp4`: the whole draft as a video of the 2D preview (1280 × 448, 25 frames a
   second, with that sound), drawn by `pf-video` from the saved files as the app would open them.
 - `sheets/<scenario>.png`: a contact sheet of a frame from every section of the song (a beat into
-  its middle bar), each labelled with the section, the time, and the effects playing then (a
-  showpiece marked `*`), under a line with the scenario, the model, its checks, its review
-  score, and how many kinds of effect and showpieces it used.
+  its middle bar), each labelled with the section, the time, and the effects playing then, under
+  a line with the scenario, the model, its checks, its review score, and how many kinds of effect
+  it used.
 
 Everything is drawn here, offline; nothing is sent anywhere. Drawing all nine takes under a minute
 in a release build. `--no-render` keeps the drafts and the stage and draws nothing.
@@ -210,9 +202,8 @@ without `--send`) the defaults (3, 15, and 0.1) are placeholders.
 The scripted answers work the way the Assistant is asked to: they look up nothing the first
 message's context block already gives, read what a step needs in one `get_guide` call (an
 effect's guide in parts where that is enough), and lay a whole step in one call with `items`.
-When this was written they took 41 requests for all nine scenarios (`whole-song` 7: it reads
-topic `showpieces` and the guides of the showpieces it places before laying the show) and sent
-about 545,000 tokens in all, receiving about 4,000 (the dry run prints today's figures as the
+When this was written they took 40 requests for all nine scenarios (`whole-song` 6) and sent
+about 484,000 tokens in all, receiving about 3,600 (the dry run prints today's figures as the
 guides grow): nearly all of the cost is the conversation being sent again with each request,
 which is what a provider's cache makes cheap. A model takes more steps than a script that
 already knows what it will do, reads more guides, and writes more: allow two to four times that.
@@ -220,8 +211,8 @@ At the placeholder prices, that is roughly:
 
 | | The scripted answers | A model, without caching | A model, with the repeated part cached |
 |---|---|---|---|
-| All nine scenarios, once | $1.69 ($0.56 cached) | $3.40 to $6.80 | $1.10 to $2.20 |
-| `whole-song` alone | $0.63 ($0.19) | $1.25 to $2.50 | $0.40 to $0.80 |
+| All nine scenarios, once | $1.51 ($0.52 cached) | $3 to $6 | $1 to $2 |
+| `whole-song` alone | $0.45 ($0.15) | $0.90 to $1.80 | $0.30 to $0.60 |
 | A small one (`dancers`, `halloween`) | $0.10 ($0.04) | $0.20 to $0.40 | $0.07 to $0.14 |
 
 Those are estimates from sizes, not bills; a run that sends reports the tokens actually billed
@@ -232,8 +223,7 @@ estimate for the scenarios and prices you give it.
 
 The harness is tested with the scripted provider the crate's other tests use
 (`crates/pf-ai/tests/evaluation.rs`): a careful scripted answer passes every scenario's checks,
-an idle one fails them, a whole song built from the same few washes and chases fails only the
-range check, a refused tool call and a failing provider are reported rather than
+an idle one fails them, a refused tool call and a failing provider are reported rather than
 fatal, and the command line makes no provider and reads no key unless it is given `--send`.
 The spending ceiling is tested with that provider reporting usage: `--send` refuses to start
 without `--max-usd` and explicit prices; a request whose worst case would pass the ceiling is

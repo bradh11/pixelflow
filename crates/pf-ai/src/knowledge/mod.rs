@@ -61,39 +61,6 @@ impl Suit {
     }
 }
 
-/// The showpieces: effects that draw a picture of something (fireworks, falling snow, flames,
-/// flowing clouds, a dancer, a spinning wheel) rather than a color or a band of light. They are
-/// what a show's canvases (a matrix, a tree) can do that nothing else can, and what people
-/// remember; topic `showpieces` says where each belongs. The review's range criterion and the
-/// evaluation look for one on every canvas. (A level meter is left out: the peak cue puts one on
-/// every matrix by itself.)
-pub const SHOWPIECES: [EffectKind; 20] = [
-    EffectKind::Plasma,
-    EffectKind::Butterfly,
-    EffectKind::Fireworks,
-    EffectKind::Shader,
-    EffectKind::Dancer,
-    EffectKind::Picture,
-    EffectKind::Meteors,
-    EffectKind::Snowflakes,
-    EffectKind::Fire,
-    EffectKind::Circles,
-    EffectKind::Shape,
-    EffectKind::Shockwave,
-    EffectKind::Fan,
-    EffectKind::Pinwheel,
-    EffectKind::Garlands,
-    EffectKind::Morph,
-    EffectKind::Ripple,
-    EffectKind::Life,
-    EffectKind::Lines,
-    EffectKind::Tendril,
-];
-
-pub fn is_showpiece(kind: EffectKind) -> bool {
-    SHOWPIECES.contains(&kind)
-}
-
 /// Whether `kind`'s guide has a look for a single run of pixels (a string or an arch): `None`
 /// for a kind without a guide. One without is what the review's fit criterion flags on an
 /// outline or an arch.
@@ -171,9 +138,8 @@ pub fn topic_text(key: &str) -> Option<String> {
 }
 
 /// The lists a topic can ask for by `{{name}}` on a line of its own, each generated.
-pub const GENERATED: [&str; 16] = [
+pub const GENERATED: [&str; 15] = [
     "effect-overview",
-    "showpieces",
     "grid-only",
     "blends",
     "row-blending",
@@ -206,38 +172,9 @@ fn generated(name: &str) -> Option<String> {
         "effects" => effect_index(),
         "effect-overview" => effect_overview(),
         "looks-by-target" => looks_by_target(),
-        "showpieces" => showpiece_looks(),
         "grid-only" => grid_only(),
         _ => return None,
     })
-}
-
-/// Every showpiece in a line: its ready-made looks for a canvas (a matrix or a tree), each with
-/// the canvases it was written for.
-fn showpiece_looks() -> String {
-    SHOWPIECES
-        .iter()
-        .map(|&kind| {
-            let key = reference::key_of(&kind);
-            let looks: Vec<String> = effect_guide(kind)
-                .map(|guide| {
-                    guide
-                        .looks
-                        .iter()
-                        .filter_map(|look| {
-                            let on: Vec<&str> = [Suit::Matrix, Suit::Tree]
-                                .iter()
-                                .filter(|s| look.suits.contains(s))
-                                .map(|s| s.word())
-                                .collect();
-                            (!on.is_empty()).then(|| format!("\"{}\" ({})", look.name, on.join(", ")))
-                        })
-                        .collect()
-                })
-                .unwrap_or_default();
-            format!("- `{key}`: {}\n", looks.join(", "))
-        })
-        .collect()
 }
 
 /// The kinds with no look for a single run of pixels: the ones not to put on an outline or an

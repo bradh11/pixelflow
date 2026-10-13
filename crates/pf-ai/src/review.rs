@@ -20,8 +20,7 @@
 //!
 //! Then it is judged as a design (see [`design`]): every prop has a part, something rests, each
 //! section holds to a few colors and looks different from the one before, the biggest moments
-//! light most of the house, effects suit the props they're on, words can be read, and the show
-//! uses the range (enough kinds of effect, a showpiece on every canvas).
+//! light most of the house, effects suit the props they're on, and words can be read.
 //!
 //! The result is a score, a score per criterion, and a short punch list of fixes, each with its
 //! time and, where tools can make it, the tool calls that would. Everything is worked out the
@@ -36,8 +35,6 @@ pub(crate) use text::{read_ms, sung_words};
 pub(crate) fn text_grid(prop: &pf_model::Prop) -> Option<(u32, u32)> {
     design::grid(prop)
 }
-
-pub(crate) use design::{is_canvas, kinds_wanted};
 
 use crate::cues::{Role, role_of, suggested_cue};
 use crate::provider::Cancel;
@@ -165,15 +162,11 @@ pub struct Criteria {
     /// Words that can be read.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub text: Option<u32>,
-    /// The range of effects used for the song's length and the display, a showpiece on every
-    /// canvas, and no section playing exactly the effects of a different one before it.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub range: Option<u32>,
 }
 
 impl Criteria {
     /// The overall score: each criterion weighted, those that don't apply left out.
-    pub fn overall(&self) -> u32 {
+    fn overall(&self) -> u32 {
         let weighted = [
             (self.moments, 25.0),
             (self.contrast, 10.0),
@@ -191,9 +184,6 @@ impl Criteria {
             (self.scale, 5.0),
             (Some(self.fit), 6.0),
             (self.text, 3.0),
-            // Light: a show that keeps time and holds together but uses a narrow kit loses a
-            // point or two, not its standing; the fixes are what make it better.
-            (self.range, 4.0),
         ];
         let (sum, weight) = weighted
             .iter()
@@ -304,7 +294,6 @@ pub fn review(subject: &Subject<'_>, cancel: &Cancel) -> Result<Review, String> 
     r.changes();
     r.scale();
     r.fit();
-    r.range();
     let score = r.criteria.overall();
     let (shown, of) = r.top;
     let mut summary = format!("Review: {score}/100");
@@ -829,19 +818,12 @@ impl Fixes {
 
     /// The list, capped, and how many were left off. The most important kind of fix comes
     /// first, but one of every kind comes before the second of any, so a dozen missed moments
-    /// don't crowd out the one line saying half the props never light. Fixes for the range
-    /// ([`rank::RANGE`]) take only the room the others leave: a show with faults to mend
-    /// mends them first.
+    /// don't crowd out the one line saying half the props never light.
     fn list(self) -> (Vec<Fix>, usize) {
         let total = self.0.len();
         let mut by_kind: BTreeMap<u8, std::collections::VecDeque<Fix>> = BTreeMap::new();
-        let mut range = Vec::new();
         for (rank, fix) in self.0 {
-            if rank == rank::RANGE {
-                range.push(fix);
-            } else {
-                by_kind.entry(rank).or_default().push_back(fix);
-            }
+            by_kind.entry(rank).or_default().push_back(fix);
         }
         let mut list = Vec::new();
         while list.len() < MAX_FIXES && by_kind.values().any(|fixes| !fixes.is_empty()) {
@@ -853,15 +835,13 @@ impl Fixes {
                 }
             }
         }
-        let room = MAX_FIXES.saturating_sub(list.len());
-        list.extend(range.into_iter().take(room));
         let more = total - list.len();
         (list, more)
     }
 }
 
 /// The kinds of fix, by how much each matters, most first. Each kind has its own number: the
-/// punch list takes the first of every kind before the second of any, and the range's last.
+/// punch list takes the first of every kind before the second of any.
 mod rank {
     pub const SAFETY: u8 = 0;
     pub const MOMENT: u8 = 1;
@@ -879,7 +859,6 @@ mod rank {
     pub const DARK: u8 = 13;
     pub const RESTRAINT: u8 = 14;
     pub const VARIETY: u8 = 15;
-    pub const RANGE: u8 = 16;
 }
 
 fn percent(x: f32) -> u32 {

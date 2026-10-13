@@ -362,42 +362,6 @@ fn seconds(ms: u64) -> String {
     format!("{:.1} s", ms as f64 / 1000.0)
 }
 
-/// Whether a whole show uses the range: as many kinds of effect (blackouts aside) as the review
-/// asks of a song this long on this display, one for each of its different parts and each canvas
-/// and three more (ten, for the stage's 96-second song of five different parts, with a matrix and
-/// a tree), and a showpiece on a canvas's own rows.
-fn range(run: &Run<'_>, m: &Measures) -> Check {
-    let parts: BTreeSet<&str> = run.song.sections.iter().map(|s| s.group.as_str()).collect();
-    let canvases = run
-        .stage
-        .show
-        .props
-        .iter()
-        .filter(|p| crate::review::is_canvas(p))
-        .count();
-    let wanted = crate::review::kinds_wanted(
-        parts.len(),
-        canvases,
-        run.stage.show.props.len(),
-        run.after.duration_ms / 1000,
-    );
-    let kinds = m.effect_kinds.iter().filter(|k| *k != "off").count();
-    check(
-        &format!(
-            "{wanted} kinds of effect or more, with a showpiece on a canvas (the Matrix or the Mega Tree)"
-        ),
-        kinds >= wanted && !m.canvas_showpieces.is_empty(),
-        format!(
-            "{kinds} kinds; on the canvases: {}",
-            if m.canvas_showpieces.is_empty() {
-                "no showpiece".to_string()
-            } else {
-                m.canvas_showpieces.join("; ")
-            }
-        ),
-    )
-}
-
 fn whole_song(run: &Run<'_>, m: &Measures) -> Vec<Check> {
     let review = m.review.as_ref();
     let stop = run.lights.level(&[(79_250, 79_750)]);
@@ -416,7 +380,6 @@ fn whole_song(run: &Run<'_>, m: &Measures) -> Vec<Check> {
             m.effect_kinds.len() >= 5,
             format!("{}", m.effect_kinds.len()),
         ),
-        range(run, m),
         check(
             "The choruses are brighter than the verses, by a quarter or more",
             m.chorus_light >= m.verse_light * 1.25 && m.chorus_light > 0.05,

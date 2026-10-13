@@ -480,55 +480,48 @@ fn every_effect_is_on_one_page_for_choosing() {
 }
 
 #[test]
-fn the_showpieces_and_motion_the_guides_suggest_are_real_looks_on_the_props_they_say() {
-    // Every `kind` "Look" the topic names is a look in that effect's guide (where the effect
-    // guides' own test draws it on every target it suits); in a table, the look suits every
-    // prop its last cell names. A look renamed or retargeted in its guide fails here.
-    let written = written_topic("showpieces");
-    let pair = regex::Regex::new(r#"`(\w+)` "([^"]+)""#).unwrap();
-    let mut named = 0;
-    for line in written.lines() {
-        let in_table = line.trim_start().starts_with('|');
-        let suits: Vec<knowledge::Suit> = in_table
-            .then(|| line.trim().trim_matches('|').rsplit('|').next())
-            .flatten()
-            .map(|cell| {
-                cell.trim()
-                    .split(", ")
-                    .filter_map(knowledge::Suit::parse)
-                    .collect()
-            })
-            .unwrap_or_default();
-        for found in pair.captures_iter(line) {
-            let (key, name) = (&found[1], &found[2]);
-            let kind = reference::kind_named(key).unwrap_or_else(|| panic!("there's no effect `{key}`"));
-            let guide = knowledge::effect_guide(kind).unwrap();
-            let look = guide.looks.iter().find(|l| l.name == name).unwrap_or_else(|| {
-                panic!("topic `showpieces` names \"{name}\", which `{key}`'s guide has no look called")
-            });
-            assert!(!in_table || !suits.is_empty(), "{line}");
-            for suit in &suits {
-                assert!(
-                    look.suits.contains(suit),
-                    "topic `showpieces` puts `{key}` \"{name}\" on a {}, which the look isn't written for ({:?})",
-                    suit.word(),
-                    look.suits
-                );
-            }
-            named += 1;
+fn the_range_says_what_every_effect_can_do_from_its_guide() {
+    // A line for every effect: the props in its brackets are ones its guide has looks for, and
+    // the look it names is one of that guide's. A look renamed or retargeted in its guide, or an
+    // effect added without a line, fails here.
+    let written = written_topic("range");
+    let line = regex::Regex::new(r#"^- `(\w+)` \(([^)]*)\): .*"([^"]+)"\.$"#).unwrap();
+    let mut described = BTreeSet::new();
+    for text in written.lines() {
+        let Some(found) = line.captures(text) else {
+            assert!(
+                !text.starts_with("- `"),
+                "a line of topic `range` not in the form of the others: {text}"
+            );
+            continue;
+        };
+        let (key, props, name) = (&found[1], &found[2], &found[3]);
+        let kind = reference::kind_named(key).unwrap_or_else(|| panic!("there's no effect `{key}`"));
+        let guide = knowledge::effect_guide(kind).unwrap();
+        let written_for: BTreeSet<knowledge::Suit> =
+            guide.looks.iter().flat_map(|l| l.suits.clone()).collect();
+        for prop in props.split(", ") {
+            let suit = knowledge::Suit::parse(prop)
+                .unwrap_or_else(|| panic!("`{key}`: \"{prop}\" isn't a kind of prop"));
+            assert!(
+                written_for.contains(&suit),
+                "topic `range` puts `{key}` on a {prop}, which none of its guide's looks are written for"
+            );
         }
-    }
-    assert!(named >= 20, "{named}");
-    // As read: every showpiece with its looks for a canvas, and the effects with no look for a
-    // run of pixels (the ones the review flags on an outline or an arch), from their guides.
-    let page = knowledge::topic_text("showpieces").unwrap();
-    for kind in knowledge::SHOWPIECES {
-        let key = reference::key_of(&kind);
         assert!(
-            page.contains(&format!("- `{key}`: \"")),
-            "{key} has a look for a canvas"
+            guide.looks.iter().any(|l| l.name == name),
+            "topic `range` names \"{name}\", which `{key}`'s guide has no look called"
         );
+        assert!(described.insert(key.to_string()), "`{key}` twice");
     }
+    let missing: Vec<String> = reference::kind_keys()
+        .into_iter()
+        .filter(|key| !described.contains(key))
+        .collect();
+    assert!(missing.is_empty(), "topic `range` has no line for: {missing:?}");
+    // As read: the effects with no look for a run of pixels (the ones the review flags on an
+    // outline or an arch), listed from their guides.
+    let page = knowledge::topic_text("range").unwrap();
     let flagged: Vec<String> = EffectKind::ALL
         .iter()
         .filter(|&&kind| knowledge::suits_a_run(kind) == Some(false))

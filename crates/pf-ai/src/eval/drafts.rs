@@ -99,18 +99,11 @@ fn clock(ms: u64) -> String {
     format!("{}:{:02}", ms / 60_000, ms / 1000 % 60)
 }
 
-/// The kinds of effect playing at `at_ms`, each once, a showpiece marked with a star.
+/// The kinds of effect playing at `at_ms`, each once.
 fn playing(doc: &Sequence, at_ms: u64) -> Vec<String> {
     let kinds: BTreeSet<String> = effects(doc)
         .filter(|(_, _, e)| e.start_ms <= at_ms && at_ms < e.end_ms)
-        .map(|(_, _, e)| {
-            let star = if crate::knowledge::is_showpiece(e.kind()) {
-                "*"
-            } else {
-                ""
-            };
-            format!("{}{star}", reference::key_of(&e.kind()))
-        })
+        .map(|(_, _, e)| reference::key_of(&e.kind()))
         .collect();
     kinds.into_iter().collect()
 }
@@ -219,13 +212,11 @@ fn title(outcome: &Outcome, model: &str) -> Vec<String> {
     vec![
         format!("{}: {}", outcome.scenario, outcome.title),
         format!(
-            "{model} | {} of {} checks | review {} | {} kinds of effect, {} showpiece{} (*)",
+            "{model} | {} of {} checks | review {} | {} kinds of effect",
             outcome.passed(),
             outcome.checks.len(),
             m.review.as_ref().map_or("-".to_string(), |r| r.score.to_string()),
             m.effect_kinds.len(),
-            m.showpieces.len(),
-            if m.showpieces.len() == 1 { "" } else { "s" },
         ),
     ]
 }

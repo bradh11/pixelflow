@@ -21,7 +21,7 @@ pub mod stand_in;
 use crate::agent::{ChatSession, MAX_STEPS, SYSTEM_PROMPT};
 use crate::draft::{OpenDoc, UiContext, Workspace};
 use crate::error::AiError;
-use crate::knowledge::{self, reference};
+use crate::knowledge::reference;
 use crate::provider::{
     AssistantTurn, Cancel, LlmProvider, Message, ModelInfo, ProviderId, StreamEvent, TurnRequest, Usage,
 };
@@ -47,9 +47,6 @@ const STEP_MS: u64 = 250;
 const LIT: u8 = 12;
 /// A prop lit for this many samples (two seconds) has a part in the show.
 const PART_SAMPLES: usize = 8;
-/// A showpiece on a canvas counts from this long (half a bar of the stage's song, as the
-/// review counts it).
-const SHOWPIECE_MS: u64 = 1_000;
 /// Bytes to a token, roughly: prose runs nearer four, JSON nearer three.
 pub const BYTES_PER_TOKEN: f64 = 3.5;
 /// The most of a tool's answer kept in a transcript.
@@ -646,11 +643,6 @@ pub struct Measures {
     pub guides: Vec<String>,
     pub effects: usize,
     pub effect_kinds: Vec<String>,
-    /// The kinds used that are showpieces ([`crate::knowledge::SHOWPIECES`]), anywhere.
-    pub showpieces: Vec<String>,
-    /// Each canvas (a matrix or a tree big enough to draw on) with the showpieces on its own
-    /// rows: "Matrix: plasma, fireworks". Canvases without one aren't listed.
-    pub canvas_showpieces: Vec<String>,
     pub props_used: usize,
     pub props: usize,
     /// The share of the song with nothing lit.
@@ -662,6 +654,8 @@ pub struct Measures {
     pub section_starts: usize,
     /// The most colors any one section uses.
     pub most_colors_in_a_section: usize,
+    /// Every color the effects were given, as "#rrggbb", sorted.
+    pub colors: Vec<String>,
     /// Mean brightness (0–1) and props lit, in the verses and in the choruses.
     pub verse_light: f32,
     pub chorus_light: f32,
@@ -877,28 +871,6 @@ fn measure(
     let kinds: BTreeSet<String> = effects(doc)
         .map(|(_, _, e)| reference::key_of(&e.kind()))
         .collect();
-    let showpieces: BTreeSet<String> = effects(doc)
-        .filter(|(_, _, e)| knowledge::is_showpiece(e.kind()))
-        .map(|(_, _, e)| reference::key_of(&e.kind()))
-        .collect();
-    let canvas_showpieces = run
-        .stage
-        .show
-        .props
-        .iter()
-        .filter(|p| crate::review::is_canvas(p))
-        .filter_map(|p| {
-            let on: BTreeSet<String> = effects(doc)
-                .filter(|(target, _, e)| {
-                    matches!(target, Target::Prop(id) | Target::Region { prop: id, .. } if *id == p.id)
-                        && knowledge::is_showpiece(e.kind())
-                        && e.duration_ms() >= SHOWPIECE_MS
-                })
-                .map(|(_, _, e)| reference::key_of(&e.kind()))
-                .collect();
-            (!on.is_empty()).then(|| format!("{}: {}", p.name, on.into_iter().collect::<Vec<_>>().join(", ")))
-        })
-        .collect();
     let starts: Vec<u64> = song.sections.iter().skip(1).map(|s| s.start_ms).collect();
     // The look half a second before each new section against the look a bar and a half into
     // it, once anything staged on the downbeat has died away.
@@ -934,8 +906,6 @@ fn measure(
         guides,
         effects: effects(doc).count(),
         effect_kinds: kinds.into_iter().collect(),
-        showpieces: showpieces.into_iter().collect(),
-        canvas_showpieces,
         props_used: lights.props_used(),
         props: lights.props(),
         dark_share: lights.share(|lit| lit == 0),
@@ -943,6 +913,16 @@ fn measure(
         section_changes: changes,
         section_starts: starts.len(),
         most_colors_in_a_section: most_colors,
+        colors: effects(doc)
+            .flat_map(|(_, _, e)| {
+                e.palette
+                    .colors
+                    .iter()
+                    .map(|c| format!("#{:02x}{:02x}{:02x}", c.r, c.g, c.b))
+            })
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect(),
         verse_light: lights.level(&verses),
         chorus_light: lights.level(&choruses),
         verse_props: lights.lit(&verses),
@@ -1155,6 +1135,87 @@ fn round_trips(outcomes: &[Outcome]) -> String {
     out
 }
 
+/// What some sets of names have in common, in a sentence: how many each has, those in every one,
+/// those in only some, and the share each pair has in common (what both have, of what either
+/// has).
+fn compared(what: &str, sets: &[BTreeSet<&str>]) -> String {
+    let every: Vec<&str> = sets[0]
+        .iter()
+        .copied()
+        .filter(|x| sets.iter().all(|s| s.contains(x)))
+        .collect();
+    let some: Vec<&str> = sets
+        .iter()
+        .flatten()
+        .copied()
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .filter(|x| !every.contains(x))
+        .collect();
+    let mut pairs = Vec::new();
+    for i in 0..sets.len() {
+        for j in i + 1..sets.len() {
+            let both = sets[i].intersection(&sets[j]).count();
+            let either = sets[i].union(&sets[j]).count().max(1);
+            pairs.push(format!("{} and {}: {}%", i + 1, j + 1, 100 * both / either));
+        }
+    }
+    let list = |names: &[&str]| {
+        if names.is_empty() {
+            "none".to_string()
+        } else {
+            names.join(", ")
+        }
+    };
+    format!(
+        "{what} per run {}; in every run ({}): {}; in only some ({}): {}; shared by each pair of runs: {}.",
+        sets.iter()
+            .map(|s| s.len().to_string())
+            .collect::<Vec<_>>()
+            .join(", "),
+        every.len(),
+        list(&every),
+        some.len(),
+        list(&some),
+        pairs.join("; ")
+    )
+}
+
+/// How the answers to one request differ from run to run (with `--runs` above 1): the kinds of
+/// effect and the colors every run used, those only some did, and how much each pair of runs has
+/// in common. Information for judging variety (beside the videos), not a check.
+pub fn runs_compared(outcomes: &[Outcome]) -> String {
+    let mut groups: Vec<(&str, Vec<&Outcome>)> = Vec::new();
+    for o in outcomes {
+        let key = o.scenario.split(" #").next().unwrap_or(&o.scenario);
+        match groups.iter_mut().find(|(k, _)| *k == key) {
+            Some((_, runs)) => runs.push(o),
+            None => groups.push((key, vec![o])),
+        }
+    }
+    let mut out = String::new();
+    for (scenario, runs) in groups.iter().filter(|(_, runs)| runs.len() > 1) {
+        if out.is_empty() {
+            out.push_str("\nHow the runs differ, for each request answered more than once:\n\n");
+        }
+        let kinds: Vec<BTreeSet<&str>> = runs
+            .iter()
+            .map(|o| o.measures.effect_kinds.iter().map(String::as_str).collect())
+            .collect();
+        let colors: Vec<BTreeSet<&str>> = runs
+            .iter()
+            .map(|o| o.measures.colors.iter().map(String::as_str).collect())
+            .collect();
+        out.push_str(&format!(
+            "- {scenario}, {} runs. {}\n  {}\n",
+            runs.len(),
+            compared("Kinds of effect", &kinds),
+            compared("Colors", &colors),
+        ));
+    }
+    out
+}
+
 /// The outcomes as a report to read: a line per scenario, then each one's checks.
 pub fn report(outcomes: &[Outcome], model: &str, prices: &Prices) -> String {
     let mut out = format!("# Assistant evaluation: {model}\n\n");
@@ -1198,13 +1259,13 @@ pub fn report(outcomes: &[Outcome], model: &str, prices: &Prices) -> String {
     ));
     out.push_str(&round_trips(outcomes));
     out.push_str(
-        "| Scenario | Checks | Review | Props | Kinds | Showpieces | Dark | Full | Changes | Moments | Safe | Requests | Tool errors | Cost |\n|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n",
+        "| Scenario | Checks | Review | Props | Kinds | Dark | Full | Changes | Moments | Safe | Requests | Tool errors | Cost |\n|---|---|---|---|---|---|---|---|---|---|---|---|---|\n",
     );
     for o in outcomes {
         let m = &o.measures;
         let review = m.review.as_ref();
         out.push_str(&format!(
-            "| {}{} | {}/{} | {} | {}/{} | {} | {} | {:.0}% | {:.0}% | {}/{} | {} | {} | {} | {} | {} |\n",
+            "| {}{} | {}/{} | {} | {}/{} | {} | {:.0}% | {:.0}% | {}/{} | {} | {} | {} | {} | {} |\n",
             o.scenario,
             o.stopped
                 .map_or(String::new(), |s| format!(" (stopped: {})", s.label())),
@@ -1214,7 +1275,6 @@ pub fn report(outcomes: &[Outcome], model: &str, prices: &Prices) -> String {
             m.props_used,
             m.props,
             m.effect_kinds.len(),
-            m.showpieces.len(),
             m.dark_share * 100.0,
             m.full_share * 100.0,
             m.section_changes,
@@ -1230,6 +1290,7 @@ pub fn report(outcomes: &[Outcome], model: &str, prices: &Prices) -> String {
             },
         ));
     }
+    out.push_str(&runs_compared(outcomes));
     for o in outcomes {
         out.push_str(&format!(
             "\n## {} ({})\n\n> {}\n\n",
@@ -1269,16 +1330,6 @@ pub fn report(outcomes: &[Outcome], model: &str, prices: &Prices) -> String {
                 m.effect_kinds.len(),
                 m.effect_kinds.join(", ")
             ));
-            out.push_str(&match m.showpieces.len() {
-                0 => "No showpieces.".to_string(),
-                1 => format!("1 of them a showpiece: {}.", m.showpieces[0]),
-                n => format!("{n} of them showpieces: {}.", m.showpieces.join(", ")),
-            });
-            out.push_str(&if m.canvas_showpieces.is_empty() {
-                " None on a canvas.\n".to_string()
-            } else {
-                format!(" On the canvases: {}.\n", m.canvas_showpieces.join("; "))
-            });
         }
         if let Some(review) = &m.review {
             let before = m

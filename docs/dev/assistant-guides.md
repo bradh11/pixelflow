@@ -35,6 +35,17 @@ effect side by side in a line each (what it is for, and the kinds of prop its lo
 for), generated from the effects' own guides, so the Assistant can choose before reading the
 guides of only the effects it will place.
 
+Topic `range` is the whole palette at a glance, so the Assistant knows every effect well enough
+to reach past the few it uses by habit: for every effect, the moments and moods it suits, the
+kinds of prop its looks were written for, and one of its looks to start from. It assigns nothing
+and requires nothing; the method points to it as a place to choose from to express the show's
+idea, a familiar formula included. The only "never" in it is the honest one: the effects whose
+guides have no look for a single run of pixels are listed (generated, `{{grid-only}}`), because
+they show only a slice of themselves on an outline or an arch and the review's fit criterion says
+so. A test (`the_range_says_what_every_effect_can_do_from_its_guide` in
+`crates/pf-ai/tests/knowledge.rs`) holds it to the guides: a line for every effect, each prop it
+names one its looks are written for, and each look it names one of its guide's.
+
 ## The rules a guide keeps
 
 Tests (`crates/pf-ai/tests/knowledge.rs`, through `crates/pf-ai/src/knowledge/check.rs`) fail,
@@ -125,43 +136,6 @@ A topic is the same Markdown: a title, a sentence, sections of your choosing. A 
 never go stale is asked for by name, `{{blends}}` for instance, and filled in when the guide is
 read: `GENERATED` in `crates/pf-ai/src/knowledge/mod.rs` has the names. List a new topic in
 `TOPICS` in `library.rs`.
-
-## Range and showpieces
-
-Left to themselves, models build sound shows from the same dozen effects every time. Topic
-`showpieces` (read with the method, which points to it at the planning step, and named in the
-instructions' list of topics) teaches the rest:
-
-- **A concept from the song**: its title, words, and mood choose the showpieces and the colors,
-  and the first palette that comes to mind is one choice of several, each section still held to
-  two or three colors.
-- **Signature moments**: at least one showpiece on each canvas (a matrix, a mega tree): clouds
-  in a breakdown, fireworks or a shockwave on the biggest hit, a dancer or a picture in a chorus,
-  snow or meteors in a quiet verse. Each suggestion names a ready-made look from that effect's
-  guide, as `` `kind` "Look name" ``, with the props it goes on.
-- **Range across a show**: different parts of the song get different effects, not one kit in
-  new colors; repeats of the same music keep their look.
-- **What suits what**, plainly: motion that travels along the line for outlines and arches
-  (each again a named look written for a string and an arch), and the effects never to put
-  there.
-
-Two of its lists are generated, so they never go stale: `{{showpieces}}`, every showpiece with
-its looks for a matrix or a tree, and `{{grid-only}}`, the effects whose guides have no look for
-a single run of pixels (the ones the review's fit criterion flags on an outline or an arch). The
-showpieces themselves are `SHOWPIECES` in `crates/pf-ai/src/knowledge/mod.rs`. A test
-(`the_showpieces_and_motion_the_guides_suggest_are_real_looks_on_the_props_they_say` in
-`crates/pf-ai/tests/knowledge.rs`) holds every look the topic names to its effect's guide, and
-every prop a table puts it on to the props the look is written for; the effect guides' own test
-draws each look on each of those props. Rename or retarget a look and the topic has to follow.
-
-The review scores the same thing (`range`, weighed lightly beside the rest): kinds of effect for
-the song's length and the display, a showpiece on every canvas, and no section playing exactly
-the effects of a different part just before it. Its fixes name the canvas and give the
-`place_effects` call for a look from the guides (clouds through the quietest section on a
-matrix, ending before a stop; a firework finale over a tree's look through the loudest, in that
-section's colors), and they take only the room the other fixes leave. An effect on a prop it
-doesn't suit adds nothing to the range: the fit criterion still names it. It needs the song's
-analysis, and leaves a sequence under 30 seconds (a jingle) alone.
 
 ## What is sent
 

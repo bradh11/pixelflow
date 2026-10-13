@@ -1,9 +1,8 @@
 //! The review judges a draft as a design, not only against the beat: made-up sequences on the
 //! made-up stage, each with one fault a show designer would name (props left out, nothing ever
 //! dark, a rainbow in one section, a chorus that looks like its verse, a big moment on three
-//! props, fire on a string, words too wide to read, a shimmer over the whole house, one effect
-//! all song long with nothing on the canvases), each found, said specifically enough to fix, and
-//! fixed by the fix it gives.
+//! props, fire on a string, words too wide to read, a shimmer over the whole house), each found,
+//! said specifically enough to fix, and fixed by the fix it gives.
 
 use pf_ai::review::{Call, Fix, Review};
 use pf_ai::stage::{self, BAR_MS, SONG_MS, Stage};
@@ -118,7 +117,6 @@ fn make_fix(draft: &mut Draft, song: &Analysis, fix: &Fix) {
         let result = match call.tool {
             "stage_cue" => pf_ai::cues::stage(draft, Some(song), &call.input),
             "change_effects" => pf_ai::rearrange::change(draft, &call.input),
-            "place_effects" => pf_ai::arrange::place(draft, &call.input),
             other => panic!("unexpected tool {other}"),
         };
         result.unwrap_or_else(|e| panic!("{} {}: {e}", call.tool, call.input));
@@ -455,85 +453,8 @@ fn a_shimmer_over_the_whole_house_is_unsafe_though_no_frame_shows_it() {
 }
 
 #[test]
-fn a_narrow_show_is_told_where_a_showpiece_goes_and_the_call_places_one() {
-    // One effect, `on`, in every section: every part of the song plays the same kit, and the
-    // matrix and the tree never show anything only a canvas can.
-    let show = {
-        let mut show = Show::new();
-        show.a_look_per_section();
-        show
-    };
-    let before = show.review();
-    // One kind of the ten it has room for, no showpiece, and every section the same kit as the
-    // one before it: next to nothing.
-    let range = before
-        .criteria
-        .range
-        .expect("a show with effects is judged for its range");
-    assert!(range <= 5, "{before:#?}");
-    let kinds = find(&before, "The show uses 1 kind of effect");
-    assert!(
-        kinds.what.contains("has room for about 10") && kinds.hint.as_deref().unwrap().contains("`plasma`"),
-        "{kinds:#?}"
-    );
-    // The range's fixes take the room the others leave: here, the sections repeating their
-    // kit are left off a full list.
-    assert!(before.more_fixes >= 2, "{before:#?}");
-    // A show that is otherwise sound loses a point or two for its range, not its standing.
-    let mut full = before.criteria.clone();
-    full.range = Some(100);
-    assert!(
-        before.score + 3 >= full.overall(),
-        "{} against {}",
-        before.score,
-        full.overall()
-    );
-
-    // Each canvas is told what to show, with the call that places it, from its guide.
-    let matrix = find(&before, "Matrix never shows a showpiece");
-    assert!(
-        matrix
-            .what
-            .contains("plasma \"Icy clouds\" through Bridge (1:12.000–1:20.000)"),
-        "{}",
-        matrix.what
-    );
-    let tree = find(&before, "Mega Tree never shows a showpiece");
-    assert!(
-        tree.what
-            .contains("fireworks \"A firework finale on a matrix\" through Chorus 3"),
-        "{}",
-        tree.what
-    );
-    // In the bridge's own colors, ending before the stop at 1:19.
-    let call = &matrix.calls[0];
-    assert_eq!(call.tool, "place_effects");
-    assert_eq!(call.input["toMs"], json!(79_000));
-    assert_eq!(call.input["effect"]["kind"], json!("plasma"));
-    let mut draft = show.draft();
-    for fix in [matrix, tree] {
-        make_fix(&mut draft, &show.song, fix);
-    }
-    let after = review_of(&mut draft, &show.song);
-    assert!(after.criteria.range > before.criteria.range, "{after:#?}");
-    assert!(
-        after
-            .fixes
-            .iter()
-            .all(|f| !f.what.contains("never shows a showpiece")),
-        "{:#?}",
-        after.fixes
-    );
-    // What it placed suits the props, keeps the colors few and the stop dark, and is safe.
-    let c = &after.criteria;
-    assert_eq!((c.fit, c.palette, c.safety), (100, Some(100), 100), "{after:#?}");
-    assert_eq!(c.moments, before.criteria.moments, "{after:#?}");
-}
-
-#[test]
-fn range_never_means_an_effect_on_a_prop_it_doesnt_suit() {
-    // A fan's blades show as dashes on one row of pixels: the review still says so, however
-    // much range it adds.
+fn a_matrix_effect_on_an_arch_is_named_and_on_the_matrix_it_is_fine() {
+    // A fan's blades show as dashes on one row of pixels.
     let mut show = Show::new();
     show.a_look_per_section();
     show.put("Arch 1", 1, Effect::new(EffectKind::Fan, 24_000, 32_000));
@@ -546,22 +467,8 @@ fn range_never_means_an_effect_on_a_prop_it_doesnt_suit() {
         "{}",
         fan.what
     );
-    // Nor does it count for the range: a kind put where it doesn't suit adds nothing.
-    let mut plain = Show::new();
-    plain.a_look_per_section();
-    assert_eq!(review.criteria.range, plain.review().criteria.range);
-    // On the matrix it suits, and is the matrix's showpiece.
     let mut show = Show::new();
     show.a_look_per_section();
     show.put("Matrix", 1, Effect::new(EffectKind::Fan, 24_000, 32_000));
-    let review = show.review();
-    assert_eq!(review.criteria.fit, 100);
-    assert!(
-        review
-            .fixes
-            .iter()
-            .all(|f| !f.what.contains("Matrix never shows a showpiece")),
-        "{:#?}",
-        review.fixes
-    );
+    assert_eq!(show.review().criteria.fit, 100);
 }

@@ -3,7 +3,7 @@
 // here (Settings sends a typed key straight to the app and forgets it).
 
 import { create } from "zustand";
-import { AssistantError, type AssistantApi, type ProposalView, type ProviderId, providerName } from "../api/assistant";
+import { AssistantError, type AssistantApi, type ProposalView, type ProviderId, type StageName, providerName } from "../api/assistant";
 import { errorMessage } from "../api/backend";
 import { rowsForShow } from "../api/sequence";
 import type { PreviewSet } from "../api/types";
@@ -41,14 +41,15 @@ export const LYRICS_LANGUAGES: { code: string; name: string }[] = [
 ];
 
 /** Provider and model per provider, whether Find lyrics may send a song's audio to OpenAI
- * without asking, the language it expects, and whether it times words on this computer: not
- * secrets, so kept in local storage. */
+ * without asking, the language it expects, whether it times words on this computer, and whether
+ * big jobs are built in stages: not secrets, so kept in local storage. */
 interface SavedSettings {
   provider: ProviderId;
   models: Partial<Record<ProviderId, string>>;
   lyricsAudioOk: boolean;
   lyricsLanguage: string;
   lyricsAlign: boolean;
+  staged: boolean;
 }
 
 function loadSettings(): SavedSettings {
@@ -61,14 +62,28 @@ function loadSettings(): SavedSettings {
       if (typeof model === "string" && model.length > 0 && model.length <= 200) models[id] = model;
     }
     const lyricsLanguage = LYRICS_LANGUAGES.some((l) => l.code === saved.lyricsLanguage) ? (saved.lyricsLanguage as string) : "en";
-    return { provider, models, lyricsAudioOk: saved.lyricsAudioOk === true, lyricsLanguage, lyricsAlign: saved.lyricsAlign === true };
+    return {
+      provider,
+      models,
+      lyricsAudioOk: saved.lyricsAudioOk === true,
+      lyricsLanguage,
+      lyricsAlign: saved.lyricsAlign === true,
+      staged: saved.staged !== false,
+    };
   } catch {
-    return { provider: "anthropic", models: {}, lyricsAudioOk: false, lyricsLanguage: "en", lyricsAlign: false };
+    return { provider: "anthropic", models: {}, lyricsAudioOk: false, lyricsLanguage: "en", lyricsAlign: false, staged: true };
   }
 }
 
 function settingsOf(s: SavedSettings): SavedSettings {
-  return { provider: s.provider, models: s.models, lyricsAudioOk: s.lyricsAudioOk, lyricsLanguage: s.lyricsLanguage, lyricsAlign: s.lyricsAlign };
+  return {
+    provider: s.provider,
+    models: s.models,
+    lyricsAudioOk: s.lyricsAudioOk,
+    lyricsLanguage: s.lyricsLanguage,
+    lyricsAlign: s.lyricsAlign,
+    staged: s.staged,
+  };
 }
 
 function saveSettings(settings: SavedSettings) {
@@ -99,6 +114,15 @@ export interface ChatItem {
   song?: SongChoice;
 }
 
+/** Where a job built in stages has got to. */
+export interface StageProgress {
+  stage: StageName;
+  label: string;
+  /** While building: the parts done, of `total`. */
+  done: number;
+  total: number;
+}
+
 /** "dropped": the show (or sequence) it was made for was replaced, so it no longer applies. */
 export type ProposalStatus = "open" | "applied" | "discarded" | "dropped";
 
@@ -115,12 +139,16 @@ interface AssistantState {
   lyricsLanguage: string;
   /** Find lyrics times the words on this computer (its model downloaded in Settings → AI). */
   lyricsAlign: boolean;
+  /** A job that builds or reworks a sequence is designed first, then its parts built at once. */
+  staged: boolean;
   /** Whether the current provider has a key (null until checked). */
   hasKey: boolean | null;
   items: ChatItem[];
   streaming: boolean;
   /** What the assistant is doing right now ("Looking at your props"). */
   activity: string | null;
+  /** Where a job built in stages has got to, while it's on its way. */
+  stage: StageProgress | null;
   proposal: ProposalView | null;
   proposalStatus: ProposalStatus;
   /** The draft's pixels while previewing it. */
@@ -139,6 +167,7 @@ interface AssistantState {
   setLyricsAudioOk(ok: boolean): void;
   setLyricsLanguage(code: string): void;
   setLyricsAlign(on: boolean): void;
+  setStaged(on: boolean): void;
   /** Checks whether the current provider has a key (after Settings changes it). */
   refreshKey(): Promise<void>;
   send(text: string): Promise<void>;
@@ -198,10 +227,12 @@ export const useAssistant = create<AssistantState>((set, get) => {
     lyricsAudioOk: saved.lyricsAudioOk,
     lyricsLanguage: saved.lyricsLanguage,
     lyricsAlign: saved.lyricsAlign,
+    staged: saved.staged,
     hasKey: null,
     items: [],
     streaming: false,
     activity: null,
+    stage: null,
     proposal: null,
     proposalStatus: "open",
     preview: null,
@@ -246,6 +277,11 @@ export const useAssistant = create<AssistantState>((set, get) => {
       saveSettings({ ...settingsOf(get()), lyricsAlign });
     },
 
+    setStaged(staged) {
+      set({ staged });
+      saveSettings({ ...settingsOf(get()), staged });
+    },
+
     async refreshKey() {
       const { api, provider } = get();
       if (!api) return;
@@ -268,7 +304,7 @@ export const useAssistant = create<AssistantState>((set, get) => {
         add("error", `Pick a ${providerName(provider)} model in Settings → AI first.`);
         return;
       }
-      set({ streaming: true, activity: "Thinking" });
+      set({ streaming: true, activity: "Thinking", stage: null });
       let streamed = false;
       let askedForSong = false;
       const offerSong = () => {
@@ -277,7 +313,12 @@ export const useAssistant = create<AssistantState>((set, get) => {
         set({ items: [...get().items, { id: nextItem++, role: "chooseSong", text: "", song: { status: "open" } }] });
       };
       try {
-        const reply = await api.send(provider, model, message, context(), (event) => {
+        const reply = await api.send(
+          provider,
+          model,
+          message,
+          context(),
+          (event) => {
           switch (event.kind) {
             case "text":
               streamed = true;
@@ -297,8 +338,13 @@ export const useAssistant = create<AssistantState>((set, get) => {
             case "chooseSong":
               offerSong();
               break;
+            case "stage":
+              set({ stage: { stage: event.stage, label: event.label, done: event.done, total: event.total }, activity: event.label });
+              break;
           }
-        });
+          },
+          get().staged,
+        );
         if (reply.chooseSong) offerSong();
         if (reply.proposal && get().proposal?.id !== reply.proposal.id) {
           set({ proposal: reply.proposal, proposalStatus: "open", preview: null });
@@ -308,7 +354,7 @@ export const useAssistant = create<AssistantState>((set, get) => {
       } catch (e) {
         addError(e);
       } finally {
-        set({ streaming: false, activity: null });
+        set({ streaming: false, activity: null, stage: null });
       }
     },
 

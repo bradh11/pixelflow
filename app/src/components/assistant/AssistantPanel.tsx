@@ -1,7 +1,7 @@
 import { CheckCircle2, Loader2, MessageSquarePlus, Music, Send, Settings, Sparkles, Square, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { modelLabel, providerName } from "../../api/assistant";
-import { type ChatItem, useAssistant } from "../../state/assistant";
+import { modelLabel, providerName, type StageName } from "../../api/assistant";
+import { type ChatItem, type StageProgress, useAssistant } from "../../state/assistant";
 import { useSequencer } from "../../state/sequencer";
 import { Button } from "../ui";
 import { ProposalCard } from "./ProposalCard";
@@ -34,6 +34,49 @@ function ChooseSong({ item }: { item: ChatItem }) {
         {song.status === "picking" ? "Opening the song…" : "Choose a song…"}
       </Button>
     </section>
+  );
+}
+
+/** The stages of a job built in stages, as the panel names them; refining is part of reviewing. */
+const STAGES: { name: string; covers: StageName[] }[] = [
+  { name: "Understand", covers: ["understanding"] },
+  { name: "Design", covers: ["designing"] },
+  { name: "Build", covers: ["building"] },
+  { name: "Review", covers: ["reviewing", "refining"] },
+];
+
+/** Where a job built in stages has got to: the stages in a row, the one under way marked. */
+function StageSteps({ progress }: { progress: StageProgress }) {
+  const now = STAGES.findIndex((s) => s.covers.includes(progress.stage));
+  return (
+    <ol aria-label="Stages" className="mt-3 flex flex-wrap items-center gap-x-1 gap-y-1 text-[11px]">
+      {STAGES.map((stage, i) => {
+        const state = i < now ? "done" : i === now ? "now" : "next";
+        const count = stage.name === "Build" && progress.total > 0 && i <= now ? ` ${Math.min(progress.done, progress.total)}/${progress.total}` : "";
+        return (
+          <li key={stage.name} className="flex items-center gap-1" aria-current={state === "now" ? "step" : undefined}>
+            {i > 0 && (
+              <span aria-hidden className="text-neutral-300 dark:text-neutral-700">
+                ›
+              </span>
+            )}
+            <span
+              className={`flex items-center gap-1 rounded-full px-2 py-0.5 ${
+                state === "now"
+                  ? "bg-accent-600/10 font-medium text-accent-700 dark:bg-accent-400/15 dark:text-accent-300"
+                  : state === "done"
+                    ? "text-neutral-600 dark:text-neutral-300"
+                    : "text-neutral-400 dark:text-neutral-600"
+              }`}
+            >
+              {state === "done" && <CheckCircle2 size={11} className="text-green-600 dark:text-green-400" aria-hidden />}
+              {stage.name}
+              {count}
+            </span>
+          </li>
+        );
+      })}
+    </ol>
   );
 }
 
@@ -78,6 +121,7 @@ export function AssistantPanel({ overlay = false, compact = false }: { overlay?:
   const items = useAssistant((s) => s.items);
   const streaming = useAssistant((s) => s.streaming);
   const activity = useAssistant((s) => s.activity);
+  const stage = useAssistant((s) => s.stage);
   const proposal = useAssistant((s) => s.proposal);
   const provider = useAssistant((s) => s.provider);
   const model = useAssistant((s) => s.models[s.provider] ?? null);
@@ -277,6 +321,8 @@ export function AssistantPanel({ overlay = false, compact = false }: { overlay?:
             ))}
           </ol>
         )}
+        {/* A small job never gets past understanding: the stages show once it's being designed. */}
+        {streaming && stage && stage.stage !== "understanding" && <StageSteps progress={stage} />}
         {streaming && (
           <p className="mt-3 flex items-center gap-2 text-xs text-neutral-500" role="status">
             <Loader2 size={12} className="animate-spin" aria-hidden />

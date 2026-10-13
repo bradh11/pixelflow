@@ -307,16 +307,23 @@ fn assistant_replies() {
         E::Retrying { seconds: 4 },
         E::Proposal { proposal: card },
         E::ChooseSong,
+        E::Stage {
+            stage: pf_ai::staged::StageName::Building,
+            label: "Building Verse; Chorus".into(),
+            done: 1,
+            total: 4,
+        },
     ];
     assert_every_variant(
         "chat event",
-        5,
+        6,
         events.iter().map(|e| match e {
             E::Text { .. } => 0,
             E::Activity { .. } => 1,
             E::Retrying { .. } => 2,
             E::Proposal { .. } => 3,
             E::ChooseSong => 4,
+            E::Stage { .. } => 5,
         }),
     );
     fixtures.all_of("assistant.ChatEvent", Some("kind"), &wire(&events));

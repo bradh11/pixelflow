@@ -8,8 +8,8 @@
 use crate::layout::{Dims, encode_preview};
 use crate::{AppState, Reply};
 use pf_ai::{
-    AiError, ApiKey, Applied, Cancel, ChatEvent, ChatSession, KeyLocation, KeyVault, ModelInfo, ProviderId,
-    Providers, TurnReply, UiContext, Workspace, apply_proposal,
+    AiError, ApiKey, Applied, Cancel, ChatEvent, ChatSession, Flow, KeyLocation, KeyVault, ModelInfo,
+    ProviderId, Providers, TurnReply, UiContext, Workspace, apply_proposal,
 };
 use serde::Serialize;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -228,7 +228,9 @@ pub(crate) struct AssistantEvent {
 
 /// Sends a message to the assistant. Its reply streams as [`ASSISTANT_EVENT`] events; the
 /// result is the whole reply and any proposal. The show is copied first (the engine isn't held
-/// while the model works), and nothing the model does changes it.
+/// while the model works), and nothing the model does changes it. With `staged`, a job that
+/// builds or reworks a sequence is built in stages (Settings → AI); without it, in one
+/// conversation.
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn ai_send<R: Runtime>(
@@ -239,6 +241,7 @@ pub(crate) async fn ai_send<R: Runtime>(
     model: String,
     message: String,
     context: Option<UiContext>,
+    staged: Option<bool>,
 ) -> Result<TurnReply, Failure> {
     let model = model.trim().to_string();
     if model.is_empty() || model.len() > MAX_MODEL_ID {
@@ -280,6 +283,11 @@ pub(crate) async fn ai_send<R: Runtime>(
         workspace.shaders = pf_engine::list_shaders(&shader_files.0, &shader_files.1);
         let key = vault.key(provider)?;
         let mut session = lock(&session);
+        session.set_flow(if staged.unwrap_or(false) {
+            Flow::Staged
+        } else {
+            Flow::Single
+        });
         Ok(session.run_turn(
             llm.as_ref(),
             &key,

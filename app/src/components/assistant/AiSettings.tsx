@@ -17,7 +17,8 @@ export function AiSettings() {
   const model = useAssistant((s) => s.models[s.provider] ?? null);
   const lyricsAudioOk = useAssistant((s) => s.lyricsAudioOk);
   const lyricsLanguage = useAssistant((s) => s.lyricsLanguage);
-  const { setSettingsOpen, setProvider, setModel, setLyricsAudioOk, setLyricsLanguage, refreshKey } = useAssistant.getState();
+  const staged = useAssistant((s) => s.staged);
+  const { setSettingsOpen, setProvider, setModel, setLyricsAudioOk, setLyricsLanguage, setStaged, refreshKey } = useAssistant.getState();
   const keyRef = useRef<HTMLInputElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const [storage, setStorage] = useState<KeyStorage | null>(null);
@@ -239,6 +240,17 @@ export function AiSettings() {
             </div>
             <p className="text-xs text-neutral-500">Only models that can chat and use tools are listed.</p>
           </div>
+
+          <label className="flex items-start gap-2 text-sm">
+            <input type="checkbox" className="mt-0.5" checked={staged} onChange={(e) => setStaged(e.target.checked)} />
+            <span>
+              Plan big jobs first, then build their parts at the same time
+              <span className="block text-xs text-neutral-500">
+                For a whole song or a rework: a design, its parts built at once, then a review. Usually much quicker. Turn it off to have
+                every job done one step at a time.
+              </span>
+            </span>
+          </label>
 
           {error && (
             <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/50 dark:text-red-300">

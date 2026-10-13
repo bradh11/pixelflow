@@ -121,6 +121,9 @@ export interface ReviewView {
   items: string[];
 }
 
+/** The stages of a job built in stages, in order (refining is the last part of reviewing). */
+export type StageName = "understanding" | "designing" | "building" | "reviewing" | "refining";
+
 /** What arrives while a reply streams in. */
 export type ChatEvent =
   | { kind: "text"; text: string }
@@ -128,7 +131,10 @@ export type ChatEvent =
   | { kind: "retrying"; seconds: number }
   | { kind: "proposal"; proposal: ProposalView }
   /** The assistant asks the user to choose a song for a new sequence. */
-  | { kind: "chooseSong" };
+  | { kind: "chooseSong" }
+  /** A job built in stages moved on: what it is doing ("Building Verse; Chorus"), and while
+   * building, the parts done of all of them. */
+  | { kind: "stage"; stage: StageName; label: string; done: number; total: number };
 
 export interface TurnReply {
   text: string;
@@ -181,8 +187,16 @@ export interface AssistantApi {
   deleteApiKey(provider: ProviderId): Promise<void>;
   /** The provider's models that can chat and use tools, live, best first. */
   listModels(provider: ProviderId): Promise<ModelInfo[]>;
-  /** Sends a message; the reply streams to `onEvent`. Nothing in the show changes. */
-  send(provider: ProviderId, model: string, message: string, context: UiContext, onEvent: (event: ChatEvent) => void): Promise<TurnReply>;
+  /** Sends a message; the reply streams to `onEvent`. Nothing in the show changes. With `staged`, a
+   * job that builds or reworks a sequence is designed first and its parts built at once. */
+  send(
+    provider: ProviderId,
+    model: string,
+    message: string,
+    context: UiContext,
+    onEvent: (event: ChatEvent) => void,
+    staged?: boolean,
+  ): Promise<TurnReply>;
   /** Stops the reply in progress (the send rejects with "Stopped."). */
   stop(): Promise<void>;
   newChat(): Promise<void>;
@@ -249,11 +263,11 @@ export const tauriAssistant: AssistantApi = {
   keyLocation: (provider) => invoke("api_key_location", { provider }),
   deleteApiKey: (provider) => invoke("delete_api_key", { provider }),
   listModels: (provider) => failing(invoke("list_ai_models", { provider })),
-  async send(provider, model, message, context, onEvent) {
+  async send(provider, model, message, context, onEvent, staged = false) {
     // One reply at a time: every event heard while this call is out belongs to it.
     const unlisten = await listen<{ turn: number; event: ChatEvent }>(ASSISTANT_EVENT, (e) => onEvent(e.payload.event));
     try {
-      return await failing(invoke<TurnReply>("ai_send", { provider, model, message, context }));
+      return await failing(invoke<TurnReply>("ai_send", { provider, model, message, context, staged }));
     } finally {
       unlisten();
     }

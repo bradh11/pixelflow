@@ -1429,7 +1429,8 @@
           "selectedProps": ["11111111-0000-4000-8000-000000000001"],
           "selectedEffects": ["55555555-0000-4000-8000-000000000001"],
           "playheadMs": 1500
-        }
+        },
+        "staged": true
       }
     },
     {
@@ -1439,7 +1440,8 @@
         "provider": "openai",
         "model": "gpt-5-mini",
         "message": "Hello",
-        "context": { "selectedProps": [], "selectedEffects": [] }
+        "context": { "selectedProps": [], "selectedEffects": [] },
+        "staged": false
       }
     },
     { "api": "assistant.stop", "command": "ai_stop", "args": {} },

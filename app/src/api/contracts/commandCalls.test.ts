@@ -466,7 +466,7 @@ async function callTheAssistant(assistant: AssistantApi) {
   await assistant.keyLocation("openai");
   await assistant.deleteApiKey("openai");
   await assistant.listModels("anthropic");
-  await assistant.send("anthropic", "claude-opus-5-5", "Make the tree twinkle", { screen: "sequence", selectedProps: [PROP], selectedEffects: [EFFECT], playheadMs: 1500 }, () => {});
+  await assistant.send("anthropic", "claude-opus-5-5", "Make the tree twinkle", { screen: "sequence", selectedProps: [PROP], selectedEffects: [EFFECT], playheadMs: 1500 }, () => {}, true);
   await assistant.send("openai", "gpt-5-mini", "Hello", { selectedProps: [], selectedEffects: [] }, () => {});
   await assistant.stop();
   await assistant.newChat();

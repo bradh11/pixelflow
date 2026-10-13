@@ -219,7 +219,15 @@ describe("Settings → AI", () => {
       lyricsAudioOk: false,
       lyricsLanguage: "en",
       lyricsAlign: false,
+      staged: true,
     });
+    // Big jobs are designed first and their parts built at once, unless turned off (remembered).
+    const staged = within(dialog).getByRole("checkbox", { name: /Plan big jobs first/ });
+    expect(staged).toBeChecked();
+    await user.click(staged);
+    expect(useAssistant.getState().staged).toBe(false);
+    expect(JSON.parse(localStorage.getItem("pixelflow.ai")!).staged).toBe(false);
+    useAssistant.getState().setStaged(true);
     // With OpenAI, whether Find lyrics asks before sending a song's audio (remembered too).
     const ask = within(dialog).getByRole("checkbox", { name: /Ask before Find lyrics sends a song's audio to OpenAI/ });
     expect(ask).toBeChecked();
@@ -390,6 +398,39 @@ describe("chatting", () => {
     await user.click(within(panel).getByRole("button", { name: "New chat" }));
     expect(within(panel).queryByText(/Your show/)).not.toBeInTheDocument();
     expect(within(panel).getByRole("button", { name: "What's in my show?" })).toBeInTheDocument();
+  });
+});
+
+describe("a job built in stages", () => {
+  it("shows where it has got to, then the proposal, and is sent as the setting says", async () => {
+    const { user, assistant } = await start();
+    let release = () => {};
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const send = assistant.send.bind(assistant);
+    const asked: (boolean | undefined)[] = [];
+    assistant.send = async (provider, model, message, context, onEvent, staged) => {
+      asked.push(staged);
+      onEvent({ kind: "stage", stage: "understanding", label: "Understanding your request", done: 0, total: 0 });
+      onEvent({ kind: "stage", stage: "designing", label: "Designing the show", done: 0, total: 0 });
+      onEvent({ kind: "stage", stage: "building", label: "Building Verse; Chorus", done: 1, total: 3 });
+      await held;
+      return send(provider, model, message, context, onEvent, staged);
+    };
+    const panel = await openPanel(user);
+    await user.type(within(panel).getByRole("textbox", { name: "Message the assistant" }), "What's in my show?{Enter}");
+    const stages = await within(panel).findByRole("list", { name: "Stages" });
+    expect(stages.querySelector('[aria-current="step"]')).toHaveTextContent("Build 1/3");
+    expect(within(stages).getByText("Design", { selector: "span" })).toBeInTheDocument();
+    expect(within(panel).getByRole("status")).toHaveTextContent("Building Verse; Chorus");
+    await act(async () => release());
+    await waitFor(() => expect(within(panel).queryByRole("list", { name: "Stages" })).toBeNull());
+    expect(asked).toEqual([true]);
+
+    // Turned off in Settings → AI, the next message asks for one conversation.
+    useAssistant.getState().setStaged(false);
+    await user.type(within(panel).getByRole("textbox", { name: "Message the assistant" }), "And now?{Enter}");
+    await waitFor(() => expect(asked).toEqual([true, false]));
+    useAssistant.getState().setStaged(true);
   });
 });
 

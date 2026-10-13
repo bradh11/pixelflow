@@ -388,7 +388,8 @@
           }
         }
       },
-      { "kind": "chooseSong" }
+      { "kind": "chooseSong" },
+      { "done": 1, "kind": "stage", "label": "Building Verse; Chorus", "stage": "building", "total": 4 }
     ]
   },
   {

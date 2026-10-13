@@ -149,8 +149,16 @@ export class FakeAssistant implements AssistantApi {
     }
   }
 
-  async send(provider: ProviderId, model: string, message: string, context: UiContext, onEvent: (event: ChatEvent) => void): Promise<TurnReply> {
+  async send(
+    provider: ProviderId,
+    model: string,
+    message: string,
+    context: UiContext,
+    onEvent: (event: ChatEvent) => void,
+    staged = false,
+  ): Promise<TurnReply> {
     this.calls.push(`send:${model}`);
+    if (staged) onEvent({ kind: "stage", stage: "understanding", label: "Understanding your request", done: 0, total: 0 });
     this.sent.push(message);
     this.stopped = false;
     if (!this.keys.has(provider)) throw new Error(`Add your ${providerName(provider)} API key in Settings → AI first.`);
@@ -225,7 +233,7 @@ export class FakeAssistant implements AssistantApi {
         onEvent({ kind: "chooseSong" });
         return { text: ask, proposal: null, chooseSong: true };
       }
-      return this.composeSequence(sequence, onEvent);
+      return staged ? this.composeInStages(sequence, onEvent) : this.composeSequence(sequence, onEvent);
     }
     onEvent({ kind: "activity", label: "Looking at your show" });
     const selected = context.selectedProps.map((id) => show.props.find((p) => p.id === id)?.name).filter(Boolean);
@@ -259,6 +267,32 @@ export class FakeAssistant implements AssistantApi {
     }
     onEvent({ kind: "activity", label: "Checking the draft" });
     await this.pause(300);
+    return this.proposeComposed(composed, onEvent);
+  }
+
+  /** The scripted sequence built as the app's staged build does it: a design, the parts of the
+   * song built two at a time, a review. */
+  private async composeInStages(doc: Sequence, onEvent: (event: ChatEvent) => void): Promise<TurnReply> {
+    const sequencer = this.sequencer!;
+    const analysis = await sequencer.analyzeAudio(doc.audio ?? "");
+    await this.pause(600);
+    onEvent({ kind: "stage", stage: "designing", label: "Designing the show", done: 0, total: 0 });
+    await this.pause(1200);
+    const composed = composeDemoSequence(doc, this.backend.show, analysis);
+    const parts = [...new Set(composed.sections.map((s) => s.label.replace(/\s*\d+$/, "")))];
+    const total = parts.length;
+    for (let done = 0; done < total; done += 2) {
+      const now = parts.slice(done, done + 2);
+      onEvent({ kind: "stage", stage: "building", label: `Building ${now.join("; ")}`, done, total });
+      await this.pause(900);
+    }
+    onEvent({ kind: "stage", stage: "building", label: "Building", done: total, total });
+    onEvent({ kind: "stage", stage: "reviewing", label: "Reviewing the draft", done: 0, total: 0 });
+    await this.pause(700);
+    return this.proposeComposed(composed, onEvent);
+  }
+
+  private async proposeComposed(composed: ReturnType<typeof composeDemoSequence>, onEvent: (event: ChatEvent) => void): Promise<TurnReply> {
     onEvent({ kind: "activity", label: "Preparing the proposal" });
     const proposal: ProposalView = {
       id: crypto.randomUUID(),

@@ -6,7 +6,8 @@
 
 use super::scenarios::{Scenario, scenarios};
 use super::{
-    Budget, Outcome, Prices, Spending, Stop, Traffic, billed_line, report, run_within, stand_in, what_is_sent,
+    Budget, Outcome, Prices, Spending, Stop, Traffic, billed_line, drafts, report, run_within, stand_in,
+    what_is_sent,
 };
 use crate::agent::MAX_OUTPUT_TOKENS;
 use crate::provider::{Cancel, LlmProvider, ProviderId};
@@ -39,7 +40,10 @@ pub const USAGE: &str = "assistant_eval: how good are the Assistant's light show
   --max-usd <usd>          the most the whole run may spend; --send needs it
   --max-requests <n>       the most requests the whole run may make; default no limit
   --runs <n>               answer each scenario n times (models vary); default 1
-  --out <folder>           also write report.md and results.json there
+  --out <folder>           also write report.md and results.json there, and each scenario's
+                           draft with the made-up stage it plays on (show/, to open in PixelFlow),
+                           a video of it (videos/), and a contact sheet of every section (sheets/)
+  --no-render              with --out, save the drafts but draw no videos or contact sheets
   --price-in <usd>         price of a million tokens sent; --send needs it (estimates assume 3)
   --price-out <usd>        price of a million tokens received; --send needs it (estimates assume 15)
   --price-cached <x>       what a token read from the cache costs, as a share of --price-in;
@@ -68,6 +72,8 @@ pub struct Options {
     pub send: bool,
     pub runs: usize,
     pub out: Option<PathBuf>,
+    /// With `out`: draw each draft as a video and a contact sheet.
+    pub render: bool,
     pub prices: Prices,
     pub prices_given: PricesGiven,
     /// The spending ceiling, in dollars.
@@ -86,6 +92,7 @@ impl Default for Options {
             send: false,
             runs: 1,
             out: None,
+            render: true,
             prices: Prices::default(),
             prices_given: PricesGiven::default(),
             max_usd: None,
@@ -113,6 +120,7 @@ pub fn parse(args: &[String]) -> Result<Options, String> {
             "-h" | "--help" => options.help = true,
             "--list" => options.list = true,
             "--send" => options.send = true,
+            "--no-render" => options.render = false,
             "--scenario" => options
                 .only
                 .extend(value()?.split(',').map(|s| s.trim().to_string())),
@@ -254,14 +262,18 @@ fn chosen(only: &[String]) -> Result<Vec<Scenario>, String> {
 
 /// Every scenario answered by its scripted stand-in.
 pub fn stand_in_outcomes(scenarios: &[Scenario]) -> Vec<Outcome> {
+    stand_in_outcomes_on(scenarios, &Stage::new())
+}
+
+/// [`stand_in_outcomes`], every scenario on `stage`.
+pub fn stand_in_outcomes_on(scenarios: &[Scenario], stage: &Stage) -> Vec<Outcome> {
     scenarios
         .iter()
         .map(|scenario| {
-            let stage = Stage::new();
-            let provider = ScriptedProvider::new(stand_in::script(scenario, &stage));
+            let provider = ScriptedProvider::new(stand_in::script(scenario, stage));
             run_within(
                 scenario,
-                &stage,
+                stage,
                 &provider,
                 &fake_key(),
                 "stand-in",
@@ -286,12 +298,38 @@ struct Results<'a> {
     outcomes: &'a [Outcome],
 }
 
-fn save(folder: &PathBuf, results: &Results<'_>, text: &str) -> Result<(), String> {
+/// Writes the report, the results, and each draft on `stage` (drawn, when `render`) to `folder`,
+/// and says where.
+fn save(
+    folder: &PathBuf,
+    stage: &Stage,
+    results: &Results<'_>,
+    text: &str,
+    render: bool,
+    say: &mut dyn FnMut(String),
+) -> Result<(), String> {
     let wrote = |e: std::io::Error| format!("Couldn't write to {}: {e}", folder.display());
     std::fs::create_dir_all(folder).map_err(wrote)?;
     std::fs::write(folder.join("report.md"), text).map_err(wrote)?;
     let json = serde_json::to_string_pretty(results).map_err(|e| e.to_string())?;
-    std::fs::write(folder.join("results.json"), json).map_err(wrote)
+    std::fs::write(folder.join("results.json"), json).map_err(wrote)?;
+    if render {
+        say("\nDrawing each draft as a video and a contact sheet...".into());
+    }
+    let rendering = drafts::Rendering::default();
+    let kept = drafts::keep(
+        folder,
+        stage,
+        results.outcomes,
+        results.model,
+        render.then_some(&rendering),
+    )?;
+    say(format!(
+        "\nWritten to {}:\n- {}",
+        folder.display(),
+        kept.join("\n- ")
+    ));
+    Ok(())
 }
 
 /// Runs the command line, writing what it has to say to `out`. Returns the exit status.
@@ -324,9 +362,11 @@ fn command(args: &[String], connect: &mut Connect<'_>, out: &mut dyn Write) -> R
         }
         return Ok(());
     }
+    // Every scenario plays on the one stage, so their drafts open on the one show.
+    let stage = Stage::new();
     let Some(provider) = options.provider else {
         say("Stand-in run: every answer is scripted. No model is called and nothing is sent.\n".into());
-        let outcomes = stand_in_outcomes(&scenarios);
+        let outcomes = stand_in_outcomes_on(&scenarios, &stage);
         let model = "the scripted stand-in (not a model)";
         let text = report(&outcomes, model, &options.prices);
         say(text.clone());
@@ -339,7 +379,7 @@ fn command(args: &[String], connect: &mut Connect<'_>, out: &mut dyn Write) -> R
                 not_started: &[],
                 outcomes: &outcomes,
             };
-            save(folder, &results, &text)?;
+            save(folder, &stage, &results, &text, options.render, &mut say)?;
         }
         return Ok(());
     };
@@ -408,7 +448,6 @@ fn command(args: &[String], connect: &mut Connect<'_>, out: &mut dyn Write) -> R
                 not_started.push(name);
                 continue;
             }
-            let stage = Stage::new();
             let mut outcome = run_within(
                 scenario,
                 &stage,
@@ -479,7 +518,7 @@ fn command(args: &[String], connect: &mut Connect<'_>, out: &mut dyn Write) -> R
             not_started: &not_started,
             outcomes: &outcomes,
         };
-        save(folder, &results, &text)?;
+        save(folder, &stage, &results, &text, options.render, &mut say)?;
     }
     Ok(())
 }

@@ -119,6 +119,12 @@ const GLYPH_W: i32 = 5;
 const GLYPH_H: i32 = 8;
 const ADVANCE: i32 = GLYPH_W + 1;
 
+/// A character of the pixel font the Text effect draws in: 5 columns, bit 0 the top row of 8.
+/// For labelling pictures of the show drawn outside an effect (a contact sheet's captions).
+pub fn font_glyph(c: char) -> [u8; 5] {
+    glyph(c)
+}
+
 fn glyph(c: char) -> [u8; 5] {
     let code = c as u32;
     if (32..127).contains(&code) {

@@ -102,11 +102,35 @@ For Anthropic, add `--price-cache-write <share of --price-in>` (what writing to 
 - `--out <folder>` writes `report.md` (what is printed) and `results.json` (the model, the prices,
   the ceiling, what was spent and the tokens billed, the scenarios the budget kept from starting,
   and for each scenario every measure, its tokens billed, and every tool call the model made with
-  the start of each answer). Keep that folder outside the repository: results are not committed.
+  the start of each answer), and the shows themselves (see [Seeing the shows](#seeing-the-shows)).
+  Keep that folder outside the repository: results are not committed.
+- `--no-render`: with `--out`, save the drafts but draw no videos or contact sheets.
 
 The key is read from the `PIXELFLOW_EVAL_KEY` environment variable, by the example binary, only
 on a run with `--send`, and only once the ceiling and prices have been accepted. It is not read
 from the app's saved key, and it is not written anywhere.
+
+## Seeing the shows
+
+Scores say how a show measures up; only looking says what it is like. With `--out`, every run
+(the stand-in's too) leaves each scenario's final draft to look at, in three forms:
+
+- `show/Paper Lanterns stage.pixelflow.json`: the made-up stage as a PixelFlow show, with its
+  picture (`show/images/snowman.png`) and the song's sound (`show/paper-lanterns.wav`) beside
+  it, and `show/<scenario>.pfseq.json`, each scenario's draft as a sequence that plays that
+  sound. Open the show in PixelFlow, then any of the sequences. The song was never recorded: its
+  sound is what the effects that follow the music hear in the harness, a thump on every beat and
+  a steady tone as loud as each part, silent through the stop. With `--runs 3` the drafts are
+  `whole-song-1`, `whole-song-2`, and so on.
+- `videos/<scenario>.mp4`: the whole draft as a video of the 2D preview (1280 × 448, 25 frames a
+  second, with that sound), drawn by `pf-video` from the saved files as the app would open them.
+- `sheets/<scenario>.png`: a contact sheet of a frame from every section of the song (a beat into
+  its middle bar), each labelled with the section, the time, and the effects playing then, under
+  a line with the scenario, the model, its checks, its review score, and how many kinds of effect
+  it used.
+
+Everything is drawn here, offline; nothing is sent anywhere. Drawing all nine takes under a minute
+in a release build. `--no-render` keeps the drafts and the stage and draws nothing.
 
 ## What a real run sends
 
@@ -200,6 +224,9 @@ The spending ceiling is tested with that provider reporting usage: `--send` refu
 without `--max-usd` and explicit prices; a request whose worst case would pass the ceiling is
 not sent, and later scenarios don't start; the true total never passes the ceiling; a reply
 without usage is counted at its worst case; the report and `results.json` carry the tokens
-billed and their cost. The providers' reading of usage is tested against recorded replies
+billed and their cost. The drafts a run keeps are tested the same way: the stage and each draft
+open as the app opens them, every draft's rows light props of that saved stage, a question's
+draft is what was open, and a draft is drawn as a video and a contact sheet with a frame for
+every section. The providers' reading of usage is tested against recorded replies
 (`crates/pf-ai/tests/openai.rs`, `anthropic.rs`). It has not been run against a real model as
 part of building it.

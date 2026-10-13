@@ -14,6 +14,7 @@
 //! reports. `docs/dev/assistant-eval.md` says how to run it, what it sends, and what it may cost.
 
 pub mod cli;
+pub mod drafts;
 pub mod scenarios;
 pub mod stand_in;
 
@@ -719,6 +720,10 @@ pub struct Outcome {
     pub checks: Vec<Check>,
     pub measures: Measures,
     pub transcript: Vec<ToolUse>,
+    /// The sequence as the answer left its draft (as it was, when nothing was drafted): kept as
+    /// a file to open and drawn as a video by [`drafts::keep`], not part of the results.
+    #[serde(skip)]
+    pub draft: Sequence,
 }
 
 impl Outcome {
@@ -1029,6 +1034,7 @@ pub fn run_within(
         checks,
         measures,
         transcript: tools,
+        draft: after,
     }
 }
 

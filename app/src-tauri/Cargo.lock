@@ -3276,6 +3276,7 @@ dependencies = [
  "pf-model",
  "pf-render",
  "pf-sequence",
+ "pf-video",
  "regex",
  "schemars 1.2.2",
  "serde",

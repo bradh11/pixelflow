@@ -6,6 +6,8 @@
 //! as the preview draws it (see [`raster`]), and encodes it. Frames are drawn on several threads
 //! at once and encoded in order, so a song exports faster than it plays.
 //!
+//! [`contact_sheet`] draws chosen moments of a sequence the same way, captioned, on one PNG.
+//!
 //! Built in, the video is H.264 from OpenH264 and the sound AAC-LC from a pure-Rust encoder, in an
 //! MP4 written here, nothing installed needed. When ffmpeg is installed it can do the encoding
 //! instead (see [`ffmpeg`]).
@@ -18,11 +20,13 @@ mod glow;
 pub mod h264;
 pub mod mp4;
 pub mod raster;
+pub mod stills;
 pub mod timing;
 pub mod yuv;
 
 pub use export::{Progress, Stage, VideoOptions, VideoSummary, export_video, load_photo};
 pub use ffmpeg::Ffmpeg;
+pub use stills::{SheetOptions, SheetSummary, Still, contact_sheet};
 
 /// Why a video couldn't be made.
 #[derive(Debug, thiserror::Error)]

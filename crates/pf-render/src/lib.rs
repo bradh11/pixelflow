@@ -75,3 +75,4 @@ pub use picture::{Pictures, ReadPicture};
 pub use pool::{RenderPool, default_threads};
 pub use render::{FrameTimes, Renderer};
 pub use sing::{mouth_open, openness};
+pub use text::font_glyph;

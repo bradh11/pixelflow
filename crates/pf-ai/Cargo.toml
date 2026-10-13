@@ -17,6 +17,8 @@ pf-audio.workspace = true
 pf-render.workspace = true
 pf-lexicon.workspace = true
 pf-align.workspace = true
+# The evaluation harness draws each draft as a video and a contact sheet.
+pf-video.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

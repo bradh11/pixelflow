@@ -54,6 +54,8 @@ const LARGE_AREA: f32 = 0.25;
 const CANVAS_PIXELS: u32 = 300;
 /// The fewest and most kinds of effect a show is asked for.
 const KINDS: (usize, usize) = (4, 12);
+/// A sequence shorter than this is a jingle, not a show: its range isn't judged.
+const SHORTEST_SONG_MS: u64 = 30_000;
 /// How much each part of the range score counts: the kinds used, a showpiece on each canvas,
 /// and sections that don't repeat the effects of the one before.
 const RANGE_WEIGHTS: (f32, f32, f32) = (0.35, 0.4, 0.25);
@@ -768,9 +770,13 @@ impl Reviewer<'_> {
 }
 
 /// How many kinds of effect a show is asked for: three, one for each different part of the song,
-/// and one for each canvas, between [`KINDS`]; never more than its props can show.
-pub(crate) fn kinds_wanted(parts: usize, canvases: usize, props: usize) -> usize {
-    (3 + parts + canvases).clamp(KINDS.0, KINDS.1).min(2 * props + 2)
+/// and one for each canvas, between [`KINDS`]; never more than its props can show, nor than a
+/// song `seconds` long has room for (two, and one more for every ten seconds).
+pub(crate) fn kinds_wanted(parts: usize, canvases: usize, props: usize, seconds: u64) -> usize {
+    (3 + parts + canvases)
+        .clamp(KINDS.0, KINDS.1)
+        .min(2 * props + 2)
+        .min(2 + (seconds / 10) as usize)
 }
 
 /// The kinds among `kinds`, each once, in the catalog's order.
@@ -929,12 +935,14 @@ impl Reviewer<'_> {
 
     /// The show uses the range: enough kinds of effect for its length and its display, a
     /// showpiece on every canvas, and no section playing exactly the effects of a different one
-    /// just before it.
+    /// just before it. Judged against the song's parts, so only with its analysis, and not for
+    /// a jingle (under [`SHORTEST_SONG_MS`]).
     pub(super) fn range(&mut self) {
         let show = self.subject.show;
         let bar = self.song.bar();
         let all = self.showing();
-        if all.is_empty() {
+        let length = self.subject.doc.duration_ms;
+        if all.is_empty() || !self.song.analyzed || length < SHORTEST_SONG_MS {
             return;
         }
         let used = kinds_in(all.iter().map(|(_, e)| e.kind()));
@@ -950,6 +958,7 @@ impl Reviewer<'_> {
             if parts == 0 { 3 } else { parts },
             canvases.len(),
             show.props.len(),
+            length / 1000,
         );
         let kinds = (used.len() as f32 / wanted as f32).min(1.0);
         // Canvases without a showpiece of their own, on their own rows, for half a bar or more.

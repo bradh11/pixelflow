@@ -375,7 +375,12 @@ fn range(run: &Run<'_>, m: &Measures) -> Check {
         .iter()
         .filter(|p| crate::review::is_canvas(p))
         .count();
-    let wanted = crate::review::kinds_wanted(parts.len(), canvases, run.stage.show.props.len());
+    let wanted = crate::review::kinds_wanted(
+        parts.len(),
+        canvases,
+        run.stage.show.props.len(),
+        run.after.duration_ms / 1000,
+    );
     let kinds = m.effect_kinds.iter().filter(|k| *k != "off").count();
     check(
         &format!(

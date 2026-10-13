@@ -49,8 +49,9 @@ hand-written analysis.
   scenario's kinds and showpieces, and the canvases with one on their own rows. A whole show is
   checked for ten kinds of effect or more (blackouts aside) with a showpiece on a canvas: the
   review's own measure of what a song asks for, three kinds and one more for each different part
-  of the song and each canvas, which for the stage's 96-second song (five different parts:
-  intro, verse, chorus, bridge, outro) with two canvases is ten. The runs before the range was
+  of the song and each canvas (never more than the props can show, or than two and one for every
+  ten seconds of song), which for the stage's 96-second song (five different parts: intro,
+  verse, chorus, bridge, outro) with two canvases and twelve props is ten. The runs before the range was
   taught used eleven, all of them washes, chases, and pulses: the count alone passes, the
   showpiece is what they lacked.
 - **Checks for the request itself**: the skeletons are skeletons and are on the matrix for the

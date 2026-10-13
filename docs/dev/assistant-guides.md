@@ -160,7 +160,8 @@ the effects of a different part just before it. Its fixes name the canvas and gi
 `place_effects` call for a look from the guides (clouds through the quietest section on a
 matrix, ending before a stop; a firework finale over a tree's look through the loudest, in that
 section's colors), and they take only the room the other fixes leave. An effect on a prop it
-doesn't suit adds nothing to the range: the fit criterion still names it.
+doesn't suit adds nothing to the range: the fit criterion still names it. It needs the song's
+analysis, and leaves a sequence under 30 seconds (a jingle) alone.
 
 ## What is sent
 

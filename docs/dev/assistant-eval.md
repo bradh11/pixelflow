@@ -64,9 +64,11 @@ tool calls (every stage's), the tokens sent with the first request and with a re
 (as billed when the provider reported them; marked `~` when estimated from sizes, as for the
 stand-in), the largest request, and on a real run the wall-clock time from the first request to
 the last reply. Those columns compare directly with an earlier run's. In a staged run the
-transcript holds every stage's calls in turn, and the guides a stage was given with its request
-show as a `get_guide` marked `given` (counted as read, not as a call); "It reviewed its draft"
-passes for a staged build, which reviews every draft it builds.
+transcript holds every stage's calls in turn, each with its `stage` ("chat", "design",
+`build step "verses"`, "refine", "refine 2") and the `request` of that conversation that made
+it (calls with the same request were sent together), and the guides a stage was given with its
+request show as a `get_guide` marked `given` (counted as read, not as a call); "It reviewed its
+draft" passes for a staged build, which reviews every draft it builds.
 
 `crates/pf-ai/src/eval/scenarios.rs` has each scenario's checks; adding a scenario is adding an
 entry there (and a scripted answer in `stand_in.rs`, which the tests require to pass it).
@@ -134,7 +136,8 @@ for a chat:
 - for a job built in stages: a design request (the stages' instructions, the catalogue of tools
   and effects, and the show-design guides, the same every time, with the brief and the made-up
   show and song in outline), a request for each step of its plan (only that step's tools,
-  stretch of the song, props, and effects' guides), and a refine request with the review's
+  stretch of the song, props, and effects' guides, and what its part still lacks when it is
+  asked again), and a refine request or two with what of the plan is still dark and the review's
   fixes. Several steps' requests may be on their way at once.
 
 Nothing of yours is read or sent: no show, sequence, song, lyrics, picture, file, or device.
@@ -234,3 +237,11 @@ without usage is counted at its worst case; the report and `results.json` carry 
 billed and their cost. The providers' reading of usage is tested against recorded replies
 (`crates/pf-ai/tests/openai.rs`, `anthropic.rs`). It has not been run against a real model as
 part of building it.
+
+A real run's failures come back as tests: `crates/pf-ai/tests/staged_run4.rs` replays the two
+staged builds that failed a check in run 4 (gpt-6.1-sol: `review-and-fix`'s last chorus left
+dark, `calm-and-big`'s choruses on 8.4 props), every call the model made, a request's calls
+together, from `tests/fixtures/run4` (row ids written as `@` and what the row lights). Replayed
+as run 4's build ran them, they fail as run 4 did, with the same requests and measures; what a
+step does when it is told what its part still lacks is added after the model's own turns, from
+the plan's own words for that step, and runs only when the build asks for it.

@@ -54,19 +54,36 @@ carries everything said so far:
    `staged/catalogue.rs`): the stages' instructions, a **catalogue** of every tool a step can use
    and every effect in a line each (generated from the tool definitions and the effects' guides,
    so it never goes stale), and the show-design topics (`DESIGN_TOPICS`). It sees no tool's full
-   definition. It answers with `submit_plan`: each part of the song (palette, the props that
-   play, base, movement, accents), the props' roles, the moments, the vocals, and the steps,
-   each naming its parts of the song, its props, its tools, its effects, and the topics it needs.
-   `Plan::read` checks every name against the song, the show, the effects, the guides, and the
-   tools a step may have (no reviewing, proposing, or layout edits); a plan that names anything
-   that isn't there goes back with every problem, up to three times, and then the job goes back
-   to the chat, which does it itself.
+   definition. It answers with `submit_plan`, terse: each part of the song (the props that play,
+   a palette, a level, a motion, a few words of look; or `keep`, saying why it stays as it is),
+   the props' roles, the moments as cues (`[at, until, cue, props]`), the vocals in a sentence,
+   and the steps, each naming its parts of the song, its props, its tools, its effects (six at
+   most), the topics it needs (three at most), and what it does (600 characters at most). Every
+   field has a length (`MAX_TEXT`, `MAX_DO` and the like in `staged/plan.rs`): the schema says
+   it, and `Plan::read_for` cuts what runs over rather than sending it back. The person's reply
+   is the plan's summary, or written from its parts by the program (`Plan::reply`).
+   `Plan::read_for` checks every name against the song, the show, the effects, the guides, and
+   the tools a step may have (no reviewing, proposing, or layout edits), and checks the plan
+   covers the job: every part of the song the brief is about is described (or kept, saying why),
+   every part with props playing is built by a step that names it (or by one over the whole song
+   that lays looks), and when the brief asks for bigger choruses they light three props in four
+   or more. A plan with a problem goes back with every problem, up to three times, and then the
+   job goes back to the chat, which does it itself.
 3. **Build.** Each step is a conversation of its own: the plan in brief (palettes, roles, steps),
    its part of the plan, only the stretch of the song it works in (its parts, moments, accents,
    bars, and words), only its rows and what they have there now, the guides of its effects
-   (`draws` and `looks`) and of the topics it names, and only the full definitions of its tools.
-   A step whose calls all worked is over after one request; a refused call is answered in the
-   step's conversation. Steps go in waves (`Plan::waves`): a step waits for an earlier one it
+   (`draws` and `looks`) and of the topics it names (marked read, so asking again points back to
+   them), and only the full definitions of its tools. A step isn't over because a reply changed
+   something: when its calls all worked, the parts it builds are drawn (`staged/coverage.rs`:
+   every 250 ms, a prop lit in a fifth of the part or more plays there, the plan's own moments
+   left out) and a part with half the props the plan has playing there dark or more goes back to
+   the step, with its times, those props, and their rows; a step over the whole song that only
+   removed or changed things is asked once to place what it places. The step is over when its
+   parts are lit, when it answers without calling a tool, or after `MAX_STEP_REQUESTS` (5). A
+   refused call is answered in the step's conversation. A `blackout` cue that would darken a
+   part the plan lights for more than a bar is held to its moment (it ends a bar into the part,
+   and the answer says so), unless the plan's moments stage that blackout themselves. Steps go
+   in waves (`Plan::waves`): a step waits for an earlier one it
    names (`after`) and for any earlier one that lights the same props at the same time, so the
    steps of a wave never draw over each other. The steps of a wave run at once, at most
    `PARALLEL_STEPS` (4), each on its own copy of the draft as the waves before left it; when the
@@ -75,10 +92,16 @@ carries everything said so far:
    The song's timing tracks go in before the first wave, so no step adds its own copy. A step that
    fails is reported in the reply and leaves nothing behind; Stop ends the running steps and
    nothing of their wave goes in.
-4. **Review and refine.** The design review of the whole draft; below `REFINED_BELOW` (95) with
-   fixes the tools can make, one refine conversation gets the plan in brief and the review, with
-   only the tools its fixes name. Then the chat proposes the draft as it always does (locked to
-   the music, reviewed, one Apply, one undo), and replies with the plan's summary.
+4. **Review and refine.** The design review of the whole draft, and the draft drawn against the
+   plan as each step's parts are. With any part of the plan dark, or below `REFINED_BELOW` (95)
+   with fixes the tools can make, a refine conversation gets the plan in brief, what is dark
+   (each part's times, the props dark there with their rows, the plan's look, and any off
+   effects darkening them), and the review, with the tools to place effects as well as change
+   them (`REFINE_TOOLS`) and those the fixes name. It goes on while the plan is dark, up to
+   `MAX_REFINE_REQUESTS`; if it leaves the plan dark, a second refine gets what is left
+   (`MAX_REFINES`). Then the chat proposes the draft as it always does (locked to the music,
+   reviewed, one Apply, one undo), and replies with the plan's summary, saying what of the plan
+   is still dark, if anything is.
 
 The panel shows the stages (Understand, Design, Build with the parts under way and how many are
 done, Review) from `ChatEvent::Stage`. Each stage's fixed instructions come first in its

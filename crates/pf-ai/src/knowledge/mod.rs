@@ -61,6 +61,52 @@ impl Suit {
     }
 }
 
+/// The showpieces: effects that draw a picture of something (fireworks, falling snow, flames,
+/// flowing clouds, a dancer, a spinning wheel) rather than a color or a band of light. They are
+/// what a show's canvases (a matrix, a tree) can do that nothing else can, and what people
+/// remember; topic `showpieces` says where each belongs. The review's range criterion and the
+/// evaluation look for one on every canvas. (A level meter is left out: the peak cue puts one on
+/// every matrix by itself.)
+pub const SHOWPIECES: [EffectKind; 20] = [
+    EffectKind::Plasma,
+    EffectKind::Butterfly,
+    EffectKind::Fireworks,
+    EffectKind::Shader,
+    EffectKind::Dancer,
+    EffectKind::Picture,
+    EffectKind::Meteors,
+    EffectKind::Snowflakes,
+    EffectKind::Fire,
+    EffectKind::Circles,
+    EffectKind::Shape,
+    EffectKind::Shockwave,
+    EffectKind::Fan,
+    EffectKind::Pinwheel,
+    EffectKind::Garlands,
+    EffectKind::Morph,
+    EffectKind::Ripple,
+    EffectKind::Life,
+    EffectKind::Lines,
+    EffectKind::Tendril,
+];
+
+pub fn is_showpiece(kind: EffectKind) -> bool {
+    SHOWPIECES.contains(&kind)
+}
+
+/// Whether `kind`'s guide has a look for a single run of pixels (a string or an arch): `None`
+/// for a kind without a guide. One without is what the review's fit criterion flags on an
+/// outline or an arch.
+pub fn suits_a_run(kind: EffectKind) -> Option<bool> {
+    let guide = effect_guide(kind)?;
+    Some(
+        guide
+            .looks
+            .iter()
+            .any(|l| l.suits.contains(&Suit::String) || l.suits.contains(&Suit::Arch)),
+    )
+}
+
 /// The longest a guide may be as the Assistant reads it (bytes), reference and all: several fit
 /// in one answer.
 pub const MAX_GUIDE_BYTES: usize = 12_000;
@@ -125,8 +171,10 @@ pub fn topic_text(key: &str) -> Option<String> {
 }
 
 /// The lists a topic can ask for by `{{name}}` on a line of its own, each generated.
-pub const GENERATED: [&str; 14] = [
+pub const GENERATED: [&str; 16] = [
     "effect-overview",
+    "showpieces",
+    "grid-only",
     "blends",
     "row-blending",
     "curve-shapes",
@@ -158,8 +206,49 @@ fn generated(name: &str) -> Option<String> {
         "effects" => effect_index(),
         "effect-overview" => effect_overview(),
         "looks-by-target" => looks_by_target(),
+        "showpieces" => showpiece_looks(),
+        "grid-only" => grid_only(),
         _ => return None,
     })
+}
+
+/// Every showpiece in a line: its ready-made looks for a canvas (a matrix or a tree), each with
+/// the canvases it was written for.
+fn showpiece_looks() -> String {
+    SHOWPIECES
+        .iter()
+        .map(|&kind| {
+            let key = reference::key_of(&kind);
+            let looks: Vec<String> = effect_guide(kind)
+                .map(|guide| {
+                    guide
+                        .looks
+                        .iter()
+                        .filter_map(|look| {
+                            let on: Vec<&str> = [Suit::Matrix, Suit::Tree]
+                                .iter()
+                                .filter(|s| look.suits.contains(s))
+                                .map(|s| s.word())
+                                .collect();
+                            (!on.is_empty()).then(|| format!("\"{}\" ({})", look.name, on.join(", ")))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            format!("- `{key}`: {}\n", looks.join(", "))
+        })
+        .collect()
+}
+
+/// The kinds with no look for a single run of pixels: the ones not to put on an outline or an
+/// arch (the review says so when they are).
+fn grid_only() -> String {
+    let kinds: Vec<String> = EffectKind::ALL
+        .iter()
+        .filter(|&&kind| suits_a_run(kind) == Some(false))
+        .map(|kind| format!("`{}`", reference::key_of(kind)))
+        .collect();
+    format!("{}\n", kinds.join(", "))
 }
 
 /// `source` with each `{{name}}` replaced by its generated list.

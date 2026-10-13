@@ -126,6 +126,42 @@ never go stale is asked for by name, `{{blends}}` for instance, and filled in wh
 read: `GENERATED` in `crates/pf-ai/src/knowledge/mod.rs` has the names. List a new topic in
 `TOPICS` in `library.rs`.
 
+## Range and showpieces
+
+Left to themselves, models build sound shows from the same dozen effects every time. Topic
+`showpieces` (read with the method, which points to it at the planning step, and named in the
+instructions' list of topics) teaches the rest:
+
+- **A concept from the song**: its title, words, and mood choose the showpieces and the colors,
+  and the first palette that comes to mind is one choice of several, each section still held to
+  two or three colors.
+- **Signature moments**: at least one showpiece on each canvas (a matrix, a mega tree): clouds
+  in a breakdown, fireworks or a shockwave on the biggest hit, a dancer or a picture in a chorus,
+  snow or meteors in a quiet verse. Each suggestion names a ready-made look from that effect's
+  guide, as `` `kind` "Look name" ``, with the props it goes on.
+- **Range across a show**: different parts of the song get different effects, not one kit in
+  new colors; repeats of the same music keep their look.
+- **What suits what**, plainly: motion that travels along the line for outlines and arches
+  (each again a named look written for a string and an arch), and the effects never to put
+  there.
+
+Two of its lists are generated, so they never go stale: `{{showpieces}}`, every showpiece with
+its looks for a matrix or a tree, and `{{grid-only}}`, the effects whose guides have no look for
+a single run of pixels (the ones the review's fit criterion flags on an outline or an arch). The
+showpieces themselves are `SHOWPIECES` in `crates/pf-ai/src/knowledge/mod.rs`. A test
+(`the_showpieces_and_motion_the_guides_suggest_are_real_looks_on_the_props_they_say` in
+`crates/pf-ai/tests/knowledge.rs`) holds every look the topic names to its effect's guide, and
+every prop a table puts it on to the props the look is written for; the effect guides' own test
+draws each look on each of those props. Rename or retarget a look and the topic has to follow.
+
+The review scores the same thing (`range`, weighed lightly beside the rest): kinds of effect for
+the song's length and the display, a showpiece on every canvas, and no section playing exactly
+the effects of a different part just before it. Its fixes name the canvas and give the
+`place_effects` call for a look from the guides (clouds through the quietest section on a
+matrix, ending before a stop; a firework finale over a tree's look through the loudest, in that
+section's colors), and they take only the room the other fixes leave. An effect on a prop it
+doesn't suit adds nothing to the range: the fit criterion still names it.
+
 ## What is sent
 
 A guide the Assistant fetches becomes part of that conversation, like anything else a tool

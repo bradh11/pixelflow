@@ -21,7 +21,7 @@ pub mod stand_in;
 use crate::agent::{ChatSession, MAX_STEPS, SYSTEM_PROMPT};
 use crate::draft::{OpenDoc, UiContext, Workspace};
 use crate::error::AiError;
-use crate::knowledge::reference;
+use crate::knowledge::{self, reference};
 use crate::provider::{
     AssistantTurn, Cancel, LlmProvider, Message, ModelInfo, ProviderId, StreamEvent, TurnRequest, Usage,
 };
@@ -47,6 +47,9 @@ const STEP_MS: u64 = 250;
 const LIT: u8 = 12;
 /// A prop lit for this many samples (two seconds) has a part in the show.
 const PART_SAMPLES: usize = 8;
+/// A showpiece on a canvas counts from this long (half a bar of the stage's song, as the
+/// review counts it).
+const SHOWPIECE_MS: u64 = 1_000;
 /// Bytes to a token, roughly: prose runs nearer four, JSON nearer three.
 pub const BYTES_PER_TOKEN: f64 = 3.5;
 /// The most of a tool's answer kept in a transcript.
@@ -643,6 +646,11 @@ pub struct Measures {
     pub guides: Vec<String>,
     pub effects: usize,
     pub effect_kinds: Vec<String>,
+    /// The kinds used that are showpieces ([`crate::knowledge::SHOWPIECES`]), anywhere.
+    pub showpieces: Vec<String>,
+    /// Each canvas (a matrix or a tree big enough to draw on) with the showpieces on its own
+    /// rows: "Matrix: plasma, fireworks". Canvases without one aren't listed.
+    pub canvas_showpieces: Vec<String>,
     pub props_used: usize,
     pub props: usize,
     /// The share of the song with nothing lit.
@@ -869,6 +877,28 @@ fn measure(
     let kinds: BTreeSet<String> = effects(doc)
         .map(|(_, _, e)| reference::key_of(&e.kind()))
         .collect();
+    let showpieces: BTreeSet<String> = effects(doc)
+        .filter(|(_, _, e)| knowledge::is_showpiece(e.kind()))
+        .map(|(_, _, e)| reference::key_of(&e.kind()))
+        .collect();
+    let canvas_showpieces = run
+        .stage
+        .show
+        .props
+        .iter()
+        .filter(|p| crate::review::is_canvas(p))
+        .filter_map(|p| {
+            let on: BTreeSet<String> = effects(doc)
+                .filter(|(target, _, e)| {
+                    matches!(target, Target::Prop(id) | Target::Region { prop: id, .. } if *id == p.id)
+                        && knowledge::is_showpiece(e.kind())
+                        && e.duration_ms() >= SHOWPIECE_MS
+                })
+                .map(|(_, _, e)| reference::key_of(&e.kind()))
+                .collect();
+            (!on.is_empty()).then(|| format!("{}: {}", p.name, on.into_iter().collect::<Vec<_>>().join(", ")))
+        })
+        .collect();
     let starts: Vec<u64> = song.sections.iter().skip(1).map(|s| s.start_ms).collect();
     // The look half a second before each new section against the look a bar and a half into
     // it, once anything staged on the downbeat has died away.
@@ -904,6 +934,8 @@ fn measure(
         guides,
         effects: effects(doc).count(),
         effect_kinds: kinds.into_iter().collect(),
+        showpieces: showpieces.into_iter().collect(),
+        canvas_showpieces,
         props_used: lights.props_used(),
         props: lights.props(),
         dark_share: lights.share(|lit| lit == 0),
@@ -1166,13 +1198,13 @@ pub fn report(outcomes: &[Outcome], model: &str, prices: &Prices) -> String {
     ));
     out.push_str(&round_trips(outcomes));
     out.push_str(
-        "| Scenario | Checks | Review | Props | Kinds | Dark | Full | Changes | Moments | Safe | Requests | Tool errors | Cost |\n|---|---|---|---|---|---|---|---|---|---|---|---|---|\n",
+        "| Scenario | Checks | Review | Props | Kinds | Showpieces | Dark | Full | Changes | Moments | Safe | Requests | Tool errors | Cost |\n|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n",
     );
     for o in outcomes {
         let m = &o.measures;
         let review = m.review.as_ref();
         out.push_str(&format!(
-            "| {}{} | {}/{} | {} | {}/{} | {} | {:.0}% | {:.0}% | {}/{} | {} | {} | {} | {} | {} |\n",
+            "| {}{} | {}/{} | {} | {}/{} | {} | {} | {:.0}% | {:.0}% | {}/{} | {} | {} | {} | {} | {} |\n",
             o.scenario,
             o.stopped
                 .map_or(String::new(), |s| format!(" (stopped: {})", s.label())),
@@ -1182,6 +1214,7 @@ pub fn report(outcomes: &[Outcome], model: &str, prices: &Prices) -> String {
             m.props_used,
             m.props,
             m.effect_kinds.len(),
+            m.showpieces.len(),
             m.dark_share * 100.0,
             m.full_share * 100.0,
             m.section_changes,
@@ -1236,6 +1269,16 @@ pub fn report(outcomes: &[Outcome], model: &str, prices: &Prices) -> String {
                 m.effect_kinds.len(),
                 m.effect_kinds.join(", ")
             ));
+            out.push_str(&match m.showpieces.len() {
+                0 => "No showpieces.".to_string(),
+                1 => format!("1 of them a showpiece: {}.", m.showpieces[0]),
+                n => format!("{n} of them showpieces: {}.", m.showpieces.join(", ")),
+            });
+            out.push_str(&if m.canvas_showpieces.is_empty() {
+                " None on a canvas.\n".to_string()
+            } else {
+                format!(" On the canvases: {}.\n", m.canvas_showpieces.join("; "))
+            });
         }
         if let Some(review) = &m.review {
             let before = m

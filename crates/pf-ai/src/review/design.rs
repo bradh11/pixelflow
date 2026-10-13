@@ -14,6 +14,11 @@
 //!   too fast.
 //! - **flicker**: effects that flash faster than a frame-by-frame run-through can see (a shimmer
 //!   over a large part of the display) are caught from their settings.
+//! - **range**: enough kinds of effect for the song's length and the display; a showpiece (an
+//!   effect that draws a picture: fireworks, snow, clouds, a dancer) on every canvas (a matrix
+//!   or a tree big enough to draw on); and no section playing exactly the effects of a different
+//!   part of the song just before it. Weighed lightly: the fixes, one with the call that places
+//!   a showpiece, are what make a narrow show better.
 //!
 //! Each finding names the props, sections, and times, and where a tool call would fix it, gives
 //! the call.
@@ -45,6 +50,13 @@ const BIG_IMPORTANCE: f32 = 0.75;
 const FLICKER_HZ: f32 = 3.0;
 /// The share of the show's pixels that is a large area.
 const LARGE_AREA: f32 = 0.25;
+/// A grid this many pixels or more is a canvas: a picture can be drawn on it.
+const CANVAS_PIXELS: u32 = 300;
+/// The fewest and most kinds of effect a show is asked for.
+const KINDS: (usize, usize) = (4, 12);
+/// How much each part of the range score counts: the kinds used, a showpiece on each canvas,
+/// and sections that don't repeat the effects of the one before.
+const RANGE_WEIGHTS: (f32, f32, f32) = (0.35, 0.4, 0.25);
 
 /// Effects on a prop they don't suit: what's wrong, the prop, its row, and the effects' kind.
 type Misfit = (String, String, String, String);
@@ -81,6 +93,12 @@ enum Canvas {
     Grid { columns: u32, rows: u32 },
     /// Something else (a custom shape, a frame, a spinner): not judged.
     Other,
+}
+
+/// Whether `prop` is a canvas: a matrix or a tree of [`CANVAS_PIXELS`] or more, big enough to
+/// draw a picture on (a showpiece's place).
+pub(crate) fn is_canvas(prop: &Prop) -> bool {
+    matches!(canvas(prop), Canvas::Grid { columns, rows } if columns * rows >= CANVAS_PIXELS)
 }
 
 /// The columns and rows of `prop`'s grid, when it has one words can stand on.
@@ -145,17 +163,7 @@ fn named(names: &[&str]) -> String {
     }
 }
 
-/// The kinds with a look written for a single run of pixels (a string or an arch), going by
-/// their guides. `None` for a kind without a guide: not judged.
-fn suits_a_run(kind: EffectKind) -> Option<bool> {
-    let guide = knowledge::effect_guide(kind)?;
-    Some(
-        guide
-            .looks
-            .iter()
-            .any(|l| l.suits.contains(&Suit::String) || l.suits.contains(&Suit::Arch)),
-    )
-}
+use knowledge::suits_a_run;
 
 /// The targets `kind`'s guide gives looks for, in words.
 fn suited_to(kind: EffectKind) -> String {
@@ -756,6 +764,374 @@ impl Reviewer<'_> {
                 ),
             );
         }
+    }
+}
+
+/// How many kinds of effect a show is asked for: three, one for each different part of the song,
+/// and one for each canvas, between [`KINDS`]; never more than its props can show.
+pub(crate) fn kinds_wanted(parts: usize, canvases: usize, props: usize) -> usize {
+    (3 + parts + canvases).clamp(KINDS.0, KINDS.1).min(2 * props + 2)
+}
+
+/// The kinds among `kinds`, each once, in the catalog's order.
+fn kinds_in(kinds: impl Iterator<Item = EffectKind>) -> Vec<EffectKind> {
+    let present: Vec<EffectKind> = kinds.collect();
+    EffectKind::ALL
+        .into_iter()
+        .filter(|k| present.contains(k))
+        .collect()
+}
+
+/// Whether `target` is `prop`'s own row (or a region of it).
+fn own_row(target: Target, prop: PropId) -> bool {
+    matches!(target, Target::Prop(id) | Target::Region { prop: id, .. } if id == prop)
+}
+
+/// The kinds named in backticks, in a row: "`a`, `b`, and `c`".
+fn kinds_named(kinds: &[EffectKind]) -> String {
+    let names: Vec<String> = kinds
+        .iter()
+        .map(|k| format!("`{}`", knowledge::reference::key_of(k)))
+        .collect();
+    let names: Vec<&str> = names.iter().map(String::as_str).collect();
+    match names.as_slice() {
+        [] => String::new(),
+        [one] => one.to_string(),
+        [rest @ .., last] => format!("{}, and {last}", rest.join(", ")),
+    }
+}
+
+impl Reviewer<'_> {
+    /// Every effect but a blackout, with the row it's on; an effect on a prop it doesn't suit
+    /// (as the fit criterion finds them) is no part of the range.
+    fn showing(&self) -> Vec<(Target, &Effect)> {
+        let show = self.subject.show;
+        let unsuited = |target: Target, e: &Effect| {
+            let Target::Prop(id) = target else {
+                return false;
+            };
+            show.props.iter().find(|p| p.id == id).is_some_and(|prop| {
+                canvas(prop) == Canvas::Run
+                    && e.render_style == pf_model::RenderStyle::Default
+                    && suits_a_run(e.kind()) == Some(false)
+            })
+        };
+        self.subject
+            .doc
+            .rows
+            .iter()
+            .flat_map(|r| {
+                r.layers
+                    .iter()
+                    .flat_map(move |l| l.effects.iter().map(move |e| (r.target, e)))
+            })
+            .filter(|(target, e)| e.kind() != EffectKind::Off && !unsuited(*target, e))
+            .collect()
+    }
+
+    /// The kinds that play a good part of `section` (as the look of a stretch counts them).
+    fn kit(&self, section: &Section) -> Vec<EffectKind> {
+        let (from, to) = (section.start, section.end);
+        let enough = (to - from).min(4 * self.song.bar());
+        kinds_in(
+            self.showing()
+                .into_iter()
+                .filter(|(_, e)| e.end_ms.min(to).saturating_sub(e.start_ms.max(from)) * 4 >= enough)
+                .map(|(_, e)| e.kind()),
+        )
+    }
+
+    /// The colors `from..to` is played in, most used first (by the props each lights and for how
+    /// long), one for each part of the color wheel, three at most.
+    fn colors_in(&self, from: u64, to: u64) -> Vec<String> {
+        let mut weights: Vec<([u8; 3], f32)> = Vec::new();
+        for row in &self.subject.doc.rows {
+            let props = self.covers(row.target).len().max(1) as f32;
+            for effect in row.layers.iter().flat_map(|l| &l.effects) {
+                let overlap = effect.end_ms.min(to).saturating_sub(effect.start_ms.max(from));
+                for c in &effect.palette.colors {
+                    let rgb = [c.r, c.g, c.b];
+                    match weights.iter_mut().find(|(w, _)| *w == rgb) {
+                        Some((_, weight)) => *weight += props * overlap as f32,
+                        None => weights.push((rgb, props * overlap as f32)),
+                    }
+                }
+            }
+        }
+        weights.retain(|(_, w)| *w > 0.0);
+        weights.sort_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));
+        let mut bins = Vec::new();
+        let mut colors = Vec::new();
+        for (rgb, _) in weights {
+            let Some(bin) = super::brightness_and_bin(&rgb).1 else {
+                continue;
+            };
+            if colors.len() < 3 && !bins.contains(&bin) {
+                bins.push(bin);
+                colors.push(format!("#{:02x}{:02x}{:02x}", rgb[0], rgb[1], rgb[2]));
+            }
+        }
+        colors
+    }
+
+    /// How loud a section's music is (0–1), bar by bar.
+    fn loudness_of(&self, section: &Section) -> f32 {
+        let bars: Vec<f32> = self
+            .song
+            .bars
+            .iter()
+            .filter(|b| (section.start..section.end).contains(&b.0))
+            .map(|b| b.2)
+            .collect();
+        bars.iter().sum::<f32>() / bars.len().max(1) as f32
+    }
+
+    /// The kinds not used yet that suit what's on the display: motion along a line for its
+    /// outlines and arches, showpieces for its canvases. A few of each.
+    fn unused(&self, used: &[EffectKind]) -> String {
+        let show = self.subject.show;
+        let mut said = Vec::new();
+        if show.props.iter().any(|p| canvas(p) == Canvas::Run) {
+            let along: Vec<EffectKind> = [
+                EffectKind::Bars,
+                EffectKind::Wipe,
+                EffectKind::Pinwheel,
+                EffectKind::Garlands,
+                EffectKind::Meteors,
+                EffectKind::Morph,
+                EffectKind::Fill,
+                EffectKind::Circles,
+                EffectKind::Wave,
+                EffectKind::Chase,
+            ]
+            .into_iter()
+            .filter(|k| !used.contains(k) && suits_a_run(*k) == Some(true))
+            .take(5)
+            .collect();
+            if !along.is_empty() {
+                said.push(format!("on the outlines and arches {}", kinds_named(&along)));
+            }
+        }
+        if show.props.iter().any(is_canvas) {
+            let pictures: Vec<EffectKind> = knowledge::SHOWPIECES
+                .into_iter()
+                .filter(|k| !used.contains(k))
+                .take(6)
+                .collect();
+            if !pictures.is_empty() {
+                said.push(format!("on the matrices and trees {}", kinds_named(&pictures)));
+            }
+        }
+        said.join("; ")
+    }
+
+    // ---- range ----
+
+    /// The show uses the range: enough kinds of effect for its length and its display, a
+    /// showpiece on every canvas, and no section playing exactly the effects of a different one
+    /// just before it.
+    pub(super) fn range(&mut self) {
+        let show = self.subject.show;
+        let bar = self.song.bar();
+        let all = self.showing();
+        if all.is_empty() {
+            return;
+        }
+        let used = kinds_in(all.iter().map(|(_, e)| e.kind()));
+        let parts = self
+            .song
+            .sections
+            .iter()
+            .map(|s| s.group.as_str())
+            .collect::<BTreeSet<_>>()
+            .len();
+        let canvases: Vec<&Prop> = show.props.iter().filter(|p| is_canvas(p)).collect();
+        let wanted = kinds_wanted(
+            if parts == 0 { 3 } else { parts },
+            canvases.len(),
+            show.props.len(),
+        );
+        let kinds = (used.len() as f32 / wanted as f32).min(1.0);
+        // Canvases without a showpiece of their own, on their own rows, for half a bar or more.
+        let bare: Vec<&Prop> = canvases
+            .iter()
+            .copied()
+            .filter(|p| {
+                !all.iter().any(|(target, e)| {
+                    own_row(*target, p.id) && knowledge::is_showpiece(e.kind()) && e.duration_ms() >= bar / 2
+                })
+            })
+            .collect();
+        let shown = (!canvases.is_empty()).then(|| 1.0 - bare.len() as f32 / canvases.len() as f32);
+        // Different music in a row playing the very same effects.
+        let sections: Vec<Section> = self
+            .song
+            .sections
+            .iter()
+            .filter(|s| s.end.saturating_sub(s.start) >= 2 * bar)
+            .cloned()
+            .collect();
+        let (mut boundaries, mut repeats) = (0, Vec::new());
+        for pair in sections.windows(2) {
+            let (before, after) = (&pair[0], &pair[1]);
+            if before.group == after.group || after.start != before.end {
+                continue;
+            }
+            let (a, b) = (self.kit(before), self.kit(after));
+            if a.is_empty() || b.is_empty() {
+                continue;
+            }
+            boundaries += 1;
+            if a == b {
+                repeats.push((before.clone(), after.clone(), b));
+            }
+        }
+        let fresh = if boundaries == 0 {
+            1.0
+        } else {
+            1.0 - repeats.len() as f32 / boundaries as f32
+        };
+        let (wk, wc, wr) = RANGE_WEIGHTS;
+        let score = match shown {
+            Some(shown) => wk * kinds + wc * shown + wr * fresh,
+            None => (wk * kinds + wr * fresh) / (wk + wr),
+        };
+        self.criteria.range = Some(percent(score));
+
+        for prop in bare.into_iter().take(2) {
+            self.showpiece_fix(prop, &sections);
+        }
+        if used.len() < wanted {
+            let unused = self.unused(&used);
+            self.fixes.add(
+                rank::RANGE,
+                0,
+                format!(
+                    "The show uses {} {} of effect: one this long, on this display, has room for about {wanted}. When the job is the whole show, give the different parts of the song different effects, not one kit in new colors.",
+                    used.len(),
+                    if used.len() == 1 { "kind" } else { "kinds" }
+                ),
+                Vec::new(),
+                Some(if unused.is_empty() {
+                    "get_guide topic `showpieces` says what suits which props.".to_string()
+                } else {
+                    format!("Not used yet, and suited to these props: {unused} (get_guide topic `showpieces`).")
+                }),
+            );
+        }
+        for (before, after, kit) in repeats.into_iter().take(2) {
+            let unused = self.unused(&used);
+            self.fixes.add(
+                rank::RANGE,
+                after.start,
+                format!(
+                    "{} plays exactly the effects of the {} before it ({}): when the job is the whole show, give different music an effect of its own on a prop or two, not only new colors.",
+                    where_(&[&after]),
+                    before.name,
+                    kinds_named(&kit)
+                ),
+                Vec::new(),
+                Some(if unused.is_empty() {
+                    "Swap one of them on a prop or two (change_effects with remove, then place_effects).".to_string()
+                } else {
+                    format!(
+                        "Swap one of them on a prop or two (change_effects with remove, then place_effects), for instance {unused}."
+                    )
+                }),
+            );
+        }
+    }
+
+    /// A fix giving the canvas `prop` a showpiece: flowing clouds on a matrix through the
+    /// quietest section, a firework finale over a tree's look through the loudest, each in that
+    /// section's colors, on the canvas's own row above whatever plays there then. The call is a
+    /// start, from the effect's guide; the hint names the others.
+    fn showpiece_fix(&mut self, prop: &Prop, sections: &[Section]) {
+        let tree = matches!(&prop.shape, ShapeSource::Generator(Generator::Tree { .. }));
+        let what = format!(
+            "{} never shows a showpiece: a canvas this size can draw what nothing else on the display can (clouds, snow, fireworks, a dancer, a picture). When the job is the whole show, give it at least one where the song earns it.",
+            prop.name
+        );
+        let hint = "That one is a start, from the effect's guide; choose your own where the song earns it (get_guide topic `showpieces`): `fireworks` or `shockwave` on the biggest hit, `dancer` or `picture` in a chorus, `snowflakes` or `meteors` in a quiet verse, `plasma` or `shader` in a breakdown.";
+        let row = self
+            .subject
+            .doc
+            .rows
+            .iter()
+            .find(|r| r.target == Target::Prop(prop.id));
+        let by_loudness = |a: &&Section, b: &&Section| {
+            self.loudness_of(a)
+                .total_cmp(&self.loudness_of(b))
+                .then(b.start.cmp(&a.start))
+        };
+        let section = if tree {
+            sections.iter().max_by(by_loudness)
+        } else {
+            sections.iter().min_by(by_loudness)
+        };
+        let (kind, name) = if tree {
+            (EffectKind::Fireworks, "A firework finale on a matrix")
+        } else {
+            (EffectKind::Plasma, "Icy clouds")
+        };
+        let look = knowledge::effect_guide(kind).and_then(|g| g.looks.into_iter().find(|l| l.name == name));
+        let (Some(row), Some(section), Some(look)) = (row, section, look) else {
+            self.fixes
+                .add(rank::RANGE, 0, what, Vec::new(), Some(hint.into()));
+            return;
+        };
+        // It ends before a stop in the section, which stays dark.
+        let to = self
+            .song
+            .moments
+            .iter()
+            .filter(|m| m.kind == pf_analysis::MomentKind::Stop && m.time_ms > section.start)
+            .map(|m| m.time_ms)
+            .filter(|&t| t < section.end)
+            .min()
+            .unwrap_or(section.end);
+        let mut effect = look.effect;
+        let colors = self.colors_in(section.start, to);
+        if colors.len() >= 2 {
+            effect["colors"] = json!(colors);
+        }
+        if tree {
+            // Bursts over the tree's own look.
+            effect["blend"] = json!("max");
+        } else {
+            effect["brightness"] = json!(0.5);
+        }
+        // Above everything playing on the row then.
+        let layer = row
+            .layers
+            .iter()
+            .rposition(|l| {
+                l.effects
+                    .iter()
+                    .any(|e| e.start_ms < to && e.end_ms > section.start)
+            })
+            .map_or(0, |top| top + 1);
+        let call = Call {
+            tool: "place_effects",
+            input: json!({
+                "rowIds": [row.id.to_string()],
+                "fromMs": section.start,
+                "toMs": to,
+                "layer": layer,
+                "effect": effect,
+            }),
+        };
+        self.fixes.add(
+            rank::RANGE,
+            section.start,
+            format!(
+                "{what} For instance {} \"{name}\" through {}.",
+                knowledge::reference::key_of(&kind),
+                where_(&[section])
+            ),
+            vec![call],
+            Some(hint.into()),
+        );
     }
 }
 

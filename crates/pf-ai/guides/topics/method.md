@@ -19,19 +19,23 @@ The first message's context block has the rows with their ids, what each prop is
 
 ## 3. Plan by section
 
+First the show's idea, from the song itself: its title, its words, its mood. Let it choose the colors, and look past the first palette that comes to mind (topic `showpieces`).
+
 Decide, for each group of sections (every verse, every chorus):
 
 - its palette, two or three colors (topic `palettes`);
 - which props play and which rest (topic `layering`);
 - what each playing prop does, by its role (topic `roles`);
 - which way things move (topic `motion`);
-- how it differs from the section before (topic `intensity`).
+- how it differs from the section before, in its effects as well as its colors (topic `intensity`).
+
+Then the signature moments: at least one showpiece on each canvas (a matrix, a mega tree), where the song earns it: clouds in a breakdown, fireworks or a shockwave on the biggest hit, a dancer or a picture in a chorus, snow in a quiet verse. Topic `showpieces` has where each belongs, and which effects suit which props, so the whole range gets used and none is misused.
 
 Plan the loudest section first, with everything you have, then work down: each quieter section is that look with something taken away. It is far easier than building up from the intro and running out of ideas at the last chorus.
 
 ## 4. Lay the base
 
-One look per section on the bottom layer, with `place_effects` on the group rows and prop rows, cut on the "Sections" track so each look starts where its section does. Take the looks from the effects' guides (`get_guide` with `effects`): each has ready-made ones written for each kind of prop. To choose the effects, topic `choosing` sets every one side by side; then read the guides of only those you will place, all in one call. A section that comes back gets the same look again with `repeat_effects`, then a variation with `change_effects` (new colors, a faster speed).
+One look per section on the bottom layer, with `place_effects` on the group rows and prop rows, cut on the "Sections" track so each look starts where its section does. Take the looks from the effects' guides (`get_guide` with `effects`): each has ready-made ones written for each kind of prop. To choose the effects, topic `choosing` sets every one side by side; then read the guides of only those you will place, all in one call. Rotate them: different parts of the song get different effects, not the same kit in new colors. A section that comes back gets the same look again with `repeat_effects`, then a variation with `change_effects` (new colors, a faster speed).
 
 Lay the base in one call: `place_effects` with `items`, an item for each look on each row and section, so the whole base goes down at once rather than an effect a call. Fields beside `items` are every item's default (a shared `layer`, a shared `track`). The repeats are one `repeat_effects` call with `items`, and a pass of variations one `change_effects` call. Each item is done or refused on its own: send again only the refused ones.
 
@@ -59,6 +63,7 @@ The first bars and the last chord are what people remember. Topic `openings-endi
 
 - Every prop gets a part, and every prop gets a rest.
 - Something changes at every new section.
+- Every canvas gets a showpiece, and the show uses the range: about ten kinds of effect in a song a few minutes long.
 - The whole house at full is for the few moments that earn it.
 - Nothing flashes faster than three times a second over a large part of the display (topic `safety`).
 - When in doubt, fewer effects, held longer. Topic `mistakes` has the usual ways a sequence goes wrong.

@@ -26,6 +26,7 @@ const WHITE: &str = "#ffffff";
 const ORANGE: &str = "#ff7a00";
 const PURPLE: &str = "#7a1fd1";
 const SLIME: &str = "#39ff14";
+const BRIDGE: &str = "#b02aff";
 
 /// The scripted answer to `scenario` on `stage` (the stage the scenario will run on: rows are
 /// named by id, and every stage has its own).
@@ -79,6 +80,41 @@ impl Rows<'_> {
     /// where it is loud, dark through the stop before the last chorus. All of it in one call.
     fn base(&self) -> Call {
         batch(self.looks())
+    }
+
+    /// The base with the song's signature moments on the canvases, each a look from its
+    /// effect's guide: the tree filling with garlands through the intro, snow falling on the
+    /// matrix through the quiet verses, icy clouds on it through the bridge (ending before the
+    /// stop), and a burst of fireworks over the restart. All in one call.
+    fn show(&self) -> Call {
+        let mut looks = self.looks();
+        looks.push(self.place(
+            &["Mega Tree"],
+            (0, 8_000),
+            0,
+            json!({ "kind": "garlands", "settings": { "spacing": 15 }, "colors": [WARM, GOLD], "brightness": 0.6 }),
+        ));
+        for span in VERSES {
+            looks.push(self.place(
+                &["Matrix"],
+                span,
+                0,
+                json!({ "kind": "snowflakes", "settings": { "count": 14, "speed": 4, "motion": "falling" }, "colors": [WHITE], "brightness": 0.6 }),
+            ));
+        }
+        looks.push(self.place(
+            &["Matrix"],
+            (72_000, 79_000),
+            0,
+            json!({ "kind": "plasma", "settings": { "speed": 85 }, "colors": [BRIDGE, BLUE], "brightness": 0.4 }),
+        ));
+        looks.push(self.place(
+            &["Matrix"],
+            (80_000, 84_000),
+            1,
+            json!({ "kind": "fireworks", "settings": { "rate": 4, "sparks": 100, "size": 80, "life": 1.8, "trail": 0.5, "fall": 0.4, "colors": "spark" }, "colors": [RED, GOLD, WHITE], "blend": "max" }),
+        ));
+        batch(looks)
     }
 
     fn looks(&self) -> Vec<Call> {
@@ -146,7 +182,7 @@ impl Rows<'_> {
             &["Mega Tree"],
             (72_000, 79_000),
             0,
-            json!({ "kind": "twinkle", "colors": ["#b02aff", WHITE], "brightness": 0.4 }),
+            json!({ "kind": "twinkle", "colors": [BRIDGE, WHITE], "brightness": 0.4 }),
         ));
         out.push(self.place(
             &["Whole House"],
@@ -192,6 +228,9 @@ const BASE_EFFECTS: [&str; 7] = [
     "butterfly",
 ];
 
+/// The showpieces the whole song places on its canvases.
+const SHOWPIECES_PLACED: [&str; 4] = ["garlands", "snowflakes", "plasma", "fireworks"];
+
 fn whole_song(on: &Rows<'_>) -> Vec<Turn> {
     let mut effects = BASE_EFFECTS.to_vec();
     effects.push("faces");
@@ -222,11 +261,21 @@ fn whole_song(on: &Rows<'_>) -> Vec<Turn> {
                 &["draws", "looks"],
             )],
         ),
-        // The whole base in one call, and the moments and the singing beside it.
+        // Where the showpieces go, and the ones it will place.
+        calls(
+            "",
+            &[guide_parts(
+                &["showpieces"],
+                &SHOWPIECES_PLACED,
+                &["draws", "looks"],
+            )],
+        ),
+        // The whole base with its showpieces in one call, and the moments and the singing
+        // beside it.
         calls(
             "",
             &[
-                on.base(),
+                on.show(),
                 ("stage_cue", json!({ "stageMoments": { "minImportance": 0.5 } })),
                 (
                     "stage_cue",
@@ -236,7 +285,7 @@ fn whole_song(on: &Rows<'_>) -> Vec<Turn> {
         ),
         calls("", &[("review_draft", json!({}))]),
         propose(
-            "A show for the whole song: blue and quiet in the verses, red and gold across the house in the choruses, dark for the stop, with the big moments staged.",
+            "Paper lanterns in the snow: garlands filling the tree in the intro, snow on the matrix in quiet blue verses, red and gold across the house in the choruses, icy clouds in the bridge, dark for the stop, and fireworks as the last chorus lands.",
         ),
         says("Your show is ready to look over."),
     ]

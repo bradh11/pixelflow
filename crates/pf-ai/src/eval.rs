@@ -81,6 +81,17 @@ pub struct ToolUse {
     /// Not a call: guides a stage of a staged build was given with its request.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub given: bool,
+    /// The conversation it was made in: "chat", or a staged build's stage ("design",
+    /// "build step \"verses\"", "refine").
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub stage: String,
+    /// Which request of that conversation made it, from 1 (0 for guides given).
+    #[serde(skip_serializing_if = "is_zero")]
+    pub request: usize,
+}
+
+fn is_zero(n: &usize) -> bool {
+    *n == 0
 }
 
 /// What went to the model and came back, in bytes of text (instructions, tool definitions, and
@@ -810,22 +821,28 @@ fn look_at(doc: &Sequence, at_ms: u64) -> BTreeSet<String> {
         .collect()
 }
 
-fn tool_uses(messages: &[Message]) -> Vec<ToolUse> {
+fn tool_uses(stage: &str, messages: &[Message]) -> Vec<ToolUse> {
     let mut uses: Vec<(String, ToolUse)> = Vec::new();
+    let mut request = 0;
     for message in messages {
         match message {
-            Message::Assistant(turn) => uses.extend(turn.tool_calls.iter().map(|call| {
-                (
-                    call.id.clone(),
-                    ToolUse {
-                        name: call.name.clone(),
-                        input: call.input.clone(),
-                        answer: String::new(),
-                        is_error: false,
-                        given: false,
-                    },
-                )
-            })),
+            Message::Assistant(turn) => {
+                request += 1;
+                uses.extend(turn.tool_calls.iter().map(|call| {
+                    (
+                        call.id.clone(),
+                        ToolUse {
+                            name: call.name.clone(),
+                            input: call.input.clone(),
+                            answer: String::new(),
+                            is_error: false,
+                            given: false,
+                            stage: stage.to_string(),
+                            request,
+                        },
+                    )
+                }));
+            }
             Message::ToolResults(results) => {
                 for result in results {
                     // The latest call with this id that has no answer yet.
@@ -1119,7 +1136,7 @@ pub fn run_with(
 /// Every tool call of the last message, the chat's own and then each stage's in turn (a stage's
 /// guides given with its request first, marked as given).
 pub fn transcript(session: &ChatSession) -> Vec<ToolUse> {
-    let mut uses = tool_uses(session.messages());
+    let mut uses = tool_uses("chat", session.messages());
     for stage in session.stages() {
         let (topics, effects): (Vec<&str>, Vec<&str>) = stage
             .given
@@ -1136,9 +1153,11 @@ pub fn transcript(session: &ChatSession) -> Vec<ToolUse> {
                 answer: format!("(given with the {} request)", stage.stage),
                 is_error: false,
                 given: true,
+                stage: stage.stage.clone(),
+                request: 0,
             });
         }
-        uses.extend(tool_uses(&stage.messages));
+        uses.extend(tool_uses(&stage.stage, &stage.messages));
     }
     uses
 }
@@ -1158,7 +1177,7 @@ pub fn what_is_sent(flow: Flow) -> String {
     let design = crate::staged::catalogue::design_system().len();
     let stages = if flow == Flow::Staged {
         format!(
-            "\n - for a job built in stages: a design request with the stages' instructions, a catalogue of every tool and effect, and the show-design guides ({design} bytes, about {} tokens, the same every time), with the brief and the show and song in outline; then a request for each step of the plan, with only its tools, its stretch of the song, its props, and its effects' guides; then a refine request with the review's fixes;",
+            "\n - for a job built in stages: a design request with the stages' instructions, a catalogue of every tool and effect, and the show-design guides ({design} bytes, about {} tokens, the same every time), with the brief and the show and song in outline; then a request for each step of the plan, with only its tools, its stretch of the song, its props, and its effects' guides (and what its part still lacks, when it is asked again); then a refine request or two with what of the plan is still dark and the review's fixes;",
             (design as f64 / BYTES_PER_TOKEN).round(),
         )
     } else {

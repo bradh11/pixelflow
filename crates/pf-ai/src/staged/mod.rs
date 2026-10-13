@@ -6,21 +6,30 @@
 //!    what is asked. A question or a small edit never gets here: the model does it in the chat.
 //! 2. **Design**: one request that sees the brief, the song, the display, and a catalogue of every
 //!    tool and effect in a line each with the show-design guides, but no tool's full definition.
-//!    It answers with a plan ([`plan::Plan`]), which is checked; one that names a part of the
-//!    song, a prop, an effect, or a tool that isn't there goes back with the problems.
+//!    It answers with a terse plan ([`plan::Plan`]), which is checked; one that names a part of
+//!    the song, a prop, an effect, or a tool that isn't there, leaves a part to nobody, or keeps
+//!    bigger choruses small goes back with the problems.
 //! 3. **Build**: each step of the plan in a small conversation of its own: its part of the plan,
 //!    the plan in brief, only the stretch of song and the props it touches, the guides of the
 //!    effects it uses, and only the full definitions of the tools it names. Steps that don't
 //!    touch the same props at the same time run at once ([`PARALLEL_STEPS`] at most); each works
 //!    on its own copy of the draft as the earlier waves left it, and what it drafted is added to
-//!    the draft in the plan's order, so the result doesn't depend on which finishes first.
-//! 4. **Review and refine**: the design review of the whole draft; its fixes, with the plan, go
-//!    to one small refine conversation. The chat then proposes the draft as it always does.
+//!    the draft in the plan's order, so the result doesn't depend on which finishes first. A step
+//!    isn't over because it changed something: it is over when the parts it builds have what the
+//!    plan has playing there ([`coverage`]), or when it says it is done; until then it is told
+//!    what is still dark, where. A blackout cue that would darken a part the plan lights is
+//!    held to its moment.
+//! 4. **Review and refine**: the design review of the whole draft, and the plan checked against
+//!    it. Under [`REFINED_BELOW`], or with any part of the plan still dark, a refine conversation
+//!    gets the plan in brief, what is dark (times, props, rows), and the review, with the tools to
+//!    place effects as well as change them; a second one if the first leaves the plan dark. The
+//!    chat then proposes the draft as it always does.
 //!
 //! Each stage's fixed instructions come first in its requests and are the same for every request
 //! of that stage, so a provider's cache keeps them.
 
 pub mod catalogue;
+pub mod coverage;
 pub mod plan;
 
 pub use plan::{Brief, Plan, Step, World};
@@ -38,7 +47,9 @@ use crate::run::{Outcome, run_tool};
 use crate::secret::ApiKey;
 use crate::song::{Analyzer, Song};
 use crate::tools::Toolbox;
+use coverage::Expect;
 use pf_analysis::Analysis;
+use pf_model::PropId;
 use pf_sequence::Target;
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -50,13 +61,24 @@ use std::sync::{Arc, Mutex, PoisonError, mpsc};
 /// Steps built at the same time, at most.
 pub const PARALLEL_STEPS: usize = 4;
 /// Requests one step may make.
-pub const MAX_STEP_REQUESTS: usize = 4;
+pub const MAX_STEP_REQUESTS: usize = 5;
 /// Plans the design may send before the job goes back to the chat.
 pub const MAX_DESIGN_TRIES: usize = 3;
-/// Requests the refine may make.
+/// Requests one refine may make.
 pub const MAX_REFINE_REQUESTS: usize = 3;
-/// A draft the review scores this or more isn't refined.
+/// Refines, at most: a second when the first leaves part of the plan dark.
+pub const MAX_REFINES: usize = 2;
+/// A draft the review scores this or more, with every part of the plan lit, isn't refined.
 pub const REFINED_BELOW: u32 = 95;
+/// Tools every refine has, whatever the review names: it must be able to place what is missing,
+/// not only change what is there.
+pub const REFINE_TOOLS: [&str; 5] = [
+    "list_sequence_effects",
+    "place_effects",
+    "repeat_effects",
+    "change_effects",
+    "stage_cue",
+];
 /// Existing effects listed for a step, at most.
 const MAX_EFFECTS_LISTED: usize = 60;
 /// Rows listed for a step, at most.
@@ -193,10 +215,13 @@ pub fn plan_build_tool() -> ToolSpec {
     }
 }
 
-/// `submit_plan`: the design stage's answer.
+/// `submit_plan`: the design stage's answer, terse: short fields with their lengths, lists with
+/// their sizes, so the plan is a page and not an essay. The reply to the person is written from
+/// it by the program ([`Plan::reply`]).
 pub fn submit_plan_tool() -> ToolSpec {
-    let list = |items: Value| json!({ "type": "array", "items": items });
-    let text = || json!({ "type": "string" });
+    let list = |items: Value, most: usize| json!({ "type": "array", "items": items, "maxItems": most });
+    let text = |most: usize| json!({ "type": "string", "maxLength": most });
+    let names = || json!({ "type": "array", "items": { "type": "string" } });
     let step_tools: Vec<String> = Toolbox::default()
         .tools()
         .iter()
@@ -205,47 +230,56 @@ pub fn submit_plan_tool() -> ToolSpec {
         .collect();
     ToolSpec {
         name: "submit_plan".into(),
-        description: "The design: each part of the song, the props' roles, the moments and vocals, and the steps that build it.".into(),
+        description: "The design, terse: each part of the song (props that play, palette, level, motion, a few words of look; or keep, saying why it stays), the props' roles, the moments as cues, and the steps that build it.".into(),
         input_schema: json!({
             "type": "object",
             "properties": {
-                "summary": text(),
+                "summary": { "type": "string", "maxLength": plan::MAX_TEXT, "description": "One or two plain sentences the person reads; no ids." },
                 "sections": list(json!({
                     "type": "object",
                     "properties": {
-                        "label": text(),
-                        "palette": list(text()),
-                        "props": list(text()),
-                        "base": text(),
-                        "movement": text(),
-                        "accents": text(),
+                        "label": { "type": "string", "description": "A part's label, a label's root (every chorus), or a numbered one (\"Chorus 3\")." },
+                        "props": names(),
+                        "palette": list(json!({ "type": "string" }), plan::MAX_PALETTE),
+                        "level": { "type": "number", "minimum": 0, "maximum": 1 },
+                        "motion": { "enum": plan::MOTIONS },
+                        "look": text(plan::MAX_TEXT),
+                        "keep": { "type": "string", "maxLength": plan::MAX_TEXT, "description": "Only for a part left as it is: why." },
                     },
-                    "required": ["label", "palette", "props", "base"],
-                })),
+                    "required": ["label", "props"],
+                }), 16),
                 "roles": list(json!({
                     "type": "object",
-                    "properties": { "prop": text(), "role": text() },
+                    "properties": { "prop": { "type": "string" }, "role": text(plan::MAX_TEXT / 2) },
                     "required": ["prop", "role"],
-                })),
-                "moments": text(),
-                "vocals": text(),
+                }), 16),
+                "moments": list(json!({
+                    "type": "object",
+                    "properties": {
+                        "at": { "type": "integer" },
+                        "until": { "type": "integer" },
+                        "cue": { "enum": crate::cues::CUES },
+                        "props": names(),
+                    },
+                    "required": ["at", "cue"],
+                }), plan::MAX_MOMENTS),
+                "vocals": text(plan::MAX_TEXT),
                 "steps": list(json!({
                     "type": "object",
                     "properties": {
-                        "id": text(),
-                        "title": text(),
-                        "sections": list(text()),
-                        "props": list(text()),
-                        "tools": list(json!({ "enum": step_tools })),
-                        "effects": list(json!({ "enum": reference::kind_keys() })),
-                        "topics": list(json!({ "enum": knowledge::library::topic_keys() })),
-                        "do": text(),
-                        "after": list(text()),
+                        "id": { "type": "string" },
+                        "sections": names(),
+                        "props": names(),
+                        "tools": { "type": "array", "items": { "enum": step_tools } },
+                        "effects": list(json!({ "enum": reference::kind_keys() }), plan::MAX_STEP_EFFECTS),
+                        "topics": list(json!({ "enum": knowledge::library::topic_keys() }), plan::MAX_STEP_TOPICS),
+                        "do": text(plan::MAX_DO),
+                        "after": names(),
                     },
-                    "required": ["id", "title", "sections", "props", "tools", "do"],
-                })),
+                    "required": ["id", "sections", "props", "tools", "do"],
+                }), plan::MAX_PLAN_STEPS),
             },
-            "required": ["summary", "sections", "steps"],
+            "required": ["sections", "steps"],
         }),
     }
 }
@@ -265,14 +299,15 @@ pub fn build(
         0,
         0,
     ));
-    let designed = design(ctx, brief, draft, on_event);
+    let world = World::of(draft, ctx.analysis().as_deref(), ctx.toolbox);
+    let designed = design(ctx, brief, &world, draft, on_event);
     done.add(designed.stage, designed.requests, designed.requests);
     let plan = match designed.plan {
         Ok(plan) => plan,
         Err(DesignStop::Failed(why)) => return Err(Failure::Design(why, done)),
         Err(DesignStop::Ai(error)) => return Err(Failure::Ai(error, done)),
     };
-    let (steps, failed) = match build_steps(ctx, &plan, draft, on_event) {
+    let (steps, failed) = match build_steps(ctx, &plan, &world, draft, on_event) {
         Ok(steps) => (steps, None),
         Err((error, steps)) => (steps, Some(error)),
     };
@@ -289,16 +324,33 @@ pub fn build(
         0,
         0,
     ));
-    if let Some(refined) = refine(ctx, &plan, draft, on_event) {
+    // The plan checked against the draft: every part it builds, with the props it has playing.
+    let planned = coverage::planned(&plan, &world, &brief.scope(&world));
+    let mut gaps = coverage::check(draft, &planned, ctx.cancel);
+    for pass in 0..MAX_REFINES {
+        // A second refine only for what the first left dark.
+        if pass > 0 && gaps.is_empty() {
+            break;
+        }
+        let Some(refined) = refine(ctx, &plan, &world, (&planned, &gaps), pass, draft, on_event) else {
+            break;
+        };
         done.add(refined.stage, refined.requests, refined.requests);
         match refined.error {
             Some(AiError::Cancelled) => return Err(Failure::Ai(AiError::Cancelled, done)),
             // What the steps built stands; only the last touches are missing.
-            Some(error) => notes.push(format!(
-                "The last touches after the review couldn't be made ({error})."
-            )),
+            Some(error) => {
+                notes.push(format!(
+                    "The last touches after the review couldn't be made ({error})."
+                ));
+                break;
+            }
             None => {}
         }
+        gaps = coverage::check(draft, &planned, ctx.cancel);
+    }
+    if !gaps.is_empty() {
+        notes.push(coverage::sentence(&gaps, &world));
     }
     Ok(Built {
         plan,
@@ -373,8 +425,13 @@ fn design_message(ctx: &Ctx<'_>, brief: &Brief, draft: &mut Draft) -> String {
     lines.join("\n")
 }
 
-fn design(ctx: &Ctx<'_>, brief: &Brief, draft: &mut Draft, on_event: &mut dyn FnMut(ChatEvent)) -> Designed {
-    let world = World::of(draft, ctx.analysis().as_deref(), ctx.toolbox);
+fn design(
+    ctx: &Ctx<'_>,
+    brief: &Brief,
+    world: &World,
+    draft: &mut Draft,
+    on_event: &mut dyn FnMut(ChatEvent),
+) -> Designed {
     let tools = [submit_plan_tool()];
     let mut stage = StageLog {
         stage: "design".into(),
@@ -421,7 +478,7 @@ fn design(ctx: &Ctx<'_>, brief: &Brief, draft: &mut Draft, on_event: &mut dyn Fn
                 } else if accepted.is_some() {
                     ("One plan is enough.".to_string(), true)
                 } else {
-                    match Plan::read(&call.input, &world) {
+                    match Plan::read_for(&call.input, world, Some(brief)) {
                         Ok(plan) => {
                             accepted = Some(plan);
                             (
@@ -484,6 +541,7 @@ struct StepOutcome {
 fn build_steps(
     ctx: &Ctx<'_>,
     plan: &Plan,
+    world: &World,
     draft: &mut Draft,
     on_event: &mut dyn FnMut(ChatEvent),
 ) -> Result<Steps, (AiError, Steps)> {
@@ -502,13 +560,18 @@ fn build_steps(
     let mut done = 0;
     let mut logs: Vec<Option<StageLog>> = vec![None; total];
     let mut failed: Vec<(usize, AiError)> = Vec::new();
+    let build = Build {
+        plan,
+        world,
+        song: song.as_ref(),
+    };
     for wave in plan.waves() {
         if let Err(error) = ctx.cancel.check() {
             steps.log = logs.into_iter().flatten().collect();
             return Err((error, steps));
         }
         let snapshot = draft.clone();
-        let outcomes = run_wave(ctx, plan, &snapshot, &wave, song.as_ref(), &mut done, on_event);
+        let outcomes = run_wave(ctx, &build, &snapshot, &wave, &mut done, on_event);
         let loads: Vec<usize> = outcomes.iter().map(|o| o.requests).collect();
         steps.critical_path += plan::longest_worker(&loads, ctx.workers);
         steps.requests += loads.iter().sum::<usize>();
@@ -550,6 +613,13 @@ fn build_steps(
     Ok(steps)
 }
 
+/// What every step of a build shares: the plan, what it is checked against, and the song.
+struct Build<'a> {
+    plan: &'a Plan,
+    world: &'a World,
+    song: Option<&'a Value>,
+}
+
 /// Adds what `built` drafted on top of `base` to `into`, in order: all at once when it fits,
 /// else one change at a time, leaving out those that don't. Answers how many were left out.
 fn merge(into: &mut Draft, base: &Draft, built: &Draft) -> usize {
@@ -580,13 +650,13 @@ enum Note {
 /// copy of `snapshot`. The outcomes come back in the wave's order, whatever order they finished in.
 fn run_wave(
     ctx: &Ctx<'_>,
-    plan: &Plan,
+    build: &Build<'_>,
     snapshot: &Draft,
     wave: &[usize],
-    song: Option<&Value>,
     done: &mut usize,
     on_event: &mut dyn FnMut(ChatEvent),
 ) -> Vec<StepOutcome> {
+    let plan = build.plan;
     let slots: Vec<Mutex<Option<StepOutcome>>> = wave.iter().map(|_| Mutex::new(None)).collect();
     let next = AtomicUsize::new(0);
     let workers = ctx.workers.clamp(1, wave.len().max(1));
@@ -603,7 +673,7 @@ fn run_wave(
                         break;
                     };
                     let _ = tx.send(Note::Started(i));
-                    let outcome = run_step(ctx, plan, i, snapshot, song, &mut |ms| {
+                    let outcome = run_step(ctx, build, i, snapshot, &mut |ms| {
                         let _ = tx.send(Note::Retrying(ms));
                     });
                     *slots[k].lock().unwrap_or_else(PoisonError::into_inner) = Some(outcome);
@@ -666,25 +736,54 @@ fn specs(toolbox: &Toolbox, names: &[String]) -> Vec<ToolSpec> {
         .collect()
 }
 
+/// What a step that changed things, and whose calls all worked, is told when it isn't done.
+const PLACE_NOW: &str = "Your changes are in. If this step places anything (its do says what), place it now, all in one reply; if the step is complete, answer without calling a tool.";
+
 fn run_step(
     ctx: &Ctx<'_>,
-    plan: &Plan,
+    build: &Build<'_>,
     index: usize,
     snapshot: &Draft,
-    song: Option<&Value>,
     on_retry: &mut dyn FnMut(u64),
 ) -> StepOutcome {
+    let plan = build.plan;
     let step = &plan.steps[index];
     let mut draft = snapshot.clone();
-    let (first, given) = step_message(plan, index, &draft, song);
+    let (first, given) = step_message(plan, index, &draft, build.song);
     let tools = specs(ctx.toolbox, &step.tools);
+    let expects = coverage::for_step(plan, build.world, index);
+    let guard = Guard::new(plan, build.world);
+    // A step that builds parts is over when they have what the plan has playing there; one over
+    // the whole song when it has placed something (or has nothing to place with).
+    let mut nudged = false;
+    let mut follow = |draft: &Draft, placed: bool| -> Option<String> {
+        if !expects.is_empty() {
+            let gaps = coverage::check(draft, &expects, ctx.cancel);
+            return (!gaps.is_empty()).then(|| {
+                format!(
+                    "Your calls worked, but the plan's look for your part of the song isn't there yet:\n{}\nPlace it now, all in one reply (place_effects with items, or repeat_effects from a part you built); then the step is over.",
+                    coverage::describe(&gaps, build.world, draft)
+                )
+            });
+        }
+        if placed || nudged || !step.lays_looks() {
+            return None;
+        }
+        nudged = true;
+        Some(PLACE_NOW.to_string())
+    };
     let worked = work(
         ctx,
-        catalogue::build_system(),
-        &tools,
+        &Talk {
+            system: catalogue::build_system(),
+            tools: &tools,
+            most: MAX_STEP_REQUESTS,
+            given: &given,
+            guard: Some(&guard),
+        },
         first,
-        MAX_STEP_REQUESTS,
         &mut draft,
+        &mut follow,
         on_retry,
     );
     StepOutcome {
@@ -862,7 +961,7 @@ fn step_message(plan: &Plan, index: usize, draft: &Draft, song: Option<&Value>) 
     }
     for key in &step.effects {
         if let Some(kind) = reference::kind_named(key) {
-            guides.push(knowledge::effect_parts(kind, &["draws", "looks"]));
+            guides.push(knowledge::effect_parts(kind, &STEP_PARTS));
             given.push(format!("effect:{key}"));
         }
     }
@@ -872,6 +971,112 @@ fn step_message(plan: &Plan, index: usize, draft: &Draft, song: Option<&Value>) 
     (lines.join("\n"), given)
 }
 
+/// The parts of an effect's guide a step is given.
+const STEP_PARTS: [&str; 2] = ["draws", "looks"];
+
+/// What keeps a cue from erasing the plan: the parts the plan lights, and its own moments. A
+/// blackout over a part the plan has lit is held to its moment there (a bar into the part), so
+/// the part's look wins outside it; one the plan stages itself (a blackout among its moments, at
+/// that time) is left as it is.
+struct Guard<'a> {
+    plan: &'a Plan,
+    world: &'a World,
+    planned: Vec<Expect>,
+}
+
+impl<'a> Guard<'a> {
+    fn new(plan: &'a Plan, world: &'a World) -> Self {
+        Self {
+            plan,
+            world,
+            planned: coverage::planned(plan, world, &[(0, world.duration_ms.max(1))]),
+        }
+    }
+
+    /// The props a cue's targets name (none: every prop), or `None` for a target only the cue
+    /// itself can read ("left", "outlines").
+    fn props(&self, cue: &Value) -> Option<BTreeSet<PropId>> {
+        let Some(targets) = cue["targets"].as_array() else {
+            return Some(self.world.all_props().clone());
+        };
+        let mut props = BTreeSet::new();
+        for target in targets {
+            props.extend(self.world.props(target.as_str()?)?);
+        }
+        Some(props)
+    }
+
+    /// Whether the plan stages a blackout itself at `at`.
+    fn planned_blackout(&self, at: u64, until: u64) -> bool {
+        let bar = self.world.bar_ms;
+        self.plan.moments.iter().any(|m| {
+            let (a, b) = m.window(bar);
+            m.cue == "blackout" && a.abs_diff(at) <= bar && until <= b + bar
+        })
+    }
+
+    /// `input` (a `stage_cue` call's) with every blackout held to its moment where it would darken
+    /// a part the plan lights, and what was changed, in words.
+    fn hold(&self, input: &Value) -> (Value, Vec<String>) {
+        let mut input = input.clone();
+        let mut said = Vec::new();
+        let bar = self.world.bar_ms;
+        let Some(cues) = input["cues"].as_array_mut() else {
+            return (input, said);
+        };
+        for cue in cues.iter_mut() {
+            if cue["cue"] != "blackout" {
+                continue;
+            }
+            let (Some(at), Some(until)) = (cue["at"].as_u64(), cue["until"].as_u64()) else {
+                continue;
+            };
+            let Some(props) = self.props(cue) else {
+                continue;
+            };
+            if until <= at || self.planned_blackout(at, until) {
+                continue;
+            }
+            // The earliest part it would darken for more than its moment (a bar from where it
+            // meets the part).
+            let held = self
+                .planned
+                .iter()
+                .filter(|e| e.span.0 < until && at < e.span.1 && !e.props.is_disjoint(&props))
+                .map(|e| (at.max(e.span.0) + bar, e))
+                .filter(|(end, e)| *end < until.min(e.span.1))
+                .min_by_key(|(end, _)| *end);
+            if let Some((end, part)) = held {
+                cue["until"] = json!(end);
+                let names: Vec<&str> = part
+                    .props
+                    .intersection(&props)
+                    .take(6)
+                    .map(|p| self.world.prop_name(*p))
+                    .collect();
+                said.push(format!(
+                    "The blackout at {at} ms now ends at {end} ms, a bar into {} ({}–{} ms), where the plan has {} lit: a blackout darkens its moment, and the part's look wins after it.",
+                    part.part,
+                    part.span.0,
+                    part.span.1,
+                    names.join(", ")
+                ));
+            }
+        }
+        (input, said)
+    }
+}
+
+/// A drafting conversation's fixed part: its instructions, its tools, the requests it may make,
+/// the guides its first message gave, and what keeps its cues to the plan.
+struct Talk<'a> {
+    system: &'a str,
+    tools: &'a [ToolSpec],
+    most: usize,
+    given: &'a [String],
+    guard: Option<&'a Guard<'a>>,
+}
+
 /// A conversation that drafts: what it said, and how many requests it made.
 struct Worked {
     messages: Vec<Message>,
@@ -879,31 +1084,43 @@ struct Worked {
     error: Option<AiError>,
 }
 
-/// Runs a drafting conversation on `draft` until it answers without calls, or its calls are
-/// all done with none refused, or it has made `most` requests. Only `tools` may be called.
+/// Runs a drafting conversation on `draft` until it answers without calls, or it has made
+/// `most` requests, or a reply's calls all worked, changed the draft, and `follow` has nothing
+/// more to say (it is asked with the draft and whether the reply placed anything new; what it
+/// says is the next message). Only the talk's tools may be called.
 fn work(
     ctx: &Ctx<'_>,
-    system: &str,
-    tools: &[ToolSpec],
+    talk: &Talk<'_>,
     first: String,
-    most: usize,
     draft: &mut Draft,
+    follow: &mut dyn FnMut(&Draft, bool) -> Option<String>,
     on_retry: &mut dyn FnMut(u64),
 ) -> Worked {
-    let allowed: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();
+    let allowed: Vec<&str> = talk.tools.iter().map(|t| t.name.as_str()).collect();
     let mut worked = Worked {
         messages: vec![Message::User(first)],
         requests: 0,
         error: None,
     };
     let mut cache = ctx.song.clone();
+    // What the first message gave is read already: asked for again, it is pointed back to.
     let mut read = GuidesRead::default();
-    for _ in 0..most {
+    for given in talk.given {
+        match given.strip_prefix("effect:") {
+            Some(effect) => {
+                for part in STEP_PARTS {
+                    read.mark(format!("effect:{effect}#{part}"));
+                }
+            }
+            None => read.mark(given.clone()),
+        }
+    }
+    for _ in 0..talk.most {
         if let Err(error) = ctx.cancel.check() {
             worked.error = Some(error);
             return worked;
         }
-        let asked = ctx.ask(system, tools, &worked.messages, on_retry);
+        let asked = ctx.ask(talk.system, talk.tools, &worked.messages, on_retry);
         worked.requests += sent(&asked);
         let turn = match asked {
             Ok(turn) => turn,
@@ -926,25 +1143,40 @@ fn work(
         };
         let results: Vec<ToolResult> = calls
             .iter()
-            .map(|call| answer(ctx.toolbox, &allowed, call, cut_off, draft, &mut song, &mut read))
+            .map(|call| {
+                answer(
+                    ctx.toolbox,
+                    &allowed,
+                    talk.guard,
+                    call,
+                    cut_off,
+                    draft,
+                    &mut song,
+                    &mut read,
+                )
+            })
             .collect();
         let refused = results.iter().any(|r| r.is_error);
-        let drafted = calls
-            .iter()
-            .zip(&results)
-            .any(|(call, result)| !result.is_error && plan::drafts(&call.name));
+        let worked_calls = || calls.iter().zip(&results).filter(|(_, r)| !r.is_error);
+        let drafted = worked_calls().any(|(call, _)| plan::drafts(&call.name));
+        let placed = worked_calls().any(|(call, _)| plan::places(&call.name));
         worked.messages.push(Message::ToolResults(results));
         if drafted && !refused {
-            break;
+            match follow(draft, placed) {
+                None => break,
+                Some(more) => worked.messages.push(Message::User(more)),
+            }
         }
     }
     worked
 }
 
 /// One call in a stage's conversation, answered from its own tools only.
+#[allow(clippy::too_many_arguments)]
 fn answer(
     toolbox: &Toolbox,
     allowed: &[&str],
+    guard: Option<&Guard<'_>>,
     call: &ToolCall,
     cut_off: bool,
     draft: &mut Draft,
@@ -977,8 +1209,27 @@ fn answer(
             Err(content) => reply(content, true),
         };
     }
-    match run_tool(toolbox, call, draft, song) {
-        Outcome::Answer { content, is_error } => reply(content, is_error),
+    let mut held = Vec::new();
+    let mut call = call.clone();
+    if call.name == "stage_cue"
+        && call.input_error.is_none()
+        && let Some(guard) = guard
+    {
+        let (input, said) = guard.hold(&call.input);
+        call.input = input;
+        held = said;
+    }
+    match run_tool(toolbox, &call, draft, song) {
+        Outcome::Answer {
+            mut content,
+            is_error,
+        } => {
+            if !is_error && !held.is_empty() {
+                content.push('\n');
+                content.push_str(&held.join("\n"));
+            }
+            reply(content, is_error)
+        }
         _ => reply("That isn't done in this stage.".into(), true),
     }
 }
@@ -991,16 +1242,25 @@ struct Refined {
     error: Option<AiError>,
 }
 
-/// The refine stage: the review of the whole draft, and its fixes made in one small conversation
-/// that has the plan in brief and only the tools the fixes name. `None` when nothing needed it.
+/// A refine (`pass` 0 the first): the review of the whole draft, and what of the plan
+/// (`planned`) is still dark (`gaps`), made good in one small conversation that has the plan in brief, the tools to place effects as well
+/// as change them ([`REFINE_TOOLS`]), and those the review's fixes name. `None` when nothing
+/// needs it: the review scores [`REFINED_BELOW`] or more and the plan is all there.
 fn refine(
     ctx: &Ctx<'_>,
     plan: &Plan,
+    world: &World,
+    (planned, gaps): (&[Expect], &[coverage::Gap]),
+    pass: usize,
     draft: &mut Draft,
     on_event: &mut dyn FnMut(ChatEvent),
 ) -> Option<Refined> {
     let log = |messages| StageLog {
-        stage: "refine".into(),
+        stage: if pass == 0 {
+            "refine".into()
+        } else {
+            format!("refine {}", pass + 1)
+        },
         messages,
         given: Vec::new(),
     };
@@ -1019,42 +1279,79 @@ fn refine(
         // The review stops only when the person pressed Stop.
         Err(_) => return ctx.cancel.check().err().map(stopped),
     };
-    let mut named: Vec<String> = Vec::new();
+    let fixable = review
+        .fixes
+        .iter()
+        .flat_map(|f| &f.calls)
+        .any(|call| plan::step_tool(call.tool));
+    if gaps.is_empty() && (review.score >= REFINED_BELOW || !fixable) {
+        return None;
+    }
+    let mut named: Vec<String> = REFINE_TOOLS.iter().map(|t| t.to_string()).collect();
     for call in review.fixes.iter().flat_map(|f| &f.calls) {
         if plan::step_tool(call.tool) && !named.iter().any(|n| n == call.tool) {
             named.push(call.tool.to_string());
         }
     }
-    if review.score >= REFINED_BELOW || named.is_empty() {
-        return None;
+    let mut what = Vec::new();
+    if !gaps.is_empty() {
+        what.push(format!(
+            "{} {} of the plan dark",
+            gaps.len(),
+            if gaps.len() == 1 { "part" } else { "parts" }
+        ));
+    }
+    if !review.fixes.is_empty() {
+        what.push(format!(
+            "{} {}",
+            review.fixes.len(),
+            if review.fixes.len() == 1 { "fix" } else { "fixes" }
+        ));
     }
     on_event(stage_event(
         StageName::Refining,
-        format!(
-            "Refining: {} {}",
-            review.fixes.len(),
-            if review.fixes.len() == 1 { "fix" } else { "fixes" }
-        ),
+        format!("Refining: {}", what.join(", ")),
         0,
         0,
     ));
-    let first = [
+    let mut first = vec![
         stage_line("refine"),
         format!("The plan in brief: {}", crate::context::data(&plan.outline())),
-        format!(
-            "The review of the whole draft: {}",
-            crate::context::data(&serde_json::from_str(&review.to_model()).unwrap_or(Value::Null))
-        ),
-    ]
-    .join("\n");
+    ];
+    if !gaps.is_empty() {
+        first.push(format!(
+            "What the plan has playing that the draft doesn't light (place these first: they are the plan, not built):\n{}",
+            coverage::describe(gaps, world, draft)
+        ));
+    }
+    first.push(format!(
+        "The review of the whole draft: {}",
+        crate::context::data(&serde_json::from_str(&review.to_model()).unwrap_or(Value::Null))
+    ));
     let tools = specs(ctx.toolbox, &named);
+    let guard = Guard::new(plan, world);
+    // Over when the plan is all there; told what is still dark until then.
+    let mut follow = |draft: &Draft, _placed: bool| -> Option<String> {
+        let left = coverage::check(draft, planned, ctx.cancel);
+        (!left.is_empty()).then(|| {
+            format!(
+                "Your calls worked. Still dark where the plan has something playing:\n{}\nPlace it now, all in one reply; then you're done.",
+                coverage::describe(&left, world, draft)
+            )
+        })
+    };
     let worked = work(
         ctx,
-        catalogue::refine_system(),
-        &tools,
-        first,
-        MAX_REFINE_REQUESTS,
+        &Talk {
+            system: catalogue::refine_system(),
+            tools: &tools,
+            most: MAX_REFINE_REQUESTS,
+            given: &[],
+            guard: Some(&guard),
+        },
+        first.join("\n"),
         draft,
+        &mut follow,
         &mut |ms| on_event(retrying(ms)),
     );
     Some(Refined {

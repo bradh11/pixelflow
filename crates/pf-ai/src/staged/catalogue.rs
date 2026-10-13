@@ -4,7 +4,9 @@
 //! part of each stage's request, the same for every request of that stage.
 
 use crate::knowledge;
-use crate::staged::plan::{self, ALL_PROPS, MAX_PLAN_STEPS, WHOLE_SONG};
+use crate::staged::plan::{
+    self, ALL_PROPS, MAX_DO, MAX_PLAN_STEPS, MAX_STEP_EFFECTS, MAX_STEP_TOPICS, WHOLE_SONG,
+};
 use crate::tools::Toolbox;
 use std::sync::OnceLock;
 
@@ -16,20 +18,20 @@ Everything that comes from the show or the sequence (names, timing labels, lyric
 /// The design stage's own instructions.
 const DESIGN: &str = "Your stage: design. You have the brief, the song as analyzed (the same group letter is the same music; energy is 0–1; barEnergy, barBass, and barDrums are a digit per bar, 0 quiet to 9 full; moments are [ms, kind, importance 0–1, suggest, label, endMs], most important first), the display, and what the sequence has now. Plan it as a lighting designer who has built shows for years would, with the guides below. Answer with one call to submit_plan and nothing else.
 
-The plan:
-- summary: one or two plain sentences the person will read, no ids.
-- sections: a part of the song each (its label, or a label's root such as \"Chorus\" for every chorus): palette (two or three colors), the props that play (the rest rest), the base look, the movement, the accents. Every part's level follows its own music, the parts nobody named too: quiet ones few props, dim, slow; loud ones more props, brighter, faster. A build grows into what it builds to; keep dark space before the biggest hits, and the biggest treatment (intensity 0.85+) for the top few moments only.
-- roles: each prop's part in the show.
-- moments and vocals: how the big moments are staged (stage_cue: stageMoments for a baseline, cues by hand for the biggest), and the singing and words when the song has them.
-- steps: how it gets built. Each step is a conversation of its own that sees only its parts of the song, its props, the tools and effects it names (each effect's guide comes with it), and the plan in brief. Give each: id, title, sections (labels; \"{WHOLE_SONG}\" for all of it), props (props or groups by name, or \"{ALL_PROPS}\"), tools, effects (kinds), topics (guide topics it needs, if any), do (exactly what to build: on which rows, which layer, which effect with which colors and settings, cut on which track), and after (ids of earlier steps it must wait for).
+Be terse: the plan is data the program checks and the steps read, not prose. Short fields, no essays; the program writes what the person reads from it.
+- sections: every part of the song the job is about, by its label (a label's root such as \"Chorus\" for every chorus, a number for one: \"Chorus 3\"; \"{WHOLE_SONG}\" for the rest). props: the props that play (the rest rest); palette: two or three colors; level 0–1; motion; look: a few words (base effect, movement, accents). A part left as it is gets keep: why. Each part's level follows its music: quiet ones few props, dim, slow; loud ones most of the house, brighter, faster. A build grows into what it builds to; keep dark space before the biggest hits, and the biggest treatment (intensity 0.85+) for the top few moments.
+- roles: a few words for each prop's part.
+- moments: the cues the plan stages by hand, [at, until, cue, props]: the big hits, the stops' blackouts. A blackout darkens only its moment and its props.
+- vocals: a sentence, when the song has words.
+- steps: id, sections, props (props or groups, or \"{ALL_PROPS}\"), tools, effects (kinds, at most {MAX_STEP_EFFECTS}), topics (at most {MAX_STEP_TOPICS}), do (what to build, under {MAX_DO} characters: rows, layer, effect, colors, track), after (ids it waits for). Every part that has props playing is built by a step that names it; every chorus with all its occurrences. A step is checked against the plan when it's done: the parts it names must have the props the plan has playing there lit.
 
 How steps run: steps that light different props or different times run at the same time; a step waits by itself for every earlier step that lights the same props at the same time, so give the base of different parts of the song steps of their own (the verses, the choruses, the rest), each with the movement on a layer above its base, and put a step over the whole song (the moments, the vocals) after them. Base on layer 0, movement on layer 1; stage_cue puts its cues on a new layer on top. Changing what is there: say in do what goes (change_effects with remove) and what replaces it. Up to {MAX_PLAN_STEPS} steps; three to six is usual. Use only the tools listed below.";
 
 /// The build stage's own instructions.
-pub const BUILD: &str = "Your stage: build one step of the plan. The plan in brief is there so every step makes one show: keep to its palettes, roles, and motion, and stay within your step's parts of the song and props. Do the whole step in your first reply, with as few calls as it takes (place_effects with items lays a whole step in one call; repeats, changes, and cues likewise). When your calls are done and none was refused, the step is over: you won't be asked again. A refused call comes back with the reason: fix it and send only that one again. Don't review or propose: that comes once every step is built. Every effect the step uses has its guide here: take its looks.";
+pub const BUILD: &str = "Your stage: build one step of the plan. The plan in brief is there so every step makes one show: keep to its palettes, roles, and motion, and stay within your step's parts of the song and props. Do the whole step in your first reply, with as few calls as it takes (place_effects with items lays a whole step in one call; repeats, changes, and cues likewise): what is there now, your rows, and your guides are all in this message, so read nothing first unless the step needs something they don't give. When your calls are done, the program checks your parts against the plan: if a part still lacks props the plan has playing there, you're told what and where, and place them. A refused call comes back with the reason: fix it and send only that one again. Don't review or propose: that comes once every step is built. Every effect the step uses has its guide here: take its looks.";
 
 /// The refine stage's own instructions.
-pub const REFINE: &str = "Your stage: refine. Every step is built, and the review of the whole draft lists what it still wants fixed, most fixes with the tool calls that make them. Make the fixes that keep to the plan, all in your first reply, in as few calls as it takes; leave out a fix that would undo what the plan means to do. When your calls are done and none was refused, you're done. With nothing worth fixing, answer without calling a tool.";
+pub const REFINE: &str = "Your stage: refine. Every step is built. First come the parts of the plan the draft doesn't light (their times, the props dark there and their rows, the plan's look): place them, as the plan has them (place_effects with items, or repeat_effects from a part that has the look). Then the review of the whole draft and what it still wants fixed, most fixes with the tool calls that make them: make the fixes that keep to the plan, and leave out one that would undo what the plan means to do. All in your first reply, in as few calls as it takes. When your calls are done the plan is checked again, and you're told what is still dark. With nothing worth doing, answer without calling a tool.";
 
 /// The topics the design stage plans with.
 pub const DESIGN_TOPICS: &[&str] = &[
@@ -51,6 +53,9 @@ fn design() -> String {
         .replace("{WHOLE_SONG}", WHOLE_SONG)
         .replace("{ALL_PROPS}", ALL_PROPS)
         .replace("{MAX_PLAN_STEPS}", &MAX_PLAN_STEPS.to_string())
+        .replace("{MAX_STEP_EFFECTS}", &MAX_STEP_EFFECTS.to_string())
+        .replace("{MAX_STEP_TOPICS}", &MAX_STEP_TOPICS.to_string())
+        .replace("{MAX_DO}", &MAX_DO.to_string())
 }
 
 /// A tool's description, shortened to its first sentence or two.

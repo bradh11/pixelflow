@@ -22,6 +22,13 @@ pub struct Scenario {
     pub(crate) judge: fn(&Run<'_>, &Measures) -> Vec<Check>,
 }
 
+impl Scenario {
+    /// What is open on `stage` when the request is made.
+    pub fn opening(&self, stage: &Stage) -> Sequence {
+        (self.start)(stage)
+    }
+}
+
 /// Every scenario, in the order they run.
 pub fn scenarios() -> Vec<Scenario> {
     vec![

@@ -930,7 +930,7 @@ impl ChatSession {
         let proposal = self
             .draft
             .as_mut()
-            .and_then(|draft| propose_reviewed(draft, &mut song, &built.plan.summary));
+            .and_then(|draft| propose_reviewed(draft, &mut song, &built.plan.reply()));
         let proposed = proposal.is_some();
         if let Some(proposal) = proposal {
             on_event(ChatEvent::Proposal {
@@ -938,7 +938,7 @@ impl ChatSession {
             });
             self.proposal = Some(proposal);
         }
-        let mut reply = built.plan.summary.clone();
+        let mut reply = built.plan.reply();
         for note in &built.notes {
             reply.push(' ');
             reply.push_str(note);

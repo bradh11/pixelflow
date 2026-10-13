@@ -273,6 +273,12 @@ impl GuidesRead {
     pub fn contains(&self, key: &str) -> bool {
         self.0.contains(key)
     }
+
+    /// Marks `key` read ("topic:cues", "effect:chase", "effect:chase#looks"): a conversation
+    /// whose first message gave a guide doesn't send it again.
+    pub fn mark(&mut self, key: String) {
+        self.0.insert(key);
+    }
 }
 
 /// [`answer`] in a chat that has read the guides in `read` already: those are named, not sent

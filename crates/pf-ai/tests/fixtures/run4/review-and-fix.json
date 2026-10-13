@@ -1,0 +1,1073 @@
+{
+ "scenario": "review-and-fix",
+ "source": "Run 4 of the evaluation (gpt-6.1-sol, big jobs in stages): every call the model made, a request's calls together, row ids written as @ and what the row lights.",
+ "measured": {
+  "It reviewed the sequence": "built in stages, which review the draft",
+  "It proposes its changes for the user to apply": "proposed",
+  "Nothing flashes unsafely": "safety 100",
+  "It scores better than it did, by 15 or more": "Some(60) then Some(86)",
+  "Most props have a part (9 of 12 or more)": "12 of 12",
+  "The last chorus is no longer dark": "0.01"
+ },
+ "stages": [
+  {
+   "stage": "chat",
+   "turns": [
+    [
+     {
+      "name": "plan_build",
+      "input": {
+       "ask": "Review the existing Paper Lanterns sequence against its song and prop layout, then fix the design and technical problems found. Preserve any effective existing choices, improve effect suitability, readable lyrics, coverage, musical contrast and timing, and keep large-area flashing within safe limits.",
+       "keep": "Keep the song, layout, controllers, and existing timing tracks unchanged."
+      }
+     }
+    ]
+   ]
+  },
+  {
+   "stage": "design",
+   "turns": [
+    [
+     {
+      "name": "submit_plan",
+      "input": {
+       "moments": "Use stage_cue stageMoments as a restrained baseline, excluding or consolidating coincident events so 80000 ms gets one restart treatment rather than stacked restart and peak flashes. Hand-stage a 20000–24000 ramp, a brief pre-drop dark pocket and warm burst at 24000, a 54000–56000 arch fill and smaller hit at 56000, Matrix-only minimal treatment at 72000, exact all-prop blackout at 79000–80000, and the largest warm center-out arrival at 80000. Peak support through 92000 must return to the section look after the short arrival, not hold the entire display at peak brightness for twelve seconds. A softer 32000 accent and warm 92000 sustain complete the structure. Protect faces and readable text from routine cues; only principal arrivals and the exact stop cover them. No large-area flashing above three per second, no shimmer or strobe; big dense props use colored hits at no more than 0.75–0.8 brightness.",
+       "roles": [
+        {
+         "prop": "Roofline",
+         "role": "Stable architectural anchor; preserve useful bars, slow them in verses and hold still at the opening and ending."
+        },
+        {
+         "prop": "Window Left",
+         "role": "Warm phrase-response light and gentle chorus beat accent; rests in intro and bridge."
+        },
+        {
+         "prop": "Window Right",
+         "role": "Answer Window Left in verses, support it in choruses; rests in intro and bridge."
+        },
+        {
+         "prop": "Matrix",
+         "role": "Readable, selective hook text during vocals and the sole dim bridge canvas; keep dense-pixel brightness below nearby outlines."
+        },
+        {
+         "prop": "Mega Tree",
+         "role": "Main warm spiral focal point in choruses, slower restrained verse movement; rests in intro and bridge."
+        },
+        {
+         "prop": "Tree Star",
+         "role": "Small opening lantern, punctuation for tree arrivals, and final fading light; rests in bridge and ordinary verse passages."
+        },
+        {
+         "prop": "Arch 1",
+         "role": "First rhythmic chase position, replacing unsuitable Life."
+        },
+        {
+         "prop": "Arch 2",
+         "role": "Second chase position; active in rhythmic passages and otherwise resting."
+        },
+        {
+         "prop": "Arch 3",
+         "role": "Third chase position; active in rhythmic passages and otherwise resting."
+        },
+        {
+         "prop": "Arch 4",
+         "role": "Fourth chase position, completing fills toward the chorus."
+        },
+        {
+         "prop": "Candy Canes",
+         "role": "Right-side chorus response and traveling fill support; rests in quieter sections."
+        },
+        {
+         "prop": "Singing Face",
+         "role": "Dedicated lead singer on the existing phoneme track, with a quiet resting expression between phrases and darkness during the stop."
+        }
+       ],
+       "sections": [
+        {
+         "accents": "Rest of the display remains dark.",
+         "base": "0–8000 ms: warm, sparse opening at 0.15–0.25 brightness; start with the first audible note, not before it.",
+         "label": "Intro",
+         "movement": "Slow fade onto Roofline, then Tree Star joins; no rhythmic flashing.",
+         "palette": [
+          "#ffbf00",
+          "#ffc880"
+         ],
+         "props": [
+          "Roofline",
+          "Tree Star"
+         ]
+        },
+        {
+         "accents": "Windows answer selected phrases, not every beat. First verse grows over 20000–24000; second verse has an arch fill at 54000–56000. Matrix words appear only on selected hook phrases; Singing Face leads the actual sung stretches.",
+         "base": "8000–24000 and 40000–56000 ms: preserve useful existing choices but unify their palette. Structure at 0.25–0.35, focal movement at 0.35–0.45; only half the supporting props active at once.",
+         "label": "Verse",
+         "movement": "Retain restrained roofline bars; replace Arch 1 Life with a narrow, soft chase shared across the four arches. Tree moves slowly, with arches taking the lead in the second verse.",
+         "palette": [
+          "#ff00bf",
+          "#ff4000",
+          "#ffbf00"
+         ],
+         "props": [
+          "Roofline",
+          "Mega Tree",
+          "Matrix",
+          "Singing Face",
+          "Arch 1",
+          "Arch 2",
+          "Arch 3",
+          "Arch 4",
+          "Window Left",
+          "Window Right"
+         ]
+        },
+        {
+         "accents": "Tree Star punctuates phrase arrivals; windows breathe on selected beats. Reserve intensity 0.85+ for the three principal arrivals, with the strongest at 80000 ms; ease back after each hit.",
+         "base": "24000–40000, 56000–72000 and 80000–92000 ms: retain the existing held whole-house chorus foundation without shimmer, reduced to supporting brightness. All roles participate but not all at maximum; ordinary choruses at design intensity 0.65–0.8, final chorus stronger without maintaining peak intensity throughout.",
+         "label": "Chorus",
+         "movement": "Roofline keeps its effective bars; Mega Tree carries a warm spiral, arches chase left-to-right once per bar, Candy Canes answer in the same direction. Repeat this identity for the final chorus, with a modest speed and sparkle increase.",
+         "palette": [
+          "#ff4000",
+          "#ffbf00",
+          "#ffc880"
+         ],
+         "props": [
+          "Roofline",
+          "Window Left",
+          "Window Right",
+          "Matrix",
+          "Mega Tree",
+          "Tree Star",
+          "Arch 1",
+          "Arch 2",
+          "Arch 3",
+          "Arch 4",
+          "Candy Canes",
+          "Singing Face"
+         ]
+        },
+        {
+         "accents": "The full one-second stop must hide every underlying layer.",
+         "base": "72000–79000 ms: abrupt reduction to Matrix alone, dim blue at 0.2–0.25. 79000–80000 ms: complete darkness.",
+         "label": "Bridge",
+         "movement": "A very slow blue color wash, no text or beat accents during the instrumental breakdown.",
+         "palette": [
+          "#4060ff",
+          "#ffc880"
+         ],
+         "props": [
+          "Matrix"
+         ]
+        },
+        {
+         "accents": "Singing Face continues only if the existing phoneme marks indicate an audible trailing vocal. Nothing relights after the final decay.",
+         "base": "92000–96000 ms: return to the opening's warm stillness; Roofline and Tree Star hold the last chord then fade to black with its decay.",
+         "label": "Outro",
+         "movement": "No chase or spiral; thin to Tree Star last.",
+         "palette": [
+          "#ffbf00",
+          "#ffc880"
+         ],
+         "props": [
+          "Roofline",
+          "Tree Star",
+          "Singing Face"
+         ]
+        }
+       ],
+       "steps": [
+        {
+         "do": "Read the editing, safety and relevant effect guides. Inspect all eight existing effects in full, row blending, both configured faces, and the unchanged Beats, Bars and lyric tracks; resolve their real IDs from these tools, never invent them. Immediately use change_effects to set shimmer false on existing Whole House effects 365f8f0f-5bea-7a4a-4835-d2792dcde09d and 45ed6294-ef38-7471-8241-aa50b510ef5a; inspect for any additional unsafe flashing and disable it. Preserve song, duration, layout, controllers and every timing track. Keep useful roofline bars and correct lyric text content for later repair; do not remove whole rows or blanket-delete the sequence. Later section steps must inspect the resulting full settings before making selective edits.",
+         "effects": [
+          "on",
+          "bars",
+          "text",
+          "life"
+         ],
+         "id": "audit-safety",
+         "props": [
+          "all"
+         ],
+         "sections": [
+          "Whole song"
+         ],
+         "title": "Inspect existing choices and remove unsafe flicker",
+         "tools": [
+          "get_open_sequence",
+          "list_sequence_effects",
+          "get_timing_marks",
+          "get_prop",
+          "get_guide",
+          "change_effects"
+         ],
+         "topics": [
+          "editing",
+          "safety",
+          "blends",
+          "timing"
+         ]
+        },
+        {
+         "after": [
+          "audit-safety"
+         ],
+         "do": "Work only within 8000–24000 and 40000–56000. Read guides and inspect existing effects. Remove the two Life effects on Arch 1 using change_effects with remove, restricted to the verified effects and verse ranges. Replace them with narrow gold/orange chase on Arches layer 1, one crossing per 2000-ms bar, soft edges and substantial dark gaps, cut on existing Bars; keep only occasional arch phrases in verse 1 and more response phrases in verse 2. Keep suitable Roofline bars, move them to layer 1 if necessary, recolor to #ff00bf/#ff4000/#ffbf00 and reduce brightness to 0.3–0.4 and speed to a slow four-bar traverse. Add held on bases on layer 0 to Roofline and Mega Tree at 0.25–0.35; add slow tree spiral on layer 1 at 0.35 only where it does not compete with arch lead. Windows take alternate phrase responses at 0.25, selected using the existing Lyrics marks. Matrix and Singing Face remain reserved for the vocal step; do not edit their existing text here. Tree Star and Candy Canes rest except for later cues. Place batched effects at exact section bounds and cut movement on existing Bars; do not add a Sections track. Use transparent/additive movement blends that retain the base without exposing unwanted group spill. Leave build and fill highlighting for the moments step.",
+         "effects": [
+          "on",
+          "bars",
+          "chase",
+          "spiral",
+          "off"
+         ],
+         "id": "verses",
+         "props": [
+          "all"
+         ],
+         "sections": [
+          "Verse"
+         ],
+         "title": "Repair verses and arch suitability",
+         "tools": [
+          "get_open_sequence",
+          "list_sequence_effects",
+          "get_timing_marks",
+          "get_guide",
+          "change_effects",
+          "sequence_move_effect",
+          "sequence_add_layer",
+          "place_effects",
+          "sequence_set_row_blending"
+         ],
+         "topics": [
+          "roles",
+          "intensity",
+          "layering",
+          "palettes",
+          "blends",
+          "layouts",
+          "motion"
+         ]
+        },
+        {
+         "after": [
+          "audit-safety"
+         ],
+         "do": "Work only within 24000–40000, 56000–72000 and 80000–92000. Preserve the two existing Whole House on foundations, without shimmer, on layer 0 at approximately 0.25 brightness; harmonize to #ff4000/#ffbf00/#ffc880 rather than overwriting effective timing. Add the missing final foundation with the same look. Retain useful Roofline bars as layer-1 structure at 0.4–0.5. Add Mega Tree spiral on layer 1 at 0.6–0.7, one coordinated turn per bar; Arches layer-1 chase left-to-right once per Bars mark at 0.55–0.65; Candy Canes layer-1 chase as alternate-bar responses. Windows hold gold bases on layer 0 with gentle layer-1 pulse on selected existing Beats, never hard blink. Tree Star uses sparse warm twinkle at 0.45–0.6. Keep Matrix and Singing Face rows available for their distinct vocal treatment, masking group spill as necessary rather than letting whole-house light obscure their dark pixels. Build the first chorus with batched placement, reuse suitable looks in the second, and repeat only verified non-vocal chorus effects from 24000–36000 to 80000–92000; do not blindly copy text or timing-specific cues. Final chorus receives a modest movement-speed and small-pixel sparkle increase; hold ordinary design intensity below 0.85. Avoid overlapping replacements and retain existing safe effects where equivalent.",
+         "effects": [
+          "on",
+          "bars",
+          "spiral",
+          "chase",
+          "pulse",
+          "twinkle",
+          "off"
+         ],
+         "id": "choruses",
+         "props": [
+          "all"
+         ],
+         "sections": [
+          "Chorus"
+         ],
+         "title": "Restore a coherent chorus and final reprise",
+         "tools": [
+          "get_open_sequence",
+          "list_sequence_effects",
+          "get_timing_marks",
+          "get_guide",
+          "change_effects",
+          "place_effects",
+          "repeat_effects",
+          "sequence_move_effect",
+          "sequence_add_layer",
+          "sequence_set_row_blending"
+         ],
+         "topics": [
+          "intensity",
+          "palettes",
+          "layering",
+          "blends",
+          "motion",
+          "layouts",
+          "safety"
+         ]
+        },
+        {
+         "after": [
+          "audit-safety"
+         ],
+         "do": "Work only at 0–8000, 72000–80000 and 92000–96000. Inspect and retain any effective quiet effects, selectively removing only conflicting ones in these ranges. Intro: Roofline layer-0 warm gold on at 0.15–0.25 with a one-bar fade-in beginning at the first audible note; Tree Star joins at the next appropriate Bars mark. All other rows stay dark. Bridge: on Matrix layer 0 place a very slow #4060ff/#ffc880 colorWash at 0.2–0.25 for 72000–79000, all other props dark; reserve 79000–80000 for the moments blackout. Outro: Roofline and Tree Star layer-0 warm hold at approximately 0.25, fading out with the held chord by 96000; layer 1 empty of motion. Reserve Singing Face for any actual trailing lyric handled later. There must be no uncovered musical dead air except the deliberate 79000–80000 stop and no light after the final decay. Use exact supplied section boundaries and existing Bars only; do not change or generate timing tracks.",
+         "effects": [
+          "on",
+          "fade",
+          "colorWash",
+          "off"
+         ],
+         "id": "quiet-sections",
+         "props": [
+          "all"
+         ],
+         "sections": [
+          "Intro",
+          "Bridge",
+          "Outro"
+         ],
+         "title": "Restore opening, breakdown and intentional ending",
+         "tools": [
+          "get_open_sequence",
+          "list_sequence_effects",
+          "get_timing_marks",
+          "get_guide",
+          "change_effects",
+          "place_effects",
+          "sequence_add_layer"
+         ],
+         "topics": [
+          "intensity",
+          "openings-endings",
+          "layering",
+          "editing"
+         ]
+        },
+        {
+         "after": [
+          "verses",
+          "choruses",
+          "quiet-sections"
+         ],
+         "do": "Read cue and named effect guides. Use stage_cue stageMoments for a restrained baseline, selecting or consolidating events so the restart and peak at 80000 are not stacked; routine cues should target supporting props and omit Matrix/Singing Face. Hand-refine the 20000–24000 ramp from few props toward chorus activity, with a short dark pocket immediately before the 24000 drop and a warm center-out burst at intensity about 0.9. At 32000 use only a small accent at intensity about 0.45; at 54000–56000 chase across Arches; at 56000 use one warm hit at about 0.85. At 72000 abruptly enforce the Matrix-only minimal look through 79000. Set explicit all-prop off blackout on a new top layer for precisely 79000–80000. At 80000 give one restart burst at design intensity 1, warm colored big props capped at 0.75–0.8 brightness and restrained warm-white small accents, then release into the final chorus within a bar. Do not add another peak flash on the same timestamp or sustain full-white peak brightness to 92000. At 92000 sustain the warm quiet ending only on Roofline and Tree Star and fade by 96000. stage_cue must use new top layers. Avoid routine whole-display flashes; every large-area event is isolated, with no more than three brightness reversals per second.",
+         "effects": [
+          "off",
+          "fade",
+          "impact",
+          "shockwave",
+          "chase",
+          "on",
+          "wipe"
+         ],
+         "id": "moments",
+         "props": [
+          "all"
+         ],
+         "sections": [
+          "Whole song"
+         ],
+         "title": "Stage builds, stops and ranked musical arrivals",
+         "tools": [
+          "get_open_sequence",
+          "list_sequence_effects",
+          "get_timing_marks",
+          "get_guide",
+          "stage_cue"
+         ],
+         "topics": [
+          "cues",
+          "intensity",
+          "safety",
+          "layering",
+          "openings-endings"
+         ]
+        },
+        {
+         "after": [
+          "moments"
+         ],
+         "do": "Read text, faces and cue guides; use the existing Lyrics, words and phonemes tracks unchanged and inspect actual phrase ends. Correct the two existing Matrix text effects, retaining accurate content and effective placement: size at least 8, legible font, leftward scroll only if the phrase fits its available reading time. Use the existing text IDs 82bd58dd-9456-9ea4-7fe3-b92b6a8cc21f and b05ee44d-59a9-04c8-2fcf-0bb2024cc899 only after inspecting them. If a long phrase cannot fit, remove only that effect and replace it with a short actual hook word or grouped hook words from the existing Lyrics (words) marks. Add readable selected hooks at 24000, 56000 and 80000 and actual 'lanterns' phrase occurrences, including the final chorus at 88000, with at least 300 ms and about 60 ms per letter. Text uses section colors, brightness 0.5–0.6, and a black background that suppresses underlying whole-house spill. No moving effect behind text. Singing Face uses its configured Face with faces on layer 1 across every actual sung stretch, driven by the existing phoneme track, brightness 0.45–0.6; layer 0 provides a dim resting expression between phrases but never in the bridge stop. Add subdued word_pop cues for every exact case-insensitive 'lanterns' word mark on Tree Star or Windows only, using the corresponding section colors. Do not extend text or faces into 79000–80000, beyond actual sung ends, or past the closing fade; do not cover the main arrival at 80000 with a bright lyric background. Preserve all tracks and do not synthesize new lyrics.",
+         "effects": [
+          "text",
+          "faces",
+          "on",
+          "off",
+          "impact"
+         ],
+         "id": "vocals",
+         "props": [
+          "Matrix",
+          "Singing Face",
+          "Tree Star",
+          "Window Left",
+          "Window Right"
+         ],
+         "sections": [
+          "Whole song"
+         ],
+         "title": "Repair readable hooks and animate the lead singer",
+         "tools": [
+          "get_open_sequence",
+          "list_sequence_effects",
+          "get_timing_marks",
+          "get_prop",
+          "get_guide",
+          "change_effects",
+          "place_effects",
+          "sequence_add_layer",
+          "sequence_set_row_blending",
+          "stage_cue"
+         ],
+         "topics": [
+          "vocals",
+          "timing",
+          "blends",
+          "layering",
+          "safety"
+         ]
+        }
+       ],
+       "summary": "Keep the effective roofline movement and warm lantern colors, while repairing unsafe flicker, unsuitable arch effects and unreadable words. Restore the missing opening and final chorus, give each prop a musical role, and make the final restart the clear high point.",
+       "vocals": "Keep all existing lyric, word, syllable and phoneme tracks unchanged. Singing Face sings every actual sung stretch using its configured Face and existing phonemes; Matrix is assigned readable text rather than a competing second face. Preserve the existing two text phrases if their content is correct, fixing font size to at least 8 and scroll speed to fit the real word windows. Show selected short hooks at all three choruses, including the final chorus, using actual track text rather than invented words. Long lines are shortened to existing hook words or scrolled only when enough time exists; center short words, with at least 300 ms and approximately 60 ms per letter. Pop 'lanterns' at each of its four actual word marks on Tree Star or windows, within the section palette, not as whole-house flashes."
+      }
+     }
+    ]
+   ]
+  },
+  {
+   "stage": "build step \"audit-safety\"",
+   "turns": [
+    [
+     {
+      "name": "change_effects",
+      "input": {
+       "change": {
+        "settings": {
+         "shimmer": false
+        }
+       },
+       "ids": [
+        "365f8f0f-5bea-7a4a-4835-d2792dcde09d",
+        "45ed6294-ef38-7471-8241-aa50b510ef5a"
+       ]
+      }
+     }
+    ]
+   ]
+  },
+  {
+   "stage": "build step \"verses\"",
+   "turns": [
+    [
+     {
+      "name": "list_sequence_effects",
+      "input": {
+       "fromMs": 8000,
+       "full": true,
+       "toMs": 56000
+      }
+     },
+     {
+      "name": "get_timing_marks",
+      "input": {
+       "fromMs": 8000,
+       "toMs": 56000,
+       "trackId": "Bars"
+      }
+     },
+     {
+      "name": "get_timing_marks",
+      "input": {
+       "fromMs": 8000,
+       "toMs": 56000,
+       "trackId": "Lyrics"
+      }
+     }
+    ],
+    [
+     {
+      "name": "get_guide",
+      "input": {
+       "effects": [
+        "bars",
+        "chase",
+        "spiral",
+        "on"
+       ],
+       "parts": [
+        "settings"
+       ]
+      }
+     }
+    ],
+    [
+     {
+      "name": "sequence_add_layer",
+      "input": {
+       "row": "@Roofline"
+      }
+     },
+     {
+      "name": "get_guide",
+      "input": {
+       "topics": [
+        "effect-wide"
+       ]
+      }
+     }
+    ]
+   ]
+  },
+  {
+   "stage": "build step \"choruses\"",
+   "turns": [
+    [
+     {
+      "name": "get_open_sequence",
+      "input": {
+       "detail": true
+      }
+     },
+     {
+      "name": "list_sequence_effects",
+      "input": {
+       "fromMs": 24000,
+       "full": true,
+       "toMs": 92000
+      }
+     },
+     {
+      "name": "get_timing_marks",
+      "input": {
+       "fromMs": 24000,
+       "toMs": 40000,
+       "trackId": "Beats"
+      }
+     }
+    ],
+    [
+     {
+      "name": "change_effects",
+      "input": {
+       "change": {
+        "brightness": 0.25,
+        "colors": [
+         "#ff4000",
+         "#ffbf00",
+         "#ffc880"
+        ],
+        "settings": {
+         "gradient": "horizontal",
+         "shimmer": false
+        }
+       },
+       "ids": [
+        "365f8f0f-5bea-7a4a-4835-d2792dcde09d",
+        "45ed6294-ef38-7471-8241-aa50b510ef5a"
+       ]
+      }
+     }
+    ]
+   ]
+  },
+  {
+   "stage": "build step \"quiet-sections\"",
+   "turns": [
+    [
+     {
+      "name": "list_sequence_effects",
+      "input": {
+       "fromMs": 0,
+       "full": true,
+       "toMs": 8000
+      }
+     },
+     {
+      "name": "list_sequence_effects",
+      "input": {
+       "fromMs": 72000,
+       "full": true,
+       "toMs": 80000
+      }
+     },
+     {
+      "name": "list_sequence_effects",
+      "input": {
+       "fromMs": 92000,
+       "full": true,
+       "toMs": 96000
+      }
+     }
+    ],
+    [
+     {
+      "name": "place_effects",
+      "input": {
+       "items": [
+        {
+         "effect": {
+          "brightness": 0.2,
+          "colors": [
+           "#ffbf00"
+          ],
+          "fadeInMs": 2000,
+          "fadeOutMs": 0,
+          "kind": "on"
+         },
+         "fromMs": 0,
+         "layer": 0,
+         "rowIds": [
+          "@Roofline"
+         ],
+         "toMs": 8000
+        },
+        {
+         "effect": {
+          "brightness": 0.2,
+          "colors": [
+           "#ffc880"
+          ],
+          "fadeInMs": 600,
+          "fadeOutMs": 0,
+          "kind": "on"
+         },
+         "fromMs": 2000,
+         "layer": 0,
+         "rowIds": [
+          "@Tree Star"
+         ],
+         "toMs": 8000
+        },
+        {
+         "effect": {
+          "brightness": 0.22,
+          "colors": [
+           "#4060ff",
+           "#ffc880"
+          ],
+          "fadeInMs": 0,
+          "fadeOutMs": 0,
+          "kind": "colorWash",
+          "settings": {
+           "cycles": 1
+          }
+         },
+         "fromMs": 72000,
+         "layer": 0,
+         "rowIds": [
+          "@Matrix"
+         ],
+         "toMs": 79000
+        },
+        {
+         "effect": {
+          "brightness": 0.25,
+          "colors": [
+           "#ffbf00"
+          ],
+          "fadeInMs": 0,
+          "fadeOutMs": 2500,
+          "kind": "on"
+         },
+         "fromMs": 92000,
+         "layer": 0,
+         "rowIds": [
+          "@Roofline"
+         ],
+         "toMs": 96000
+        },
+        {
+         "effect": {
+          "brightness": 0.25,
+          "colors": [
+           "#ffc880"
+          ],
+          "fadeInMs": 0,
+          "fadeOutMs": 1500,
+          "kind": "on"
+         },
+         "fromMs": 92000,
+         "layer": 0,
+         "rowIds": [
+          "@Tree Star"
+         ],
+         "toMs": 96000
+        }
+       ]
+      }
+     }
+    ]
+   ]
+  },
+  {
+   "stage": "build step \"moments\"",
+   "turns": [
+    [
+     {
+      "name": "get_guide",
+      "input": {
+       "effects": [
+        "wipe",
+        "impact",
+        "off",
+        "on"
+       ],
+       "parts": [
+        "settings",
+        "reference"
+       ],
+       "topics": [
+        "cues"
+       ]
+      }
+     }
+    ],
+    [
+     {
+      "name": "stage_cue",
+      "input": {
+       "cues": [
+        {
+         "at": 20000,
+         "colors": [
+          "#ff4000",
+          "#ffbf00",
+          "#ffc880"
+         ],
+         "cue": "ramp",
+         "direction": "centerOut",
+         "hit": false,
+         "intensity": 0.7,
+         "targets": [
+          "Roofline",
+          "Window Left",
+          "Window Right",
+          "Mega Tree",
+          "Tree Star",
+          "Arch 1",
+          "Arch 2",
+          "Arch 3",
+          "Arch 4",
+          "Candy Canes"
+         ],
+         "until": 23750
+        },
+        {
+         "at": 23750,
+         "cue": "blackout",
+         "hit": false,
+         "targets": [
+          "all"
+         ],
+         "until": 24000
+        },
+        {
+         "at": 24000,
+         "colors": [
+          "#cc3300",
+          "#cc9900"
+         ],
+         "cue": "sweep",
+         "direction": "centerOut",
+         "intensity": 0.9,
+         "targets": [
+          "Roofline",
+          "Mega Tree",
+          "Matrix",
+          "Candy Canes"
+         ],
+         "until": 25000
+        },
+        {
+         "at": 24000,
+         "colors": [
+          "#ffc880"
+         ],
+         "cue": "sweep",
+         "direction": "centerOut",
+         "intensity": 0.6,
+         "targets": [
+          "Tree Star",
+          "Window Left",
+          "Window Right",
+          "Arch 1",
+          "Arch 2",
+          "Arch 3",
+          "Arch 4"
+         ],
+         "until": 25000
+        },
+        {
+         "at": 32000,
+         "colors": [
+          "#ffbf00",
+          "#ffc880"
+         ],
+         "cue": "hit",
+         "intensity": 0.45,
+         "targets": [
+          "Tree Star",
+          "Window Left"
+         ]
+        },
+        {
+         "at": 54000,
+         "colors": [
+          "#ff4000",
+          "#ffbf00",
+          "#ffc880"
+         ],
+         "cue": "chase",
+         "direction": "leftToRight",
+         "intensity": 0.45,
+         "targets": [
+          "Arches"
+         ],
+         "track": "Beats",
+         "until": 56000
+        },
+        {
+         "at": 56000,
+         "colors": [
+          "#ffbf00",
+          "#ffc880"
+         ],
+         "cue": "hit",
+         "intensity": 0.84,
+         "targets": [
+          "Mega Tree",
+          "Tree Star",
+          "Window Left",
+          "Window Right",
+          "Arch 1",
+          "Arch 2",
+          "Arch 3",
+          "Arch 4",
+          "Candy Canes"
+         ]
+        },
+        {
+         "at": 72000,
+         "colors": [
+          "#4060ff"
+         ],
+         "cue": "minimal",
+         "intensity": 0.22,
+         "targets": [
+          "Matrix"
+         ],
+         "until": 79000
+        },
+        {
+         "at": 72000,
+         "cue": "blackout",
+         "hit": false,
+         "targets": [
+          "Roofline",
+          "Window Left",
+          "Window Right",
+          "Mega Tree",
+          "Tree Star",
+          "Arch 1",
+          "Arch 2",
+          "Arch 3",
+          "Arch 4",
+          "Candy Canes",
+          "Singing Face"
+         ],
+         "until": 79000
+        },
+        {
+         "at": 79000,
+         "cue": "blackout",
+         "hit": false,
+         "targets": [
+          "all"
+         ],
+         "until": 80000
+        },
+        {
+         "at": 80000,
+         "colors": [
+          "#cc3300",
+          "#cc9900"
+         ],
+         "cue": "sweep",
+         "direction": "centerOut",
+         "intensity": 1,
+         "targets": [
+          "Roofline",
+          "Mega Tree",
+          "Matrix",
+          "Candy Canes"
+         ],
+         "until": 81000
+        },
+        {
+         "at": 80000,
+         "colors": [
+          "#ffc880"
+         ],
+         "cue": "sweep",
+         "direction": "centerOut",
+         "intensity": 0.55,
+         "targets": [
+          "Tree Star",
+          "Window Left",
+          "Window Right",
+          "Arch 1",
+          "Arch 2",
+          "Arch 3",
+          "Arch 4"
+         ],
+         "until": 81000
+        },
+        {
+         "at": 92000,
+         "cue": "blackout",
+         "hit": false,
+         "targets": [
+          "Window Left",
+          "Window Right",
+          "Mega Tree",
+          "Matrix",
+          "Arch 1",
+          "Arch 2",
+          "Arch 3",
+          "Arch 4",
+          "Candy Canes",
+          "Singing Face"
+         ],
+         "until": 96000
+        },
+        {
+         "at": 92000,
+         "colors": [
+          "#ffbf00",
+          "#ffc880"
+         ],
+         "cue": "sustain",
+         "intensity": 0.22,
+         "targets": [
+          "Roofline",
+          "Tree Star"
+         ],
+         "until": 96000
+        }
+       ],
+       "stageMoments": {
+        "kinds": [
+         "peak"
+        ],
+        "minImportance": 1
+       }
+      }
+     }
+    ]
+   ]
+  },
+  {
+   "stage": "build step \"vocals\"",
+   "turns": [
+    [
+     {
+      "name": "get_guide",
+      "input": {
+       "effects": [
+        "text",
+        "faces"
+       ],
+       "parts": [
+        "settings",
+        "reference",
+        "use"
+       ],
+       "topics": [
+        "cues"
+       ]
+      }
+     },
+     {
+      "name": "get_timing_marks",
+      "input": {
+       "trackId": "Lyrics"
+      }
+     },
+     {
+      "name": "get_timing_marks",
+      "input": {
+       "trackId": "Lyrics (words)"
+      }
+     },
+     {
+      "name": "get_timing_marks",
+      "input": {
+       "trackId": "Lyrics (phonemes)"
+      }
+     },
+     {
+      "name": "list_sequence_effects",
+      "input": {
+       "full": true,
+       "rowId": "@Matrix"
+      }
+     },
+     {
+      "name": "get_open_sequence",
+      "input": {
+       "detail": true
+      }
+     },
+     {
+      "name": "get_prop",
+      "input": {
+       "id": "@prop:Singing Face"
+      }
+     }
+    ],
+    [
+     {
+      "name": "change_effects",
+      "input": {
+       "ids": [
+        "82bd58dd-9456-9ea4-7fe3-b92b6a8cc21f",
+        "b05ee44d-59a9-04c8-2fcf-0bb2024cc899"
+       ],
+       "remove": true
+      }
+     }
+    ]
+   ]
+  },
+  {
+   "stage": "refine",
+   "turns": [
+    [
+     {
+      "name": "change_effects",
+      "input": {
+       "items": [
+        {
+         "kinds": [
+          "life"
+         ],
+         "remove": true,
+         "rowIds": [
+          "@Arch 1"
+         ]
+        },
+        {
+         "change": {
+          "colors": [
+           "#ff00bf",
+           "#ff4000",
+           "#ffbf00"
+          ]
+         },
+         "fromMs": 8000,
+         "toMs": 24000
+        },
+        {
+         "change": {
+          "colors": [
+           "#ff00bf",
+           "#ff4000",
+           "#ffbf00"
+          ]
+         },
+         "fromMs": 40000,
+         "toMs": 56000
+        }
+       ]
+      }
+     }
+    ]
+   ]
+  }
+ ]
+}

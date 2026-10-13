@@ -10,10 +10,13 @@ use pf_ai::provider::{
     AssistantTurn, LlmProvider, Message, ModelInfo, ProviderId, StreamEvent, TurnRequest, Usage,
 };
 use pf_ai::stage::{self, Stage};
-use pf_ai::staged::{Plan, StageName, World, plan::longest_worker, stage_line, step_stage};
+use pf_ai::staged::{
+    Brief, Plan, StageName, World, catalogue, plan, plan::longest_worker, stage_line, step_stage,
+    submit_plan_tool,
+};
 use pf_ai::testing::{ScriptedProvider, calls, fake_key, says};
 use pf_ai::{AiError, ApiKey, Cancel, ChatEvent, ChatSession, Toolbox, TurnReply};
-use pf_sequence::Sequence;
+use pf_sequence::{EffectKind, Sequence};
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -70,12 +73,13 @@ fn step(id: &str, sections: &[&str], props: &[&str], tools: &[&str], effects: &[
     })
 }
 
+/// A plan of `steps` that describes the song as a whole and leaves the build to them: nothing is
+/// checked against parts the plan lights.
 fn plan(steps: Vec<Value>) -> Value {
     json!({
         "summary": "Blue verses and a red chorus.",
         "sections": [
-            { "label": "Verse", "palette": ["#2a6bff"], "props": ["Mega Tree"], "base": "a blue twinkle" },
-            { "label": "Chorus", "palette": ["#ff2a2a"], "props": ["Matrix"], "base": "red" },
+            { "label": "Whole song", "props": [], "keep": "only what the steps build changes" },
         ],
         "roles": [{ "prop": "Mega Tree", "role": "centerpiece" }],
         "steps": steps,
@@ -437,7 +441,7 @@ fn a_step_that_fails_is_reported_and_the_rest_is_proposed_without_it() {
 }
 
 #[test]
-fn the_review_of_the_whole_draft_goes_to_a_refine_with_only_the_tools_its_fixes_name() {
+fn the_review_of_the_whole_draft_goes_to_a_refine_with_the_tools_to_place_and_those_its_fixes_name() {
     let stage = Stage::new();
     let doc = stage.sequence();
     // One effect on one prop: the review has plenty to say.
@@ -473,7 +477,7 @@ fn the_review_of_the_whole_draft_goes_to_a_refine_with_only_the_tools_its_fixes_
     };
     assert!(first.contains("The review of the whole draft"));
     assert!(first.contains("The plan in brief"));
-    assert!(!refine[0].tools.is_empty());
+    assert!(refine[0].tools.contains(&"place_effects".to_string()));
     for tool in &refine[0].tools {
         assert!(
             !["review_draft", "propose_changes", "plan_build", "reset_draft"].contains(&tool.as_str()),
@@ -652,4 +656,324 @@ fn the_stand_ins_pass_every_check_in_stages_with_a_shorter_wait_for_the_whole_so
         assert!(names.contains(name), "{name}");
     }
     assert!(outcome.measures.guides.contains(&"method".to_string()));
+    // Each call says the conversation and the request it was made in.
+    let made_in = |name: &str| {
+        outcome
+            .transcript
+            .iter()
+            .find(|t| t.name == name && !t.given)
+            .map(|t| (t.stage.clone(), t.request))
+    };
+    assert_eq!(made_in("plan_build"), Some(("chat".to_string(), 1)));
+    assert_eq!(made_in("submit_plan"), Some(("design".to_string(), 1)));
+    let (stage, request) = made_in("stage_cue").unwrap();
+    assert!(
+        stage.starts_with("build step") && request >= 1,
+        "{stage} {request}"
+    );
+}
+
+const CHORUSES: [(u64, u64); 3] = [(24_000, 40_000), (56_000, 72_000), (80_000, 92_000)];
+
+/// A plan with `sections` (the rest of the song left as it is) and `steps`.
+fn plan_of(sections: Vec<Value>, steps: Vec<Value>) -> Value {
+    let mut all = vec![json!({ "label": "Whole song", "props": [], "keep": "left as it is" })];
+    all.extend(sections);
+    json!({ "summary": "Choruses.", "sections": all, "steps": steps })
+}
+
+fn world(stage: &Stage, doc: &Sequence) -> World {
+    let draft = Draft::new(eval::workspace(stage, doc));
+    World::of(&draft, Some(&stage::song()), &Toolbox::default())
+}
+
+/// What each request of `stage`'s conversations was told last, when the program wrote it.
+fn told(provider: &ScriptedProvider, stage: &str) -> Vec<String> {
+    provider
+        .seen_in(stage)
+        .iter()
+        .filter_map(|s| match s.messages.last() {
+            Some(Message::User(text)) => Some(text.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn a_plan_that_leaves_a_part_to_nobody_or_keeps_bigger_choruses_small_goes_back() {
+    let stage = Stage::new();
+    let doc = stage.sequence();
+    let world = world(&stage, &doc);
+    // The choruses play, but only the first is built; the verses aren't described at all.
+    let input = json!({
+        "sections": [
+            { "label": "Intro", "props": [], "keep": "stays dark" },
+            { "label": "Chorus", "props": ["Matrix", "Mega Tree"] },
+            { "label": "Bridge", "props": ["Mega Tree"] },
+            { "label": "Outro", "props": [], "keep": "stays dark" },
+        ],
+        "steps": [
+            step("one", &["Chorus 1"], &["all"], &["place_effects"], &["on"]),
+            step("bridge", &["Bridge"], &["Mega Tree"], &["place_effects"], &["on"]),
+        ],
+    });
+    let problems = Plan::read(&input, &world).unwrap_err();
+    for named in ["\"Verse 1\"", "\"Verse 2\"", "\"Chorus 2\"", "\"Chorus 3\""] {
+        assert!(
+            problems.iter().any(|p| p.contains(named)),
+            "{named}: {problems:?}"
+        );
+    }
+    assert!(
+        !problems
+            .iter()
+            .any(|p| p.contains("\"Chorus 1\"") || p.contains("Bridge")),
+        "{problems:?}"
+    );
+    // Bigger choruses asked for: two props of twelve is a corner of the house.
+    let brief = Brief {
+        ask: "Make the verses calmer and the choruses bigger.".into(),
+        sections: Vec::new(),
+        keep: String::new(),
+        style: String::new(),
+    };
+    let input = plan_of(
+        vec![json!({ "label": "Chorus", "props": ["Matrix", "Mega Tree"] })],
+        vec![step(
+            "choruses",
+            &["Chorus"],
+            &["all"],
+            &["place_effects"],
+            &["on"],
+        )],
+    );
+    let problems = Plan::read_for(&input, &world, Some(&brief)).unwrap_err();
+    assert!(
+        problems
+            .iter()
+            .any(|p| p.contains("bigger choruses") && p.contains("9 of the 12")),
+        "{problems:?}"
+    );
+    let input = plan_of(
+        vec![json!({ "label": "Chorus", "props": ["Whole House"] })],
+        vec![step(
+            "choruses",
+            &["Chorus"],
+            &["all"],
+            &["place_effects"],
+            &["on"],
+        )],
+    );
+    assert!(Plan::read_for(&input, &world, Some(&brief)).is_ok());
+}
+
+#[test]
+fn the_plan_is_terse_and_cut_to_size_and_the_reply_is_written_from_it() {
+    let stage = Stage::new();
+    let doc = stage.sequence();
+    let world = world(&stage, &doc);
+    let essay = "Lay a warm base on every row and then think about it at length. ".repeat(40);
+    let mut long = step(
+        "choruses",
+        &["Chorus"],
+        &["all"],
+        &["place_effects"],
+        &[
+            "on", "twinkle", "chase", "bars", "spiral", "plasma", "fade", "wipe",
+        ],
+    );
+    long["do"] = json!(essay);
+    long["topics"] = json!(["intensity", "layering", "motion", "palettes", "blends"]);
+    let mut input = plan_of(
+        vec![json!({
+            "label": "Chorus",
+            "props": ["Whole House"],
+            "motion": "fast",
+            "look": essay,
+            "palette": ["#ff0000", "#00ff00", "#0000ff", "#ffffff"],
+        })],
+        vec![long],
+    );
+    input["summary"] = json!("");
+    let plan = Plan::read(&input, &world).expect("a plan that fits");
+    let step = &plan.steps[0];
+    assert!(step.todo.chars().count() <= plan::MAX_DO);
+    assert_eq!(step.effects.len(), plan::MAX_STEP_EFFECTS);
+    assert_eq!(step.topics.len(), plan::MAX_STEP_TOPICS);
+    let chorus = plan.sections.iter().find(|s| s.label == "Chorus").unwrap();
+    assert!(chorus.look.chars().count() <= plan::MAX_TEXT);
+    assert_eq!(chorus.palette.len(), plan::MAX_PALETTE);
+    // No summary: the program says what the plan is.
+    let reply = plan.reply();
+    assert!(
+        reply.contains("Chorus") && reply.contains("Whole House") && reply.contains("fast"),
+        "{reply}"
+    );
+    // The design is asked for short fields, and told to be terse.
+    let schema = submit_plan_tool().input_schema;
+    let step_schema = &schema["properties"]["steps"]["items"]["properties"];
+    assert_eq!(step_schema["do"]["maxLength"], plan::MAX_DO);
+    assert!(schema["properties"]["moments"]["items"]["properties"]["cue"]["enum"].is_array());
+    assert!(catalogue::design_system().contains("Be terse"));
+}
+
+#[test]
+fn with_the_plan_still_dark_after_the_steps_the_refine_places_it_and_a_second_refine_follows() {
+    let stage = Stage::new();
+    let doc = stage.sequence();
+    let tree = row(&stage, &doc, "Mega Tree");
+    let input = plan_of(
+        vec![json!({ "label": "Chorus", "props": ["Mega Tree"], "look": "a red spiral" })],
+        vec![step(
+            "choruses",
+            &["Chorus"],
+            &["Mega Tree"],
+            &["place_effects"],
+            &["spiral"],
+        )],
+    );
+    let spiral = |span: (u64, u64)| place(vec![tree.clone()], span, "spiral", "#ff2a2a");
+    let provider = ScriptedProvider::new(vec![plan_build()])
+        .stage("design", vec![calls("", &[("submit_plan", input)])])
+        // The step says it's done without placing a thing.
+        .stage(&step_stage("choruses"), vec![says("The choruses are built.")])
+        .stage(
+            "refine",
+            vec![
+                // The first refine places the first chorus, is told the rest is dark, and stops.
+                calls("", &[spiral(CHORUSES[0])]),
+                says("That's the first chorus."),
+                // The second gets what is still dark, and places it.
+                calls(
+                    "",
+                    &[(
+                        "repeat_effects",
+                        json!({ "fromMs": 24_000, "toMs": 40_000, "startsMs": [56_000, 80_000] }),
+                    )],
+                ),
+            ],
+        );
+    let mut chat = session(4);
+    let (reply, _) = ask(&mut chat, &provider, &stage, &doc, "Make a show.", &Cancel::new());
+    let reply = reply.expect("built");
+    let refine = provider.seen_in("refine");
+    assert_eq!(refine.len(), 3, "two refines: two requests, then one");
+    // The refine has the tools to place, whatever the review names.
+    for tool in ["place_effects", "repeat_effects", "change_effects", "stage_cue"] {
+        assert!(refine[0].tools.contains(&tool.to_string()), "{tool}");
+    }
+    let Message::User(first) = &refine[0].messages[0] else {
+        panic!("the refine starts with what is dark");
+    };
+    for said in [
+        "Chorus 1 (24000–40000 ms)",
+        "Chorus 3 (80000–92000 ms)",
+        "Mega Tree",
+        &tree,
+        "a red spiral",
+    ] {
+        assert!(first.contains(said), "{said}: {first}");
+    }
+    let again = told(&provider, "refine");
+    assert!(
+        again
+            .iter()
+            .any(|t| t.contains("Still dark") && t.contains("Chorus 2") && !t.contains("Chorus 1 (")),
+        "{again:?}"
+    );
+    let Message::User(second) = &refine[2].messages[0] else {
+        panic!("the second refine starts with what is still dark");
+    };
+    assert!(
+        second.contains("Chorus 2") && !second.contains("Chorus 1 ("),
+        "{second}"
+    );
+    // Every chorus has its spiral; the reply has nothing dark to own up to.
+    let built = draft_doc(&chat);
+    for span in CHORUSES {
+        assert!(
+            eval::effects(&built)
+                .any(|(t, _, e)| Some(t) == stage.named("Mega Tree") && e.start_ms == span.0),
+            "{span:?}"
+        );
+    }
+    assert!(!reply.text.contains("still dark"), "{}", reply.text);
+    let logs: Vec<String> = chat.stages().iter().map(|s| s.stage.clone()).collect();
+    assert!(
+        logs.contains(&"refine".to_string()) && logs.contains(&"refine 2".to_string()),
+        "{logs:?}"
+    );
+}
+
+#[test]
+fn a_blackout_cue_over_a_part_the_plan_lights_is_held_to_its_moment() {
+    let stage = Stage::new();
+    let doc = stage.sequence();
+    let tree = row(&stage, &doc, "Mega Tree");
+    let input = json!({
+        "summary": "A tree for the last chorus, dark for the stop.",
+        "sections": [
+            { "label": "Whole song", "props": [], "keep": "left as it is" },
+            { "label": "Bridge", "props": ["Mega Tree"], "look": "dim" },
+            { "label": "Chorus 3", "props": ["Mega Tree"], "look": "a red spiral" },
+        ],
+        // The plan darkens the bridge's end itself.
+        "moments": [{ "at": 76_000, "until": 79_000, "cue": "blackout" }],
+        "steps": [
+            step("tree", &["Bridge", "Chorus 3"], &["Mega Tree"], &["place_effects"], &["spiral"]),
+            json!({ "id": "moments", "sections": ["Whole song"], "props": ["all"], "tools": ["stage_cue"], "do": "The stop.", "after": ["tree"] }),
+        ],
+    });
+    let provider = ScriptedProvider::new(vec![plan_build()])
+        .stage("design", vec![calls("", &[("submit_plan", input)])])
+        .stage(
+            &step_stage("tree"),
+            vec![calls(
+                "",
+                &[
+                    place(vec![tree.clone()], (72_000, 80_000), "on", "#2a6bff"),
+                    place(vec![tree.clone()], CHORUSES[2], "spiral", "#ff2a2a"),
+                ],
+            )],
+        )
+        .stage(
+            &step_stage("moments"),
+            vec![calls(
+                "",
+                &[(
+                    "stage_cue",
+                    json!({ "cues": [
+                        { "cue": "blackout", "at": 76_000, "until": 79_000, "hit": false },
+                        // Dark from the stop to the end: it would blank the last chorus.
+                        { "cue": "blackout", "at": 79_000, "until": 96_000, "hit": false },
+                    ] }),
+                )],
+            )],
+        )
+        .stage("refine", vec![says("Nothing to fix.")]);
+    let mut chat = session(4);
+    let (reply, _) = ask(&mut chat, &provider, &stage, &doc, "Make a show.", &Cancel::new());
+    reply.expect("built");
+    let moments = chat
+        .stages()
+        .iter()
+        .find(|s| s.stage == step_stage("moments"))
+        .unwrap();
+    let Some(Message::ToolResults(results)) = moments.messages.get(2) else {
+        panic!("the cue is answered");
+    };
+    assert!(
+        results[0].content.contains("now ends at 82000") && results[0].content.contains("Chorus 3"),
+        "{}",
+        results[0].content
+    );
+    // The plan's own blackout stands; the other ends a bar into the chorus.
+    let built = draft_doc(&chat);
+    let offs: Vec<(u64, u64)> = eval::effects(&built)
+        .filter(|(t, _, e)| Some(*t) == stage.named("Mega Tree") && e.kind() == EffectKind::Off)
+        .map(|(_, _, e)| (e.start_ms, e.end_ms))
+        .collect();
+    assert!(offs.contains(&(76_000, 79_000)), "{offs:?}");
+    assert!(offs.contains(&(79_000, 82_000)), "{offs:?}");
+    assert!(offs.iter().all(|(_, end)| *end <= 82_000), "{offs:?}");
 }

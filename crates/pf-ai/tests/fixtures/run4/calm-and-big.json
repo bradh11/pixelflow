@@ -1,0 +1,1978 @@
+{
+ "scenario": "calm-and-big",
+ "source": "Run 4 of the evaluation (gpt-6.1-sol, big jobs in stages): every call the model made, a request's calls together, row ids written as @ and what the row lights.",
+ "measured": {
+  "It proposes its changes for the user to apply": "proposed",
+  "The choruses are half as bright again as the verses, or more": "verses 0.06, choruses 0.21",
+  "Something rests in the verses (9 of 12 props lit or fewer, on average)": "4.0",
+  "The choruses use the house (9 of 12 props lit or more, on average)": "8.4",
+  "The verses and the choruses no longer look alike (the look changes at 4 section starts or more)": "7 of 7",
+  "The light follows the music (the review's energy score is 70 or more)": "100",
+  "Nothing flashes unsafely": "safety 100"
+ },
+ "stages": [
+  {
+   "stage": "chat",
+   "turns": [
+    [
+     {
+      "name": "plan_build",
+      "input": {
+       "ask": "Rework Paper Lanterns so the verses are noticeably calmer and the choruses are bigger, with clear section-to-section contrast instead of the same look throughout. Keep verses sparse, dimmer and slower; make choruses brighter and more active with the final chorus the biggest, while retaining dark space before major hits.",
+       "style": "Use a cohesive winter lantern look. Let the intro, bridge and outro stay restrained, and grow the builds into the choruses."
+      }
+     }
+    ]
+   ]
+  },
+  {
+   "stage": "design",
+   "turns": [
+    [
+     {
+      "name": "submit_plan",
+      "input": {
+       "moments": "Use stage_cue stageMoments for a restrained baseline, then hand-author the three major arrivals: 24000 ms drop at intensity 0.90, 56000 ms impact at 0.85, and 80000 ms restart at 1.0. The first two have 250 ms blackouts beforehand; honor the exact 79000–80000 ms stop before the largest restart. Ramp 20000–23750 ms from sparse warmth into the chorus, and chase the 54000–55750 ms fill across the arches. Treat the 32000 ms impact as a small tree/star punctuation, not another full-house hit. Keep the 80000–92000 ms peak baseline restrained so the final restart remains visibly larger than its following bars; permit a brief elevated opening burst, not twelve seconds at full intensity. Bridge minimal and outro sustain cues must preserve the sparse section design. No large-area flashing above three flashes per second; use colored decays and smooth travel, with reduced white brightness on large canvases.",
+       "roles": [
+        {
+         "prop": "Roofline",
+         "role": "Steady lantern-lit structure; dim in verses, brighter ice blue in choruses, absent in the bridge."
+        },
+        {
+         "prop": "Window Left",
+         "role": "Warm phrase-response lantern, alternating with the right window in verses and holding warm color in choruses."
+        },
+        {
+         "prop": "Window Right",
+         "role": "Partner in the verse's left/right response; warm support in choruses."
+        },
+        {
+         "prop": "Matrix",
+         "role": "Dim icy lantern texture in the bridge and brief readable hook text in choruses; rests throughout the verses."
+        },
+        {
+         "prop": "Mega Tree",
+         "role": "Main chorus motion canvas with a rising spiral; slow sparse glitter in verses and rest at both ends and in the bridge."
+        },
+        {
+         "prop": "Tree Star",
+         "role": "Opening and closing lantern, plus isolated word punctuation and chorus sparkle."
+        },
+        {
+         "prop": "Arch 1",
+         "role": "First beat of left-to-right rhythm travel; rests in quiet sections and most verse bars."
+        },
+        {
+         "prop": "Arch 2",
+         "role": "Second beat of the rhythm chain; joins builds and choruses."
+        },
+        {
+         "prop": "Arch 3",
+         "role": "Third beat of the rhythm chain; joins builds and choruses."
+        },
+        {
+         "prop": "Arch 4",
+         "role": "Fourth beat of the rhythm chain; joins builds and choruses."
+        },
+        {
+         "prop": "Candy Canes",
+         "role": "Answer to the arches, following the same direction at chorus strength; dark in quiet sections."
+        },
+        {
+         "prop": "Singing Face",
+         "role": "Sole lead singer on the phonemes track, dimmer in verses and clearer in choruses; rests in instrumental sections."
+        }
+       ],
+       "sections": [
+        {
+         "accents": "No hits or beat flashes.",
+         "base": "0–8000 ms: begin black, then introduce the Tree Star in warm lantern light at 0.18 brightness; add the Roofline at 4000 ms at 0.16. Everything else rests.",
+         "label": "Intro",
+         "movement": "Slow star twinkle; roofline stays still. Fade in with the opening sound rather than lighting ahead of it.",
+         "palette": [
+          "#ffc880",
+          "#60c8ff"
+         ],
+         "props": [
+          "Tree Star",
+          "Roofline"
+         ]
+        },
+        {
+         "accents": "The star gives a small warm pop on 'lanterns'; reserve it otherwise. Blackout the last 250 ms before both chorus arrivals.",
+         "base": "8000–24000 and 40000–56000 ms: warm Roofline at 0.22, icy Mega Tree at 0.18, and the lead Singing Face at restrained brightness only during sung phrases. Matrix, star, arches and canes rest until the build; windows answer selected phrases rather than both staying lit. Verse 2 is slightly fuller, not chorus-sized.",
+         "label": "Verse",
+         "movement": "Sparse slow tree twinkle, held for four-bar phrases. Windows alternate left/right every two bars at 0.20–0.25. From 20000–23750 ms add rhythm props progressively and rise toward the first chorus; from 54000–55750 ms run a short arch fill into the second.",
+         "palette": [
+          "#ffc880",
+          "#60c8ff"
+         ],
+         "props": [
+          "Roofline",
+          "Window Left",
+          "Window Right",
+          "Mega Tree",
+          "Singing Face",
+          "Tree Star",
+          "Arch 1",
+          "Arch 2",
+          "Arch 3",
+          "Arch 4",
+          "Candy Canes"
+         ]
+        },
+        {
+         "accents": "Warm star punctuation and limited white on small props. Matrix text replaces, rather than overlays, its background. Big hits belong to the moments layer, not every beat.",
+         "base": "24000–40000 and 56000–72000 ms: ice-blue structure at 0.40–0.48 with warm windows, a brighter tree and rhythm section, and brief readable hook text on the Matrix. 80000–92000 ms uses the same palette and family of effects, with stronger movement and more star sparkle. Ordinary chorus treatment stays below 0.85 intensity; the final chorus has the highest sustained level, approximately 0.80.",
+         "label": "Chorus",
+         "movement": "Tree spiral rises and turns clockwise; arches and canes chase left to right once per bar, with a coordinated reversal at phrase boundaries. Structure holds steady. Chorus 2 adds modest speed and a little more light; the final chorus opens outward on its arrival before returning to coordinated motion.",
+         "palette": [
+          "#60c8ff",
+          "#ffc880",
+          "#ffffff"
+         ],
+         "props": [
+          "Roofline",
+          "Window Left",
+          "Window Right",
+          "Matrix",
+          "Mega Tree",
+          "Tree Star",
+          "Arch 1",
+          "Arch 2",
+          "Arch 3",
+          "Arch 4",
+          "Candy Canes",
+          "Singing Face"
+         ]
+        },
+        {
+         "accents": "Do not build over the analyzed stop. The one-second silence supplies the contrast for the final restart.",
+         "base": "72000–79000 ms: abruptly remove the chorus, leaving only the Matrix as a dim icy lantern at 0.15–0.20. All other props rest. 79000–80000 ms is full black.",
+         "label": "Bridge",
+         "movement": "Very slow, low-contrast plasma on the Matrix, with no beat pulses and no other motion.",
+         "palette": [
+          "#60c8ff",
+          "#ffc880"
+         ],
+         "props": [
+          "Matrix"
+         ]
+        },
+        {
+         "accents": "Honor the held chord without a new flash. Remain black after the fade.",
+         "base": "92000–96000 ms: drop to the opening's sparse warm look, Roofline at 0.20 and Tree Star at 0.24. Other props rest; do not sustain the whole-house chorus through this low-energy ending.",
+         "label": "Outro",
+         "movement": "Stillness, then a smooth fade to black over 94000–96000 ms.",
+         "palette": [
+          "#ffc880",
+          "#60c8ff"
+         ],
+         "props": [
+          "Roofline",
+          "Tree Star"
+         ]
+        }
+       ],
+       "steps": [
+        {
+         "do": "Inspect the current rows and existing effect bounds. With change_effects remove all existing effects spanning 0–96000 ms on the Whole House layer 0, Arches layer 0, and Mega Tree layer 0: these are the uniform on, chase and twinkle being replaced. Do not remove rows or lyric tracks. Add/reuse analyzed Sections, Bars and Beats timing with add_song_timing, preserving the existing lyric family. Subsequent looks use individual prop rows except the Arches group for coordinated rhythm, leaving Whole House empty so quiet sections genuinely rest.",
+         "effects": [],
+         "id": "reset",
+         "props": [
+          "all"
+         ],
+         "sections": [
+          "Whole song"
+         ],
+         "title": "Remove the uniform existing look and prepare timing",
+         "tools": [
+          "get_open_sequence",
+          "list_sequence_effects",
+          "get_guide",
+          "change_effects",
+          "add_song_timing"
+         ],
+         "topics": [
+          "editing",
+          "timing",
+          "layering"
+         ]
+        },
+        {
+         "after": [
+          "reset"
+         ],
+         "do": "Read the effect guides before placement. Build only these nonoverlapping ranges. Intro 0–8000: Tree Star layer 0 warm #ffc880 on at brightness 0.18 with a gentle opening fade; layer 1 sparse twinkle at 0.20. Roofline layer 0 warm on at 0.16 from 4000–8000, fading in over 1000 ms. No other intro effects. Bridge 72000–79000: Matrix layer 0 icy #60c8ff on at 0.12, layer 1 very slow plasma in #60c8ff/#ffc880 capped at 0.20, using a blend that retains its dim base. End both exactly at 79000; leave 79000–80000 empty. Outro 92000–96000: Roofline layer 0 warm on 0.20 and Tree Star layer 0 warm on 0.24, held until 94000 then fading smoothly to zero by 96000. No movement or other props in outro. Batch placements with items; cut section looks on Sections and use Bars for the internal opening and ending subdivisions.",
+         "effects": [
+          "on",
+          "twinkle",
+          "plasma"
+         ],
+         "id": "quiet",
+         "props": [
+          "all"
+         ],
+         "sections": [
+          "Intro",
+          "Bridge",
+          "Outro"
+         ],
+         "title": "Shape the restrained opening, bridge and close",
+         "tools": [
+          "get_open_sequence",
+          "get_guide",
+          "place_effects"
+         ],
+         "topics": [
+          "intensity",
+          "blends",
+          "openings-endings"
+         ]
+        },
+        {
+         "after": [
+          "reset"
+         ],
+         "do": "Build 8000–24000 and 40000–56000 only. On individual Roofline layer 0 place #ffc880 on at 0.22; on Mega Tree layer 0 place #60c8ff on at 0.18 and layer 1 sparse slow twinkle at 0.24, with no spiral. Alternate Window Left and Window Right layer 0 warm on at 0.20 in two-bar/4000 ms phrases; leave the nonanswering window dark. Keep Matrix, Tree Star, Arches, Candy Canes and Singing Face empty here except the defined builds; later vocals add the face and star. Repeat the first verse's 8000–20000 calm phrase pattern into 40000–52000, then vary window brightness to 0.25 without increasing tree speed. First build 20000–23750: add Arch 1 then 2 then 3 then 4 at beat boundaries, layer 0 warm bases rising from 0.20 to 0.40; layer 1 left-to-right chase on the Arches group grows from one traversal per two bars to one per bar; add Candy Canes only in the last bar at 0.35. Second build/fill 54000–55750: coordinated Arches group layer 1 chase at 0.45, one traversal in 2000 ms, with Candy Canes answering at the end. Leave major blackout enforcement to the final cues step. Batch base effects on Sections and internal patterns on Bars/Beats. Ensure the Arches group covers individual arch build bases only with transparent movement, not an opaque background.",
+         "effects": [
+          "on",
+          "twinkle",
+          "chase"
+         ],
+         "id": "verses",
+         "props": [
+          "all"
+         ],
+         "sections": [
+          "Verse"
+         ],
+         "title": "Build sparse verses with controlled growth",
+         "tools": [
+          "get_open_sequence",
+          "get_guide",
+          "place_effects",
+          "repeat_effects",
+          "change_effects"
+         ],
+         "topics": [
+          "intensity",
+          "motion",
+          "layering",
+          "blends",
+          "curves",
+          "timing"
+         ]
+        },
+        {
+         "after": [
+          "reset"
+         ],
+         "do": "Build 24000–40000, 56000–72000 and 80000–92000 on existing rows. Layer 0: Roofline icy #60c8ff on at 0.42; both windows warm #ffc880 at 0.40; Mega Tree icy base 0.30; Arches group icy base 0.28; Candy Canes warm base 0.30; Tree Star warm base 0.25. Matrix and Singing Face remain empty for the later vocal treatment. Layer 1: Mega Tree broad #60c8ff/#ffc880 spiral at 0.60 with rising clockwise travel, approximately one turn per bar; Arches group and Candy Canes narrow chase at 0.55 traveling left to right once per bar, with dark gaps and transparent background; star soft sparse twinkle at 0.40 with a little #ffffff. Cut bases on Sections and rhythm movement on Bars; coordinate a reversal at each eight-second phrase boundary. Repeat chorus 1 into chorus 2, then raise base levels by about 0.04 and movement brightness by 0.05 with slightly quicker tree travel. Final chorus retains these colors and effects: structure 0.48–0.52, tree spiral 0.72, chase 0.68, star sparkle 0.55. Open arch travel outward for the first bar, then resume unified direction. Keep all ordinary treatment below 0.85 intensity, no hard shimmer or strobe, and no full-white large-area base. Use blend settings from the guides so layer 1 movement leaves the dim base visible.",
+         "effects": [
+          "on",
+          "spiral",
+          "chase",
+          "twinkle"
+         ],
+         "id": "choruses",
+         "props": [
+          "all"
+         ],
+         "sections": [
+          "Chorus"
+         ],
+         "title": "Make the choruses open up, saving the biggest for last",
+         "tools": [
+          "get_open_sequence",
+          "get_guide",
+          "place_effects",
+          "repeat_effects",
+          "change_effects"
+         ],
+         "topics": [
+          "roles",
+          "intensity",
+          "motion",
+          "blends",
+          "layouts",
+          "safety"
+         ]
+        },
+        {
+         "after": [
+          "quiet",
+          "verses",
+          "choruses"
+         ],
+         "do": "Read Lyrics, Lyrics (words) and Lyrics (phonemes) to obtain real phrase ends and word bounds. Use Singing Face's configured Face with faces on layer 1 over every sung stretch, referencing Lyrics (phonemes): #ffc880 at about 0.30 in verses, 0.50 in the first two choruses and 0.60 in the final chorus. Give short phrase gaps a dim resting face if the guide supports it; leave instrumental intro, bridge and outro dark. Do not animate Matrix's face. During the three 'Light it up' chorus phrases starting at 24000, 56000 and 80000, place Matrix text on layer 1, no moving background, #ffc880/#60c8ff at 0.50–0.60. Prefer two stationary stacked lines 'LIGHT' / 'IT UP' if legible with the supported font; otherwise group readable short words using actual word marks, at least 300 ms plus 60 ms per letter where phrase timing allows. Clear text outside those phrase bounds. Use stage_cue word_pop matching 'lanterns' on Tree Star at each actual occurrence; gentle warm intensity 0.35 in the verse and 0.50–0.60 in choruses. Do not pop common words. These accents must not spill into the bridge, stop or outro.",
+         "effects": [
+          "faces",
+          "text",
+          "on",
+          "impact"
+         ],
+         "id": "vocals",
+         "props": [
+          "Singing Face",
+          "Matrix",
+          "Tree Star"
+         ],
+         "sections": [
+          "Whole song"
+         ],
+         "title": "Add the lantern singer and readable chorus hook",
+         "tools": [
+          "get_open_sequence",
+          "get_timing_marks",
+          "get_guide",
+          "place_effects",
+          "stage_cue"
+         ],
+         "topics": [
+          "vocals",
+          "timing",
+          "layering",
+          "blends"
+         ]
+        },
+        {
+         "after": [
+          "quiet",
+          "verses",
+          "choruses",
+          "vocals"
+         ],
+         "do": "Read the cues and named effect guides. Run stage_cue stageMoments as a restrained baseline, limiting ordinary moments to approximately 0.40–0.65 and avoiding a full-intensity 80000–92000 peak plateau. Author/refine the biggest cues in the same compatible nonoverlapping cue schedule rather than doubling baseline hits: all-prop blackout 23750–24000, colored drop at 24000 intensity 0.90 with 500–750 ms decay; all-prop blackout 55750–56000, colored hit at 56000 intensity 0.85; exact all-prop blackout 79000–80000; largest colored restart at 80000 intensity 1.0 with a brief outward shockwave and decay into the final chorus by 82000. Large canvases use predominantly #60c8ff with brightness capped around 0.75–0.80, and small props provide restrained white punctuation. Refine the 20000–23750 ramp to complement the verse build, never covering its subsequent blackout; keep 54000–55750 fill confined to arches/canes. At 32000 use a small warm Mega Tree/Tree Star impact at 0.45. Preserve Matrix-only minimal treatment at 72000–79000 and the sparse Roofline/Tree Star held outro at 92000–96000; sustain must fade to black without restoring the whole house. stage_cue creates new top layers so blackouts override all section, word and face effects. Check the schedule has no competing simultaneous restart/peak cues, no vocal tails above blackout layers, and no repeated large-area flashing above three per second.",
+         "effects": [
+          "off",
+          "on",
+          "fade",
+          "chase",
+          "impact",
+          "shockwave",
+          "wipe"
+         ],
+         "id": "moments",
+         "props": [
+          "all"
+         ],
+         "sections": [
+          "Whole song"
+         ],
+         "title": "Stage dark gaps and the three major arrivals",
+         "tools": [
+          "get_open_sequence",
+          "get_timing_marks",
+          "get_guide",
+          "stage_cue"
+         ],
+         "topics": [
+          "cues",
+          "intensity",
+          "safety",
+          "openings-endings",
+          "layering"
+         ]
+        }
+       ],
+       "summary": "Rework the song into a winter-lantern show with sparse, warm verses and brighter ice-blue choruses. The builds gather light into each arrival, with deliberate darkness before the major hits and the final chorus as the biggest release.",
+       "vocals": "Lyrics and phoneme tracks already exist. Make Singing Face the only singing face, timed to actual sung phrase bounds rather than beats; keep the Matrix's face unused. During each chorus's 'Light it up' phrase, show a brief readable 'LIGHT IT UP' hook on the 40x20 Matrix, using the actual word timing and grouping for legibility. Pop the Tree Star softly on each actual occurrence of 'lanterns' across the song, using word-track matches rather than the review's estimated times. No scrolling subtitles or inferred lyrics. Final blackout cues must override any vocal tails."
+      }
+     }
+    ]
+   ]
+  },
+  {
+   "stage": "build step \"reset\"",
+   "turns": [
+    [
+     {
+      "name": "change_effects",
+      "input": {
+       "fromMs": 0,
+       "ids": [
+        "1c0ee3dd-4f6f-6c48-ca36-158525bc1ba3",
+        "9d1804b9-0fbe-0cad-70ef-420779fece80",
+        "35e8ba85-764f-9ed9-c123-db1de75313f2"
+       ],
+       "layer": 0,
+       "remove": true,
+       "rowIds": [
+        "@Whole House",
+        "@Arches",
+        "@Mega Tree"
+       ],
+       "toMs": 96000
+      }
+     },
+     {
+      "name": "add_song_timing",
+      "input": {
+       "tracks": [
+        "sections",
+        "bars",
+        "beats"
+       ]
+      }
+     }
+    ]
+   ]
+  },
+  {
+   "stage": "build step \"quiet\"",
+   "turns": [
+    [
+     {
+      "name": "get_guide",
+      "input": {
+       "effects": [
+        "on",
+        "twinkle",
+        "plasma"
+       ],
+       "parts": [
+        "looks",
+        "settings"
+       ],
+       "topics": [
+        "timing",
+        "effect-wide"
+       ]
+      }
+     }
+    ],
+    [
+     {
+      "name": "place_effects",
+      "input": {
+       "items": [
+        {
+         "effect": {
+          "brightness": 0.18,
+          "colors": [
+           "#ffc880"
+          ],
+          "kind": "on",
+          "settings": {
+           "endLevel": 1,
+           "startLevel": 0
+          }
+         },
+         "fromMs": 0,
+         "layer": 0,
+         "rowIds": [
+          "@Tree Star"
+         ],
+         "toMs": 2000,
+         "track": "Bars"
+        },
+        {
+         "effect": {
+          "brightness": 0.18,
+          "colors": [
+           "#ffc880"
+          ],
+          "kind": "on"
+         },
+         "fromMs": 2000,
+         "layer": 0,
+         "rowIds": [
+          "@Tree Star"
+         ],
+         "toMs": 8000,
+         "track": "Sections"
+        },
+        {
+         "effect": {
+          "blend": "max",
+          "brightness": 0.2,
+          "colors": [
+           "#ffc880"
+          ],
+          "fadeInMs": 2000,
+          "kind": "twinkle",
+          "settings": {
+           "density": 0.15,
+           "rate": 0.4
+          }
+         },
+         "fromMs": 0,
+         "layer": 1,
+         "rowIds": [
+          "@Tree Star"
+         ],
+         "toMs": 8000,
+         "track": "Sections"
+        },
+        {
+         "effect": {
+          "brightness": 0.16,
+          "colors": [
+           "#ffc880"
+          ],
+          "fadeInMs": 1000,
+          "kind": "on"
+         },
+         "fromMs": 4000,
+         "layer": 0,
+         "marksEach": 2,
+         "rowIds": [
+          "@Roofline"
+         ],
+         "toMs": 8000,
+         "track": "Bars"
+        },
+        {
+         "effect": {
+          "brightness": 0.12,
+          "colors": [
+           "#60c8ff"
+          ],
+          "kind": "on"
+         },
+         "fromMs": 72000,
+         "layer": 0,
+         "rowIds": [
+          "@Matrix"
+         ],
+         "toMs": 79000,
+         "track": "Sections"
+        },
+        {
+         "effect": {
+          "blend": "max",
+          "brightness": 0.2,
+          "colors": [
+           "#60c8ff",
+           "#ffc880"
+          ],
+          "kind": "plasma",
+          "settings": {
+           "density": 1,
+           "speed": 50,
+           "twist": 1
+          }
+         },
+         "fromMs": 72000,
+         "layer": 1,
+         "rowIds": [
+          "@Matrix"
+         ],
+         "toMs": 79000,
+         "track": "Sections"
+        },
+        {
+         "effect": {
+          "brightness": 0.2,
+          "colors": [
+           "#ffc880"
+          ],
+          "kind": "on"
+         },
+         "fromMs": 92000,
+         "layer": 0,
+         "rowIds": [
+          "@Roofline"
+         ],
+         "toMs": 94000,
+         "track": "Bars"
+        },
+        {
+         "effect": {
+          "brightness": 0.24,
+          "colors": [
+           "#ffc880"
+          ],
+          "kind": "on"
+         },
+         "fromMs": 92000,
+         "layer": 0,
+         "rowIds": [
+          "@Tree Star"
+         ],
+         "toMs": 94000,
+         "track": "Bars"
+        },
+        {
+         "effect": {
+          "brightness": 0.2,
+          "colors": [
+           "#ffc880"
+          ],
+          "kind": "on",
+          "settings": {
+           "endLevel": 0,
+           "startLevel": 1
+          }
+         },
+         "fromMs": 94000,
+         "layer": 0,
+         "rowIds": [
+          "@Roofline"
+         ],
+         "toMs": 96000,
+         "track": "Bars"
+        },
+        {
+         "effect": {
+          "brightness": 0.24,
+          "colors": [
+           "#ffc880"
+          ],
+          "kind": "on",
+          "settings": {
+           "endLevel": 0,
+           "startLevel": 1
+          }
+         },
+         "fromMs": 94000,
+         "layer": 0,
+         "rowIds": [
+          "@Tree Star"
+         ],
+         "toMs": 96000,
+         "track": "Bars"
+        }
+       ]
+      }
+     }
+    ]
+   ]
+  },
+  {
+   "stage": "build step \"verses\"",
+   "turns": [
+    [
+     {
+      "name": "place_effects",
+      "input": {
+       "items": [
+        {
+         "effect": {
+          "brightness": 0.22,
+          "colors": [
+           "#ffc880"
+          ],
+          "kind": "on"
+         },
+         "fromMs": 8000,
+         "layer": 0,
+         "rowIds": [
+          "@Roofline"
+         ],
+         "toMs": 24000,
+         "track": "Sections"
+        },
+        {
+         "effect": {
+          "brightness": 0.22,
+          "colors": [
+           "#ffc880"
+          ],
+          "kind": "on"
+         },
+         "fromMs": 40000,
+         "layer": 0,
+         "rowIds": [
+          "@Roofline"
+         ],
+         "toMs": 56000,
+         "track": "Sections"
+        },
+        {
+         "effect": {
+          "brightness": 0.18,
+          "colors": [
+           "#60c8ff"
+          ],
+          "kind": "on"
+         },
+         "fromMs": 8000,
+         "layer": 0,
+         "rowIds": [
+          "@Mega Tree"
+         ],
+         "toMs": 24000,
+         "track": "Sections"
+        },
+        {
+         "effect": {
+          "brightness": 0.18,
+          "colors": [
+           "#60c8ff"
+          ],
+          "kind": "on"
+         },
+         "fromMs": 40000,
+         "layer": 0,
+         "rowIds": [
+          "@Mega Tree"
+         ],
+         "toMs": 56000,
+         "track": "Sections"
+        },
+        {
+         "effect": {
+          "blend": "max",
+          "brightness": 0.24,
+          "colors": [
+           "#60c8ff"
+          ],
+          "kind": "twinkle",
+          "settings": {
+           "density": 0.15,
+           "rate": 0.4
+          }
+         },
+         "fromMs": 8000,
+         "layer": 1,
+         "marksEach": 4,
+         "rowIds": [
+          "@Mega Tree"
+         ],
+         "toMs": 24000,
+         "track": "Bars"
+        },
+        {
+         "effect": {
+          "blend": "max",
+          "brightness": 0.24,
+          "colors": [
+           "#60c8ff"
+          ],
+          "kind": "twinkle",
+          "settings": {
+           "density": 0.15,
+           "rate": 0.4
+          }
+         },
+         "fromMs": 40000,
+         "layer": 1,
+         "marksEach": 4,
+         "rowIds": [
+          "@Mega Tree"
+         ],
+         "toMs": 56000,
+         "track": "Bars"
+        },
+        {
+         "effect": {
+          "brightness": 0.2,
+          "colors": [
+           "#ffc880"
+          ],
+          "kind": "on"
+         },
+         "fromMs": 8000,
+         "layer": 0,
+         "marksEach": 2,
+         "rowIds": [
+          "@Window Left",
+          "@Window Right"
+         ],
+         "spread": "alternate",
+         "toMs": 24000,
+         "track": "Bars"
+        },
+        {
+         "effect": {
+          "brightness": 0.25,
+          "colors": [
+           "#ffc880"
+          ],
+          "kind": "on"
+         },
+         "fromMs": 40000,
+         "layer": 0,
+         "marksEach": 2,
+         "rowIds": [
+          "@Window Left",
+          "@Window Right"
+         ],
+         "spread": "alternate",
+         "toMs": 56000,
+         "track": "Bars"
+        },
+        {
+         "effect": {
+          "brightness": 0.4,
+          "colors": [
+           "#ffc880"
+          ],
+          "kind": "on",
+          "settings": {
+           "endLevel": 1,
+           "startLevel": 0.5
+          }
+         },
+         "fromMs": 20000,
+         "layer": 0,
+         "rowIds": [
+          "@Arch 1"
+         ],
+         "toMs": 23750
+        },
+        {
+         "effect": {
+          "brightness": 0.4,
+          "colors": [
+           "#ffc880"
+          ],
+          "kind": "on",
+          "settings": {
+           "endLevel": 1,
+           "startLevel": 0.5
+          }
+         },
+         "fromMs": 20500,
+         "layer": 0,
+         "rowIds": [
+          "@Arch 2"
+         ],
+         "toMs": 23750
+        },
+        {
+         "effect": {
+          "brightness": 0.4,
+          "colors": [
+           "#ffc880"
+          ],
+          "kind": "on",
+          "settings": {
+           "endLevel": 1,
+           "startLevel": 0.5
+          }
+         },
+         "fromMs": 21000,
+         "layer": 0,
+         "rowIds": [
+          "@Arch 3"
+         ],
+         "toMs": 23750
+        },
+        {
+         "effect": {
+          "brightness": 0.4,
+          "colors": [
+           "#ffc880"
+          ],
+          "kind": "on",
+          "settings": {
+           "endLevel": 1,
+           "startLevel": 0.5
+          }
+         },
+         "fromMs": 21500,
+         "layer": 0,
+         "rowIds": [
+          "@Arch 4"
+         ],
+         "toMs": 23750
+        },
+        {
+         "effect": {
+          "blend": "over",
+          "brightness": 0.3,
+          "colors": [
+           "#ffc880"
+          ],
+          "kind": "chase",
+          "settings": {
+           "order": "across",
+           "speed": 0.25,
+           "width": 0.15
+          }
+         },
+         "fromMs": 20000,
+         "layer": 1,
+         "rowIds": [
+          "@Arches"
+         ],
+         "toMs": 22000,
+         "track": "Bars"
+        },
+        {
+         "effect": {
+          "blend": "over",
+          "brightness": 0.45,
+          "colors": [
+           "#ffc880"
+          ],
+          "kind": "chase",
+          "settings": {
+           "order": "across",
+           "speed": 0.5,
+           "width": 0.15
+          }
+         },
+         "fromMs": 22000,
+         "layer": 1,
+         "rowIds": [
+          "@Arches"
+         ],
+         "toMs": 23750,
+         "track": "Bars"
+        },
+        {
+         "effect": {
+          "brightness": 0.35,
+          "colors": [
+           "#ffc880"
+          ],
+          "kind": "on"
+         },
+         "fromMs": 22000,
+         "layer": 0,
+         "rowIds": [
+          "@Candy Canes"
+         ],
+         "toMs": 23750,
+         "track": "Bars"
+        },
+        {
+         "effect": {
+          "blend": "over",
+          "brightness": 0.45,
+          "colors": [
+           "#ffc880"
+          ],
+          "kind": "chase",
+          "settings": {
+           "order": "across",
+           "speed": 0.5,
+           "width": 0.15
+          }
+         },
+         "fromMs": 54000,
+         "layer": 1,
+         "rowIds": [
+          "@Arches"
+         ],
+         "toMs": 55750,
+         "track": "Bars"
+        },
+        {
+         "effect": {
+          "brightness": 0.35,
+          "colors": [
+           "#ffc880"
+          ],
+          "kind": "chase",
+          "settings": {
+           "order": "across",
+           "speed": 0.5,
+           "width": 0.15
+          }
+         },
+         "fromMs": 55000,
+         "layer": 0,
+         "marksEach": 2,
+         "rowIds": [
+          "@Candy Canes"
+         ],
+         "toMs": 55750,
+         "track": "Beats"
+        }
+       ]
+      }
+     }
+    ]
+   ]
+  },
+  {
+   "stage": "build step \"choruses\"",
+   "turns": [
+    [
+     {
+      "name": "get_guide",
+      "input": {
+       "effects": [
+        "spiral",
+        "chase",
+        "on"
+       ],
+       "parts": [
+        "reference"
+       ],
+       "topics": [
+        "effect-wide"
+       ]
+      }
+     }
+    ],
+    [
+     {
+      "name": "place_effects",
+      "input": {
+       "items": [
+        {
+         "effect": {
+          "brightness": 0.42,
+          "colors": [
+           "#60c8ff"
+          ],
+          "kind": "on"
+         },
+         "fromMs": 24000,
+         "layer": 0,
+         "rowIds": [
+          "@Roofline"
+         ],
+         "toMs": 40000,
+         "track": "Sections"
+        },
+        {
+         "effect": {
+          "brightness": 0.4,
+          "colors": [
+           "#ffc880"
+          ],
+          "kind": "on"
+         },
+         "fromMs": 24000,
+         "layer": 0,
+         "rowIds": [
+          "@Window Left",
+          "@Window Right"
+         ],
+         "toMs": 40000,
+         "track": "Sections"
+        },
+        {
+         "effect": {
+          "brightness": 0.3,
+          "colors": [
+           "#60c8ff"
+          ],
+          "kind": "on"
+         },
+         "fromMs": 24000,
+         "layer": 0,
+         "rowIds": [
+          "@Mega Tree"
+         ],
+         "toMs": 40000,
+         "track": "Sections"
+        },
+        {
+         "effect": {
+          "brightness": 0.28,
+          "colors": [
+           "#60c8ff"
+          ],
+          "kind": "on"
+         },
+         "fromMs": 24000,
+         "layer": 0,
+         "rowIds": [
+          "@Arches"
+         ],
+         "toMs": 40000,
+         "track": "Sections"
+        },
+        {
+         "effect": {
+          "brightness": 0.3,
+          "colors": [
+           "#ffc880"
+          ],
+          "kind": "on"
+         },
+         "fromMs": 24000,
+         "layer": 0,
+         "rowIds": [
+          "@Candy Canes"
+         ],
+         "toMs": 40000,
+         "track": "Sections"
+        },
+        {
+         "effect": {
+          "brightness": 0.25,
+          "colors": [
+           "#ffc880"
+          ],
+          "kind": "on"
+         },
+         "fromMs": 24000,
+         "layer": 0,
+         "rowIds": [
+          "@Tree Star"
+         ],
+         "toMs": 40000,
+         "track": "Sections"
+        },
+        {
+         "effect": {
+          "blend": "max",
+          "brightness": 0.6,
+          "colors": [
+           "#60c8ff",
+           "#ffc880"
+          ],
+          "kind": "spiral",
+          "settings": {
+           "count": 2,
+           "direction": "forward",
+           "speed": 0.5,
+           "thickness": 0.65,
+           "twist": 1
+          }
+         },
+         "fromMs": 24000,
+         "layer": 1,
+         "rowIds": [
+          "@Mega Tree"
+         ],
+         "toMs": 32000,
+         "track": "Bars"
+        },
+        {
+         "effect": {
+          "blend": "max",
+          "brightness": 0.6,
+          "colors": [
+           "#60c8ff",
+           "#ffc880"
+          ],
+          "kind": "spiral",
+          "settings": {
+           "count": 2,
+           "direction": "reverse",
+           "speed": 0.5,
+           "thickness": 0.65,
+           "twist": -1
+          }
+         },
+         "fromMs": 32000,
+         "layer": 1,
+         "rowIds": [
+          "@Mega Tree"
+         ],
+         "toMs": 40000,
+         "track": "Bars"
+        },
+        {
+         "effect": {
+          "blend": "over",
+          "brightness": 0.55,
+          "colors": [
+           "#60c8ff",
+           "#ffc880"
+          ],
+          "kind": "chase",
+          "settings": {
+           "bands": 1,
+           "direction": "forward",
+           "order": "across",
+           "speed": 0.5,
+           "width": 0.15
+          }
+         },
+         "fromMs": 24000,
+         "layer": 1,
+         "rowIds": [
+          "@Arches",
+          "@Candy Canes"
+         ],
+         "toMs": 32000,
+         "track": "Bars"
+        },
+        {
+         "effect": {
+          "blend": "over",
+          "brightness": 0.55,
+          "colors": [
+           "#60c8ff",
+           "#ffc880"
+          ],
+          "kind": "chase",
+          "settings": {
+           "bands": 1,
+           "direction": "reverse",
+           "order": "across",
+           "speed": 0.5,
+           "width": 0.15
+          }
+         },
+         "fromMs": 32000,
+         "layer": 1,
+         "rowIds": [
+          "@Arches",
+          "@Candy Canes"
+         ],
+         "toMs": 40000,
+         "track": "Bars"
+        },
+        {
+         "effect": {
+          "blend": "max",
+          "brightness": 0.4,
+          "colors": [
+           "#ffc880",
+           "#ffc880",
+           "#ffc880",
+           "#ffffff"
+          ],
+          "kind": "twinkle",
+          "settings": {
+           "density": 0.15,
+           "rate": 0.4
+          }
+         },
+         "fromMs": 24000,
+         "layer": 1,
+         "rowIds": [
+          "@Tree Star"
+         ],
+         "toMs": 40000
+        },
+        {
+         "effect": {
+          "brightness": 0.52,
+          "colors": [
+           "#60c8ff"
+          ],
+          "kind": "on"
+         },
+         "fromMs": 80000,
+         "layer": 0,
+         "rowIds": [
+          "@Roofline"
+         ],
+         "toMs": 92000,
+         "track": "Sections"
+        },
+        {
+         "effect": {
+          "brightness": 0.48,
+          "colors": [
+           "#ffc880"
+          ],
+          "kind": "on"
+         },
+         "fromMs": 80000,
+         "layer": 0,
+         "rowIds": [
+          "@Window Left",
+          "@Window Right",
+          "@Candy Canes",
+          "@Tree Star"
+         ],
+         "toMs": 92000,
+         "track": "Sections"
+        },
+        {
+         "effect": {
+          "brightness": 0.48,
+          "colors": [
+           "#60c8ff"
+          ],
+          "kind": "on"
+         },
+         "fromMs": 80000,
+         "layer": 0,
+         "rowIds": [
+          "@Mega Tree",
+          "@Arches"
+         ],
+         "toMs": 92000,
+         "track": "Sections"
+        },
+        {
+         "effect": {
+          "blend": "max",
+          "brightness": 0.72,
+          "colors": [
+           "#60c8ff",
+           "#ffc880"
+          ],
+          "kind": "spiral",
+          "settings": {
+           "count": 2,
+           "direction": "forward",
+           "speed": 0.6,
+           "thickness": 0.65,
+           "twist": 1
+          }
+         },
+         "fromMs": 80000,
+         "layer": 1,
+         "rowIds": [
+          "@Mega Tree"
+         ],
+         "toMs": 88000,
+         "track": "Bars"
+        },
+        {
+         "effect": {
+          "blend": "max",
+          "brightness": 0.72,
+          "colors": [
+           "#60c8ff",
+           "#ffc880"
+          ],
+          "kind": "spiral",
+          "settings": {
+           "count": 2,
+           "direction": "reverse",
+           "speed": 0.6,
+           "thickness": 0.65,
+           "twist": -1
+          }
+         },
+         "fromMs": 88000,
+         "layer": 1,
+         "rowIds": [
+          "@Mega Tree"
+         ],
+         "toMs": 92000,
+         "track": "Bars"
+        },
+        {
+         "effect": {
+          "blend": "over",
+          "brightness": 0.68,
+          "colors": [
+           "#60c8ff",
+           "#ffc880"
+          ],
+          "kind": "chase",
+          "settings": {
+           "bands": 1,
+           "direction": "reverse",
+           "order": "across",
+           "speed": 0.5,
+           "width": 0.15
+          }
+         },
+         "fromMs": 80000,
+         "layer": 1,
+         "rowIds": [
+          "@Arch 1",
+          "@Arch 2"
+         ],
+         "toMs": 82000,
+         "track": "Bars"
+        },
+        {
+         "effect": {
+          "blend": "over",
+          "brightness": 0.68,
+          "colors": [
+           "#60c8ff",
+           "#ffc880"
+          ],
+          "kind": "chase",
+          "settings": {
+           "bands": 1,
+           "direction": "forward",
+           "order": "across",
+           "speed": 0.5,
+           "width": 0.15
+          }
+         },
+         "fromMs": 80000,
+         "layer": 1,
+         "rowIds": [
+          "@Arch 3",
+          "@Arch 4"
+         ],
+         "toMs": 82000,
+         "track": "Bars"
+        },
+        {
+         "effect": {
+          "blend": "over",
+          "brightness": 0.68,
+          "colors": [
+           "#ffc880"
+          ],
+          "kind": "chase",
+          "settings": {
+           "bands": 1,
+           "direction": "forward",
+           "order": "across",
+           "speed": 0.5,
+           "width": 0.15
+          }
+         },
+         "fromMs": 80000,
+         "layer": 1,
+         "rowIds": [
+          "@Candy Canes"
+         ],
+         "toMs": 82000,
+         "track": "Bars"
+        },
+        {
+         "effect": {
+          "blend": "over",
+          "brightness": 0.68,
+          "colors": [
+           "#60c8ff",
+           "#ffc880"
+          ],
+          "kind": "chase",
+          "settings": {
+           "bands": 1,
+           "direction": "forward",
+           "order": "across",
+           "speed": 0.5,
+           "width": 0.15
+          }
+         },
+         "fromMs": 82000,
+         "layer": 1,
+         "rowIds": [
+          "@Arches",
+          "@Candy Canes"
+         ],
+         "toMs": 88000,
+         "track": "Bars"
+        },
+        {
+         "effect": {
+          "blend": "over",
+          "brightness": 0.68,
+          "colors": [
+           "#60c8ff",
+           "#ffc880"
+          ],
+          "kind": "chase",
+          "settings": {
+           "bands": 1,
+           "direction": "reverse",
+           "order": "across",
+           "speed": 0.5,
+           "width": 0.15
+          }
+         },
+         "fromMs": 88000,
+         "layer": 1,
+         "rowIds": [
+          "@Arches",
+          "@Candy Canes"
+         ],
+         "toMs": 92000,
+         "track": "Bars"
+        },
+        {
+         "effect": {
+          "blend": "max",
+          "brightness": 0.55,
+          "colors": [
+           "#ffc880",
+           "#ffc880",
+           "#ffc880",
+           "#ffffff"
+          ],
+          "kind": "twinkle",
+          "settings": {
+           "density": 0.22,
+           "rate": 0.6
+          }
+         },
+         "fromMs": 80000,
+         "layer": 1,
+         "rowIds": [
+          "@Tree Star"
+         ],
+         "toMs": 92000
+        }
+       ]
+      }
+     }
+    ]
+   ]
+  },
+  {
+   "stage": "build step \"vocals\"",
+   "turns": [
+    [
+     {
+      "name": "get_timing_marks",
+      "input": {
+       "trackId": "Lyrics"
+      }
+     },
+     {
+      "name": "get_timing_marks",
+      "input": {
+       "trackId": "Lyrics (words)"
+      }
+     },
+     {
+      "name": "get_timing_marks",
+      "input": {
+       "trackId": "Lyrics (phonemes)"
+      }
+     },
+     {
+      "name": "get_guide",
+      "input": {
+       "effects": [
+        "faces",
+        "text"
+       ],
+       "parts": [
+        "reference"
+       ]
+      }
+     }
+    ],
+    [
+     {
+      "name": "place_effects",
+      "input": {
+       "items": [
+        {
+         "effect": {
+          "brightness": 0.3,
+          "colors": [
+           "#ffc880",
+           "#ffc880",
+           "#ffc880"
+          ],
+          "kind": "faces",
+          "settings": {
+           "colors": "palette",
+           "eyes": "auto",
+           "face": "",
+           "timingTrack": "Lyrics (phonemes)"
+          }
+         },
+         "fromMs": 8000,
+         "rowIds": [
+          "@Singing Face"
+         ],
+         "toMs": 24000,
+         "track": "Lyrics"
+        },
+        {
+         "effect": {
+          "brightness": 0.5,
+          "colors": [
+           "#ffc880",
+           "#ffc880",
+           "#ffc880"
+          ],
+          "kind": "faces",
+          "settings": {
+           "colors": "palette",
+           "eyes": "auto",
+           "face": "",
+           "timingTrack": "Lyrics (phonemes)"
+          }
+         },
+         "fromMs": 24000,
+         "rowIds": [
+          "@Singing Face"
+         ],
+         "toMs": 40000,
+         "track": "Lyrics"
+        },
+        {
+         "effect": {
+          "brightness": 0.3,
+          "colors": [
+           "#ffc880",
+           "#ffc880",
+           "#ffc880"
+          ],
+          "kind": "faces",
+          "settings": {
+           "colors": "palette",
+           "eyes": "auto",
+           "face": "",
+           "timingTrack": "Lyrics (phonemes)"
+          }
+         },
+         "fromMs": 40000,
+         "rowIds": [
+          "@Singing Face"
+         ],
+         "toMs": 56000,
+         "track": "Lyrics"
+        },
+        {
+         "effect": {
+          "brightness": 0.5,
+          "colors": [
+           "#ffc880",
+           "#ffc880",
+           "#ffc880"
+          ],
+          "kind": "faces",
+          "settings": {
+           "colors": "palette",
+           "eyes": "auto",
+           "face": "",
+           "timingTrack": "Lyrics (phonemes)"
+          }
+         },
+         "fromMs": 56000,
+         "rowIds": [
+          "@Singing Face"
+         ],
+         "toMs": 72000,
+         "track": "Lyrics"
+        },
+        {
+         "effect": {
+          "brightness": 0.6,
+          "colors": [
+           "#ffc880",
+           "#ffc880",
+           "#ffc880"
+          ],
+          "kind": "faces",
+          "settings": {
+           "colors": "palette",
+           "eyes": "auto",
+           "face": "",
+           "timingTrack": "Lyrics (phonemes)"
+          }
+         },
+         "fromMs": 80000,
+         "rowIds": [
+          "@Singing Face"
+         ],
+         "toMs": 92000,
+         "track": "Lyrics"
+        },
+        {
+         "effect": {
+          "brightness": 0.5,
+          "colors": [
+           "#ffc880",
+           "#60c8ff"
+          ],
+          "kind": "text",
+          "settings": {
+           "colorPerWord": true,
+           "movement": "none",
+           "size": 8,
+           "text": "LIGHT\nIT UP"
+          }
+         },
+         "fromMs": 24000,
+         "rowIds": [
+          "@Matrix"
+         ],
+         "toMs": 27500
+        },
+        {
+         "effect": {
+          "brightness": 0.55,
+          "colors": [
+           "#ffc880",
+           "#60c8ff"
+          ],
+          "kind": "text",
+          "settings": {
+           "colorPerWord": true,
+           "movement": "none",
+           "size": 8,
+           "text": "LIGHT\nIT UP"
+          }
+         },
+         "fromMs": 56000,
+         "rowIds": [
+          "@Matrix"
+         ],
+         "toMs": 59500
+        },
+        {
+         "effect": {
+          "brightness": 0.6,
+          "colors": [
+           "#ffc880",
+           "#60c8ff"
+          ],
+          "kind": "text",
+          "settings": {
+           "colorPerWord": true,
+           "movement": "none",
+           "size": 8,
+           "text": "LIGHT\nIT UP"
+          }
+         },
+         "fromMs": 80000,
+         "rowIds": [
+          "@Matrix"
+         ],
+         "toMs": 83500
+        }
+       ],
+       "layer": 1
+      }
+     }
+    ]
+   ]
+  },
+  {
+   "stage": "build step \"moments\"",
+   "turns": [
+    [
+     {
+      "name": "get_guide",
+      "input": {
+       "effects": [
+        "impact",
+        "shockwave",
+        "off",
+        "fade",
+        "chase"
+       ],
+       "parts": [
+        "use",
+        "settings",
+        "looks"
+       ],
+       "topics": [
+        "cues"
+       ]
+      }
+     }
+    ],
+    [
+     {
+      "name": "stage_cue",
+      "input": {
+       "cues": [
+        {
+         "at": 20000,
+         "colors": [
+          "#ffc880",
+          "#60c8ff"
+         ],
+         "cue": "ramp",
+         "hit": false,
+         "intensity": 0.6,
+         "targets": [
+          "Arch 1",
+          "Arch 2",
+          "Arch 3",
+          "Arch 4",
+          "Candy Canes"
+         ],
+         "until": 23750
+        },
+        {
+         "at": 23750,
+         "cue": "blackout",
+         "hit": false,
+         "targets": [
+          "all"
+         ],
+         "until": 24000
+        },
+        {
+         "at": 24000,
+         "colors": [
+          "#60c8ff"
+         ],
+         "cue": "hit",
+         "intensity": 0.9,
+         "targets": [
+          "all"
+         ]
+        },
+        {
+         "at": 32000,
+         "colors": [
+          "#ffc880"
+         ],
+         "cue": "hit",
+         "intensity": 0.45,
+         "targets": [
+          "Mega Tree",
+          "Tree Star"
+         ]
+        },
+        {
+         "at": 54000,
+         "colors": [
+          "#ffc880",
+          "#60c8ff"
+         ],
+         "cue": "chase",
+         "direction": "leftToRight",
+         "intensity": 0.45,
+         "targets": [
+          "Arch 1",
+          "Arch 2",
+          "Arch 3",
+          "Arch 4",
+          "Candy Canes"
+         ],
+         "track": "Beats",
+         "until": 55750
+        },
+        {
+         "at": 55750,
+         "cue": "blackout",
+         "hit": false,
+         "targets": [
+          "all"
+         ],
+         "until": 56000
+        },
+        {
+         "at": 56000,
+         "colors": [
+          "#60c8ff"
+         ],
+         "cue": "hit",
+         "intensity": 0.85,
+         "targets": [
+          "all"
+         ]
+        },
+        {
+         "at": 72000,
+         "cue": "blackout",
+         "hit": false,
+         "targets": [
+          "Roofline",
+          "Window Left",
+          "Window Right",
+          "Mega Tree",
+          "Tree Star",
+          "Arch 1",
+          "Arch 2",
+          "Arch 3",
+          "Arch 4",
+          "Candy Canes",
+          "Singing Face"
+         ],
+         "until": 79000
+        },
+        {
+         "at": 79000,
+         "cue": "blackout",
+         "hit": false,
+         "targets": [
+          "all"
+         ],
+         "until": 80000
+        },
+        {
+         "at": 80000,
+         "colors": [
+          "#60c8ff"
+         ],
+         "cue": "hit",
+         "direction": "centerOut",
+         "intensity": 1,
+         "targets": [
+          "all"
+         ]
+        },
+        {
+         "at": 92000,
+         "colors": [
+          "#ffc880"
+         ],
+         "cue": "sustain",
+         "intensity": 0.22,
+         "targets": [
+          "Roofline",
+          "Tree Star"
+         ],
+         "until": 96000
+        },
+        {
+         "at": 92000,
+         "cue": "blackout",
+         "hit": false,
+         "targets": [
+          "Window Left",
+          "Window Right",
+          "Matrix",
+          "Mega Tree",
+          "Arch 1",
+          "Arch 2",
+          "Arch 3",
+          "Arch 4",
+          "Candy Canes",
+          "Singing Face"
+         ],
+         "until": 96000
+        }
+       ],
+       "stageMoments": {
+        "minImportance": 1.01
+       }
+      }
+     }
+    ]
+   ]
+  },
+  {
+   "stage": "refine",
+   "turns": [
+    [
+     {
+      "name": "stage_cue",
+      "input": {
+       "cues": [
+        {
+         "at": 59500,
+         "colors": [
+          "#60c8ff",
+          "#ffc880"
+         ],
+         "cue": "full",
+         "intensity": 0.7,
+         "targets": [
+          "Mega Tree",
+          "Arch 1",
+          "Arch 2",
+          "Arch 3",
+          "Arch 4",
+          "Candy Canes"
+         ],
+         "until": 64000
+        },
+        {
+         "at": 67450,
+         "colors": [
+          "#60c8ff",
+          "#ffc880"
+         ],
+         "cue": "full",
+         "intensity": 0.7,
+         "targets": [
+          "Mega Tree",
+          "Arch 1",
+          "Arch 2",
+          "Arch 3",
+          "Arch 4",
+          "Candy Canes"
+         ],
+         "until": 71500
+        },
+        {
+         "at": 8700,
+         "colors": [
+          "#ffc880"
+         ],
+         "cue": "word_pop",
+         "intensity": 0.24,
+         "match": "lanterns",
+         "targets": [
+          "Tree Star"
+         ],
+         "until": 89140
+        }
+       ]
+      }
+     }
+    ]
+   ]
+  }
+ ]
+}

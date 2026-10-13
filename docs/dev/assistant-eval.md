@@ -10,7 +10,11 @@ doesn't exist, a song that was never recorded, words nobody wrote down anywhere 
 ## What it runs
 
 Nine requests, each typed into the real chat loop (`ChatSession::run_turn`) exactly as the app
-would send it, with the Assistant's real instructions, tools, and guides:
+would send it, with the Assistant's real instructions, tools, and guides. By default big jobs
+are built in stages, as the app does with **Plan big jobs first** on (a brief, a checked design,
+the plan's steps built at once in small conversations, a review and a refine: see
+[assistant-guides.md](assistant-guides.md#big-jobs-in-stages)); `--flow single` runs every job
+in one conversation instead, as before:
 
 | Scenario | The request | What is open |
 |---|---|---|
@@ -52,11 +56,17 @@ hand-written analysis.
   guides read, the size of everything sent and received, and (on a real run) the tokens the
   provider billed and what they cost.
 
-The report opens with what a person waits through, a row per scenario: the requests (each a
-round trip to the model), the tool calls, and the tokens sent with the first request and with a
-request on average (as billed when the provider reported them; marked `~` when estimated from
-sizes, as for the stand-in), and the largest request. Those columns compare directly with an
-earlier run's.
+The report opens with what a person waits through, a row per scenario: whether it was built in
+stages, the requests (each a round trip to the model, every stage's counted), the **critical
+path** (the most requests that had to happen one after another: a stage waits for the one
+before it, but the steps of a wave run at once, so this is what a person waits through), the
+tool calls (every stage's), the tokens sent with the first request and with a request on average
+(as billed when the provider reported them; marked `~` when estimated from sizes, as for the
+stand-in), the largest request, and on a real run the wall-clock time from the first request to
+the last reply. Those columns compare directly with an earlier run's. In a staged run the
+transcript holds every stage's calls in turn, and the guides a stage was given with its request
+show as a `get_guide` marked `given` (counted as read, not as a call); "It reviewed its draft"
+passes for a staged build, which reviews every draft it builds.
 
 `crates/pf-ai/src/eval/scenarios.rs` has each scenario's checks; adding a scenario is adding an
 entry there (and a scripted answer in `stand_in.rs`, which the tests require to pass it).
@@ -97,6 +107,8 @@ For Anthropic, add `--price-cache-write <share of --price-in>` (what writing to 
   (see [Spending](#spending)). `--max-requests <n>` is a second, plainer brake: at most that many
   requests in the whole run.
 - `--scenario whole-song,halloween` runs only those.
+- `--flow staged` (the default) or `--flow single`: how big jobs are done (see above). Run both
+  to compare the two on the same model.
 - `--runs 3` answers each scenario three times: models vary from one run to the next, and one
   run is an anecdote.
 - `--out <folder>` writes `report.md` (what is printed) and `results.json` (the model, the prices,
@@ -118,7 +130,12 @@ for a chat:
 - each scenario's request, as written above, with the made-up show, sequence, and song in
   outline in its context block, as the app sends them with a first message;
 - whatever the model looks up with its tools: PixelFlow's own guides, and the made-up show,
-  sequence, song analysis, and words described above.
+  sequence, song analysis, and words described above;
+- for a job built in stages: a design request (the stages' instructions, the catalogue of tools
+  and effects, and the show-design guides, the same every time, with the brief and the made-up
+  show and song in outline), a request for each step of its plan (only that step's tools,
+  stretch of the song, props, and effects' guides), and a refine request with the review's
+  fixes. Several steps' requests may be on their way at once.
 
 Nothing of yours is read or sent: no show, sequence, song, lyrics, picture, file, or device.
 Requests to Anthropic ask for prompt caching; requests to OpenAI ask it not to store the
@@ -135,7 +152,9 @@ token written to its cache, as a share of `--price-in`; OpenAI doesn't charge fo
 any of them missing it stops before making a provider or reading the key, and says which. It
 prints the prices and ceiling it will use before the first request.
 
-**Before every request** it works out the most that request could cost: every byte of the body it
+**Before every request** it works out the most that request could cost (and holds that against
+the ceiling, beside the worst cases of any requests still on their way, until the request is
+charged what it really cost: a staged build sends several at once): every byte of the body it
 would send counted as a token (no token is shorter than a byte, so this is more than the provider
 will count), plus 4,096 tokens for what the provider wraps around it, all at the full input price
 (or the cache-write price, where that is dearer); plus the request's own output limit (32,000
@@ -173,10 +192,20 @@ without `--send`) the defaults (3, 15, and 0.1) are placeholders.
 The scripted answers work the way the Assistant is asked to: they look up nothing the first
 message's context block already gives, read what a step needs in one `get_guide` call (an
 effect's guide in parts where that is enough), and lay a whole step in one call with `items`.
-When this was written they took 40 requests for all nine scenarios (`whole-song` 6) and sent
-about 484,000 tokens in all, receiving about 3,600 (the dry run prints today's figures as the
-guides grow): nearly all of the cost is the conversation being sent again with each request,
-which is what a provider's cache makes cheap. A model takes more steps than a script that
+With `--flow staged`, the whole song and the calmer-and-bigger rework are handed to the staged
+build (a brief, a plan of each part's base built at once and then the moments and singing, a
+refine with nothing left to do); the rest are done in the chat as before. When this was written:
+
+| Scripted answers | Requests (all nine) | Tokens sent | `whole-song`: requests, critical path, mean request | `calm-and-big`: the same |
+|---|---|---|---|---|
+| `--flow single` | 40 | about 484,000 | 6, 6, ~24,300 tokens | 5, 5, ~15,400 |
+| `--flow staged` | 42 | about 359,000 | 6, 4, ~7,000 tokens | 7, 5, ~6,500 |
+
+A script already knows what it will do, so it gains least from stages; a model that reads, places,
+reviews, and fixes a call at a time gains most: each request carries only its own stage, and
+the steps run at once. Nearly all of the single conversation's cost is the conversation being
+sent again with each request, which is what a provider's cache makes cheap (the dry run prints
+today's figures as the guides grow). A model takes more steps than a script that
 already knows what it will do, reads more guides, and writes more: allow two to four times that.
 At the placeholder prices, that is roughly:
 
@@ -193,7 +222,9 @@ estimate for the scenarios and prices you give it.
 ## What it has and hasn't been run against
 
 The harness is tested with the scripted provider the crate's other tests use
-(`crates/pf-ai/tests/evaluation.rs`): a careful scripted answer passes every scenario's checks,
+(`crates/pf-ai/tests/evaluation.rs`, and `crates/pf-ai/tests/staged.rs` for the staged build,
+whose stages each have their own script so steps built at once each get their own answers): a
+careful scripted answer passes every scenario's checks in both flows,
 an idle one fails them, a refused tool call and a failing provider are reported rather than
 fatal, and the command line makes no provider and reads no key unless it is given `--send`.
 The spending ceiling is tested with that provider reporting usage: `--send` refuses to start

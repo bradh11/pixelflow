@@ -35,6 +35,56 @@ effect side by side in a line each (what it is for, and the kinds of prop its lo
 for), generated from the effects' own guides, so the Assistant can choose before reading the
 guides of only the effects it will place.
 
+## Big jobs in stages
+
+With **Settings → AI → Plan big jobs first** on (the default; the shell's `ai_send` takes it as
+`staged`, the library as `Flow::Staged`), a job that builds or reworks a sequence is done in
+stages (`crates/pf-ai/src/staged/`) instead of one long conversation, where every request
+carries everything said so far:
+
+1. **Understand.** The chat's own first request, as above (the instructions, with
+   `STAGED_ROUTE` added, the core tools, and the context block), plus one more tool,
+   `plan_build`. The model decides by the request: a question, a recolor, a fix or two, or a
+   change to one part or a few props it does itself, in the chat, exactly as without stages; a
+   whole song, a new look for several parts, or calmer and bigger parts it hands on with
+   `plan_build` and a brief (`ask`, `sections`, `keep`, `style`), checked against the song's
+   parts.
+2. **Design.** One request that sees the brief, the context block, the review of what the
+   sequence has now (when it has anything), and a fixed part (`design_system()` in
+   `staged/catalogue.rs`): the stages' instructions, a **catalogue** of every tool a step can use
+   and every effect in a line each (generated from the tool definitions and the effects' guides,
+   so it never goes stale), and the show-design topics (`DESIGN_TOPICS`). It sees no tool's full
+   definition. It answers with `submit_plan`: each part of the song (palette, the props that
+   play, base, movement, accents), the props' roles, the moments, the vocals, and the steps,
+   each naming its parts of the song, its props, its tools, its effects, and the topics it needs.
+   `Plan::read` checks every name against the song, the show, the effects, the guides, and the
+   tools a step may have (no reviewing, proposing, or layout edits); a plan that names anything
+   that isn't there goes back with every problem, up to three times, and then the job goes back
+   to the chat, which does it itself.
+3. **Build.** Each step is a conversation of its own: the plan in brief (palettes, roles, steps),
+   its part of the plan, only the stretch of the song it works in (its parts, moments, accents,
+   bars, and words), only its rows and what they have there now, the guides of its effects
+   (`draws` and `looks`) and of the topics it names, and only the full definitions of its tools.
+   A step whose calls all worked is over after one request; a refused call is answered in the
+   step's conversation. Steps go in waves (`Plan::waves`): a step waits for an earlier one it
+   names (`after`) and for any earlier one that lights the same props at the same time, so the
+   steps of a wave never draw over each other. The steps of a wave run at once, at most
+   `PARALLEL_STEPS` (4), each on its own copy of the draft as the waves before left it; when the
+   wave is done, what each drafted is added to the draft in the plan's order (a change that no
+   longer fits is left out and said so), so the draft is the same whichever step finishes first.
+   The song's timing tracks go in before the first wave, so no step adds its own copy. A step that
+   fails is reported in the reply and leaves nothing behind; Stop ends the running steps and
+   nothing of their wave goes in.
+4. **Review and refine.** The design review of the whole draft; below `REFINED_BELOW` (95) with
+   fixes the tools can make, one refine conversation gets the plan in brief and the review, with
+   only the tools its fixes name. Then the chat proposes the draft as it always does (locked to
+   the music, reviewed, one Apply, one undo), and replies with the plan's summary.
+
+The panel shows the stages (Understand, Design, Build with the parts under way and how many are
+done, Review) from `ChatEvent::Stage`. Each stage's fixed instructions come first in its
+requests and are the same for every request of that stage (every step shares one), so a
+provider's cache keeps them. Turned off, every job is done in one conversation, as before.
+
 ## The rules a guide keeps
 
 Tests (`crates/pf-ai/tests/knowledge.rs`, through `crates/pf-ai/src/knowledge/check.rs`) fail,

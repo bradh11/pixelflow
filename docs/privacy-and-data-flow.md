@@ -131,6 +131,15 @@ When you send the assistant a message, the AI company receives:
 - **PixelFlow's own guides**, when the assistant looks something up: how each effect behaves and
   how a show is designed. They are the same for everyone and say nothing about you or your show.
 
+A big job (a whole song, or a rework of most of one) is built in stages unless you turn that off
+in **Settings → AI**: the same company then receives several smaller requests rather than one
+long conversation. A design request gets a short brief of what you asked (in the assistant's
+words), the same outline of your show, sequence, and song as above, and PixelFlow's assessment
+of the open sequence; then a request for each part of the plan, carrying only that part of the
+song, the props it lights, and what those props have there now; and last, one with PixelFlow's
+review of the draft. Nothing goes in them that the conversation itself couldn't have sent, and
+they go to the same company with the same key. Several of them may be on their way at once.
+
 What it reads about a prop includes its name, shape, size (a matrix's columns and rows), where
 it sits, the part PixelFlow would give it in a show (outline, matrix, tree, and so on), and the
 names of any faces set up on it.

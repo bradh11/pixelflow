@@ -167,7 +167,7 @@ fn what_goes_to_the_model_is_counted() {
     // The report sets the stand-in's first request and mean request side by side, estimated.
     let report = eval::report(std::slice::from_ref(&outcome), "stand-in", &Prices::default());
     let row = format!(
-        "| question | 2 | 1 | ~{} | ~{} | ~{} |",
+        "| question | no | 2 | 2 | 1 | ~{} | ~{} | ~{} | - |",
         eval::tokens_of(traffic.first_request_bytes),
         traffic.mean_request_tokens(),
         eval::tokens_of(traffic.largest_request_bytes)
@@ -591,7 +591,8 @@ fn a_run_that_sends_needs_a_ceiling_and_explicit_prices_or_it_doesnt_start() {
         "Prices for this run, in dollars for a million tokens: sent $1, received $2, read from the cache $0.1000 (a share of 0.1), written to the cache not charged.",
         "Spending ceiling: $10.00 for the whole run.",
         "output limit of 32000 tokens",
-        "question: 2 of 4 checks, 1 requests. Spent so far: $0.0010 of $10.00.",
+        "question: 2 of 4 checks, 1 requests (1 one after another, ",
+        "Spent so far: $0.0010 of $10.00.",
         "Final total: $0.0010 of the $10.00 ceiling",
     ] {
         assert!(said.contains(words), "{words}:\n{said}");
@@ -791,8 +792,8 @@ fn the_report_and_results_show_the_tokens_billed_and_what_they_cost() {
         "Estimated from sizes:",
         // The round trips a person waits through, and what each request carried: the first
         // as billed (1,000 + 500 + 200), and the mean of the two (3,400 / 2).
-        "| Scenario | Requests | Tool calls | First request | Mean request | Largest request |",
-        "| question | 2 | 1 | 1700 | 1700 | ~",
+        "| Scenario | Staged | Requests | Critical path | Tool calls | First request | Mean request | Largest request | Wall clock |",
+        "| question | no | 2 | 2 | 1 | 1700 | 1700 | ~",
     ] {
         assert!(said.contains(words), "{words}:\n{said}");
     }
@@ -844,7 +845,7 @@ fn once_the_budget_or_the_request_limit_stops_a_scenario_no_other_starts() {
     assert_eq!(status, 0, "{said}");
     assert!(provider.requests().is_empty(), "{said}");
     for words in [
-        "0 requests (stopped: budget). Spent so far: $0.0000 of $0.05.",
+        "0 requests (0 one after another, 0.0 s) (stopped: budget). Spent so far: $0.0000 of $0.05.",
         "| dancers (stopped: budget) |",
         "Stopped: budget. The next request's worst case would have passed the spending ceiling",
         "Stopped: budget (the next request could have cost up to $",

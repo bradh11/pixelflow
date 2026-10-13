@@ -135,23 +135,75 @@ impl Transport for FakeTransport {
     }
 }
 
-/// A provider that answers with scripted turns, and remembers what it was asked.
+type Scripted = Result<AssistantTurn, AiError>;
+
+/// One request as a [`ScriptedProvider`] saw it.
+#[derive(Debug, Clone)]
+pub struct Seen {
+    pub system: String,
+    pub messages: Vec<Message>,
+    pub tools: Vec<String>,
+    pub max_tokens: u32,
+}
+
+impl Seen {
+    /// The first line of the conversation's first message ("Stage: design" in a stage's).
+    pub fn opening(&self) -> &str {
+        opening(&self.messages)
+    }
+}
+
+fn opening(messages: &[Message]) -> &str {
+    messages
+        .iter()
+        .find_map(|m| match m {
+            Message::User(text) => text.lines().next(),
+            _ => None,
+        })
+        .unwrap_or_default()
+}
+
+/// A provider that answers with scripted turns, and remembers what it was asked. A staged
+/// build's stages each have their own script ([`ScriptedProvider::stage`]), found by the
+/// conversation's first line, so steps built at the same time each get their own answers
+/// whatever order they ask in; every other conversation takes the main script in order.
 #[derive(Debug, Default)]
 pub struct ScriptedProvider {
-    turns: Mutex<VecDeque<Result<AssistantTurn, AiError>>>,
+    turns: Mutex<VecDeque<Scripted>>,
+    /// Each stage's script, by its conversation's first line.
+    stages: Mutex<Vec<(String, VecDeque<Scripted>)>>,
     /// What each reply reports it used, in order (none once these run out).
     usage: Mutex<VecDeque<Option<Usage>>>,
-    seen: Mutex<Vec<Vec<Message>>>,
-    tools_seen: Mutex<Vec<Vec<String>>>,
-    max_tokens_seen: Mutex<Vec<u32>>,
+    seen: Mutex<Vec<Seen>>,
 }
 
 impl ScriptedProvider {
-    pub fn new(turns: Vec<Result<AssistantTurn, AiError>>) -> Self {
+    pub fn new(turns: Vec<Scripted>) -> Self {
         Self {
             turns: Mutex::new(turns.into()),
             ..Self::default()
         }
+    }
+
+    /// Answers the conversation of `stage` ("design", [`crate::staged::step_stage`], "refine")
+    /// with `turns`, in order.
+    pub fn stage(self, stage: &str, turns: Vec<Scripted>) -> Self {
+        self.stages
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push((crate::staged::stage_line(stage), turns.into()));
+        self
+    }
+
+    /// Every request, as seen, in the order they came.
+    pub fn seen(&self) -> Vec<Seen> {
+        self.seen.lock().unwrap_or_else(PoisonError::into_inner).clone()
+    }
+
+    /// The requests of `stage`'s conversation.
+    pub fn seen_in(&self, stage: &str) -> Vec<Seen> {
+        let line = crate::staged::stage_line(stage);
+        self.seen().into_iter().filter(|s| s.opening() == line).collect()
     }
 
     /// Reports `usage` with each reply, in order, as a real provider would (`None`: that reply
@@ -163,15 +215,12 @@ impl ScriptedProvider {
 
     /// The output limit each request asked for.
     pub fn max_tokens_seen(&self) -> Vec<u32> {
-        self.max_tokens_seen
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone()
+        self.seen().into_iter().map(|s| s.max_tokens).collect()
     }
 
     /// The conversation as sent with each request.
     pub fn requests(&self) -> Vec<Vec<Message>> {
-        self.seen.lock().unwrap_or_else(PoisonError::into_inner).clone()
+        self.seen().into_iter().map(|s| s.messages).collect()
     }
 
     /// Tool names offered with the last request.
@@ -181,10 +230,21 @@ impl ScriptedProvider {
 
     /// Tool names offered with each request, in order.
     pub fn tools_offered_each(&self) -> Vec<Vec<String>> {
-        self.tools_seen
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone()
+        self.seen().into_iter().map(|s| s.tools).collect()
+    }
+
+    /// The next scripted turn for a conversation opening with `line`.
+    fn next_turn(&self, line: &str) -> Scripted {
+        let mut stages = self.stages.lock().unwrap_or_else(PoisonError::into_inner);
+        let turn = match stages.iter_mut().find(|(key, _)| key == line) {
+            Some((_, turns)) => turns.pop_front(),
+            None => self
+                .turns
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .pop_front(),
+        };
+        turn.unwrap_or_else(|| says("(the script ran out)"))
     }
 }
 
@@ -252,27 +312,19 @@ impl LlmProvider for ScriptedProvider {
         self.seen
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .push(request.messages.to_vec());
-        self.max_tokens_seen
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .push(request.max_tokens);
+            .push(Seen {
+                system: request.system.to_string(),
+                messages: request.messages.to_vec(),
+                tools: request.tools.iter().map(|t| t.name.clone()).collect(),
+                max_tokens: request.max_tokens,
+            });
         let usage = self
             .usage
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .pop_front()
             .flatten();
-        self.tools_seen
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .push(request.tools.iter().map(|t| t.name.clone()).collect());
-        let turn = self
-            .turns
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .pop_front()
-            .unwrap_or_else(|| says("(the script ran out)"))?;
+        let turn = self.next_turn(opening(request.messages))?;
         if !turn.text.is_empty() {
             on_event(StreamEvent::Text(turn.text.clone()));
         }

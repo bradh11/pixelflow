@@ -17,7 +17,7 @@ pub mod cli;
 pub mod scenarios;
 pub mod stand_in;
 
-use crate::agent::{ChatSession, MAX_STEPS, SYSTEM_PROMPT};
+use crate::agent::{ChatSession, Flow, MAX_STEPS, instructions};
 use crate::draft::{OpenDoc, UiContext, Workspace};
 use crate::error::AiError;
 use crate::knowledge::reference;
@@ -37,6 +37,7 @@ use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
+use std::time::Instant;
 
 pub use scenarios::{Scenario, scenarios};
 
@@ -77,6 +78,9 @@ pub struct ToolUse {
     /// The start of the answer.
     pub answer: String,
     pub is_error: bool,
+    /// Not a call: guides a stage of a staged build was given with its request.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub given: bool,
 }
 
 /// What went to the model and came back, in bytes of text (instructions, tool definitions, and
@@ -273,12 +277,17 @@ pub struct Spending {
     pub stopped: Option<Stop>,
     /// The worst case of the request that wasn't sent, when the budget stopped the run.
     pub refused_worst_case: Option<f64>,
+    /// The worst cases of the requests sent and not yet answered (a staged build sends several
+    /// at once): held against the ceiling until each is charged what it really cost.
+    #[serde(skip)]
+    pub in_flight: f64,
 }
 
-/// A hard ceiling on what a run spends. Before every request, what has been spent plus the most
-/// that request could cost ([`worst_tokens`] at the prices) must stay within the ceiling, or it
-/// isn't sent and the run stops; after it, what the provider reports it used is added (its worst
-/// case when it reports nothing). So the true total never passes the ceiling.
+/// A hard ceiling on what a run spends. Before every request, what has been spent, plus the worst
+/// cases of the requests still on their way (a staged build sends several at once), plus the
+/// most that request could cost ([`worst_tokens`] at the prices) must stay within the ceiling, or
+/// it isn't sent and the run stops; after it, what the provider reports it used replaces its
+/// worst case (which stands when it reports nothing). So the true total never passes the ceiling.
 #[derive(Debug)]
 pub struct Budget {
     ceiling: f64,
@@ -330,28 +339,35 @@ impl Budget {
             state.stopped = Some(Stop::RequestLimit);
             return Err(Stop::RequestLimit);
         }
-        let fits = state.spent + worst <= self.ceiling;
+        let fits = state.spent + state.in_flight + worst <= self.ceiling;
         if !fits {
             state.stopped = Some(Stop::Budget);
             state.refused_worst_case = Some(worst);
             return Err(Stop::Budget);
         }
         state.requests += 1;
+        state.in_flight += worst;
         Ok(())
     }
 
-    fn charge(&self, billed: &Billed) {
+    /// Charges a request admitted with the worst case `worst` what it was billed.
+    fn charge(&self, billed: &Billed, worst: f64) {
         let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         state.billed.add(billed);
         state.spent = state.billed.cost(&self.prices);
+        state.in_flight = (state.in_flight - worst).max(0.0);
     }
 }
 
 /// One request through a [`Metered`] provider.
 struct Exchange {
+    /// The conversation it belongs to, by its opening line.
+    conversation: String,
     sent: usize,
     replied: usize,
     billed: Billed,
+    started: Instant,
+    ended: Instant,
 }
 
 /// A provider that counts what goes through it, and keeps to a [`Budget`] when given one.
@@ -382,17 +398,18 @@ impl<'a> Metered<'a> {
     pub fn traffic(&self) -> Traffic {
         let exchanges = self.exchanges.lock().unwrap_or_else(PoisonError::into_inner);
         let mut traffic = Traffic::default();
-        let mut before = 0;
+        let mut before: BTreeMap<&str, usize> = BTreeMap::new();
         traffic.first_request_bytes = exchanges.first().map_or(0, |e| e.sent);
         for exchange in exchanges.iter() {
             let sent = exchange.sent;
             traffic.requests += 1;
             traffic.sent_bytes += sent;
-            // A conversation only grows, so what the last request sent starts this one.
-            traffic.repeated_bytes += before.min(sent);
+            // A conversation only grows, so what its last request sent starts this one.
+            let last = before.entry(exchange.conversation.as_str()).or_default();
+            traffic.repeated_bytes += (*last).min(sent);
+            *last = sent;
             traffic.reply_bytes += exchange.replied;
             traffic.largest_request_bytes = traffic.largest_request_bytes.max(sent);
-            before = sent;
         }
         traffic
     }
@@ -418,10 +435,32 @@ impl<'a> Metered<'a> {
         (first.billed.reported > 0).then(|| first.billed.tokens.sent())
     }
 
+    /// From the first request sent to the last reply, in milliseconds.
+    pub fn wall_ms(&self) -> u64 {
+        let exchanges = self.exchanges.lock().unwrap_or_else(PoisonError::into_inner);
+        let start = exchanges.iter().map(|e| e.started).min();
+        let end = exchanges.iter().map(|e| e.ended).max();
+        start
+            .zip(end)
+            .map_or(0, |(s, e)| e.saturating_duration_since(s).as_millis() as u64)
+    }
+
     /// Why this meter refused a request, if it did.
     pub fn stopped(&self) -> Option<Stop> {
         *self.stopped.lock().unwrap_or_else(PoisonError::into_inner)
     }
+}
+
+/// The first line of a conversation's first message: what tells a staged build's conversations
+/// apart.
+fn opening(messages: &[Message]) -> &str {
+    messages
+        .iter()
+        .find_map(|m| match m {
+            Message::User(text) => text.lines().next(),
+            _ => None,
+        })
+        .unwrap_or_default()
 }
 
 fn turn_bytes(turn: &AssistantTurn) -> usize {
@@ -480,8 +519,9 @@ impl LlmProvider for Metered<'_> {
         on_event: &mut dyn FnMut(StreamEvent),
     ) -> Result<(AssistantTurn, Option<Usage>), AiError> {
         let (worst_sent, worst_received) = worst_tokens(self.inner.id(), request);
+        let mut worst = 0.0;
         if let Some(budget) = self.budget {
-            let worst = budget.prices().worst_case(worst_sent, worst_received);
+            worst = budget.prices().worst_case(worst_sent, worst_received);
             if let Err(stop) = budget.admit(worst) {
                 *self.stopped.lock().unwrap_or_else(PoisonError::into_inner) = Some(stop);
                 // The chat loop stops as if the user had pressed Stop; nothing was sent.
@@ -489,6 +529,7 @@ impl LlmProvider for Metered<'_> {
             }
         }
         let sent = request_bytes(request);
+        let started = Instant::now();
         let answered = self.inner.stream_turn_with_usage(key, request, cancel, on_event);
         let billed = match &answered {
             Ok((_, Some(usage))) => Billed {
@@ -505,16 +546,19 @@ impl LlmProvider for Metered<'_> {
             },
         };
         if let Some(budget) = self.budget {
-            budget.charge(&billed);
+            budget.charge(&billed, worst);
         }
         let replied = answered.as_ref().map_or(0, |(turn, _)| turn_bytes(turn));
         self.exchanges
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .push(Exchange {
+                conversation: opening(request.messages).to_string(),
                 sent,
                 replied,
                 billed,
+                started,
+                ended: Instant::now(),
             });
         answered
     }
@@ -631,8 +675,14 @@ pub struct Scored {
 #[serde(rename_all = "camelCase")]
 pub struct Measures {
     pub proposed: bool,
-    /// Model requests the answer took.
+    /// Model requests the answer took, every stage's included.
     pub requests: usize,
+    /// Of those, the most that had to happen one after another: what a person waits through.
+    pub critical_path: usize,
+    /// Whether the job was built in stages.
+    pub staged: bool,
+    /// From the first request to the last reply, in milliseconds.
+    pub wall_ms: u64,
     pub stopped_at_step_limit: bool,
     pub tool_calls: BTreeMap<String, usize>,
     /// Tool calls refused, each with the start of the reason.
@@ -671,7 +721,7 @@ pub struct Measures {
 }
 
 impl Measures {
-    /// Tool calls made, of every kind.
+    /// Tool calls made, of every kind, in every stage.
     pub fn calls(&self) -> usize {
         self.tool_calls.values().sum()
     }
@@ -772,6 +822,7 @@ fn tool_uses(messages: &[Message]) -> Vec<ToolUse> {
                         input: call.input.clone(),
                         answer: String::new(),
                         is_error: false,
+                        given: false,
                     },
                 )
             })),
@@ -842,9 +893,10 @@ fn measure(
     run: &Run<'_>,
     proposed: bool,
     metered: &Metered<'_>,
-    messages: &[Message],
+    session: &ChatSession,
     cancel: &Cancel,
 ) -> Measures {
+    let messages = session.messages();
     let (traffic, billed) = (metered.traffic(), metered.billed());
     let song_up_front = messages.iter().any(|m| match m {
         Message::User(text) => text.contains(crate::context::SONG_LINE),
@@ -854,7 +906,9 @@ fn measure(
     let mut tool_calls: BTreeMap<String, usize> = BTreeMap::new();
     let mut guides = Vec::new();
     for tool in run.tools {
-        *tool_calls.entry(tool.name.clone()).or_default() += 1;
+        if !tool.given {
+            *tool_calls.entry(tool.name.clone()).or_default() += 1;
+        }
         // Guides asked for and answered (a refused ask sent none).
         if tool.name == "get_guide" && !tool.is_error {
             guides.extend(names(&tool.input["topics"]));
@@ -885,14 +939,18 @@ fn measure(
         .unwrap_or(0);
     let (verses, choruses) = (parts(song, "Verse"), parts(song, "Chorus"));
     let has_effects = |doc: &Sequence| effects(doc).next().is_some();
+    let stats = session.last_turn();
     Measures {
         proposed,
         requests: traffic.requests,
+        critical_path: stats.critical_path,
+        staged: stats.staged,
+        wall_ms: metered.wall_ms(),
         stopped_at_step_limit: traffic.requests >= MAX_STEPS,
         tool_errors: run
             .tools
             .iter()
-            .filter(|t| t.is_error)
+            .filter(|t| t.is_error && !t.given)
             .map(|t| format!("{}: {}", t.name, t.answer.chars().take(200).collect::<String>()))
             .collect(),
         tool_calls,
@@ -974,9 +1032,35 @@ pub fn run_within(
     cancel: &Cancel,
     budget: Option<&Budget>,
 ) -> Outcome {
+    run_with(
+        scenario,
+        stage,
+        provider,
+        key,
+        model,
+        cancel,
+        budget,
+        Flow::Single,
+    )
+}
+
+/// [`run_within`], the chat doing big jobs as `flow` says.
+#[allow(clippy::too_many_arguments)]
+pub fn run_with(
+    scenario: &Scenario,
+    stage: &Stage,
+    provider: &dyn LlmProvider,
+    key: &ApiKey,
+    model: &str,
+    cancel: &Cancel,
+    budget: Option<&Budget>,
+    flow: Flow,
+) -> Outcome {
     let song = stage::song();
     let before = (scenario.start)(stage);
-    let mut session = ChatSession::new().with_analyzer(Arc::new(|_: &Path, _: &Cancel| Ok(stage::song())));
+    let mut session = ChatSession::new()
+        .with_flow(flow)
+        .with_analyzer(Arc::new(|_: &Path, _: &Cancel| Ok(stage::song())));
     let metered = match budget {
         Some(budget) => Metered::new(provider).with_budget(budget),
         None => Metered::new(provider),
@@ -1006,7 +1090,7 @@ pub fn run_within(
         .and_then(|d| d.sequence())
         .cloned()
         .unwrap_or_else(|| before.clone());
-    let tools = tool_uses(session.messages());
+    let tools = transcript(&session);
     let lights = Lights::of(stage, &after);
     let seen = Run {
         stage,
@@ -1017,7 +1101,7 @@ pub fn run_within(
         tools: &tools,
         lights: &lights,
     };
-    let measures = measure(&seen, proposed, &metered, session.messages(), cancel);
+    let measures = measure(&seen, proposed, &metered, &session, cancel);
     let checks = (scenario.judge)(&seen, &measures);
     Outcome {
         scenario: scenario.key.to_string(),
@@ -1032,22 +1116,61 @@ pub fn run_within(
     }
 }
 
+/// Every tool call of the last message, the chat's own and then each stage's in turn (a stage's
+/// guides given with its request first, marked as given).
+pub fn transcript(session: &ChatSession) -> Vec<ToolUse> {
+    let mut uses = tool_uses(session.messages());
+    for stage in session.stages() {
+        let (topics, effects): (Vec<&str>, Vec<&str>) = stage
+            .given
+            .iter()
+            .map(String::as_str)
+            .partition(|g| g.starts_with("topic:"));
+        if !stage.given.is_empty() {
+            uses.push(ToolUse {
+                name: "get_guide".into(),
+                input: serde_json::json!({
+                    "topics": topics.iter().map(|t| t.trim_start_matches("topic:")).collect::<Vec<_>>(),
+                    "effects": effects.iter().map(|e| e.trim_start_matches("effect:")).collect::<Vec<_>>(),
+                }),
+                answer: format!("(given with the {} request)", stage.stage),
+                is_error: false,
+                given: true,
+            });
+        }
+        uses.extend(tool_uses(&stage.messages));
+    }
+    uses
+}
+
 /// What a run sends a model, in words, with the sizes that never change.
-pub fn what_is_sent() -> String {
+pub fn what_is_sent(flow: Flow) -> String {
     let stage = Stage::new();
-    let specs = Toolbox::default().core_specs();
+    let mut specs = Toolbox::default().core_specs();
+    if flow == Flow::Staged {
+        specs.push(crate::staged::plan_build_tool());
+    }
     let tools: usize = specs
         .iter()
         .map(|t| t.name.len() + t.description.len() + t.input_schema.to_string().len())
         .sum();
-    let fixed = SYSTEM_PROMPT.len() + tools;
+    let fixed = instructions(flow).len() + tools;
+    let design = crate::staged::catalogue::design_system().len();
+    let stages = if flow == Flow::Staged {
+        format!(
+            "\n - for a job built in stages: a design request with the stages' instructions, a catalogue of every tool and effect, and the show-design guides ({design} bytes, about {} tokens, the same every time), with the brief and the show and song in outline; then a request for each step of the plan, with only its tools, its stretch of the song, its props, and its effects' guides; then a refine request with the review's fixes;",
+            (design as f64 / BYTES_PER_TOKEN).round(),
+        )
+    } else {
+        String::new()
+    };
     let props: Vec<&str> = stage.show.props.iter().map(|p| p.name.as_str()).collect();
     let groups: Vec<&str> = stage.show.groups.iter().map(|g| g.name.as_str()).collect();
     let lines = crate::stage::lyric_tracks().first().map_or(0, |t| t.marks.len());
     format!(
         "What a run sends the model's provider:\n\
          - the Assistant's instructions and its {} core tool definitions, with every request ({} bytes, about {} tokens), and more tools in groups when the model asks for them;\n\
-         - with the request, the made-up show, sequence, and song below in outline;\n\
+         - with the request, the made-up show, sequence, and song below in outline;{}\n\
          - each scenario's request, as a user would type it;\n\
          - whatever the model looks up with its tools: PixelFlow's own guides, and a made-up show and song that exist only in this harness:\n\
          \x20   props: {};\n\
@@ -1058,6 +1181,7 @@ pub fn what_is_sent() -> String {
         specs.len(),
         fixed,
         (fixed as f64 / BYTES_PER_TOKEN).round(),
+        stages,
         props.join(", "),
         groups.join(", "),
         lines,
@@ -1099,16 +1223,24 @@ pub fn billed_line(billed: &Billed, prices: &Prices) -> String {
 /// estimated from sizes and marked `~`).
 fn round_trips(outcomes: &[Outcome]) -> String {
     let mut out = String::from(
-        "Round trips and request sizes (tokens; ~ estimated from sizes):\n\n| Scenario | Requests | Tool calls | First request | Mean request | Largest request |\n|---|---|---|---|---|---|\n",
+        "Round trips and request sizes (tokens; ~ estimated from sizes). Requests counts every request; the critical path, those that had to happen one after another (a staged build's steps run at the same time), which is what a person waits through:\n\n| Scenario | Staged | Requests | Critical path | Tool calls | First request | Mean request | Largest request | Wall clock |\n|---|---|---|---|---|---|---|---|---|\n",
     );
     for o in outcomes {
         let m = &o.measures;
         let (first, mean, billed) = m.request_tokens();
         let mark = if billed { "" } else { "~" };
+        // A scripted stand-in answers at once: its clock says nothing.
+        let wall = if billed {
+            format!("{:.1} s", m.wall_ms as f64 / 1000.0)
+        } else {
+            "-".to_string()
+        };
         out.push_str(&format!(
-            "| {} | {} | {} | {mark}{first} | {mark}{mean} | ~{} |\n",
+            "| {} | {} | {} | {} | {} | {mark}{first} | {mark}{mean} | ~{} | {wall} |\n",
             o.scenario,
+            if m.staged { "yes" } else { "no" },
             m.requests,
+            m.critical_path,
             m.calls(),
             tokens_of(m.traffic.largest_request_bytes),
         ));
@@ -1254,4 +1386,36 @@ pub fn report(outcomes: &[Outcome], model: &str, prices: &Prices) -> String {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn billed(input: u64) -> Billed {
+        Billed {
+            reported: 1,
+            tokens: Usage {
+                input,
+                ..Usage::default()
+            },
+            ..Billed::default()
+        }
+    }
+
+    #[test]
+    fn requests_on_their_way_hold_their_worst_case_against_the_ceiling() {
+        // Steps built at once send several requests before any is charged.
+        let budget = Budget::new(1.0, Prices::default(), None);
+        assert_eq!(budget.admit(0.6), Ok(()));
+        assert_eq!(budget.admit(0.3), Ok(()));
+        assert_eq!(budget.admit(0.2), Err(Stop::Budget));
+
+        // Once charged what it really cost, a request's worst case is let go.
+        let budget = Budget::new(1.0, Prices::default(), None);
+        assert_eq!(budget.admit(0.6), Ok(()));
+        budget.charge(&billed(1_000), 0.6);
+        assert_eq!(budget.admit(0.6), Ok(()));
+        assert!(budget.spending().spent < 0.01);
+    }
 }

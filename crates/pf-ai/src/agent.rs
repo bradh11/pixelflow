@@ -12,10 +12,11 @@ use crate::provider::{
 use crate::run::{Outcome, run_tool};
 use crate::secret::ApiKey;
 use crate::song::{Analyzer, Song, default_analyzer};
+use crate::staged::{Brief, StageLog, StageName, World};
 use crate::tools::Toolbox;
 use pf_analysis::Analysis;
 use pf_sequence::format_ms;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::fmt;
 use std::path::PathBuf;
@@ -66,6 +67,45 @@ Units: positions in layout units (+X right, +Y up, +Z toward the viewer); times 
 
 Write for someone who knows their display but not software: short, plain sentences, no ids or JSON in what you tell them.";
 
+/// What the instructions add when big jobs are built in stages ([`Flow::Staged`]).
+pub const STAGED_ROUTE: &str = "Building in stages: when the job builds or reworks a sequence (a whole song, a new look over several parts, calmer verses or bigger choruses), your first call is plan_build, alone, with a brief: PixelFlow designs it, builds its parts at once, reviews it, and shows the user the proposal; don't read guides first. A question, a recolor, a fix or two, or a change to one part or a few props you do yourself, as above.";
+
+/// The most [`STAGED_ROUTE`] may weigh (bytes), on top of the instructions' own budget.
+pub const STAGED_ROUTE_BUDGET_BYTES: usize = 600;
+
+/// How a chat does a job that builds or reworks a sequence.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Flow {
+    /// Every job in the chat's one conversation, a tool call at a time.
+    #[default]
+    Single,
+    /// A big job in stages ([`crate::staged`]): understand, design, build the parts at once,
+    /// review. Small jobs and questions stay in the chat's conversation.
+    Staged,
+}
+
+/// What the last message took.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TurnStats {
+    /// Requests to the model, every stage's included.
+    pub requests: usize,
+    /// The most of those that had to happen one after another: what the person waited through.
+    pub critical_path: usize,
+    /// Whether the job was built in stages.
+    pub staged: bool,
+}
+
+/// The instructions for a chat with `flow`.
+pub fn instructions(flow: Flow) -> &'static str {
+    static STAGED: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    match flow {
+        Flow::Single => SYSTEM_PROMPT,
+        Flow::Staged => STAGED.get_or_init(|| format!("{SYSTEM_PROMPT}\n\n{STAGED_ROUTE}")),
+    }
+}
+
 /// What the chat panel hears while a reply is on its way.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
@@ -82,6 +122,14 @@ pub enum ChatEvent {
     Proposal { proposal: ProposalView },
     /// The assistant asks the user to choose a song for a new sequence (a button in the chat).
     ChooseSong,
+    /// A staged build moved on: its stage, what it is doing ("Building Verse 1; Chorus 1"), and
+    /// while building, the steps done of all of them.
+    Stage {
+        stage: StageName,
+        label: String,
+        done: usize,
+        total: usize,
+    },
 }
 
 /// The answer to one user message.
@@ -116,6 +164,13 @@ pub struct ChatSession {
     /// The groups of tools this chat has added to the core (see [`crate::tools::GROUPS`]):
     /// they stay for the rest of the chat, so the tool list only ever grows.
     tool_groups: BTreeSet<String>,
+    flow: Flow,
+    /// Steps a staged build runs at the same time, at most.
+    parallel_steps: usize,
+    /// What the last message took.
+    last: TurnStats,
+    /// The stages' own conversations in the last message, when it was built in stages.
+    stages: Vec<StageLog>,
 }
 
 impl Default for ChatSession {
@@ -131,6 +186,10 @@ impl Default for ChatSession {
             guides_read: GuidesRead::default(),
             context_sent: None,
             tool_groups: BTreeSet::new(),
+            flow: Flow::Single,
+            parallel_steps: crate::staged::PARALLEL_STEPS,
+            last: TurnStats::default(),
+            stages: Vec::new(),
         }
     }
 }
@@ -214,9 +273,45 @@ impl ChatSession {
         self.draft.as_ref()
     }
 
-    /// The tools the next request carries: the core, and the groups this chat has added.
+    /// Builds big jobs as `flow` says from the next message on.
+    pub fn set_flow(&mut self, flow: Flow) {
+        self.flow = flow;
+    }
+
+    pub fn with_flow(mut self, flow: Flow) -> Self {
+        self.flow = flow;
+        self
+    }
+
+    pub fn flow(&self) -> Flow {
+        self.flow
+    }
+
+    /// Builds at most `n` steps of a staged build at the same time (1: one after another).
+    pub fn with_parallel_steps(mut self, n: usize) -> Self {
+        self.parallel_steps = n.max(1);
+        self
+    }
+
+    /// What the last message took.
+    pub fn last_turn(&self) -> TurnStats {
+        self.last
+    }
+
+    /// The stages' own conversations in the last message, when it was built in stages, in the
+    /// order they started (a build's steps in the plan's order).
+    pub fn stages(&self) -> &[StageLog] {
+        &self.stages
+    }
+
+    /// The tools the next request carries: the core, and the groups this chat has added; and
+    /// `plan_build` when big jobs are built in stages.
     pub fn tool_specs(&self) -> Vec<ToolSpec> {
-        self.toolbox.specs_for(&self.tool_groups)
+        let mut specs = self.toolbox.specs_for(&self.tool_groups);
+        if self.flow == Flow::Staged {
+            specs.push(crate::staged::plan_build_tool());
+        }
+        specs
     }
 
     /// The user applied the proposal: the draft is done with.
@@ -413,6 +508,16 @@ impl ChatSession {
             });
         }
         let text: String = text.chars().take(MAX_MESSAGE_CHARS).collect();
+        self.last = TurnStats::default();
+        self.stages.clear();
+        if self.flow == Flow::Staged {
+            on_event(ChatEvent::Stage {
+                stage: StageName::Understanding,
+                label: "Understanding your request".into(),
+                done: 0,
+                total: 0,
+            });
+        }
 
         // A draft for another show (or sequence document) is dropped. A draft without changes
         // follows the show; one with changes stays on top of the show it started from (applying
@@ -454,7 +559,7 @@ impl ChatSession {
             let specs = self.tool_specs();
             let request = TurnRequest {
                 model,
-                system: SYSTEM_PROMPT,
+                system: instructions(self.flow),
                 tools: &specs,
                 messages: &self.messages,
                 max_tokens: MAX_OUTPUT_TOKENS,
@@ -472,6 +577,10 @@ impl ChatSession {
                 Ok(turn) if turn.stop == StopReason::Refusal => Err(AiError::Refused),
                 other => other,
             };
+            if !matches!(turn, Err(AiError::Cancelled)) {
+                self.last.requests += 1;
+                self.last.critical_path += 1;
+            }
             let turn = match turn {
                 Ok(turn) => turn,
                 Err(error) => {
@@ -494,14 +603,55 @@ impl ChatSession {
             if calls.is_empty() {
                 break;
             }
+            let mut plan = None;
             let mut turn = TurnState {
                 proposed: &mut proposed_now,
                 choose_song: &mut choose_song,
                 music: music.as_deref(),
                 cancel,
+                plan: &mut plan,
             };
-            let results = self.run_calls(&calls, cut_off, &mut turn, on_event);
-            self.messages.push(Message::ToolResults(results));
+            let mut results = self.run_calls(&calls, cut_off, &mut turn, on_event);
+            if let Some((call_id, brief)) = plan {
+                let staged = Staged {
+                    provider,
+                    key,
+                    model,
+                    music: music.as_deref(),
+                    cancel,
+                };
+                let (answer, built) = self.build_in_stages(&staged, &brief, on_event);
+                if let Some(result) = results.iter_mut().find(|r| r.call_id == call_id) {
+                    result.content = answer.content;
+                    result.is_error = answer.is_error;
+                }
+                self.messages.push(Message::ToolResults(results));
+                match built {
+                    // Built (and proposed, when it changed anything): what it says ends the turn,
+                    // as the chat's own reply.
+                    Ok(Some((reply, proposed))) => {
+                        proposed_now |= proposed;
+                        on_event(ChatEvent::Text { text: reply.clone() });
+                        self.messages
+                            .push(Message::Assistant(crate::provider::AssistantTurn {
+                                text: reply.clone(),
+                                tool_calls: Vec::new(),
+                                stop: StopReason::EndTurn,
+                                native: None,
+                            }));
+                        said.push(reply);
+                        break;
+                    }
+                    // No plan came of it: the chat carries on and does the job itself.
+                    Ok(None) => {}
+                    Err(error) => {
+                        self.propose_leftovers(&said, music.as_deref(), cancel, on_event);
+                        return Err(error);
+                    }
+                }
+            } else {
+                self.messages.push(Message::ToolResults(results));
+            }
             // Stopped during a tool (a song being analyzed): the chat stays well formed.
             cancel.check()?;
             if step + 1 == MAX_STEPS {
@@ -546,6 +696,37 @@ impl ChatSession {
                         call_id: call.id.clone(),
                         content: "Your reply was cut off before this call was complete, so nothing was run. Make smaller changes per call.".into(),
                         is_error: true,
+                    };
+                }
+                if call.name == "plan_build" && self.flow == Flow::Staged {
+                    let (content, is_error) = if let Some(problem) = &call.input_error {
+                        (problem.clone(), true)
+                    } else if turn.plan.is_some() || calls.len() > 1 {
+                        (
+                            "Nothing was planned: call plan_build alone, once, with nothing else in the same reply.".to_string(),
+                            true,
+                        )
+                    } else if draft.sequence().is_none() {
+                        (
+                            "No sequence is open: call ask_for_song so the user can pick a song for a new one."
+                                .to_string(),
+                            true,
+                        )
+                    } else {
+                        let analysis = song.analyzed();
+                        let world = World::of(draft, analysis.as_deref(), &self.toolbox);
+                        match Brief::read(&call.input, &world) {
+                            Ok(brief) => {
+                                *turn.plan = Some((call.id.clone(), brief));
+                                ("Building in stages.".to_string(), false)
+                            }
+                            Err(problem) => (problem, true),
+                        }
+                    };
+                    return ToolResult {
+                        call_id: call.id.clone(),
+                        content,
+                        is_error,
                     };
                 }
                 // A guide read earlier in the chat is still in the conversation: not sent again.
@@ -666,4 +847,120 @@ struct TurnState<'a> {
     choose_song: &'a mut bool,
     music: Option<&'a std::path::Path>,
     cancel: &'a Cancel,
+    /// `plan_build`'s call and brief, when the model handed the job to the staged build.
+    plan: &'a mut Option<(String, Brief)>,
+}
+
+/// What a staged build needs from the turn.
+struct Staged<'a> {
+    provider: &'a dyn LlmProvider,
+    key: &'a ApiKey,
+    model: &'a str,
+    music: Option<&'a std::path::Path>,
+    cancel: &'a Cancel,
+}
+
+impl ChatSession {
+    /// Builds `brief` in stages on the draft and proposes it. Answers what `plan_build` says
+    /// back, and what came of it: what the chat replies and whether it proposed, `None` when no
+    /// plan came of the design (the chat then does the job itself), or the error that stopped it.
+    #[allow(clippy::type_complexity)]
+    fn build_in_stages(
+        &mut self,
+        staged: &Staged<'_>,
+        brief: &Brief,
+        on_event: &mut dyn FnMut(ChatEvent),
+    ) -> (ToolResult, Result<Option<(String, bool)>, AiError>) {
+        let answer = |content: String, is_error: bool| ToolResult {
+            call_id: String::new(),
+            content,
+            is_error,
+        };
+        let Some(mut draft) = self.draft.take() else {
+            return (answer("There is no draft to build on.".into(), true), Ok(None));
+        };
+        let ctx = crate::staged::Ctx {
+            provider: staged.provider,
+            key: staged.key,
+            model: staged.model,
+            toolbox: &self.toolbox,
+            analyzer: self.analyzer.as_ref(),
+            music: staged.music,
+            song: self.song.clone(),
+            cancel: staged.cancel,
+            workers: self.parallel_steps,
+        };
+        let result = crate::staged::build(&ctx, brief, &mut draft, on_event);
+        self.draft = Some(draft);
+        self.last.staged = true;
+        let built = match result {
+            Ok(built) => built,
+            Err(crate::staged::Failure::Design(why, partial)) => {
+                self.count(&partial);
+                return (
+                    answer(
+                        format!(
+                            "Not built in stages: {why}. Build it here instead, step by step, as your instructions say."
+                        ),
+                        true,
+                    ),
+                    Ok(None),
+                );
+            }
+            Err(crate::staged::Failure::Ai(error, partial)) => {
+                self.count(&partial);
+                let said = match &error {
+                    AiError::Cancelled => {
+                        "The user stopped the build; what earlier steps built is in the draft.".to_string()
+                    }
+                    other => format!("The build stopped: {other}. What earlier steps built is in the draft."),
+                };
+                return (answer(said, true), Err(error));
+            }
+        };
+        self.last.requests += built.requests;
+        self.last.critical_path += built.critical_path;
+        self.stages.extend(built.log);
+        let mut song = Song {
+            music: staged.music,
+            cache: &mut self.song,
+            analyzer: self.analyzer.as_ref(),
+            cancel: staged.cancel,
+        };
+        let proposal = self
+            .draft
+            .as_mut()
+            .and_then(|draft| propose_reviewed(draft, &mut song, &built.plan.summary));
+        let proposed = proposal.is_some();
+        if let Some(proposal) = proposal {
+            on_event(ChatEvent::Proposal {
+                proposal: proposal.view(),
+            });
+            self.proposal = Some(proposal);
+        }
+        let mut reply = built.plan.summary.clone();
+        for note in &built.notes {
+            reply.push(' ');
+            reply.push_str(note);
+        }
+        let content = if proposed {
+            format!(
+                "Designed, built in {} steps, reviewed, and shown to the user as a proposal with Apply and Discard: {}",
+                built.plan.steps.len(),
+                reply
+            )
+        } else {
+            "The stages built nothing that changes the sequence, so there is nothing to propose.".to_string()
+        };
+        if !proposed {
+            reply = "I planned it, but nothing came of the build to show you. Tell me more about what you'd like and I'll try again.".to_string();
+        }
+        (answer(content, !proposed), Ok(Some((reply, proposed))))
+    }
+
+    fn count(&mut self, partial: &crate::staged::Partial) {
+        self.last.requests += partial.requests;
+        self.last.critical_path += partial.critical_path;
+        self.stages.extend(partial.log.iter().cloned());
+    }
 }

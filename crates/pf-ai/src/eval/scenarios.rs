@@ -214,9 +214,19 @@ fn proposes(m: &Measures) -> Check {
     )
 }
 
-fn used(run: &Run<'_>, tool: &str, why: &str) -> Check {
-    let times = run.tools.iter().filter(|t| t.name == tool).count();
-    check(why, times > 0, format!("{tool} called {times} times"))
+/// Whether the draft was reviewed: by `review_draft`, or by the staged build, which reviews
+/// every draft it builds (and gives the design the review of what was there before).
+fn reviewed(run: &Run<'_>, m: &Measures, why: &str) -> Check {
+    let times = run.tools.iter().filter(|t| t.name == "review_draft").count();
+    check(
+        why,
+        times > 0 || m.staged,
+        if m.staged {
+            "built in stages, which review the draft".to_string()
+        } else {
+            format!("review_draft called {times} times")
+        },
+    )
 }
 
 /// Whether it had the song's analysis before designing: with the request, or by asking.
@@ -369,7 +379,7 @@ fn whole_song(run: &Run<'_>, m: &Measures) -> Vec<Check> {
         proposes(m),
         read_first(run, "method"),
         listened(run, m),
-        used(run, "review_draft", "It reviewed its draft before proposing"),
+        reviewed(run, m, "It reviewed its draft before proposing"),
         check(
             "Most props have a part (9 of 12 or more)",
             m.props_used >= 9,
@@ -600,7 +610,7 @@ fn halloween(run: &Run<'_>, m: &Measures) -> Vec<Check> {
 fn review_and_fix(run: &Run<'_>, m: &Measures) -> Vec<Check> {
     let (before, after) = (m.review_before, m.review.as_ref().map(|r| r.score));
     vec![
-        used(run, "review_draft", "It reviewed the sequence"),
+        reviewed(run, m, "It reviewed the sequence"),
         proposes(m),
         safe(m),
         check(

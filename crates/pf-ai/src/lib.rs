@@ -11,6 +11,9 @@
 //! - [`ChatSession`]: the tool loop. The model edits a private [`Draft`]; its [`Proposal`]
 //!   (summary, [`Diff`], preview) changes the show only through [`apply_proposal`], from the
 //!   user's Apply, as one undo step.
+//! - [`staged`]: with [`Flow::Staged`], a job that builds or reworks a sequence is done in stages
+//!   (a brief, a checked design, its steps built at once in small conversations, a review and a
+//!   refine) into the same draft and proposal.
 
 pub mod agent;
 pub mod align;
@@ -34,6 +37,7 @@ pub mod run;
 pub mod secret;
 pub mod song;
 pub mod sse;
+pub mod staged;
 pub mod summary;
 pub mod tools;
 
@@ -44,7 +48,7 @@ pub mod stage;
 #[cfg(any(test, feature = "test-fixtures"))]
 pub mod testing;
 
-pub use agent::{ChatEvent, ChatSession, TurnReply};
+pub use agent::{ChatEvent, ChatSession, Flow, TurnReply};
 pub use diff::{Action, Change, Diff, Section};
 pub use draft::{Applied, Draft, OpenDoc, Proposal, ProposalView, UiContext, Workspace, apply_proposal};
 pub use error::AiError;

@@ -190,7 +190,7 @@ fn effect_index() -> String {
 
 /// Every effect in a line, for choosing between them without reading every guide: its key,
 /// the kinds of target its looks were written for, and what it's for.
-fn effect_overview() -> String {
+pub(crate) fn effect_overview() -> String {
     EffectKind::ALL
         .iter()
         .map(|&kind| {

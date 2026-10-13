@@ -229,6 +229,25 @@ impl Draft {
             })
     }
 
+    /// The sequence edits this draft made after `base`, a draft it was copied from.
+    pub(crate) fn sequence_edits_since(&self, base: &Draft) -> &[SequenceEdit] {
+        self.sequence_edits
+            .get(base.sequence_edits.len()..)
+            .unwrap_or_default()
+    }
+
+    /// Takes on what `built` (a copy of `base`) noted besides its edits: the tracks it cut
+    /// effects at and the cues it staged.
+    pub(crate) fn carry_over(&mut self, base: &Draft, built: &Draft) {
+        for id in &built.placed_on {
+            self.placed_on(*id);
+        }
+        for (cue, n) in &built.cues {
+            let before = base.cues.get(cue).copied().unwrap_or(0);
+            *self.cues.entry(cue.clone()).or_default() += n.saturating_sub(before);
+        }
+    }
+
     /// Notes that effects were cut at the timing track `id` (see [`Draft::lock_to_music`]).
     pub fn placed_on(&mut self, id: TimingTrackId) {
         if !self.placed_on.contains(&id) {

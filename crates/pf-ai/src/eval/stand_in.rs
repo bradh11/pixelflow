@@ -4,11 +4,13 @@
 //! nothing about how well any model does.
 
 use super::scenarios::Scenario;
+use crate::agent::Flow;
 use crate::error::AiError;
 use crate::provider::{AssistantTurn, Cancel};
 use crate::review::{self, Subject};
 use crate::stage::{self, Stage};
-use crate::testing::{calls, says};
+use crate::staged::step_stage;
+use crate::testing::{ScriptedProvider, calls, says};
 use pf_sequence::Sequence;
 use serde_json::{Value, json};
 
@@ -49,6 +51,177 @@ pub fn script(scenario: &Scenario, stage: &Stage) -> Vec<Turn> {
 /// An answer that does nothing: what every scenario's checks must fail.
 pub fn idle() -> Vec<Turn> {
     vec![says("Done.")]
+}
+
+/// The scripted stand-in for `scenario` on `stage`, the chat doing big jobs as `flow` says: with
+/// [`Flow::Staged`], the whole song and the calmer-and-bigger rework are handed to the staged
+/// build (a brief, a plan, its steps, the refine); everything else is done in the chat, as with
+/// [`Flow::Single`].
+pub fn provider(scenario: &Scenario, stage: &Stage, flow: Flow) -> ScriptedProvider {
+    let start = (scenario.start)(stage);
+    let on = Rows { stage, doc: &start };
+    match (flow, scenario.key) {
+        (Flow::Staged, "whole-song") => whole_song_staged(&on),
+        (Flow::Staged, "calm-and-big") => calm_and_big_staged(&on),
+        _ => ScriptedProvider::new(script(scenario, stage)),
+    }
+}
+
+/// The part of the song a look placed from `from_ms` is in: the verses, the choruses, or the rest.
+fn part_of(from_ms: u64) -> &'static str {
+    if VERSES.iter().any(|(a, b)| (*a..*b).contains(&from_ms)) {
+        "verses"
+    } else if CHORUSES.iter().any(|(a, b)| (*a..*b).contains(&from_ms)) {
+        "choruses"
+    } else {
+        "rest"
+    }
+}
+
+/// The base's looks for one part of the song, as one call.
+fn looks_for(on: &Rows<'_>, part: &str) -> Call {
+    batch(
+        on.looks()
+            .into_iter()
+            .filter(|(_, input)| part_of(input["fromMs"].as_u64().unwrap_or(0)) == part)
+            .collect(),
+    )
+}
+
+/// A step of a plan, as `submit_plan` takes one.
+fn step(id: &str, sections: &[&str], props: &[&str], tools: &[&str], effects: &[&str], todo: &str) -> Value {
+    json!({
+        "id": id,
+        "title": id,
+        "sections": sections,
+        "props": props,
+        "tools": tools,
+        "effects": effects,
+        "do": todo,
+    })
+}
+
+/// The design of the base the whole song and the rework share: each part of the song, the
+/// props' roles, and a step for each part's base (built at once), then one for the moments and
+/// the singing over the whole song.
+fn base_plan(summary: &str, mut steps: Vec<Value>) -> Value {
+    steps.extend([
+        step(
+            "verses",
+            &["Verse"],
+            &["Roofline", "Windows", "Mega Tree", "Arches"],
+            &["place_effects"],
+            &["on", "twinkle", "chase"],
+            "Blue and quiet: the roofline and windows on at 0.45, a blue and white twinkle on the tree, a white chase on the arches.",
+        ),
+        step(
+            "choruses",
+            &["Chorus"],
+            &["Whole House", "Arches", "Mega Tree", "Matrix"],
+            &["place_effects"],
+            &["colorWash", "bars", "spiral", "butterfly"],
+            "Red and gold over the whole house: a wash on the house, bars on the arches, a spiral on the tree, a butterfly on the matrix.",
+        ),
+        step(
+            "rest",
+            &["Intro", "Bridge", "Outro"],
+            &["Roofline", "Tree Star", "Mega Tree", "Whole House"],
+            &["place_effects"],
+            &["on", "twinkle"],
+            "A warm roofline fading in and the star sparkling for the intro, a dim purple twinkle on the tree for the bridge, dark for the stop, a warm fade for the end.",
+        ),
+        step(
+            "moments-and-vocals",
+            &["Whole song"],
+            &["all"],
+            &["stage_cue"],
+            &[],
+            "stage_cue with stageMoments from 0.5, and the singing face singing the verses and choruses.",
+        ),
+    ]);
+    json!({
+        "summary": summary,
+        "sections": [
+            { "label": "Intro", "palette": [WARM, GOLD], "props": ["Roofline", "Tree Star"], "base": "warm and dim" },
+            { "label": "Verse", "palette": [BLUE, WHITE], "props": ["Roofline", "Windows", "Mega Tree", "Arches"], "base": "blue, quiet", "movement": "a slow chase on the arches" },
+            { "label": "Chorus", "palette": [RED, GOLD, WHITE], "props": ["Whole House"], "base": "red and gold everywhere", "movement": "bars, a spiral, a butterfly" },
+            { "label": "Bridge", "palette": ["#b02aff", WHITE], "props": ["Mega Tree"], "base": "the tree alone, dim; dark for the stop" },
+            { "label": "Outro", "palette": [WARM], "props": ["Whole House"], "base": "a warm fade to dark" },
+        ],
+        "roles": [
+            { "prop": "Mega Tree", "role": "the centerpiece" },
+            { "prop": "Matrix", "role": "pictures in the choruses" },
+            { "prop": "Arches", "role": "rhythm" },
+        ],
+        "moments": "staged from their importance; the stop goes dark",
+        "vocals": "the singing face sings the verses and choruses",
+        "steps": steps,
+    })
+}
+
+/// The moments and the singing, in one reply.
+fn moments_and_vocals() -> Turn {
+    calls(
+        "",
+        &[
+            ("stage_cue", json!({ "stageMoments": { "minImportance": 0.5 } })),
+            (
+                "stage_cue",
+                json!({ "cues": [{ "cue": "sing", "at": 8_000, "until": 72_000 }] }),
+            ),
+        ],
+    )
+}
+
+/// A staged build of `plan`: the brief in the chat, the plan, each part's base, the moments and
+/// the singing, and a refine with nothing left worth doing; `before` steps first.
+fn staged(on: &Rows<'_>, ask: &str, plan: Value, before: Vec<(&str, Turn)>) -> ScriptedProvider {
+    let mut provider = ScriptedProvider::new(vec![calls("", &[("plan_build", json!({ "ask": ask }))])])
+        .stage("design", vec![calls("", &[("submit_plan", plan)])]);
+    for (id, turn) in before {
+        provider = provider.stage(&step_stage(id), vec![turn]);
+    }
+    for part in ["verses", "choruses", "rest"] {
+        provider = provider.stage(&step_stage(part), vec![calls("", &[looks_for(on, part)])]);
+    }
+    provider
+        .stage(&step_stage("moments-and-vocals"), vec![moments_and_vocals()])
+        .stage(
+            "refine",
+            vec![says("The draft keeps to the plan; nothing more to fix.")],
+        )
+}
+
+fn whole_song_staged(on: &Rows<'_>) -> ScriptedProvider {
+    let plan = base_plan(
+        "A show for the whole song: blue and quiet in the verses, red and gold across the house in the choruses, dark for the stop, with the big moments staged.",
+        Vec::new(),
+    );
+    staged(on, "A light show for the whole song.", plan, Vec::new())
+}
+
+fn calm_and_big_staged(on: &Rows<'_>) -> ScriptedProvider {
+    let clear = step(
+        "clear",
+        &["Whole song"],
+        &["all"],
+        &["change_effects"],
+        &[],
+        "Remove the look held over the whole song, so each part can have its own.",
+    );
+    let plan = base_plan(
+        "Quiet blue verses on a few props, and red and gold choruses across the whole house.",
+        vec![clear],
+    );
+    staged(
+        on,
+        "Make the verses calmer and the choruses bigger.",
+        plan,
+        vec![(
+            "clear",
+            calls("", &[("change_effects", json!({ "fromMs": 0, "remove": true }))]),
+        )],
+    )
 }
 
 /// The scenario's sequence and its rows, by the names of what they light.

@@ -6,13 +6,13 @@
 
 use super::scenarios::{Scenario, scenarios};
 use super::{
-    Budget, Outcome, Prices, Spending, Stop, Traffic, billed_line, report, run_within, stand_in, what_is_sent,
+    Budget, Outcome, Prices, Spending, Stop, Traffic, billed_line, report, run_with, stand_in, what_is_sent,
 };
-use crate::agent::MAX_OUTPUT_TOKENS;
+use crate::agent::{Flow, MAX_OUTPUT_TOKENS};
 use crate::provider::{Cancel, LlmProvider, ProviderId};
 use crate::secret::ApiKey;
 use crate::stage::Stage;
-use crate::testing::{ScriptedProvider, fake_key};
+use crate::testing::fake_key;
 use serde::Serialize;
 use std::io::Write;
 use std::path::PathBuf;
@@ -33,6 +33,9 @@ pub const USAGE: &str = "assistant_eval: how good are the Assistant's light show
                                           never spending more than --max-usd
 
   --scenario a,b           only these scenarios (names from --list)
+  --flow <staged|single>   how big jobs are done: staged (a brief, a design, the parts built at
+                           once, a review) or single (one conversation, a tool call at a time);
+                           default staged
   --provider <name>        anthropic or openai
   --model <id>             the model, as the provider names it
   --send                   really send (without it, nothing leaves this computer)
@@ -73,6 +76,7 @@ pub struct Options {
     /// The spending ceiling, in dollars.
     pub max_usd: Option<f64>,
     pub max_requests: Option<usize>,
+    pub flow: Flow,
 }
 
 impl Default for Options {
@@ -90,6 +94,7 @@ impl Default for Options {
             prices_given: PricesGiven::default(),
             max_usd: None,
             max_requests: None,
+            flow: Flow::Staged,
         }
     }
 }
@@ -126,6 +131,14 @@ pub fn parse(args: &[String]) -> Result<Options, String> {
                 );
             }
             "--model" => options.model = Some(value()?),
+            "--flow" => {
+                let text = value()?;
+                options.flow = match text.as_str() {
+                    "staged" => Flow::Staged,
+                    "single" => Flow::Single,
+                    _ => return Err(format!("--flow takes staged or single, not \"{text}\".")),
+                };
+            }
             "--runs" => {
                 let text = value()?;
                 options.runs = text
@@ -252,14 +265,19 @@ fn chosen(only: &[String]) -> Result<Vec<Scenario>, String> {
         .collect())
 }
 
-/// Every scenario answered by its scripted stand-in.
+/// Every scenario answered by its scripted stand-in, in one conversation.
 pub fn stand_in_outcomes(scenarios: &[Scenario]) -> Vec<Outcome> {
+    stand_in_outcomes_with(scenarios, Flow::Single)
+}
+
+/// Every scenario answered by its scripted stand-in, big jobs done as `flow` says.
+pub fn stand_in_outcomes_with(scenarios: &[Scenario], flow: Flow) -> Vec<Outcome> {
     scenarios
         .iter()
         .map(|scenario| {
             let stage = Stage::new();
-            let provider = ScriptedProvider::new(stand_in::script(scenario, &stage));
-            run_within(
+            let provider = stand_in::provider(scenario, &stage, flow);
+            run_with(
                 scenario,
                 &stage,
                 &provider,
@@ -267,9 +285,17 @@ pub fn stand_in_outcomes(scenarios: &[Scenario]) -> Vec<Outcome> {
                 "stand-in",
                 &Cancel::new(),
                 None,
+                flow,
             )
         })
         .collect()
+}
+
+fn flow_name(flow: Flow) -> &'static str {
+    match flow {
+        Flow::Staged => "big jobs in stages",
+        Flow::Single => "every job in one conversation",
+    }
 }
 
 /// What `results.json` holds.
@@ -326,8 +352,9 @@ fn command(args: &[String], connect: &mut Connect<'_>, out: &mut dyn Write) -> R
     }
     let Some(provider) = options.provider else {
         say("Stand-in run: every answer is scripted. No model is called and nothing is sent.\n".into());
-        let outcomes = stand_in_outcomes(&scenarios);
-        let model = "the scripted stand-in (not a model)";
+        let outcomes = stand_in_outcomes_with(&scenarios, options.flow);
+        let model = format!("the scripted stand-in (not a model), {}", flow_name(options.flow));
+        let model = model.as_str();
         let text = report(&outcomes, model, &options.prices);
         say(text.clone());
         if let Some(folder) = &options.out {
@@ -353,11 +380,11 @@ fn command(args: &[String], connect: &mut Connect<'_>, out: &mut dyn Write) -> R
     } else {
         None
     };
-    say(what_is_sent());
+    say(what_is_sent(options.flow));
     // What the scripted answers send is the floor: a model reads more guides and takes more
     // steps than a script that already knows what it will do.
     let mut floor = Traffic::default();
-    for outcome in stand_in_outcomes(&scenarios) {
+    for outcome in stand_in_outcomes_with(&scenarios, options.flow) {
         floor.add(&outcome.measures.traffic);
     }
     let (sent, received) = floor.tokens();
@@ -409,7 +436,7 @@ fn command(args: &[String], connect: &mut Connect<'_>, out: &mut dyn Write) -> R
                 continue;
             }
             let stage = Stage::new();
-            let mut outcome = run_within(
+            let mut outcome = run_with(
                 scenario,
                 &stage,
                 provider_impl.as_ref(),
@@ -417,15 +444,18 @@ fn command(args: &[String], connect: &mut Connect<'_>, out: &mut dyn Write) -> R
                 &model,
                 &Cancel::new(),
                 Some(&budget),
+                options.flow,
             );
             outcome.scenario = name;
             let spending = budget.spending();
             say(format!(
-                "{}: {} of {} checks, {} requests{}{}. Spent so far: ${:.4} of ${:.2}.",
+                "{}: {} of {} checks, {} requests ({} one after another, {:.1} s){}{}. Spent so far: ${:.4} of ${:.2}.",
                 outcome.scenario,
                 outcome.passed(),
                 outcome.checks.len(),
                 outcome.measures.requests,
+                outcome.measures.critical_path,
+                outcome.measures.wall_ms as f64 / 1000.0,
                 outcome
                     .stopped
                     .map_or(String::new(), |s| format!(" (stopped: {})", s.label())),
@@ -440,7 +470,11 @@ fn command(args: &[String], connect: &mut Connect<'_>, out: &mut dyn Write) -> R
         }
     }
     let spending = budget.spending();
-    let mut text = report(&outcomes, &format!("{model} ({provider})"), budget.prices());
+    let mut text = report(
+        &outcomes,
+        &format!("{model} ({provider}), {}", flow_name(options.flow)),
+        budget.prices(),
+    );
     text.push_str(&format!(
         "\n## Spending\n\n{}\n\n{} requests sent. Ceiling ${:.2}; spent ${:.4}.{}{}\n",
         terms(&budget, provider),

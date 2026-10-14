@@ -7,6 +7,7 @@ use crate::draft::Draft;
 use crate::provider::ToolCall;
 use crate::song::Song;
 use crate::tools::{Query, ToolKind, Toolbox, sequence_edit, show_edit};
+use pf_engine::Edit;
 use pf_model::{GroupMember, Show};
 use pf_sequence::{Sequence, format_ms};
 use serde::Serialize;
@@ -58,6 +59,19 @@ fn to_json<T: Serialize>(value: &T) -> String {
     serde_json::to_string(value).unwrap_or_else(|_| "null".into())
 }
 
+/// A prop sent back whole without its DMX fixture keeps the one it has: the tools' definitions
+/// don't spell fixtures out (see `pf_model::Prop::dmx`), so leaving it out isn't asking to turn a
+/// flood into a string of pixels.
+fn keep_fixture(edit: Edit, show: &pf_model::Show) -> Edit {
+    match edit {
+        Edit::UpdateProp { mut prop } if prop.dmx.is_none() => {
+            prop.dmx = show.prop(prop.id).and_then(|p| p.dmx.clone());
+            Edit::UpdateProp { prop }
+        }
+        other => other,
+    }
+}
+
 /// Runs one call. Unknown tools (anything outside the toolbox, like saving, output, or devices)
 /// are refused with an explanation, and nothing happens.
 pub fn run_tool(toolbox: &Toolbox, call: &ToolCall, draft: &mut Draft, song: &mut Song<'_>) -> Outcome {
@@ -73,7 +87,7 @@ pub fn run_tool(toolbox: &Toolbox, call: &ToolCall, draft: &mut Draft, song: &mu
     let input = &call.input;
     match &tool.kind {
         ToolKind::ShowEdit { tag } => match show_edit(tag, input) {
-            Ok(edit) => match draft.edit_show(edit) {
+            Ok(edit) => match draft.edit_show(keep_fixture(edit, draft.show())) {
                 Ok(()) => ok("Done (in your draft)."),
                 Err(e) => err(e.to_string()),
             },
@@ -877,3 +891,34 @@ fn effects(show: &Show, doc: &Sequence, input: &Value) -> String {
 
 /// Effects `list_sequence_effects` gives in full without being asked to.
 const FULL_EFFECTS: usize = 12;
+
+#[cfg(test)]
+mod fixture_tests {
+    use super::*;
+
+    #[test]
+    fn a_flood_sent_back_without_its_fixture_keeps_it() {
+        let mut flood = pf_model::Prop::new(
+            "Flood",
+            pf_model::ShapeSource::Generator(pf_model::Generator::Line {
+                nodes: 1,
+                length: 0.5,
+            }),
+        );
+        flood.dmx = Some(pf_model::DmxFixture::from_layout(
+            pf_model::dmx_layout("dimmer-rgb").unwrap(),
+            1,
+            5,
+        ));
+        let mut show = Show::new("t");
+        show.props.push(flood.clone());
+        let mut moved = flood.clone();
+        moved.dmx = None;
+        moved.transform.position.x = 3.0;
+        let Edit::UpdateProp { prop } = keep_fixture(Edit::UpdateProp { prop: moved }, &show) else {
+            panic!("an update")
+        };
+        assert_eq!(prop.dmx, flood.dmx);
+        assert_eq!(prop.transform.position.x, 3.0);
+    }
+}

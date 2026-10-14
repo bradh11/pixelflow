@@ -735,6 +735,14 @@ export interface ControllerStatus {
   lastError: string | null;
 }
 
+/** A serial port a USB DMX interface could be on, for the port picker. */
+export interface SerialPortChoice {
+  /** What a USB DMX controller's address holds: `/dev/cu.usbserial-…`, `COM3`. */
+  name: string;
+  /** What the device is, and the port's short name: "ENTTEC DMX USB Pro (cu.usbserial-EN1234)". */
+  label: string;
+}
+
 export interface OutputStatus {
   running: boolean;
   generation: number;

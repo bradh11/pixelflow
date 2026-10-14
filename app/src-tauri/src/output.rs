@@ -21,10 +21,10 @@ pub(crate) async fn set_test_channels(state: State<'_, AppState>, channels: Vec<
     Ok(state.engine().set_test_channels(channels))
 }
 
-/// The serial ports a USB DMX interface could be on, by name (none where they can't be listed:
-/// the user types one).
+/// The serial ports a USB DMX interface could be on, with what each device is (none where they
+/// can't be listed: the user types one). Lists them only; opens none.
 #[tauri::command]
-pub(crate) async fn list_serial_ports() -> Reply<Vec<String>> {
+pub(crate) async fn list_serial_ports() -> Reply<Vec<pf_engine::SerialPortChoice>> {
     pf_engine::serial_ports().map_err(|e| e.to_string())
 }
 

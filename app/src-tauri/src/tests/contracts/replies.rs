@@ -389,6 +389,23 @@ fn show_replies() {
         "types.OutputStatus",
         &wire(&unresolved),
     );
+    // The serial ports this computer has differ from one to the next (and a test opens none):
+    // the list as the engine builds it, of two made-up ports.
+    let ports = vec![
+        pf_engine::SerialPortChoice {
+            name: "/dev/cu.usbserial-EN123456".to_string(),
+            label: "ENTTEC DMX USB Pro (cu.usbserial-EN123456)".to_string(),
+        },
+        pf_engine::SerialPortChoice {
+            name: "COM3".to_string(),
+            label: "COM3".to_string(),
+        },
+    ];
+    fixtures.reply(
+        "serial ports a USB DMX interface could be on (built)",
+        "types.SerialPortChoice[]",
+        &wire(&ports),
+    );
     // The prop goes: the pattern has nothing left to light, and says why it stopped.
     shell.ok(
         "apply_edits",

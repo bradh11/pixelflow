@@ -39,7 +39,9 @@ pub use files::{
     check_chosen_file,
 };
 pub use history::History;
-pub use output::{ControllerStatus, OutputStatus, PatternKind, PatternSpec, TargetSpec, serial_ports};
+pub use output::{
+    ControllerStatus, OutputStatus, PatternKind, PatternSpec, SerialPortChoice, TargetSpec, serial_ports,
+};
 pub use persist::{
     HistoryEntry, HistoryFile, LoadedShow, load_show, read_show, save_show_atomic, write_atomic,
 };

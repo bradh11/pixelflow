@@ -473,6 +473,14 @@
     }
   },
   {
+    "name": "serial ports a USB DMX interface could be on (built)",
+    "ts": "types.SerialPortChoice[]",
+    "value": [
+      { "label": "ENTTEC DMX USB Pro (cu.usbserial-EN123456)", "name": "/dev/cu.usbserial-EN123456" },
+      { "label": "COM3", "name": "COM3" }
+    ]
+  },
+  {
     "name": "a test pattern that stopped by itself",
     "ts": "types.OutputStatus",
     "value": {

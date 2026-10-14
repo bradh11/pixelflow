@@ -1,7 +1,8 @@
-import { ChevronDown, Plus, Shapes } from "lucide-react";
+import { ChevronDown, Lamp, Plus, Shapes } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { PreviewProp } from "../../api/types";
 import { PROP_KINDS } from "../../lib/shows";
+import { newFixture } from "../../lib/dmx";
 import { addPropInView } from "../../state/addProp";
 import { Button } from "../ui";
 import { MORE_TOOLS, TOOLS } from "./LayoutToolbar";
@@ -84,6 +85,19 @@ export function AddPropMenu({ preview }: { preview: PreviewProp[] }) {
               );
             })}
           </div>
+          <button
+            type="button"
+            role="menuitem"
+            title="A DMX flood, par, or bar: set its channels and address in its properties"
+            className="mt-0.5 flex items-center gap-2 rounded border-t border-neutral-200 px-2 py-1.5 text-left hover:bg-neutral-100 focus:bg-neutral-100 dark:border-neutral-800 dark:hover:bg-neutral-800 dark:focus:bg-neutral-800"
+            onClick={() => {
+              setOpen(false);
+              void addPropInView(newFixture, preview);
+            }}
+          >
+            <Lamp size={16} aria-hidden className="shrink-0 text-neutral-500" />
+            <span className="truncate">DMX flood or bar</span>
+          </button>
           <p className="mt-1 border-t border-neutral-200 px-2 pt-1.5 pb-1 text-xs text-neutral-500 dark:border-neutral-800">
             Lands in the middle of the canvas. To draw a prop right where it goes, pick its tool on the toolbar and drag.
           </p>

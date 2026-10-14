@@ -17,6 +17,7 @@
 //! gamma change, like the preview.
 
 use crate::dots::{DOT_RADIUS, Dots, Layer, PixelBox, View};
+use crate::flood::Floods;
 use crate::glow::{Halos, Sums};
 use pf_engine::PreviewProp;
 
@@ -161,6 +162,8 @@ pub struct Scene {
     radius: f64,
     dots: Dots,
     halos: Option<Halos>,
+    /// The DMX floods' washes, under the dots.
+    floods: Option<Floods>,
 }
 
 impl Scene {
@@ -212,6 +215,7 @@ impl Scene {
         let halos = Halos::new(props, &view, picture, (lamp * scale).min(radius), look.glow);
         let dim = |dot: f64| halos.as_ref().map_or(1.0, |halos| halos.dim(dot));
         let dots = Dots::new(props, &view, picture, radius, UNLIT, dim);
+        let floods = Floods::new(props, &view);
         let mut scene = Self {
             width,
             height,
@@ -220,6 +224,7 @@ impl Scene {
             radius,
             dots,
             halos,
+            floods,
         };
         scene.background = scene.paint_background(bounds, photo);
         Some(scene)
@@ -313,6 +318,9 @@ impl Scene {
         canvas.height = self.height;
         canvas.rgb.clear();
         canvas.rgb.extend_from_slice(&self.background);
+        if let Some(floods) = &self.floods {
+            floods.add(frame, self.width as usize, self.height as usize, &mut canvas.rgb);
+        }
         self.dots.stamp(frame, &mut canvas.scratch.dots);
         if let Some(bounds) = self.dots.bounds() {
             lay_over(&canvas.scratch.dots, bounds, self.width as usize, &mut canvas.rgb);
@@ -354,6 +362,7 @@ mod tests {
             frame_offset,
             channels_per_pixel: 3,
             points: points.to_vec(),
+            flood: false,
         }
     }
 
@@ -859,6 +868,7 @@ mod tests {
                         frame_offset: p.frame_offset,
                         channels_per_pixel: p.channels_per_pixel,
                         points: p.points.iter().flatten().copied().collect(),
+                        flood: false,
                     })
                     .collect();
                 let picture = &shared.picture;

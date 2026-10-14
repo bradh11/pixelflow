@@ -16,6 +16,7 @@ pub mod aac;
 mod dots;
 mod export;
 pub mod ffmpeg;
+mod flood;
 mod glow;
 pub mod h264;
 pub mod mp4;

@@ -4,7 +4,7 @@
 // works it out (`emitted_colors`), for the browser stand-in and the Test screen.
 
 import layouts from "../api/dmxLayouts.json";
-import type { DmxChannel, DmxFixture, DmxRole, Prop } from "../api/types";
+import type { DmxChannel, DmxFixture, DmxRole, Prop, Show } from "../api/types";
 
 /** A channel layout from the library: channels for the whole fixture, the same for each cell, then more. */
 export interface DmxLayout {
@@ -87,6 +87,44 @@ export function fixtureProblem(fixture: DmxFixture, cells: number): string | nul
   const stray = fixture.channels.find((c) => perCell(c.role) && (c.cell ?? 0) >= cells);
   if (stray) return `The channel '${stray.name}' is for cell ${(stray.cell ?? 0) + 1}, but the fixture has ${cells}.`;
   return null;
+}
+
+/** The first address from which `channels` channels overlap no fixture already in `show` (1 when none is free). */
+export function nextFreeAddress(show: Show, channels: number): number {
+  const used = show.props.flatMap((p) => (p.dmx ? [[p.dmx.address, lastAddress(p.dmx)] as const] : []));
+  let start = 1;
+  while (start + channels - 1 <= 512) {
+    const clash = used.find(([a, b]) => start <= b && a <= start + channels - 1);
+    if (!clash) return start;
+    start = clash[1] + 1;
+  }
+  return 1;
+}
+
+/** The library layout a fixture's channels are exactly, for `cells` cells (null: custom). */
+export function layoutOf(fixture: DmxFixture, cells: number): DmxLayout | null {
+  const same = (layout: DmxLayout) => JSON.stringify(layoutChannels(layout, cells)) === JSON.stringify(fixture.channels);
+  return DMX_LAYOUTS.find((l) => l.id === fixture.layout && same(l)) ?? DMX_LAYOUTS.find(same) ?? null;
+}
+
+/** A new DMX flood for `show`: one cell, a dimmer then red, green and blue, at the first free address. */
+export function newFixture(show: Show): Prop {
+  const layout = DMX_LAYOUTS.find((l) => l.id === "dimmer-rgb") ?? DMX_LAYOUTS[0];
+  const names = new Set(show.props.map((p) => p.name));
+  let n = 1;
+  while (names.has(`Flood ${n}`)) n++;
+  const fixture = fixtureFromLayout(layout, 1, 1);
+  fixture.address = nextFreeAddress(show, fixture.channels.length);
+  return {
+    id: crypto.randomUUID(),
+    name: `Flood ${n}`,
+    shape: { source: "generator", type: "line", nodes: 1, length: 0.5 },
+    transform: { position: { x: 0, y: 0, z: 0 }, rotationDeg: { x: 0, y: 0, z: 0 }, scale: { x: 1, y: 1, z: 1 } },
+    colorOrder: "RGB",
+    regions: [],
+    tags: [],
+    dmx: fixture,
+  };
 }
 
 /** Whether `prop` is a DMX fixture. */

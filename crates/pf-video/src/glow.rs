@@ -406,6 +406,7 @@ mod tests {
             frame_offset: 0,
             channels_per_pixel: 3,
             points: points.to_vec(),
+            flood: false,
         }
     }
 

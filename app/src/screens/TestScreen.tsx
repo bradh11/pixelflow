@@ -1,7 +1,8 @@
 import { Camera, Play, RefreshCw, Square } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { errorMessage } from "../api/backend";
-import type { ControllerCheck, OutputStatus, PatternKind, TargetSpec } from "../api/types";
+import type { ControllerCheck, DmxFixture, OutputStatus, PatternKind, TargetSpec } from "../api/types";
+import { DMX_ROLE_LABELS, fromColor } from "../lib/dmx";
 import { ColorOrderPointer } from "../components/ColorOrderPointer";
 import { Button, Card, EmptyState, Field, Input, PageHeader, Select } from "../components/ui";
 import { thousands } from "../lib/format";
@@ -18,7 +19,44 @@ const PATTERNS: { kind: PatternKind; label: string; usesColor: boolean }[] = [
   { kind: "alternate", label: "Alternate pixels", usesColor: true },
   { kind: "walk", label: "Pixel walk", usesColor: true },
   { kind: "identify", label: "Identify (blink)", usesColor: false },
+  { kind: "channels", label: "DMX channels by hand", usesColor: false },
 ];
+
+/** A fixture's channels to start from: color and dimmer channels dark, the rest at the value they hold. */
+function startingChannels(fixture: DmxFixture): number[] {
+  return fixture.channels.map((c) => (fromColor(c.role) ? 0 : (c.value ?? 0)));
+}
+
+/** A DMX fixture's channels as sliders, each 0-255, numbered by their address. */
+function ChannelSliders({ fixture, values, onChange }: { fixture: DmxFixture; values: number[]; onChange: (values: number[]) => void }) {
+  return (
+    <section aria-label="DMX channels by hand" className="mt-3 border-t border-neutral-200 pt-2 dark:border-neutral-800">
+      <h2 className="mb-1 text-xs font-medium tracking-wide text-neutral-500 uppercase">Channels</h2>
+      <div className="grid grid-cols-1 gap-x-4 gap-y-1 sm:grid-cols-2">
+        {fixture.channels.map((c, i) => (
+          <label key={i} className="flex items-center gap-2 text-xs">
+            <span className="w-28 shrink-0 truncate" title={DMX_ROLE_LABELS[c.role]}>
+              <span className="text-neutral-500 tabular-nums">{fixture.address + i}</span> {c.name || DMX_ROLE_LABELS[c.role]}
+            </span>
+            <input
+              type="range"
+              min={0}
+              max={255}
+              value={values[i] ?? 0}
+              aria-label={`${c.name || DMX_ROLE_LABELS[c.role]} (channel ${fixture.address + i})`}
+              onChange={(e) => onChange(values.map((v, k) => (k === i ? Number(e.target.value) : v)))}
+              className="min-w-0 flex-1 accent-accent-500"
+            />
+            <span className="w-8 text-right tabular-nums">{values[i] ?? 0}</span>
+          </label>
+        ))}
+      </div>
+      <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
+        A DMX channel can strobe a light, run a macro, or move a head. Check what each one does in the fixture's manual before you send.
+      </p>
+    </section>
+  );
+}
 
 /** Quick colors for checking each channel of a pixel. */
 const PRESETS: { label: string; color: string }[] = [
@@ -112,6 +150,8 @@ export function TestScreen() {
   const [error, setError] = useState<string | null>(null);
   const [removed, setRemoved] = useState(false);
   const [hex, setHex] = useState("#ffffff");
+  /** The channels set by hand on the fixture being tested, and which fixture they are for. */
+  const [byHand, setByHand] = useState<{ prop: string; values: number[] } | null>(null);
   const live = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   /** Whether output runs, as of the latest status (read by a change's timer when it fires). */
   const runningNow = useRef(false);
@@ -170,7 +210,12 @@ export function TestScreen() {
   }, [targetMissing, show, setTargetValue]);
 
   if (!snapshot || !backend || !show) return null;
-  const pattern = PATTERNS.find((p) => p.kind === kind)!;
+  const fixtureProp = targetSpec.type === "prop" ? show.props.find((p) => p.id === targetSpec.id && p.dmx) : undefined;
+  const fixture = fixtureProp?.dmx;
+  // Channels by hand are for a DMX fixture alone.
+  const shownKind: PatternKind = kind === "channels" && !fixture ? "solid" : kind;
+  const pattern = PATTERNS.find((p) => p.kind === shownKind)!;
+  const handValues = fixture && fixtureProp ? (byHand?.prop === fixtureProp.id ? byHand.values : startingChannels(fixture)) : [];
   const nothingToSend = destinations.length === 0;
   const listed = destinations.map((d) => checks?.get(d.controller.address.trim()));
   const elsewhere = isDemoShow(show) || (listed.length > 0 && listed.every((c) => c?.onLocalNetwork === false));
@@ -184,7 +229,9 @@ export function TestScreen() {
     cancelLive();
     const target = (targets.find((t) => t.value === (next.target ?? targetValue)) ?? targets[0]).spec;
     try {
-      setStatus(await backend.startOutput({ kind: next.kind ?? kind, color: (next.color ?? color).replace("#", "") }, target));
+      const sending = next.kind ?? shownKind;
+      const channels = sending === "channels" ? { channels: handValues } : {};
+      setStatus(await backend.startOutput({ kind: sending, color: (next.color ?? color).replace("#", ""), ...channels }, target));
       setError(null);
       useSetup.getState().markTested(currentSetupKey());
       setRemoved(false);
@@ -214,6 +261,12 @@ export function TestScreen() {
       // Checked when it fires, not when it was asked for: Stop may have come in between.
       if (runningNow.current) void start(next);
     }, LIVE_MS);
+  };
+  /** Channels moved by hand reach the lights at once while they're being sent, with no restart. */
+  const setChannels = (values: number[]) => {
+    if (!fixtureProp) return;
+    setByHand({ prop: fixtureProp.id, values });
+    if (running && status?.pattern?.kind === "channels") void backend.setTestChannels(values).then(setStatus, (e: unknown) => setError(errorMessage(e)));
   };
   const pickColor = (value: string) => {
     setColor(value);
@@ -269,13 +322,13 @@ export function TestScreen() {
               <div className="min-w-36 flex-[1_1_9rem]">
               <Field label="Pattern">
                 <Select
-                  value={kind}
+                  value={shownKind}
                   onChange={(e) => {
                     setKind(e.target.value as PatternKind);
                     change({ kind: e.target.value as PatternKind });
                   }}
                 >
-                  {PATTERNS.map((p) => (
+                  {PATTERNS.filter((p) => p.kind !== "channels" || fixture).map((p) => (
                     <option key={p.kind} value={p.kind}>
                       {p.label}
                     </option>
@@ -355,7 +408,8 @@ export function TestScreen() {
             ) : (
               <SendsTo destinations={destinations} checks={checks} onCheckAgain={() => setAgain((n) => n + 1)} />
             )}
-            <ColorOrderPointer className="mt-2" propId={targetSpec.type === "prop" ? targetSpec.id : undefined} />
+            {fixture && shownKind === "channels" && <ChannelSliders fixture={fixture} values={handValues} onChange={setChannels} />}
+            {!fixture && <ColorOrderPointer className="mt-2" propId={targetSpec.type === "prop" ? targetSpec.id : undefined} />}
             {elsewhere && (
               <p className="mt-2 flex flex-wrap items-center gap-2 text-xs text-neutral-600 dark:text-neutral-400">
                 This show's controllers aren't on your network. Add your own on the Controllers screen.

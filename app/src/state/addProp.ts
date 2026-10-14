@@ -1,4 +1,4 @@
-import type { PreviewProp, Prop } from "../api/types";
+import type { PreviewProp, Prop, Show } from "../api/types";
 import { frontView } from "../lib/geometry";
 import { placedInView, visibleBox } from "../lib/layoutEdits";
 import { boxOfPoints, fitView, inBox, unionBox } from "../lib/layoutMath";
@@ -16,7 +16,7 @@ const nextFrame = () =>
  * one), selects it, brings it into view, and says so. One undo step. `preview` is the props'
  * pixels from the engine, where the screen has them. Resolves with the new prop, or null.
  */
-export async function addPropInView(kind: PropKind, preview: PreviewProp[] = []): Promise<Prop | null> {
+export async function addPropInView(kind: PropKind | ((show: Show) => Prop), preview: PreviewProp[] = []): Promise<Prop | null> {
   // From another screen (the command palette): open Layout first, so its canvas can be measured.
   if (useApp.getState().screen !== "layout") {
     useApp.getState().setScreen("layout");
@@ -30,7 +30,7 @@ export async function addPropInView(kind: PropKind, preview: PreviewProp[] = [])
   const visible = view && size ? visibleBox(view, size) : null;
   let added: Prop | null = null;
   const ok = await useApp.getState().apply((show) => {
-    added = placedInView(newProp(kind, show), show, preview, visible);
+    added = placedInView(typeof kind === "function" ? kind(show) : newProp(kind, show), show, preview, visible);
     return [{ type: "addProp", prop: added }];
   });
   const prop = added as Prop | null;

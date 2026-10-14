@@ -28,6 +28,7 @@
 import type { PreviewProp } from "../api/types";
 import type { Size, View } from "./layoutMath";
 import { DOT_RADIUS, type HaloPlan, type PixelBox, coreDim, drawHalos, planHalos } from "./pixelGlow";
+import { drawFloods } from "./floodWash";
 
 export { DOT_RADIUS };
 
@@ -836,6 +837,9 @@ export function drawPixels(
   glow = 0,
 ) {
   const halos = frame && glow > 0 ? planHalos(ctx, glow, view, radius, ratio) : null;
+  // DMX floods wash their color round them, under the dots (see floodWash.ts).
+  const unlit = packColor(colors.unlit);
+  drawFloods(ctx, props, frame, view, size, [unlit & 255, (unlit >> 8) & 255, (unlit >> 16) & 255]);
   const layer = layerFor(ctx.canvas);
   if (layer) {
     // Only where the last frame's dots were needs emptying.

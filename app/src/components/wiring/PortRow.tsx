@@ -74,7 +74,7 @@ function SlotRow({ controller, port, at, index, slot, prop, data, channels, rece
   const lit = useWiring((s) => s.hoveredProp === slot.prop && samePort(s.hovered, ref));
   const apply = useApp((s) => s.apply);
   const name = prop?.name ?? "Missing prop";
-  const label = slotLabel(name, slot);
+  const label = prop?.dmx ? `${name} @ ${prop.dmx.address}` : slotLabel(name, slot);
   const problem = !prop || data.wiring.get(slot.prop)?.status === "twice";
   const nodes = data.nodes.get(slot.prop) ?? 0;
   const pixels = slot.segment ? slot.segment.end - slot.segment.start : nodes;

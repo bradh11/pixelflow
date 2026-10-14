@@ -606,11 +606,13 @@ export type Edit =
   | { type: "setBackground"; background: Background | null }
   | { type: "setHouseModel"; houseModel: HouseModel | null };
 
-export type PatternKind = "solid" | "cycle" | "chase" | "ramp" | "alternate" | "identify" | "walk" | "cameraMap" | "cameraMapBinary";
+export type PatternKind = "solid" | "cycle" | "chase" | "ramp" | "alternate" | "identify" | "walk" | "cameraMap" | "cameraMapBinary" | "channels";
 
 export interface PatternSpec {
   kind: PatternKind;
   color: string;
+  /** For "channels": the target fixture's channels, in its order, set by hand. */
+  channels?: number[];
 }
 
 export type TargetSpec =
@@ -1283,6 +1285,8 @@ export interface PreviewProp {
   channelsPerPixel: number;
   /** x, y pairs, one per pixel, in wiring order. */
   points: ArrayLike<number>;
+  /** A DMX fixture: each pixel (cell) is a flood, drawn as a wash of its color. */
+  flood?: boolean;
 }
 
 /** Every prop's pixel positions, and the show revision they were worked out for. */
@@ -1298,6 +1302,8 @@ export interface PreviewProp3d {
   channelsPerPixel: number;
   /** x, y, z triples, one per pixel, in wiring order. */
   xyz: Float32Array;
+  /** A DMX fixture: each pixel (cell) is a flood. */
+  flood?: boolean;
 }
 
 /** Every prop's pixel positions in 3D, and the show revision they were worked out for. */

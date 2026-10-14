@@ -13,6 +13,8 @@ export interface ControllerKind {
   ports: number | null;
   /** Most pixels one port drives, when known. */
   maxPixels: number | null;
+  /** A DMX node or interface (each port one DMX universe), and how it's sent. */
+  dmx?: "artNet" | "sacn" | "usb";
 }
 
 /**
@@ -34,6 +36,9 @@ export const CONTROLLER_KINDS: ControllerKind[] = [
   falcon("f48v4", "Falcon F48V4", 48),
   { id: "fpp", label: "FPP (Pi or BeagleBone cape)", adapter: "fpp", ports: null, maxPixels: null },
   { id: "wled", label: "WLED", adapter: "wled", ports: 1, maxPixels: null },
+  { id: "dmx-artnet", label: "DMX node (Art-Net)", adapter: "generic", ports: 1, maxPixels: null, dmx: "artNet" },
+  { id: "dmx-sacn", label: "DMX node (sACN)", adapter: "generic", ports: 1, maxPixels: null, dmx: "sacn" },
+  { id: "dmx-usb", label: "USB DMX interface", adapter: "generic", ports: 1, maxPixels: null, dmx: "usb" },
 ];
 
 export function kindById(id: string): ControllerKind {
@@ -50,6 +55,18 @@ export function kindPixelLimit(kind: ControllerKind, ports: number): number | nu
 export function controllerOfKind(id: string, name: string, address: string, protocol: "ddp" | "sacn", portCount: number): Controller {
   const kind = kindById(id);
   const controller = newController(name, address, protocol, portCount);
+  if (kind.dmx) {
+    // Each port one whole universe, sent in full.
+    controller.kind = "dmx";
+    controller.protocol =
+      kind.dmx === "usb"
+        ? { type: "dmxUsb" }
+        : kind.dmx === "artNet"
+          ? { type: "artNet", startUniverse: null, universeSize: 512, allowPixelStraddle: false }
+          : { type: "sacn", startUniverse: null, universeSize: 512, allowPixelStraddle: false, multicast: false };
+    if (kind.dmx === "usb") controller.ports = controller.ports.slice(0, 1);
+    return controller;
+  }
   controller.adapter = kind.adapter;
   const limit = kindPixelLimit(kind, portCount);
   for (const port of controller.ports) port.maxPixels = limit;

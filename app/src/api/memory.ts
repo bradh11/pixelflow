@@ -466,6 +466,17 @@ export class MemoryBackend implements Backend {
     return this.output;
   }
 
+  async setTestChannels(channels: number[]) {
+    this.calls.push(`setTestChannels:${channels.join(",")}`);
+    if (this.output.running && this.output.pattern?.kind === "channels") this.output = { ...this.output, pattern: { ...this.output.pattern, channels } };
+    return this.output;
+  }
+
+  /** No serial ports in the browser: a USB DMX interface's port is typed. */
+  async listSerialPorts(): Promise<string[]> {
+    return [];
+  }
+
   async discoverDevices(hosts: string[], network: boolean): Promise<Discovery> {
     this.calls.push(`discoverDevices:${hosts.join(",")}${network ? ":network" : ""}`);
     return structuredClone({
@@ -1386,6 +1397,7 @@ export class MemoryBackend implements Backend {
       frameOffset: layout.props[i].frameOffset,
       channelsPerPixel: layout.props[i].channelsPerPixel,
       points: frontView(prop).slice(0, layout.props[i].nodes * 2),
+      ...(prop.dmx ? { flood: true } : {}),
     }));
     return { revision: this.revision, props };
   }
@@ -1398,6 +1410,7 @@ export class MemoryBackend implements Backend {
       frameOffset: layout.props[i].frameOffset,
       channelsPerPixel: layout.props[i].channelsPerPixel,
       xyz: deepView(prop).subarray(0, layout.props[i].nodes * 3),
+      ...(prop.dmx ? { flood: true } : {}),
     }));
     return { revision: this.revision, props };
   }

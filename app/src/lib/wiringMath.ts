@@ -509,20 +509,26 @@ export function slotChannels(map: ChannelMap, controller: string, port: Port, no
   const output = map.controllers.find((c) => c.controller === controller);
   const spans = output?.spans.filter((s) => s.port === port.number) ?? [];
   let next = 0;
+  const fixtures = new Set(map.fixtures.map((f) => f.prop));
   return port.slots.map((slot) => {
     const range = slotRange(slot, nodes);
     if (!output || !range || range.end === range.start) return null;
-    const i = spans.findIndex((s, j) => j >= next && s.prop === slot.prop && s.pixels === range.end - range.start);
+    // A DMX fixture is sent as its channels, however many cells it has.
+    const fixture = fixtures.has(slot.prop);
+    const i = spans.findIndex((s, j) => j >= next && s.prop === slot.prop && (fixture || s.pixels === range.end - range.start));
     if (i < 0) return null;
     next = i + 1;
     const span = spans[i];
     const end = span.controllerChannel + span.pixels * span.channelsPerPixel;
     let universes: [number, number] | null = null;
-    if (output.addressing.type === "sacn") {
-      const touched = output.addressing.universes.filter((u) => u.controllerChannel < end && span.controllerChannel < u.controllerChannel + u.len).map((u) => u.universe);
-      if (touched.length > 0) universes = [Math.min(...touched), Math.max(...touched)];
+    let first = span.controllerChannel + 1;
+    if (output.addressing.type === "sacn" || output.addressing.type === "artNet") {
+      const touched = output.addressing.universes.filter((u) => u.controllerChannel < end && span.controllerChannel < u.controllerChannel + u.len);
+      if (touched.length > 0) universes = [Math.min(...touched.map((u) => u.universe)), Math.max(...touched.map((u) => u.universe))];
+      // A fixture's channel is its address in its universe.
+      if (fixture && touched.length > 0) first = span.controllerChannel - touched[0].controllerChannel + 1;
     }
-    return { first: span.controllerChannel + 1, universes };
+    return { first, universes };
   });
 }
 
@@ -539,7 +545,7 @@ export function portChannels(map: ChannelMap, controller: string, port: number):
   const start = Math.min(...spans.map((s) => s.controllerChannel));
   const end = Math.max(...spans.map((s) => s.controllerChannel + s.pixels * s.channelsPerPixel));
   let universes: [number, number] | null = null;
-  if (output.addressing.type === "sacn") {
+  if (output.addressing.type === "sacn" || output.addressing.type === "artNet") {
     const touched = output.addressing.universes.filter((u) => u.controllerChannel < end && start < u.controllerChannel + u.len).map((u) => u.universe);
     if (touched.length > 0) universes = [Math.min(...touched), Math.max(...touched)];
   }

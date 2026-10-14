@@ -48,6 +48,7 @@ pub fn preview_props_of(show: &Show) -> Vec<PreviewProp> {
                 frame_offset: layout.frame_offset,
                 channels_per_pixel: layout.channels_per_pixel,
                 points,
+                flood: prop.dmx.is_some(),
             })
         })
         .collect()

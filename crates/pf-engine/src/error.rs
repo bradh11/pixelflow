@@ -33,6 +33,8 @@ pub enum EngineError {
     ShowHasErrors(String),
     #[error("The chosen target has no pixels to light. Wire props to it first.")]
     NothingToLight,
+    #[error("Choose a DMX fixture to set its channels by hand.")]
+    NotAFixture,
     #[error("Could not open a network socket for output: {0}")]
     Network(std::io::Error),
     #[error("'{0}' is not a color. Use six or eight hex digits, like ff8000.")]

@@ -2,7 +2,7 @@
 
 use crate::error::EngineError;
 use pf_frame::FrameWriter;
-use pf_mapping::{ChannelMap, ControllerOutput};
+use pf_mapping::{ChannelMap, ControllerOutput, FixtureLayout};
 use pf_model::{ControllerId, GroupId, PropId, Protocol, Show};
 use pf_output::{ControllerState, OutputHandle, OutputSettings, OutputStats, Transport};
 use pf_patterns::{Pattern, Preset, Rgbw, Target, TargetRange, render, resolve_target};
@@ -20,6 +20,10 @@ pub struct PatternSpec {
     /// `rrggbb` or `rrggbbww`; ignored by `cycle` and `identify`.
     #[serde(default = "default_color")]
     pub color: String,
+    /// For `channels`: the target fixture's channels, in its order, set by hand (missing ones:
+    /// colour and dimmer channels dark, the rest at their held values).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub channels: Vec<u8>,
 }
 
 fn default_color() -> String {
@@ -40,6 +44,8 @@ pub enum PatternKind {
     CameraMap,
     /// The camera-mapping sequence in white only (single-colour pixels, colour-blind cameras).
     CameraMapBinary,
+    /// A DMX fixture's channels set by hand (`PatternSpec::channels`); the target is the fixture.
+    Channels,
 }
 
 impl PatternSpec {
@@ -53,6 +59,8 @@ impl PatternSpec {
             PatternKind::Alternate => Preset::Alternate,
             PatternKind::Identify => Preset::Identify,
             PatternKind::Walk => Preset::Walk,
+            // The fixture's channels are set, not drawn: its colour comes from them.
+            PatternKind::Channels => return Ok(Pattern::Solid(Rgbw::OFF)),
             PatternKind::CameraMap | PatternKind::CameraMapBinary => {
                 return Ok(Pattern::CameraMap {
                     base: if self.kind == PatternKind::CameraMap {
@@ -92,6 +100,12 @@ impl From<&TargetSpec> for Target {
             },
         }
     }
+}
+
+/// The serial ports a USB DMX interface could be on, by name (none where they can't be listed).
+pub fn serial_ports() -> std::io::Result<Vec<String>> {
+    use pf_output::SerialPorts;
+    pf_output::NoSerialPorts.list()
 }
 
 /// One controller's live output health, for the UI.
@@ -197,6 +211,8 @@ pub(crate) struct OutputSession {
     stop: Arc<AtomicBool>,
     content: Option<JoinHandle<()>>,
     preview: Arc<Mutex<Vec<u8>>>,
+    /// The channels of the fixture set by hand (`PatternKind::Channels`), shared with the painter.
+    by_hand: Arc<Mutex<Vec<u8>>>,
 }
 
 fn frame_period(frame_rate: u16) -> Duration {
@@ -217,10 +233,54 @@ pub(crate) fn sentence(text: &str) -> String {
     out
 }
 
+/// The DMX fixtures in a painted frame: each one's colour becomes its channels, or, for the one
+/// whose channels are set by hand, those.
+#[derive(Debug, Clone, Default)]
+struct Fixtures {
+    fixtures: Vec<FixtureLayout>,
+    /// The fixture set by hand (a place in `fixtures`), and what to.
+    by_hand: Option<(usize, Arc<Mutex<Vec<u8>>>)>,
+}
+
+impl Fixtures {
+    fn new(map: &ChannelMap, spec: &PatternSpec, target: &TargetSpec, by_hand: &Arc<Mutex<Vec<u8>>>) -> Self {
+        let place = match (spec.kind, target) {
+            (PatternKind::Channels, TargetSpec::Prop { id }) => {
+                map.fixtures.iter().position(|f| f.prop == *id)
+            }
+            _ => None,
+        };
+        Self {
+            fixtures: map.fixtures.clone(),
+            by_hand: place.map(|p| (p, Arc::clone(by_hand))),
+        }
+    }
+
+    fn write(&self, frame: &mut [u8]) {
+        for (i, fixture) in self.fixtures.iter().enumerate() {
+            match &self.by_hand {
+                Some((place, values)) if *place == i => {
+                    let values = values.lock().unwrap_or_else(PoisonError::into_inner);
+                    let set: Vec<Option<u8>> = values.iter().map(|v| Some(*v)).collect();
+                    fixture.write_values(frame, &set);
+                }
+                _ => fixture.write(frame, &[]),
+            }
+        }
+    }
+}
+
+/// Paints `pattern` at `t` seconds, then the fixtures' channels.
+fn paint(pattern: &Pattern, t: f32, targets: &[TargetRange], fixtures: &Fixtures, frame: &mut [u8]) {
+    render(pattern, t, targets, frame);
+    fixtures.write(frame);
+}
+
 /// The content thread: paints the pattern into the frame buffer once per frame period.
 struct Painter {
     pattern: Pattern,
     targets: Vec<TargetRange>,
+    fixtures: Fixtures,
     writer: FrameWriter,
     preview: Arc<Mutex<Vec<u8>>>,
     stop: Arc<AtomicBool>,
@@ -237,10 +297,11 @@ impl Painter {
                 let mut next = Instant::now();
                 while !self.stop.load(Ordering::Relaxed) {
                     let frame = self.writer.frame_mut();
-                    render(
+                    paint(
                         &self.pattern,
                         self.started.elapsed().as_secs_f32(),
                         &self.targets,
+                        &self.fixtures,
                         frame,
                     );
                     self.preview
@@ -275,8 +336,10 @@ impl OutputSession {
         let plan = pf_output::build_plan(show, map);
         let period = frame_period(plan.frame_rate);
         let (mut writer, reader) = pf_frame::frame_buffers(plan.frame_len);
+        let by_hand = Arc::new(Mutex::new(pattern_spec.channels.clone()));
+        let fixtures = Fixtures::new(map, &pattern_spec, &target, &by_hand);
         // Publish the first frame before output starts so controllers never see a black frame first.
-        render(&pattern, 0.0, &targets, writer.frame_mut());
+        paint(&pattern, 0.0, &targets, &fixtures, writer.frame_mut());
         let preview = Arc::new(Mutex::new(writer.frame_mut().to_vec()));
         writer.publish();
         let handle = pf_output::start_output(plan, settings, reader, transport);
@@ -286,6 +349,7 @@ impl OutputSession {
         let content = Painter {
             pattern,
             targets: targets.clone(),
+            fixtures,
             writer,
             preview: Arc::clone(&preview),
             stop: Arc::clone(&stop),
@@ -307,7 +371,19 @@ impl OutputSession {
             stop,
             content: Some(content),
             preview,
+            by_hand,
         })
+    }
+
+    /// Sets the channels of the fixture being set by hand, from the next frame on, without
+    /// stopping output. False when the session isn't setting a fixture's channels.
+    pub fn set_channels(&mut self, channels: Vec<u8>) -> bool {
+        if self.pattern.kind != PatternKind::Channels {
+            return false;
+        }
+        self.pattern.channels.clone_from(&channels);
+        *self.by_hand.lock().unwrap_or_else(PoisonError::into_inner) = channels;
+        true
     }
 
     /// Carries on with the edited show's wiring, addresses, frame rate, or target pixels without
@@ -329,10 +405,12 @@ impl OutputSession {
         let plan = pf_output::build_plan(show, map);
         let period = frame_period(plan.frame_rate);
         let (mut writer, reader) = pf_frame::frame_buffers(plan.frame_len);
-        render(
+        let fixtures = Fixtures::new(map, &self.pattern, &self.target, &self.by_hand);
+        paint(
             &self.painting,
             self.started.elapsed().as_secs_f32(),
             &targets,
+            &fixtures,
             writer.frame_mut(),
         );
         *self.preview.lock().unwrap_or_else(PoisonError::into_inner) = writer.frame_mut().to_vec();
@@ -344,6 +422,7 @@ impl OutputSession {
         let content = Painter {
             pattern: self.painting,
             targets: targets.clone(),
+            fixtures,
             writer,
             preview: Arc::clone(&self.preview),
             stop: Arc::clone(&self.stop),
@@ -448,6 +527,7 @@ mod tests {
         let spec = PatternSpec {
             kind: PatternKind::Solid,
             color: "red".into(),
+            channels: Vec::new(),
         };
         assert_eq!(
             spec.to_pattern().unwrap_err().to_string(),
@@ -457,6 +537,7 @@ mod tests {
         let signed = PatternSpec {
             kind: PatternKind::Solid,
             color: "+f+f+f".into(),
+            channels: Vec::new(),
         };
         assert!(matches!(signed.to_pattern(), Err(EngineError::BadColor(_))));
     }

@@ -207,7 +207,7 @@ const targets = each<TargetSpec, "type">("type", {
   controller: { type: "controller", id: CONTROLLER },
   port: { type: "port", controller: CONTROLLER, port: 2 },
 });
-const patterns = all<PatternKind>({ solid: true, cycle: true, chase: true, ramp: true, alternate: true, identify: true, walk: true, cameraMap: true, cameraMapBinary: true });
+const patterns = all<PatternKind>({ solid: true, cycle: true, chase: true, ramp: true, alternate: true, identify: true, walk: true, cameraMap: true, cameraMapBinary: true, channels: true });
 const roles = each<FileRole, "kind">("kind", {
   sequence: { kind: "sequence", id: SEQUENCE },
   music: { kind: "music", id: SEQUENCE },
@@ -278,6 +278,9 @@ async function callTheBackend(backend: Backend) {
   await backend.listHistory();
   await backend.restoreHistory("1700000000000.pixelflow.json");
   for (const [i, kind] of patterns.entries()) await backend.startOutput({ kind, color: "ff8000" }, targets[i % targets.length]);
+  await backend.startOutput({ kind: "channels", color: "000000", channels: [255, 0, 128] }, targets[1]);
+  await backend.setTestChannels([255, 255, 0]);
+  await backend.listSerialPorts();
   await backend.stopOutput();
   await backend.outputStatus();
   for (const base of all<CodeBase>({ four: true, two: true })) {

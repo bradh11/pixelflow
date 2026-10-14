@@ -98,9 +98,14 @@ export function ControllerCard({ controller, data }: { controller: Controller; d
         <span className="text-sm text-neutral-500">{controller.address}</span>
         <span className="rounded bg-neutral-100 px-1.5 py-0.5 text-xs dark:bg-neutral-800">
           {kind && `${kind} · `}
+          {controller.kind === "dmx" && "DMX · "}
           {sacn
-            ? `sACN${sacn.startUniverse !== null ? ` · from universe ${sacn.startUniverse}` : ""}${sacn.universeSize !== 510 ? ` · ${sacn.universeSize}-channel universes` : ""}`
-            : "DDP"}
+            ? `sACN${sacn.startUniverse !== null ? ` · from universe ${sacn.startUniverse}` : ""}${sacn.universeSize !== 510 && controller.kind !== "dmx" ? ` · ${sacn.universeSize}-channel universes` : ""}`
+            : controller.protocol.type === "artNet"
+              ? `Art-Net${controller.protocol.startUniverse !== null ? ` · from universe ${controller.protocol.startUniverse}` : ""}`
+              : controller.protocol.type === "dmxUsb"
+                ? "USB DMX"
+                : "DDP"}
         </span>
         <span className="text-xs text-neutral-500 tabular-nums">
           {plural(controller.ports.length, "port")} · {thousands(pixels)} px

@@ -25,7 +25,11 @@ interface Entry {
   prop: string;
   frameOffset: number;
   channelsPerPixel: number;
+  flood?: boolean;
 }
+
+/** Set in an entry's channels per pixel when the prop is a flood (a DMX fixture's cells). */
+const FLOOD_BIT = 0x100;
 
 type Bytes = ArrayBuffer | ArrayBufferView | number[];
 
@@ -50,11 +54,13 @@ function decode(bytes: Bytes, format: 1 | 2): { revision: number; entries: (Entr
   let pixels = 0;
   for (let i = 0; i < count; i++) {
     const at = HEADER + ENTRY * i;
+    const packed = view.getUint32(at + ID_LENGTH + 4, true);
     const entry = {
       prop: ascii.decode(new Uint8Array(data, at, ID_LENGTH)),
       frameOffset: view.getUint32(at + ID_LENGTH, true),
-      channelsPerPixel: view.getUint32(at + ID_LENGTH + 4, true),
+      channelsPerPixel: packed & 0xff,
       pixels: view.getUint32(at + ID_LENGTH + 8, true),
+      ...((packed & FLOOD_BIT) !== 0 ? { flood: true } : {}),
     };
     entries.push(entry);
     pixels += entry.pixels;

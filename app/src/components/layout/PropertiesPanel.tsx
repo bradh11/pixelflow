@@ -28,6 +28,7 @@ import { deleteProps } from "./PropsList";
 import { SubmodelsSection } from "./SubmodelsSection";
 import { AddBendButton, JoinLines, PolyLineSection } from "./PolyLineSection";
 import { CustomGridSection } from "./CustomGridSection";
+import { DmxSection } from "./DmxSection";
 import { isPoly } from "../../lib/polylineMath";
 import { SHAPE_FIELDS, type ShapeField, fieldValue, parseNumbers, withField } from "./shapeFields";
 import { MissingFileNotice, useMissingFile } from "../MissingFiles";
@@ -259,7 +260,7 @@ function OnePropPanel({ prop, points }: { prop: Prop; points: ArrayLike<number> 
       };
     });
   const shape = prop.shape;
-  const fields = shape.source === "generator" ? (SHAPE_FIELDS[shape.type] ?? []) : [];
+  const fields = shape.source === "generator" && !prop.dmx ? (SHAPE_FIELDS[shape.type] ?? []) : [];
   const wiring = wiringOf(show, prop.id);
   // A shape edit that changes how many pixels a wired prop has moves the props after it.
   const [pixelNote, setPixelNote] = useState<string | null>(null);
@@ -298,7 +299,7 @@ function OnePropPanel({ prop, points }: { prop: Prop; points: ArrayLike<number> 
           />
         </label>
         <p className="mt-2 text-sm text-neutral-600 dark:text-neutral-400">
-          {shapeLabel(shape)} · {thousands(nodeCount(shape))} pixels
+          {prop.dmx ? `DMX fixture · ${nodeCount(shape) === 1 ? "1 cell" : `${nodeCount(shape)} cells`}` : `${shapeLabel(shape)} · ${thousands(nodeCount(shape))} pixels`}
         </p>
         {/* Where it's wired, up top: it's the next thing to check after placing a prop. */}
         <p className="mt-1 flex flex-wrap items-center gap-x-1.5 text-sm" data-testid="prop-wiring">
@@ -320,6 +321,7 @@ function OnePropPanel({ prop, points }: { prop: Prop; points: ArrayLike<number> 
           )}
         </p>
       </Section>
+      {prop.dmx && <DmxSection prop={prop} />}
       {isPoly(shape) && <PolyLineSection prop={prop} shape={shape} />}
       {shape.source === "generator" && shape.type === "customGrid" && <CustomGridSection prop={prop} shape={shape} />}
       {(shape.source === "measured" || fields.length > 0) && (

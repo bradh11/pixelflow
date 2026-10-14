@@ -199,7 +199,7 @@ pub fn flawed(stage: &Stage) -> Sequence {
 // ---- what a good answer does ----
 
 /// The tools that change the sequence.
-fn drafts(tool: &str) -> bool {
+pub(crate) fn drafts(tool: &str) -> bool {
     matches!(
         tool,
         "place_effects" | "repeat_effects" | "change_effects" | "stage_cue"

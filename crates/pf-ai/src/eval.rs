@@ -51,6 +51,8 @@ const PART_SAMPLES: usize = 8;
 pub const BYTES_PER_TOKEN: f64 = 3.5;
 /// The most of a tool's answer kept in a transcript.
 const TRANSCRIPT_CHARS: usize = 600;
+/// The most of what the Assistant wrote before drafting that is kept (its concepts, on a big job).
+const CONCEPTS_CHARS: usize = 4_000;
 
 /// One thing a good answer does, and whether this one did.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -719,6 +721,12 @@ pub struct Outcome {
     /// Set when the run's budget or request limit stopped this scenario before its next request.
     pub stopped: Option<Stop>,
     pub reply: String,
+    /// What the Assistant wrote before it first changed the sequence: on a whole show, the
+    /// concepts it sketched and the one it chose (topic `concepts`). Empty when it wrote nothing
+    /// first, or changed nothing. Reported to be read, never scored.
+    pub concepts: String,
+    /// The summary of the proposal it left, which names the concept it built.
+    pub summary: Option<String>,
     pub checks: Vec<Check>,
     pub measures: Measures,
     pub transcript: Vec<ToolUse>,
@@ -799,6 +807,23 @@ fn tool_uses(messages: &[Message]) -> Vec<ToolUse> {
         }
     }
     uses.into_iter().map(|(_, tool)| tool).collect()
+}
+
+/// What the Assistant wrote before its first call that changes the sequence, that turn's words
+/// included (they come before its calls). Empty when nothing was drafted.
+fn before_drafting(messages: &[Message]) -> String {
+    let mut said: Vec<&str> = Vec::new();
+    for message in messages {
+        if let Message::Assistant(turn) = message {
+            if !turn.text.trim().is_empty() {
+                said.push(turn.text.trim());
+            }
+            if turn.tool_calls.iter().any(|c| scenarios::drafts(&c.name)) {
+                return said.join("\n\n").chars().take(CONCEPTS_CHARS).collect();
+            }
+        }
+    }
+    String::new()
 }
 
 fn names(value: &Value) -> Vec<String> {
@@ -1024,6 +1049,8 @@ pub fn run_within(
         .cloned()
         .unwrap_or_else(|| before.clone());
     let tools = tool_uses(session.messages());
+    let concepts = before_drafting(session.messages());
+    let summary = session.proposal().map(|p| p.summary.clone());
     let lights = Lights::of(stage, &after);
     let seen = Run {
         stage,
@@ -1043,6 +1070,8 @@ pub fn run_within(
         error,
         stopped,
         reply,
+        concepts,
+        summary,
         checks,
         measures,
         transcript: tools,
@@ -1181,9 +1210,48 @@ fn compared(what: &str, sets: &[BTreeSet<&str>]) -> String {
     )
 }
 
+/// `text` as a Markdown quote, each line starting with `indent`.
+fn quote(text: &str, indent: &str) -> String {
+    text.lines()
+        .map(|line| {
+            if line.trim().is_empty() {
+                format!("{indent}>\n")
+            } else {
+                format!("{indent}> {line}\n")
+            }
+        })
+        .collect()
+}
+
+/// What each run sketched before drafting (its concepts, on a big job) and what its proposal's
+/// summary says it built: to be read beside the videos, not scored.
+fn concepts_of(runs: &[&Outcome]) -> String {
+    let mut out = String::new();
+    for (i, o) in runs.iter().enumerate() {
+        let n = i + 1;
+        if o.concepts.is_empty() {
+            out.push_str(&format!("\n  Run {n} wrote nothing before drafting.\n"));
+        } else {
+            out.push_str(&format!(
+                "\n  Run {n} sketched, before drafting:\n\n{}",
+                quote(&o.concepts, "  ")
+            ));
+        }
+        match &o.summary {
+            Some(summary) => out.push_str(&format!(
+                "\n  Run {n} built, in its proposal's summary: {}\n",
+                summary.replace('\n', " ")
+            )),
+            None => out.push_str(&format!("\n  Run {n} proposed nothing.\n")),
+        }
+    }
+    out
+}
+
 /// How the answers to one request differ from run to run (with `--runs` above 1): the kinds of
 /// effect and the colors every run used, those only some did, and how much each pair of runs has
-/// in common. Information for judging variety (beside the videos), not a check.
+/// in common; then the concepts each run sketched before drafting and what it says it built.
+/// Information for judging variety (beside the videos), not a check.
 pub fn runs_compared(outcomes: &[Outcome]) -> String {
     let mut groups: Vec<(&str, Vec<&Outcome>)> = Vec::new();
     for o in outcomes {
@@ -1207,10 +1275,11 @@ pub fn runs_compared(outcomes: &[Outcome]) -> String {
             .map(|o| o.measures.colors.iter().map(String::as_str).collect())
             .collect();
         out.push_str(&format!(
-            "- {scenario}, {} runs. {}\n  {}\n",
+            "- {scenario}, {} runs. {}\n  {}\n{}\n",
             runs.len(),
             compared("Kinds of effect", &kinds),
             compared("Colors", &colors),
+            concepts_of(runs),
         ));
     }
     out
@@ -1347,6 +1416,18 @@ pub fn report(outcomes: &[Outcome], model: &str, prices: &Prices) -> String {
         }
         for error in &m.tool_errors {
             out.push_str(&format!("Refused: {error}\n"));
+        }
+        if !o.concepts.is_empty() {
+            out.push_str(&format!(
+                "\nBefore drafting, it wrote:\n\n{}",
+                quote(&o.concepts, "")
+            ));
+            if let Some(summary) = &o.summary {
+                out.push_str(&format!(
+                    "\nIts proposal's summary: {}\n",
+                    summary.replace('\n', " ")
+                ));
+            }
         }
         if !o.reply.is_empty() {
             let said: String = o.reply.chars().take(400).collect();

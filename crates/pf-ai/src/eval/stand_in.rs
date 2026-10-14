@@ -196,8 +196,9 @@ fn whole_song(on: &Rows<'_>) -> Vec<Turn> {
     let mut effects = BASE_EFFECTS.to_vec();
     effects.push("faces");
     vec![
-        // The method and the design topics in one read; the effects chosen from the overview
-        // and the rest of the topics in a second.
+        // The method and the design topics in one read; then the concepts sketched for the
+        // user, one chosen, and the guides of the effects it uses with the rest of the topics,
+        // all in a second: the sketches cost no request of their own.
         calls(
             "",
             &[guides(
@@ -205,6 +206,7 @@ fn whole_song(on: &Rows<'_>) -> Vec<Turn> {
                     "method",
                     "song",
                     "roles",
+                    "concepts",
                     "layering",
                     "palettes",
                     "motion",
@@ -215,7 +217,7 @@ fn whole_song(on: &Rows<'_>) -> Vec<Turn> {
             )],
         ),
         calls(
-            "",
+            CONCEPTS,
             &[guide_parts(
                 &["vocals", "openings-endings", "safety", "cues"],
                 &effects,
@@ -236,11 +238,21 @@ fn whole_song(on: &Rows<'_>) -> Vec<Turn> {
         ),
         calls("", &[("review_draft", json!({}))]),
         propose(
-            "A show for the whole song: blue and quiet in the verses, red and gold across the house in the choruses, dark for the stop, with the big moments staged.",
+            "Winter fair: a quiet blue night in the verses that lights up red and gold across the house in the choruses, dark for the stop, with the big moments staged. I chose it because the song's quiet verses and big choruses suit a night that lights up.",
         ),
         says("Your show is ready to look over."),
     ]
 }
+
+/// The concepts the whole-song answer sketches for the user before choosing its effects, and
+/// the one it builds (the one its looks are: [`Rows::looks`]).
+const CONCEPTS: &str = "Three ideas for this song:
+
+1. Lantern walk: lanterns carried down a dark street, the title taken literally. Colors: warm white and amber. Motion: slow, swaying, drifting. Effects: colorWash, meteors, twinkle.
+2. Winter fair: a cold, quiet night in the verses that lights up for the fair in the choruses. Colors: blue and white, then red and gold. Motion: still in the verses, turning in the choruses. Effects: twinkle, chase, bars, spiral, butterfly.
+3. Paper and flame: the paper glowing as the flame catches, growing to a blaze by the last chorus. Colors: orange and deep red. Motion: flickering, rising. Effects: fire, tendril, fireworks.
+
+I'm going with Winter fair: the song's quiet verses and big choruses suit a night that lights up, and the tree and arches can carry the turning.";
 
 fn dancers(on: &Rows<'_>) -> Vec<Turn> {
     vec![

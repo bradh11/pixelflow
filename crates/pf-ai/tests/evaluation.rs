@@ -68,6 +68,39 @@ fn a_careful_answer_passes_every_check() {
         .expect("a sequence with effects is reviewed");
     assert!(review.flashes_safe && review.score >= 70, "{review:?}");
 
+    // The whole song is sketched as concepts before any effect is chosen, at no request of its
+    // own, and the summary names the one built; no small job sketches anything.
+    let concepts = &outcomes[0].concepts;
+    assert!(
+        concepts.contains("1. Lantern walk")
+            && concepts.contains("3. Paper and flame")
+            && concepts.contains("going with Winter fair"),
+        "{concepts}"
+    );
+    assert!(whole.guides.iter().any(|g| g == "concepts"), "{:?}", whole.guides);
+    assert_eq!(whole.requests, 6);
+    assert!(
+        outcomes[0]
+            .summary
+            .as_deref()
+            .is_some_and(|s| s.starts_with("Winter fair")),
+        "{:?}",
+        outcomes[0].summary
+    );
+    for outcome in &outcomes[1..] {
+        assert!(
+            outcome.concepts.is_empty(),
+            "{}: {}",
+            outcome.scenario,
+            outcome.concepts
+        );
+        assert!(
+            !outcome.measures.guides.iter().any(|g| g == "concepts"),
+            "{}",
+            outcome.scenario
+        );
+    }
+
     // The report says what was run, each scenario's checks, and what it would cost.
     let report = eval::report(
         &outcomes,
@@ -83,6 +116,8 @@ fn a_careful_answer_passes_every_check() {
         "- pass It proposes its changes for the user to apply",
         "Guides read: method,",
         "The prices are assumptions",
+        "Before drafting, it wrote:\n\n> Three ideas for this song:\n>\n> 1. Lantern walk:",
+        "Its proposal's summary: Winter fair:",
     ] {
         assert!(report.contains(words), "{words}:\n{report}");
     }
@@ -98,6 +133,9 @@ fn a_report_of_several_runs_says_how_they_differ() {
     runs[1].scenario = "dancers #2".into();
     runs[1].measures.effect_kinds.push("plasma".into());
     runs[1].measures.colors = vec!["#000001".into()];
+    // The first sketched two concepts before drafting; the second wrote nothing first.
+    runs[0].concepts =
+        "1. Bone yard: skeletons in green.\n2. Ghost light: pale blue.\n\nGoing with Bone yard.".into();
     let report = eval::report(&runs, "the stand-in", &Prices::default());
     let kinds = runs[0].measures.effect_kinds.len();
     for words in [
@@ -109,6 +147,10 @@ fn a_report_of_several_runs_says_how_they_differ() {
         "; in only some (1): plasma; shared by each pair of runs: 1 and 2: ",
         "  Colors per run ",
         "shared by each pair of runs: 1 and 2: 0%.",
+        "  Run 1 sketched, before drafting:\n\n  > 1. Bone yard: skeletons in green.\n  > 2. Ghost light: pale blue.\n  >\n  > Going with Bone yard.\n",
+        "  Run 1 built, in its proposal's summary: Dancing skeletons on the matrix through the first chorus.",
+        "  Run 2 wrote nothing before drafting.",
+        "  Run 2 built, in its proposal's summary: Dancing skeletons",
     ] {
         assert!(report.contains(words), "{words}:\n{report}");
     }
@@ -124,6 +166,50 @@ fn a_report_of_several_runs_says_how_they_differ() {
             .all(|c| c.len() == 7 && c.starts_with('#'))
     );
     assert!(!runs[0].measures.colors.is_empty());
+}
+
+#[test]
+fn what_it_wrote_before_drafting_is_kept_and_nothing_after() {
+    // Words beside a guide read, words beside the first effect placed, and words after it: the
+    // first two are what it sketched before drafting.
+    let stage = Stage::new();
+    let dancers = scenario("dancers");
+    let mut turns = stand_in::script(&dancers, &stage);
+    for (turn, text) in turns
+        .iter_mut()
+        .zip(["Two ideas: bones, or ghosts.", "Bones it is.", "Proposing."])
+    {
+        turn.as_mut().unwrap().text = text.into();
+    }
+    let provider = ScriptedProvider::new(turns);
+    let outcome = eval::run(
+        &dancers,
+        &stage,
+        &provider,
+        &fake_key(),
+        "scripted",
+        &Cancel::new(),
+    );
+    assert_eq!(outcome.concepts, "Two ideas: bones, or ghosts.\n\nBones it is.");
+    assert_eq!(
+        outcome.summary.as_deref(),
+        Some("Dancing skeletons on the matrix through the first chorus.")
+    );
+    // An answer that changes nothing (a question) sketched nothing.
+    let question = scenario("question");
+    let provider = ScriptedProvider::new(stand_in::script(&question, &stage));
+    let outcome = eval::run(
+        &question,
+        &stage,
+        &provider,
+        &fake_key(),
+        "scripted",
+        &Cancel::new(),
+    );
+    assert!(
+        outcome.concepts.is_empty() && outcome.summary.is_none(),
+        "{outcome:?}"
+    );
 }
 
 #[test]

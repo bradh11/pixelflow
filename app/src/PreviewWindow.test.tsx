@@ -25,6 +25,7 @@ vi.mock("./components/layout3d/threeScene", () => ({
       resize() {},
       setPixels() {},
       updatePixels() {},
+      setFloods() {},
       setColors() {},
       setLook() {},
       setBackdrop() {},

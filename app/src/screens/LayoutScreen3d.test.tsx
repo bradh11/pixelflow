@@ -37,6 +37,9 @@ vi.mock("../components/layout3d/threeScene", () => ({
         record.calls.push("setPixels");
         record.pixels = xyz.slice();
       },
+      setFloods: () => {
+        record.calls.push("setFloods");
+      },
       updatePixels: (start, xyz) => {
         record.calls.push("updatePixels");
         record.pixels?.set(xyz, start * 3);

@@ -23,6 +23,8 @@ export interface Scene3d {
    * spread out, which sizes its dot (see `packSpread`).
    */
   setPixels(xyz: Float32Array, spread: Float32Array): void;
+  /** Which pixels (1 each, in `setPixels`' order) are DMX floods' cells, drawn with a wash of their color round them (after `setPixels`). */
+  setFloods(floods: Uint8Array): void;
   /** Changes the positions of `xyz.length / 3` pixels from pixel `start` on (after `setPixels`). */
   updatePixels(start: number, xyz: Float32Array): void;
   /**

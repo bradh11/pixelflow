@@ -36,6 +36,7 @@ import {
   neighborShare,
   orbitBy,
   orbitEye,
+  packFloods,
   packPositions,
   packSpread,
   panBy3,
@@ -443,6 +444,11 @@ describe("pixel colors", () => {
     const { xyz, starts } = packPositions([prop("a", [1, 2, 3]), prop("b", [4, 5, 6, 7, 8, 9])]);
     expect(Array.from(xyz)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
     expect(starts.get("b")).toEqual({ start: 1, count: 2 });
+  });
+
+  it("marks the pixels of DMX floods, in the same order", () => {
+    const flood = { ...prop("b", [4, 5, 6, 7, 8, 9]), flood: true };
+    expect(Array.from(packFloods([prop("a", [1, 2, 3]), flood, prop("c", [0, 0, 0])]))).toEqual([0, 1, 1, 0]);
   });
 });
 

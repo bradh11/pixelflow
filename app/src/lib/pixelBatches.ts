@@ -28,7 +28,7 @@
 import type { PreviewProp } from "../api/types";
 import type { Size, View } from "./layoutMath";
 import { DOT_RADIUS, type HaloPlan, type PixelBox, coreDim, drawHalos, planHalos } from "./pixelGlow";
-import { drawFloods } from "./floodWash";
+import { FLOOD_STRENGTH, UNLIT_WASH, washAt, washRadius } from "./floodWash";
 
 export { DOT_RADIUS };
 
@@ -686,6 +686,43 @@ export function stampPixels(
     }
   };
 
+  /**
+   * Stamps a flood's wash round each of its cells, as solid as `washAt` says, in the cell's color
+   * (lit) or the unlit color faintly (not playing), over what's there (see floodWash.ts).
+   */
+  const stampWashes = (p: PreviewProp) => {
+    const pts = p.points;
+    const reach = washRadius(zoom) * ratio;
+    const reach2 = reach * reach;
+    const strength = frame ? FLOOD_STRENGTH : UNLIT_WASH;
+    for (let i = 0, o = p.frameOffset; i + 1 < pts.length; i += 2, o += p.channelsPerPixel) {
+      let rgb = unlit & 0xffffff;
+      if (frame) {
+        if (!(o + 2 < frame.length && (frame[o] | frame[o + 1] | frame[o + 2]) !== 0)) continue;
+        rgb = (frame[o + 2] << 16) | (frame[o + 1] << 8) | frame[o];
+      }
+      const x = (halfW + (pts[i] - cx) * zoom) * ratio;
+      const y = (halfH - (pts[i + 1] - cy) * zoom) * ratio;
+      const x0 = Math.max(0, Math.floor(x - reach));
+      const x1 = Math.min(width, Math.ceil(x + reach));
+      const y0 = Math.max(0, Math.floor(y - reach));
+      const y1 = Math.min(height, Math.ceil(y + reach));
+      if (x0 >= x1 || y0 >= y1) continue;
+      for (let py = y0; py < y1; py++) {
+        const dy = py + 0.5 - y;
+        for (let px = x0; px < x1; px++) {
+          const dx = px + 0.5 - x;
+          const alpha = Math.floor(strength * washAt((dx * dx + dy * dy) / reach2) * 255 + 0.5);
+          if (alpha > 0) blend(pixels, py * width + px, rgb, alpha);
+        }
+      }
+      if (x0 < box.x0) box.x0 = x0;
+      if (y0 < box.y0) box.y0 = y0;
+      if (x1 > box.x1) box.x1 = x1;
+      if (y1 > box.y1) box.y1 = y1;
+    }
+  };
+
   let lights = 0;
   // Screen pixels across the image, and down it.
   const across = Math.ceil(width / screenPixel);
@@ -775,7 +812,9 @@ export function stampPixels(
     }
   };
 
-  // Crowded props go under everything: what's stamped over them covers them by the usual rules.
+  // Floods' washes go under every dot.
+  for (const p of props) if (p.flood) stampWashes(p);
+  // Crowded props go under everything else: what's stamped over them covers them by the usual rules.
   if (anyCrowded) {
     if (nearest.length < width * height) nearest = new Uint16Array(width * height);
     if (anyMerged) {
@@ -837,9 +876,6 @@ export function drawPixels(
   glow = 0,
 ) {
   const halos = frame && glow > 0 ? planHalos(ctx, glow, view, radius, ratio) : null;
-  // DMX floods wash their color round them, under the dots (see floodWash.ts).
-  const unlit = packColor(colors.unlit);
-  drawFloods(ctx, props, frame, view, size, [unlit & 255, (unlit >> 8) & 255, (unlit >> 16) & 255]);
   const layer = layerFor(ctx.canvas);
   if (layer) {
     // Only where the last frame's dots were needs emptying.

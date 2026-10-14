@@ -14,6 +14,7 @@ const stub: Scene3d = {
   resize: () => {},
   setPixels: () => {},
   updatePixels: () => {},
+  setFloods: () => {},
   setColors: () => {},
   setLook: () => {},
   setBackdrop: () => {},

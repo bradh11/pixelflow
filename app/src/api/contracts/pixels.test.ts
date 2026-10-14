@@ -29,7 +29,7 @@ const run = (count: number, color: Color): Color[] => Array.from({ length: count
 
 /** A layout being made: its props (each one's pixels as x, y pairs, and where its colors are in the frame), and the frame. */
 class Layout {
-  props: { frameOffset: number; channelsPerPixel: number; points: number[] }[] = [];
+  props: { frameOffset: number; channelsPerPixel: number; points: number[]; flood?: boolean }[] = [];
   frame: number[] = [];
 
   /** Adds a prop with a color for each of its pixels (and a white channel too, with `channels` 4). */
@@ -37,6 +37,13 @@ class Layout {
     if (colors.length * 2 !== points.length) throw new Error(`${points.length / 2} pixels were given ${colors.length} colors`);
     this.props.push({ frameOffset: this.frame.length, channelsPerPixel: channels, points });
     for (const color of colors) this.frame.push(...color, ...(channels === 4 ? [255] : []));
+    return this;
+  }
+
+  /** Adds a DMX flood: a cell at each point, with the color it shows. */
+  flood(points: number[], colors: Color[]): this {
+    this.add(points, colors);
+    this.props[this.props.length - 1].flood = true;
     return this;
   }
 }
@@ -147,6 +154,15 @@ const SCENES: Record<string, Scene> = {
         row(40, 1 / 32, 0, -1 / 4),
         Array.from({ length: 40 }, (_, i): Color => [0, 80 - 2 * i, Math.max(0, 20 - i)]),
       ),
+  },
+  floodWashes: {
+    about: "DMX floods: each lit cell washes its color round it under every dot, fading to nothing at its reach; two washes overlap, the later over the earlier; a string's dots stand whole over a wash; a dark cell washes nothing.",
+    size: { width: 96, height: 64 },
+    ratio: 1.28,
+    layout: new Layout()
+      .flood(row(1, 0, 0, 0), [ORANGE])
+      .flood(row(3, 1 / 4, 3 / 4, 1 / 8), [BLUE, OFF, [40, 200, 90]])
+      .add(row(8, 1 / 8, -1 / 4, 3 / 8), [...run(4, RED), ...run(4, WHITE)]),
   },
   closerThanAPixel: {
     about: "A string and a matrix with several pixels to a screen pixel: those in one screen pixel are merged into one light with their average color, the dots of ones that are off showing through.",

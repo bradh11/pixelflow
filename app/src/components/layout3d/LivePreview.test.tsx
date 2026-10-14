@@ -15,6 +15,7 @@ vi.mock("./threeScene", () => ({
     resize: () => {},
     setPixels: () => {},
     updatePixels: () => {},
+    setFloods: () => {},
     setColors: (rgb, lit) => fake.colors.push({ rgb: Array.from(rgb), lit }),
     setLook: () => {},
     setBackdrop: () => {},

@@ -45,7 +45,8 @@ the one before. The Wiring screen warns when two overlap.
   to amber.
 - **UV, strobe and mode** channels hold their value.
 
-The previews show the color the channels make, as a soft wash around the fixture.
+The previews show the color the channels make, as a soft wash around the fixture: the same
+wash, from the same numbers, in the 2D previews, the 3D view and an exported video.
 
 ## The DMX effect
 

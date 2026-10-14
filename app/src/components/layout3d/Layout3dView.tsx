@@ -22,6 +22,7 @@ import {
   moveGesture3,
   orbitBy,
   packPositions,
+  packFloods,
   packSpread,
   panBy3,
   pickPixel,
@@ -282,6 +283,7 @@ export function Layout3dView({ preview, show, photo, storageKey, editable = fals
       // Only the props whose pixels aren't where the renderer's last layout had them are measured.
       const before = new Map(up.preview?.props.map((p) => [p.prop, p.xyz]));
       scene.setPixels(packed.xyz, packSpread(latest.current.preview.props, before));
+      scene.setFloods(packFloods(props));
       up.preview = latest.current.preview;
       up.starts = packed.starts;
       up.xyz = new Map(props.map((p) => [p.prop, p.xyz]));

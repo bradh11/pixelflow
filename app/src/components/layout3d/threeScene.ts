@@ -97,6 +97,7 @@ import {
   pixelsPerUnit,
 } from "../../lib/layout3d";
 import { DOT_RADIUS, FAINT, FILL, FINE_FROM, SMALLEST } from "../../lib/pixelBatches";
+import { FLOOD_RADIUS, FLOOD_STRENGTH, SMALLEST_WASH, UNLIT_WASH } from "../../lib/floodWash";
 import { GLOW_STEPS, GLOW_STRENGTH, GLOW_WIDTH, glowStep } from "../../lib/pixelGlow";
 import type { Scene3d } from "./scene";
 
@@ -328,6 +329,47 @@ const HALO_FRAGMENT = /* glsl */ `
     float bell = exp(-dot(p, p) / (vBell.y * vBell.y)) - ${glsl(Math.exp(-HALO_REACH * HALO_REACH))};
     if (bell <= 0.0) discard;
     gl_FragColor = vec4(vColor * bell, 1.0);
+  }
+`;
+
+// A DMX flood's cell: a soft round wash of its color round it, as the flat previews stamp it
+// (lib/floodWash.ts): reaching FLOOD_RADIUS layout units (never less than SMALLEST_WASH screen
+// pixels), FLOOD_STRENGTH × (1 - r²)² solid r of the way out, over what's behind it and under every
+// dot. Not playing, a faint wash of the quiet color (or its own, selected) shows its reach.
+const WASH_VERTEX = /* glsl */ `
+  attribute vec3 tint;
+  attribute float flood;
+  uniform vec4 quiet;
+  uniform float lit;
+  varying vec4 vColor;
+  varying float vReach;
+  ${VIEW_DOT}
+  ${HIDDEN}
+  void main() {
+    if (flood < 0.5) ${SKIP}
+    vec4 mv = modelViewMatrix * vec4(position, 1.0);
+    gl_Position = projectionMatrix * mv;
+    float depth = max(-mv.z, 1e-3);
+    if (hidden(gl_Position, depth)) ${SKIP}
+    bool own = max(tint.r, max(tint.g, tint.b)) > 0.0;
+    if (lit > 0.5 && !own) ${SKIP}
+    float reach = max(${glsl(FLOOD_RADIUS)} * scale / depth, ${glsl(SMALLEST_WASH)} * ratio);
+    vec3 color = own ? tint : quiet.rgb / max(quiet.a, 1e-3);
+    vColor = vec4(color, lit > 0.5 ? ${glsl(FLOOD_STRENGTH)} : ${glsl(UNLIT_WASH)});
+    vReach = reach;
+    gl_PointSize = 2.0 * reach + 1.0;
+  }
+`;
+
+const WASH_FRAGMENT = /* glsl */ `
+  varying vec4 vColor;
+  varying float vReach;
+  void main() {
+    vec2 p = (gl_PointCoord - 0.5) * (2.0 * vReach + 1.0);
+    float r2 = dot(p, p) / (vReach * vReach);
+    if (r2 >= 1.0) discard;
+    float t = 1.0 - r2;
+    gl_FragColor = vec4(vColor.rgb, vColor.a * t * t);
   }
 `;
 
@@ -599,6 +641,25 @@ export function createThreeScene(canvas: HTMLCanvasElement, makeRenderer: (canva
     return points;
   });
 
+  // DMX floods' washes, over the finished scene and under the dots. The points share their
+  // geometry with the dots'; only floods' cells (`flood`) are drawn.
+  const washLit = { value: 0 };
+  const washScene = new Scene();
+  const washes = new Points(
+    pixelGeometry,
+    new ShaderMaterial({
+      uniforms: { scale: dots.scale, ratio: dots.ratio, radius: dots.radius, quiet: dots.quiet, lit: washLit, project: dots.project, hides: dots.hides, hiding: dots.hiding },
+      vertexShader: WASH_VERTEX,
+      fragmentShader: WASH_FRAGMENT,
+      transparent: true,
+      depthTest: false,
+      depthWrite: false,
+    }),
+  );
+  washes.frustumCulled = false;
+  washScene.add(washes);
+  let anyFloods = false;
+
   // The halos: the lit pixels alone, drawn into a picture a screen pixel to each of its own.
   // The points share their geometry with the dots'.
   const haloScene = new Scene();
@@ -671,6 +732,7 @@ export function createThreeScene(canvas: HTMLCanvasElement, makeRenderer: (canva
     dots.faint.value = lit ? FAINT / 255 : 0;
     // Only lit pixels glow.
     dots.glow.value = lit ? glow : 0;
+    washLit.value = lit ? 1 : 0;
   };
 
   const raycaster = new Raycaster();
@@ -752,7 +814,16 @@ export function createThreeScene(canvas: HTMLCanvasElement, makeRenderer: (canva
       pixelGeometry.setAttribute("tint", new InterleavedBufferAttribute(tints, 3, 3, true));
       pixelGeometry.setAttribute("tintAfter", new InterleavedBufferAttribute(tints, 3, 6, true));
       pixelGeometry.setAttribute("spread", new BufferAttribute(spreads, SPREAD_SIZE));
-      for (const points of [...passes, halos]) points.geometry = pixelGeometry;
+      for (const points of [...passes, halos, washes]) points.geometry = pixelGeometry;
+      anyFloods = false;
+    },
+
+    setFloods(floods) {
+      const count = (pixelGeometry.getAttribute("position") as BufferAttribute | undefined)?.count ?? 0;
+      const flags = new Float32Array(count);
+      for (let i = 0; i < Math.min(count, floods.length); i++) flags[i] = floods[i];
+      pixelGeometry.setAttribute("flood", new BufferAttribute(flags, 1));
+      anyFloods = floods.some((f) => f > 0);
     },
 
     updatePixels(start, xyz) {
@@ -918,8 +989,10 @@ export function createThreeScene(canvas: HTMLCanvasElement, makeRenderer: (canva
       }
       renderer.setRenderTarget(null);
       renderer.render(scene, camera);
-      // The lights go over the finished scene, with the depth buffer to themselves.
       renderer.autoClear = false;
+      // Floods' washes over the scene, under the dots.
+      if (anyFloods) renderer.render(washScene, camera);
+      // The lights go over the finished scene, with the depth buffer to themselves.
       renderer.clearDepth();
       renderer.render(lightScene, camera);
       fullUpload = false;
@@ -936,6 +1009,7 @@ export function createThreeScene(canvas: HTMLCanvasElement, makeRenderer: (canva
       disposeTree(overlayScene);
       disposeTree(lightScene);
       disposeTree(haloScene);
+      disposeTree(washScene);
       disposeTree(hidingScene);
       occluder.dispose();
       hidingTarget.dispose();

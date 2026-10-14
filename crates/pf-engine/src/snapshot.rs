@@ -53,4 +53,7 @@ pub struct PreviewProp {
     pub channels_per_pixel: u8,
     /// x, y pairs (x, y, z triples in the 3D preview), one per pixel, in wiring order.
     pub points: Vec<f32>,
+    /// A DMX fixture: each of its pixels (cells) is a flood, drawn as a wash of its color.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub flood: bool,
 }

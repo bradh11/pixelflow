@@ -159,7 +159,12 @@ export function showSetup(show: Show, controller: Controller, onePerPort: boolea
   }
   ports.sort((a, b) => a.number - b.number);
   const p = controller.protocol;
-  const input: SetupInput = p.type === "ddp" ? { type: "ddp" } : { type: "sacn", startUniverse: p.startUniverse, universeSize: p.universeSize };
+  const input: SetupInput =
+    p.type === "ddp"
+      ? { type: "ddp" }
+      : p.type === "sacn"
+        ? { type: "sacn", startUniverse: p.startUniverse, universeSize: p.universeSize }
+        : { type: "other", description: p.type === "artNet" ? "Art-Net" : "USB DMX" };
   return { input, ports, notes, leftAlone };
 }
 

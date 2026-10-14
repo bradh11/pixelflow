@@ -305,6 +305,30 @@ describe("the three.js scene", () => {
     expect(hiding()[0]).toBe(0);
   });
 
+  it("washes DMX floods' cells over the finished scene and under the dots, as the flat previews do, and only when there are floods", () => {
+    const { renderer, scene } = made();
+    scene.setPixels(new Float32Array(9), spreadFor(3));
+    scene.setFloods(new Uint8Array([0, 1, 0]));
+    scene.setColors(new Uint8Array([255, 0, 0, 255, 128, 0, 0, 0, 255]), true);
+    scene.render(ORBIT);
+    const onScreen = renderer.drawn.filter((d) => d.into === null);
+    // The scene, the floods' washes, then the lights.
+    expect(onScreen).toHaveLength(3);
+    const [washes] = pointsIn(onScreen[1].what);
+    const material = washes.material as ShaderMaterial;
+    expect(material.depthWrite).toBe(false);
+    expect(material.blending).not.toBe(AdditiveBlending);
+    expect(material.uniforms.lit.value).toBe(1);
+    expect(Array.from(washes.geometry.getAttribute("flood").array)).toEqual([0, 1, 0]);
+    expect(material.fragmentShader).toContain("t * t");
+
+    // Another set of pixels forgets the floods until they are said again.
+    renderer.drawn.length = 0;
+    scene.setPixels(new Float32Array(12), spreadFor(4));
+    scene.render(ORBIT);
+    expect(renderer.drawn.filter((d) => d.into === null)).toHaveLength(2);
+  });
+
   it("with no glow draws the scene and the lights straight to the screen: nothing is added", () => {
     const { renderer, scene } = made();
     scene.setPixels(new Float32Array(6), spreadFor(2));

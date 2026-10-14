@@ -21,14 +21,27 @@ import { useWiring } from "../state/wiring";
 function AddControllerForm({ onDone }: { onDone: () => void }) {
   const snapshot = useApp((s) => s.snapshot);
   const apply = useApp((s) => s.apply);
+  const backend = useApp((s) => s.backend);
   const [name, setName] = useState(() => uniqueName("Controller", snapshot?.show.controllers.map((c) => c.name) ?? []));
   const [address, setAddress] = useState("");
   const [protocol, setProtocol] = useState<"ddp" | "sacn">("ddp");
   const [kind, setKind] = useState("other");
   const [ports, setPorts] = useState(4);
   const known = kindById(kind);
-  const limit = kindPixelLimit(known, ports);
-  const problem = !name.trim() ? "Give the controller a name." : addressProblem(address);
+  const limit = known.dmx ? null : kindPixelLimit(known, ports);
+  const usb = known.dmx === "usb";
+  // The serial ports a USB DMX interface could be on, to pick from (none listed: type one).
+  const [serialPorts, setSerialPorts] = useState<string[]>([]);
+  useEffect(() => {
+    if (usb && backend) void backend.listSerialPorts().then(setSerialPorts, () => setSerialPorts([]));
+  }, [usb, backend]);
+  const problem = !name.trim()
+    ? "Give the controller a name."
+    : usb
+      ? address.trim()
+        ? null
+        : "Choose the interface's serial port, or type it (like COM3)."
+      : addressProblem(address);
   const submit = async () => {
     if (problem) return;
     const ok = await apply([{ type: "addController", controller: controllerOfKind(kind, name.trim(), address.trim(), protocol, ports) }]);
@@ -62,18 +75,34 @@ function AddControllerForm({ onDone }: { onDone: () => void }) {
             ))}
           </Select>
         </Field>
-        <Field label="IP address">
-          <Input value={address} placeholder="e.g. 192.168.1.50" onChange={(e) => setAddress(e.target.value)} />
+        <Field label={usb ? "Serial port" : "IP address"}>
+          <Input
+            value={address}
+            list={usb ? "serial-ports" : undefined}
+            placeholder={usb ? "e.g. /dev/cu.usbserial-EN1234 or COM3" : "e.g. 192.168.1.50"}
+            onChange={(e) => setAddress(e.target.value)}
+          />
+          {usb && (
+            <datalist id="serial-ports">
+              {serialPorts.map((p) => (
+                <option key={p} value={p} />
+              ))}
+            </datalist>
+          )}
         </Field>
-        <Field label="Protocol">
-          <Select value={protocol} onChange={(e) => setProtocol(e.target.value as "ddp" | "sacn")}>
-            <option value="ddp">DDP</option>
-            <option value="sacn">sACN (E1.31)</option>
-          </Select>
-        </Field>
-        <Field label="Ports">
-          <Input type="number" min={1} max={256} value={ports} onChange={(e) => setPorts(Math.max(1, Math.min(256, Math.floor(Number(e.target.value)) || 1)))} />
-        </Field>
+        {!known.dmx && (
+          <Field label="Protocol">
+            <Select value={protocol} onChange={(e) => setProtocol(e.target.value as "ddp" | "sacn")}>
+              <option value="ddp">DDP</option>
+              <option value="sacn">sACN (E1.31)</option>
+            </Select>
+          </Field>
+        )}
+        {!usb && (
+          <Field label={known.dmx ? "Universes" : "Ports"}>
+            <Input type="number" min={1} max={256} value={ports} onChange={(e) => setPorts(Math.max(1, Math.min(256, Math.floor(Number(e.target.value)) || 1)))} />
+          </Field>
+        )}
         <div className="flex items-end gap-2">
           <Button type="submit" variant="primary" disabled={problem !== null} title={problem ?? undefined}>
             Add
@@ -83,6 +112,12 @@ function AddControllerForm({ onDone }: { onDone: () => void }) {
           </Button>
         </div>
         {problem && <p className="col-span-full text-xs text-neutral-500">{problem}</p>}
+        {known.dmx && (
+          <p className="col-span-full text-xs text-neutral-500">
+            Each {usb ? "interface sends one DMX universe" : "port is one DMX universe"}, all 512 channels every frame. Drag DMX floods onto it: each goes to its own start address.
+            {usb && " USB DMX speaks the ENTTEC DMX USB Pro protocol."}
+          </p>
+        )}
         {limit !== null && (
           <p className="col-span-full text-xs text-neutral-500">
             With {ports} ports in use, each drives up to {limit.toLocaleString("en-US")} pixels

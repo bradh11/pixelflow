@@ -354,6 +354,7 @@ mod tests {
             frame_offset,
             channels_per_pixel: 3,
             points: points.to_vec(),
+            flood: false,
         }
     }
 
@@ -761,6 +762,8 @@ mod tests {
             frame_offset: usize,
             channels_per_pixel: u8,
             points: Vec<[f32; 2]>,
+            #[serde(default)]
+            flood: bool,
         }
 
         /// A picture: its size, where the part with anything in it is (the rest is empty), the
@@ -859,6 +862,7 @@ mod tests {
                         frame_offset: p.frame_offset,
                         channels_per_pixel: p.channels_per_pixel,
                         points: p.points.iter().flatten().copied().collect(),
+                        flood: p.flood,
                     })
                     .collect();
                 let picture = &shared.picture;

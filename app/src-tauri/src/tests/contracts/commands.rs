@@ -550,6 +550,8 @@ fn unread_in(ty: &str, sent: &Value) -> Option<Vec<String>> {
         "Mapping" | "Option<Mapping>" => unread::<Option<pf_xlights::vendor::Mapping>>(sent),
         "Option<UiContext>" => unread::<Option<pf_ai::UiContext>>(sent),
         "Choice" => unread::<pf_ai::lyrics::Choice>(sent),
+        // A list of numbers: nothing inside to go unread.
+        "Vec<u8>" => unread::<Vec<u8>>(sent),
         // Read whole, whatever is in it.
         "Option<Value>" => Vec::new(),
         // One value each: there's nothing inside to go unread.

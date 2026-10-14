@@ -123,6 +123,15 @@ fn check_props(show: &Show, report: &mut ValidationReport) {
                 .with_fix("Give the prop at least one pixel, or delete it."),
             );
         }
+        if let Some(problem) = prop.dmx.as_ref().and_then(|dmx| dmx.problem(nodes)) {
+            report.push(
+                Issue::error(
+                    IssueCode::InvalidFixture,
+                    format!("The DMX fixture '{}' can't be used: {problem}", prop.name),
+                )
+                .with_fix("Change the fixture's address or channels on the Layout screen."),
+            );
+        }
         check_regions(prop, report);
     }
 }

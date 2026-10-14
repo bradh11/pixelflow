@@ -430,6 +430,28 @@
         "target": { "type": "controller", "id": "33333333-0000-4000-8000-000000000001" }
       }
     },
+    {
+      "api": "backend.startOutput",
+      "command": "start_output",
+      "args": {
+        "pattern": { "kind": "channels", "color": "ff8000" },
+        "target": { "type": "port", "controller": "33333333-0000-4000-8000-000000000001", "port": 2 }
+      }
+    },
+    {
+      "api": "backend.startOutput",
+      "command": "start_output",
+      "args": {
+        "pattern": { "kind": "channels", "color": "000000", "channels": [255, 0, 128] },
+        "target": { "type": "prop", "id": "11111111-0000-4000-8000-000000000001" }
+      }
+    },
+    {
+      "api": "backend.setTestChannels",
+      "command": "set_test_channels",
+      "args": { "channels": [255, 255, 0] }
+    },
+    { "api": "backend.listSerialPorts", "command": "list_serial_ports", "args": {} },
     { "api": "backend.stopOutput", "command": "stop_output", "args": {} },
     { "api": "backend.outputStatus", "command": "output_status", "args": {} },
     {

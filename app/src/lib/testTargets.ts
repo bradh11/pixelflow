@@ -8,13 +8,13 @@ import { thousands } from "./format";
 /** One controller a test pattern reaches. */
 export interface TestDestination {
   controller: Controller;
-  protocol: "sACN" | "DDP";
+  protocol: "sACN" | "DDP" | "Art-Net" | "USB DMX";
   /** The first and last controller channels used (from 1). */
   first: number;
   last: number;
   /** Channels the target's pixels use on this controller. */
   channels: number;
-  /** sACN only: the first and last universes used. */
+  /** sACN and Art-Net only: the first and last universes used. */
   universes: [number, number] | null;
 }
 
@@ -48,7 +48,7 @@ export function testDestinations(show: Show, map: ChannelMap, target: TargetSpec
     const start = Math.min(...spans.map((s) => s.controllerChannel));
     const end = Math.max(...spans.map((s) => s.controllerChannel + s.pixels * s.channelsPerPixel));
     let universes: [number, number] | null = null;
-    if (output.addressing.type === "sacn") {
+    if (output.addressing.type === "sacn" || output.addressing.type === "artNet") {
       const touched = output.addressing.universes
         .filter((u) => spans.some((s) => u.controllerChannel < s.controllerChannel + s.pixels * s.channelsPerPixel && s.controllerChannel < u.controllerChannel + u.len))
         .map((u) => u.universe);
@@ -56,7 +56,7 @@ export function testDestinations(show: Show, map: ChannelMap, target: TargetSpec
     }
     out.push({
       controller,
-      protocol: controller.protocol.type === "sacn" ? "sACN" : "DDP",
+      protocol: ({ sacn: "sACN", ddp: "DDP", artNet: "Art-Net", dmxUsb: "USB DMX" } as const)[controller.protocol.type],
       first: start + 1,
       last: end,
       channels: spans.reduce((sum, s) => sum + s.pixels * s.channelsPerPixel, 0),

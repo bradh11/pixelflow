@@ -51,13 +51,13 @@
     }
   ],
   "start": {
-    "channelMapNow": { "controllers": [], "frameLen": 0, "props": [] },
+    "channelMapNow": { "controllers": [], "fixtures": [], "frameLen": 0, "props": [] },
     "issuesNow": [],
     "sequence": null,
     "sequenceIssuesNow": null,
     "sequenceNow": null,
     "show": { "canRedo": false, "canUndo": false, "dirty": false, "path": null, "revision": 0 },
-    "showNow": { "background": null, "controllers": [], "groups": [], "name": "Untitled Show", "props": [], "schemaVersion": 13, "sequences": [], "settings": { "frameRate": 40 } },
+    "showNow": { "background": null, "controllers": [], "groups": [], "name": "Untitled Show", "props": [], "schemaVersion": 14, "sequences": [], "settings": { "frameRate": 40 } },
     "summaryNow": { "controllers": 0, "pixels": 0, "props": 0, "universes": 0 }
   },
   "steps": [
@@ -129,6 +129,7 @@
             ]
           }
         ],
+        "fixtures": [],
         "frameLen": 6147,
         "props": [
           { "channelsPerPixel": 3, "frameOffset": 0, "nodes": 600, "prop": "00000000-0000-4000-a000-000000000015" },
@@ -170,7 +171,7 @@
           { "colorOrder": "RGB", "id": "00000000-0000-4000-a000-000000000018", "name": "Roof Gate", "regions": [], "shape": { "length": 11.900001, "nodes": 238, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 0.0, "y": -1.5, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } },
           { "colorOrder": "RGB", "id": "00000000-0000-4000-a000-000000000019", "name": "Gate Arch", "regions": [], "shape": { "length": 13.55, "nodes": 271, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 0.0, "y": -2.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } }
         ],
-        "schemaVersion": 13,
+        "schemaVersion": 14,
         "sequences": [],
         "settings": { "frameRate": 40 }
       },
@@ -235,17 +236,17 @@
     },
     {
       "args": {},
-      "channelMapNow": { "controllers": [], "frameLen": 0, "props": [] },
+      "channelMapNow": { "controllers": [], "fixtures": [], "frameLen": 0, "props": [] },
       "command": "undo",
       "reply": {},
       "sequence": null,
       "show": { "canRedo": true, "canUndo": false, "dirty": true, "path": null, "revision": 2 },
-      "showNow": { "background": null, "controllers": [], "groups": [], "name": "Untitled Show", "props": [], "schemaVersion": 13, "sequences": [], "settings": { "frameRate": 40 } },
+      "showNow": { "background": null, "controllers": [], "groups": [], "name": "Untitled Show", "props": [], "schemaVersion": 14, "sequences": [], "settings": { "frameRate": 40 } },
       "summaryNow": { "controllers": 0, "pixels": 0, "props": 0, "universes": 0 }
     },
     {
       "args": { "address": "192.0.2.10", "destination": "192.0.2.20", "protocol": "DDP" },
-      "channelMapNow": { "controllers": [{ "addressing": { "type": "ddp" }, "channelCount": 0, "controller": "00000000-0000-4000-a000-000000000026", "spans": [] }], "frameLen": 0, "props": [] },
+      "channelMapNow": { "controllers": [{ "addressing": { "type": "ddp" }, "channelCount": 0, "controller": "00000000-0000-4000-a000-000000000026", "spans": [] }], "fixtures": [], "frameLen": 0, "props": [] },
       "command": "import_fpp_destination",
       "reply": {},
       "sequence": null,
@@ -256,7 +257,7 @@
         "groups": [],
         "name": "Untitled Show",
         "props": [],
-        "schemaVersion": 13,
+        "schemaVersion": 14,
         "sequences": [],
         "settings": { "frameRate": 40 }
       },
@@ -337,6 +338,7 @@
             ]
           }
         ],
+        "fixtures": [],
         "frameLen": 6147,
         "props": [
           { "channelsPerPixel": 3, "frameOffset": 0, "nodes": 600, "prop": "00000000-0000-4000-a000-000000000033" },
@@ -378,7 +380,7 @@
           { "colorOrder": "RGB", "id": "00000000-0000-4000-a000-000000000036", "name": "Roof Gate", "regions": [], "shape": { "length": 11.900001, "nodes": 238, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 0.0, "y": -1.5, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } },
           { "colorOrder": "RGB", "id": "00000000-0000-4000-a000-000000000037", "name": "Gate Arch", "regions": [], "shape": { "length": 13.55, "nodes": 271, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 0.0, "y": -2.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } }
         ],
-        "schemaVersion": 13,
+        "schemaVersion": 14,
         "sequences": [],
         "settings": { "frameRate": 40 }
       },
@@ -388,7 +390,7 @@
     { "args": { "address": "192.0.2.99" }, "command": "inspect_device", "reply": { "error": "Could not reach 192.0.2.99: no response" }, "sequence": null, "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 4 } },
     {
       "args": {},
-      "channelMapNow": { "controllers": [{ "addressing": { "type": "ddp" }, "channelCount": 0, "controller": "00000000-0000-4000-a000-000000000026", "spans": [] }], "frameLen": 0, "props": [] },
+      "channelMapNow": { "controllers": [{ "addressing": { "type": "ddp" }, "channelCount": 0, "controller": "00000000-0000-4000-a000-000000000026", "spans": [] }], "fixtures": [], "frameLen": 0, "props": [] },
       "command": "undo",
       "reply": {},
       "sequence": null,
@@ -399,7 +401,7 @@
         "groups": [],
         "name": "Untitled Show",
         "props": [],
-        "schemaVersion": 13,
+        "schemaVersion": 14,
         "sequences": [],
         "settings": { "frameRate": 40 }
       },
@@ -407,12 +409,12 @@
     },
     {
       "args": {},
-      "channelMapNow": { "controllers": [], "frameLen": 0, "props": [] },
+      "channelMapNow": { "controllers": [], "fixtures": [], "frameLen": 0, "props": [] },
       "command": "undo",
       "reply": {},
       "sequence": null,
       "show": { "canRedo": true, "canUndo": false, "dirty": true, "path": null, "revision": 6 },
-      "showNow": { "background": null, "controllers": [], "groups": [], "name": "Untitled Show", "props": [], "schemaVersion": 13, "sequences": [], "settings": { "frameRate": 40 } },
+      "showNow": { "background": null, "controllers": [], "groups": [], "name": "Untitled Show", "props": [], "schemaVersion": 14, "sequences": [], "settings": { "frameRate": 40 } },
       "summaryNow": { "controllers": 0, "pixels": 0, "props": 0, "universes": 0 }
     }
   ]

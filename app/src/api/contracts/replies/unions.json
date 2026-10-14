@@ -115,6 +115,35 @@
     ]
   },
   {
+    "allOf": "types.DmxRole",
+    "name": "every types.DmxRole",
+    "ts": "(types.DmxRole)[]",
+    "value": [
+      "dimmer",
+      "red",
+      "green",
+      "blue",
+      "white",
+      "amber",
+      "uv",
+      "strobe",
+      "fixed",
+      "pan",
+      "panFine",
+      "tilt",
+      "tiltFine",
+      "colorWheel",
+      "gobo",
+      "other"
+    ]
+  },
+  {
+    "allOf": "types.ControllerKind",
+    "name": "every types.ControllerKind",
+    "ts": "(types.ControllerKind)[]",
+    "value": ["pixels", "dmx"]
+  },
+  {
     "allOf": "types.Issue['severity']",
     "name": "every types.Issue['severity']",
     "ts": "(types.Issue['severity'])[]",
@@ -171,7 +200,8 @@
       "shockwave",
       "fill",
       "fireworks",
-      "shader"
+      "shader",
+      "dmx"
     ]
   },
   {
@@ -695,7 +725,8 @@
         "style": "verticalFrontBack",
         "type": "cube",
         "width": 2
-      }
+      },
+      { "length": 3.0, "nodes": 2, "source": "generator", "type": "line" }
     ]
   },
   {
@@ -705,22 +736,11 @@
     "ts": "(types.ShapeSource)[]",
     "value": [
       {
-        "depth": 1,
-        "height": 2,
-        "source": "generator",
-        "spacing": 0.5,
-        "start": "frontBottomLeft",
-        "strandPerLayer": false,
-        "strandStyle": "zigZag",
-        "style": "verticalFrontBack",
-        "type": "cube",
-        "width": 2
-      },
-      {
         "points": [{ "x": 0.0, "y": 0.0, "z": 0.0 }, { "x": 0.5, "y": 0.25, "z": 0.0 }],
         "provenance": "cameraMap",
         "source": "measured"
-      }
+      },
+      { "length": 3.0, "nodes": 2, "source": "generator", "type": "line" }
     ]
   },
   {
@@ -803,7 +823,9 @@
         "startUniverse": null,
         "type": "sacn",
         "universeSize": 510
-      }
+      },
+      { "allowPixelStraddle": false, "startUniverse": null, "type": "artNet", "universeSize": 512 },
+      { "type": "dmxUsb" }
     ]
   },
   {
@@ -824,7 +846,9 @@
       },
       { "type": "ddp" },
       { "type": "ddp" },
-      { "multicast": false, "type": "sacn", "universes": [] }
+      { "multicast": false, "type": "sacn", "universes": [] },
+      { "type": "artNet", "universes": [{ "controllerChannel": 0, "len": 512, "universe": 0 }] },
+      { "type": "dmxUsb" }
     ]
   },
   {
@@ -1184,7 +1208,8 @@
         "offsetY": 0.0,
         "speed": 1.0,
         "zoom": 0.0
-      }
+      },
+      { "channels": {}, "kind": "dmx" }
     ]
   },
   {

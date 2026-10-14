@@ -245,6 +245,8 @@ pub(crate) enum Role {
     Arch,
     Window,
     Round,
+    /// A DMX flood, par or bar: a wash of colour on what it lights.
+    Flood,
     Other,
 }
 
@@ -279,6 +281,9 @@ fn role_by_name(name: &str) -> Option<Role> {
 }
 
 pub(crate) fn role_of(prop: &pf_model::Prop) -> Role {
+    if prop.dmx.is_some() {
+        return Role::Flood;
+    }
     let by_shape = match &prop.shape {
         ShapeSource::Generator(g) => match g {
             Generator::Tree { .. } => Some(Role::Tree),
@@ -1814,6 +1819,14 @@ impl<'a> Stager<'a> {
                 Role::Arch => make(
                     EffectKind::Chase,
                     json!({ "speed": 1.5 * speed, "bands": 1, "width": 0.4, "bounce": true }),
+                    spec.at,
+                    end,
+                    &palette,
+                ),
+                // A flood washes what it lights: the palette's colors, changing slowly.
+                Role::Flood => make(
+                    EffectKind::ColorWash,
+                    json!({ "cycles": 1.0 }),
                     spec.at,
                     end,
                     &palette,

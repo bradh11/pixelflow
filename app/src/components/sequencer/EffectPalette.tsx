@@ -7,6 +7,7 @@ import {
   Blend,
   Blinds,
   Braces,
+  SlidersHorizontal,
   CircleDot,
   CloudLightning,
   CloudSnow,
@@ -90,6 +91,7 @@ export const EFFECT_ICONS: Record<EffectKind, LucideIcon> = {
   fill: PaintBucket,
   fireworks: PartyPopper,
   shader: Braces,
+  dmx: SlidersHorizontal,
 };
 
 /** Drags this far (screen pixels) before a press on the palette becomes a drag. */

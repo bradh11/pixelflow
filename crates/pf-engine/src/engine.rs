@@ -749,6 +749,12 @@ impl Engine {
         if let Some(error) = first_error(&report) {
             return Err(EngineError::ShowHasErrors(error.message.clone()));
         }
+        let fixture = |id: &pf_model::PropId| map.fixture(*id).is_some();
+        if pattern.kind == crate::PatternKind::Channels
+            && !matches!(&target, TargetSpec::Prop { id } if fixture(id))
+        {
+            return Err(EngineError::NotAFixture);
+        }
         // Pixels that no controller port carries would run and send nothing.
         let targets = resolve_target(&self.show, &map, &Target::from(&target));
         if !targets.iter().any(|t| wired(&map, t)) {
@@ -788,6 +794,15 @@ impl Engine {
     pub fn camera_map_target(&self, target: &TargetSpec) -> crate::CameraMapTarget {
         let (map, _) = analyze(&self.show);
         crate::camera_map::camera_map_target(&self.show, &map, target)
+    }
+
+    /// Sets the channels of the DMX fixture being tested by hand (a `channels` pattern), from
+    /// the next frame on, without stopping output. Nothing changes otherwise.
+    pub fn set_test_channels(&mut self, channels: Vec<u8>) -> OutputStatus {
+        if let Some(session) = self.output.as_mut() {
+            session.set_channels(channels);
+        }
+        self.output_status()
     }
 
     /// Stops live output (controllers are blacked out).
@@ -1016,6 +1031,7 @@ impl Engine {
                     frame_offset: layout.frame_offset,
                     channels_per_pixel: layout.channels_per_pixel,
                     points,
+                    flood: prop.dmx.is_some(),
                 })
             })
             .collect()
@@ -2154,10 +2170,19 @@ impl Engine {
 fn wired(map: &ChannelMap, target: &TargetRange) -> bool {
     let start = target.frame_offset;
     let end = start + target.pixels as usize * target.channels_per_pixel as usize;
-    map.controllers.iter().flat_map(|c| &c.spans).any(|s| {
-        let from = s.frame_offset;
-        let to = from + s.pixels as usize * s.channels_per_pixel as usize;
-        from < end && start < to
+    // A DMX fixture's cells are sent as its channels.
+    let fixtures = map.fixtures.iter().filter(|f| {
+        let cells = f.cells_offset + f.cells as usize * 3;
+        f.cells_offset < end && start < cells
+    });
+    let mut ranges =
+        std::iter::once((start, end)).chain(fixtures.map(|f| (f.dmx_offset, f.dmx_offset + f.footprint())));
+    ranges.any(|(start, end)| {
+        map.controllers.iter().flat_map(|c| &c.spans).any(|s| {
+            let from = s.frame_offset;
+            let to = from + s.pixels as usize * s.channels_per_pixel as usize;
+            from < end && start < to
+        })
     })
 }
 

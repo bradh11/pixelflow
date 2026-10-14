@@ -181,6 +181,18 @@ fn setting(kind: EffectKind, key: &str, value: &Value, cx: &Context<'_>) -> Resu
                 ));
             }
         }
+        SettingValue::DmxChannels { .. } => {
+            let fits = value.as_object().is_some_and(|channels| {
+                channels.iter().all(|(n, v)| {
+                    pf_sequence::DmxValues::channel_of(n).is_some() && v.as_u64().is_some_and(|v| v <= 255)
+                })
+            });
+            if !fits {
+                return Err(format!(
+                    "{key} is an object of channel numbers (1 to 512, from the fixture's first) to values 0 to 255, like {{\"1\": 255, \"6\": 200}}."
+                ));
+            }
+        }
     }
     Ok(value.clone())
 }

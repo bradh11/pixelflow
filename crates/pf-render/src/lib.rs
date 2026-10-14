@@ -24,6 +24,7 @@ mod circles;
 mod color;
 mod color_shift;
 mod dancer;
+mod dmx;
 mod effects;
 pub mod export;
 pub mod faces;

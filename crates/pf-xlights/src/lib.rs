@@ -11,6 +11,7 @@
 
 mod background;
 mod channels;
+mod dmx;
 mod error;
 mod geometry;
 mod import;

@@ -44,6 +44,8 @@ export const tauriBackend: Backend = {
   startOutput: (pattern, target) => invoke("start_output", { pattern, target }),
   stopOutput: () => invoke("stop_output"),
   outputStatus: () => invoke("output_status"),
+  setTestChannels: (channels) => invoke("set_test_channels", { channels }),
+  listSerialPorts: () => invoke("list_serial_ports"),
   cameraMapTarget: (target, base) => invoke("camera_map_target", { target, base }),
   cameraMapSync: (samples, pixels, base) => invoke("camera_map_sync", { samples, pixels, base }),
   // Raw bytes (tens of megabytes), described by a header.

@@ -471,7 +471,8 @@ require. Internet traffic is HTTPS (rustls, Mozilla's root list, certificates ch
 | An FPP | HTTP | `POST /api/command` (play, stop) | The Play and Stop buttons | The click |
 | A controller that is both discovered and in the show | HTTP | Its pixel-output or LED settings | "Send setup", after the changes are shown | Review, a check it is the same device, a copy kept first |
 | The system browser | via the OS | `http://<controller>/` | "Open web page" | The click; address and page allow-lists |
-| Each controller in the show (any IPv4 address and port) | UDP 5568 (sACN), 4048 (DDP), or as given | Pixel data, 20 to 120 times a second | Start test, Play, or the sequencer with "send to controllers" on | The click; the show must have no errors |
+| Each controller in the show (any IPv4 address and port) | UDP 5568 (sACN), 4048 (DDP), 6454 (Art-Net ArtDMX, unicast), or as given | Pixel data and DMX channels (whole 512-channel universes for DMX controllers), 20 to 120 times a second | Start test, Play, or the sequencer with "send to controllers" on | The click; the show must have no errors |
+| A USB DMX interface in the show (a serial port the show file names) | ENTTEC DMX USB Pro "send DMX" messages over the serial port | DMX channels, one universe | As above | As above. Not reachable in this version: no serial port can be opened (see 8.1) |
 | `lrclib.net` | HTTPS | Artist, title, album, and length from the song's tags (the title may come from the file name); `User-Agent: PixelFlow/<version> (repository URL)` | "Find lyrics" | The click; an assistant key must be set |
 | `api.openai.com` or `api.anthropic.com` | HTTPS | The conversation, the tool definitions, and whatever the model asks the tools for (see below); the key as a header | Sending a chat message; opening AI settings (model list) | A key the user entered |
 | `api.openai.com` (audio) | HTTPS | The song: the file as it is if under 25 MB, else mono 16 kHz WAV parts; its file name; the language; a hint of title, artist, and first line | "Find lyrics" with an OpenAI key | The user's separate agreement to send audio |
@@ -483,6 +484,30 @@ positions, wiring); groups; controllers with their addresses; the playlist with 
 open sequence's name, music path, rows, effects, and timing marks including lyrics; up to 30
 picture file names; and a local analysis of the song (beats, sections). Never: the key, picture
 contents, audio (in chat), or environment variables.
+
+### 8.1 DMX output
+
+DMX adds two output paths and a new kind of risk.
+
+- **Art-Net** (`crates/pf-output/src/artnet.rs`) sends ArtDMX packets, unicast only, to the address
+  the show gives, on UDP 6454. Nothing is broadcast and nothing listens: there is no ArtPoll, so
+  no node on the network can make PixelFlow send anywhere it wasn't told to. Addresses are
+  resolved and checked like every controller's (IPv4 only; finding 1's rules).
+- **USB DMX** (`crates/pf-output/src/usb.rs`) writes to the serial port a show names. A show file
+  from someone else could name any device path, so the path is a file-to-engine input like a
+  controller address. In this version no serial port is ever opened (`NoSerialPorts` refuses
+  every one), so the risk is not reachable. When a serial-port library is added, opening must be
+  limited to serial devices (the names `list_dev_ports` offers, or `COMn` on Windows), never an
+  arbitrary path, and only when the user starts output.
+- **What the data can do.** A DMX channel is not a light level: it can be a strobe rate, a macro
+  that starts a fixture's own program, a moving head's position, or a fog machine. A show from
+  someone else could hold mode or strobe values (held channel values and DMX effects) that make a
+  fixture strobe or move. The safeguards are the existing ones (nothing is sent until the user
+  starts a test or playback; Stop sends black), the Test screen's warning by its channel sliders,
+  and the user page (`docs/dmx.md`), which says to know what is on each address. Brightness and
+  gamma on a DMX controller's port are not applied (they would turn one mode into another).
+- **Limits.** A fixture has at most 512 channels and names of at most 40 characters, checked when
+  a show is opened; a DMX effect sets channels 1 to 512 only.
 
 **Listening:** only during a scan: UDP 32320 on all interfaces for three seconds, and the mDNS
 library's sockets on 5353. No TCP listener.

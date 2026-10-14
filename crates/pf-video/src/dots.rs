@@ -622,6 +622,10 @@ pub(crate) struct Dots {
     /// Where dots that run together are stamped, and where any are.
     crowded: Option<PixelBox>,
     drawn: Option<PixelBox>,
+    /// DMX floods' cells, each washing its color round it under every dot, as far as
+    /// `wash_reach` (picture pixels).
+    washes: Vec<crate::flood::Wash>,
+    wash_reach: f64,
 }
 
 impl Dots {
@@ -659,7 +663,21 @@ impl Dots {
             members: Vec::new(),
             crowded: None,
             drawn: None,
+            washes: crate::flood::washes(props, view),
+            wash_reach: crate::flood::wash_reach(view),
         };
+        let mut washed = Reach::NOWHERE;
+        for wash in &dots.washes {
+            let (x0, x1, y0, y1) = crate::flood::wash_box(wash.x, wash.y, dots.wash_reach, width, height);
+            if x0 < x1 && y0 < y1 {
+                washed = washed.with(Reach {
+                    x0: x0 as i32,
+                    y0: y0 as i32,
+                    x1: x1 as i32,
+                    y1: y1 as i32,
+                });
+            }
+        }
         let mut cut: Vec<(i32, Cut, u32)> = Vec::new();
         let mut shapes_of = |dots: &mut Dots, size: i32, kind: Cut| -> u32 {
             if let Some(found) = cut.iter().find(|(s, k, _)| (*s, *k) == (size, kind)) {
@@ -841,7 +859,7 @@ impl Dots {
         }
 
         dots.crowded = crowded.within(width, height);
-        dots.drawn = apart.with(crowded).within(width, height);
+        dots.drawn = apart.with(crowded).with(washed).within(width, height);
         dots
     }
 
@@ -891,8 +909,31 @@ impl Dots {
                 .filter(|c| *c != [0; 3])
         };
 
-        // Crowded props go under everything: what's stamped over them covers them by the usual
-        // rules. The merged lights are stamped first, each on whole picture pixels: together they
+        // Floods' washes go under every dot (see `flood.rs`).
+        let reach2 = self.wash_reach * self.wash_reach;
+        for wash in &self.washes {
+            let Some([r, g, b]) = color_at(wash.offset) else {
+                continue;
+            };
+            let rgb = pack(r.into(), g.into(), b.into(), 0);
+            let (x0, x1, y0, y1) =
+                crate::flood::wash_box(wash.x, wash.y, self.wash_reach, self.width, self.height);
+            for py in y0..y1 {
+                let dy = py as f64 + 0.5 - wash.y;
+                for px in x0..x1 {
+                    let dx = px as f64 + 0.5 - wash.x;
+                    let level =
+                        crate::flood::FLOOD_STRENGTH * crate::flood::wash_at((dx * dx + dy * dy) / reach2);
+                    let alpha = (level * 255.0 + 0.5).floor() as u32;
+                    if alpha > 0 {
+                        blend(&mut layer.pixels[py * self.width + px], rgb, alpha);
+                    }
+                }
+            }
+        }
+
+        // Crowded props go under everything else: what's stamped over them covers them by the
+        // usual rules. The merged lights are stamped first, each on whole picture pixels: together they
         // count as one prop.
         if let Some(crowded) = self.crowded {
             for light in &self.lights {

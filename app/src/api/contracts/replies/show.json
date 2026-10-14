@@ -5,7 +5,7 @@
     "value": {
       "canRedo": false,
       "canUndo": false,
-      "channelMap": { "controllers": [], "frameLen": 0, "props": [] },
+      "channelMap": { "controllers": [], "fixtures": [], "frameLen": 0, "props": [] },
       "dirty": false,
       "filesChecked": true,
       "issues": [],
@@ -19,7 +19,7 @@
         "groups": [],
         "name": "Untitled Show",
         "props": [],
-        "schemaVersion": 13,
+        "schemaVersion": 14,
         "sequences": [],
         "settings": { "frameRate": 40 }
       },
@@ -54,6 +54,7 @@
             ]
           }
         ],
+        "fixtures": [],
         "frameLen": 12,
         "props": [
           {
@@ -173,7 +174,7 @@
             }
           }
         ],
-        "schemaVersion": 13,
+        "schemaVersion": 14,
         "sequences": [
           {
             "audio": "/fixture/Show/music/Carol.mp3",
@@ -234,6 +235,7 @@
               ]
             }
           ],
+          "fixtures": [],
           "frameLen": 12,
           "props": [
             {
@@ -345,7 +347,7 @@
               }
             }
           ],
-          "schemaVersion": 13,
+          "schemaVersion": 14,
           "sequences": [
             {
               "audio": "/fixture/Show/moved/Carol.mp3",
@@ -597,9 +599,56 @@
             "channelCount": 0,
             "controller": "33333333-0000-4000-8000-000000000004",
             "spans": []
+          },
+          {
+            "addressing": {
+              "type": "artNet",
+              "universes": [{ "controllerChannel": 0, "len": 512, "universe": 0 }]
+            },
+            "channelCount": 512,
+            "controller": "33333333-0000-4000-8000-000000000005",
+            "spans": [
+              {
+                "brightness": 100,
+                "channelsPerPixel": 1,
+                "colorOrder": "RGB",
+                "controllerChannel": 8,
+                "frameOffset": 282,
+                "gamma": 1.0,
+                "pixels": 8,
+                "port": 1,
+                "prop": "11111111-0000-4000-8000-000000000090",
+                "reverse": false
+              }
+            ]
+          },
+          {
+            "addressing": { "type": "dmxUsb" },
+            "channelCount": 512,
+            "controller": "33333333-0000-4000-8000-000000000006",
+            "spans": []
           }
         ],
-        "frameLen": 276,
+        "fixtures": [
+          {
+            "address": 9,
+            "cells": 2,
+            "cellsOffset": 276,
+            "channels": [
+              { "name": "Dimmer", "role": "dimmer" },
+              { "name": "Red", "role": "red" },
+              { "name": "Green", "role": "green" },
+              { "name": "Blue", "role": "blue" },
+              { "name": "White", "role": "white" },
+              { "name": "Strobe", "role": "strobe" },
+              { "name": "Mode", "role": "fixed", "value": 32 },
+              { "cell": 1, "name": "Red 2", "role": "red" }
+            ],
+            "dmxOffset": 282,
+            "prop": "11111111-0000-4000-8000-000000000090"
+          }
+        ],
+        "frameLen": 290,
         "props": [
           {
             "channelsPerPixel": 3,
@@ -702,6 +751,12 @@
             "frameOffset": 270,
             "nodes": 2,
             "prop": "11111111-0000-4000-8000-000000000017"
+          },
+          {
+            "channelsPerPixel": 3,
+            "frameOffset": 276,
+            "nodes": 2,
+            "prop": "11111111-0000-4000-8000-000000000090"
           }
         ]
       },
@@ -917,6 +972,49 @@
               "type": "sacn",
               "universeSize": 510
             },
+            "sequenceChannels": null
+          },
+          {
+            "adapter": "generic",
+            "address": "192.0.2.13",
+            "id": "33333333-0000-4000-8000-000000000005",
+            "kind": "dmx",
+            "name": "Floods",
+            "ports": [
+              {
+                "brightness": 100,
+                "gamma": 1.0,
+                "maxPixels": null,
+                "number": 1,
+                "slots": [
+                  {
+                    "brightness": null,
+                    "gamma": null,
+                    "nullPixels": 0,
+                    "prop": "11111111-0000-4000-8000-000000000090",
+                    "reverse": false,
+                    "segment": null,
+                    "smartReceiver": null
+                  }
+                ]
+              }
+            ],
+            "protocol": {
+              "allowPixelStraddle": false,
+              "startUniverse": null,
+              "type": "artNet",
+              "universeSize": 512
+            },
+            "sequenceChannels": null
+          },
+          {
+            "adapter": "generic",
+            "address": "/dev/cu.usbserial-0001",
+            "id": "33333333-0000-4000-8000-000000000006",
+            "kind": "dmx",
+            "name": "USB DMX",
+            "ports": [{ "brightness": 100, "gamma": 1.0, "maxPixels": null, "number": 1, "slots": [] }],
+            "protocol": { "type": "dmxUsb" },
             "sequenceChannels": null
           }
         ],
@@ -1376,13 +1474,40 @@
               "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 },
               "scale": { "x": 1.0, "y": 1.0, "z": 1.0 }
             }
+          },
+          {
+            "colorOrder": "RGB",
+            "dmx": {
+              "address": 9,
+              "channels": [
+                { "name": "Dimmer", "role": "dimmer" },
+                { "name": "Red", "role": "red" },
+                { "name": "Green", "role": "green" },
+                { "name": "Blue", "role": "blue" },
+                { "name": "White", "role": "white" },
+                { "name": "Strobe", "role": "strobe" },
+                { "name": "Mode", "role": "fixed", "value": 32 },
+                { "cell": 1, "name": "Red 2", "role": "red" }
+              ],
+              "layout": "dimmer-rgbw-strobe-mode"
+            },
+            "id": "11111111-0000-4000-8000-000000000090",
+            "name": "Flood",
+            "regions": [],
+            "shape": { "length": 3.0, "nodes": 2, "source": "generator", "type": "line" },
+            "tags": [],
+            "transform": {
+              "position": { "x": 90.0, "y": 0.0, "z": 0.0 },
+              "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 },
+              "scale": { "x": 1.0, "y": 1.0, "z": 1.0 }
+            }
           }
         ],
-        "schemaVersion": 13,
+        "schemaVersion": 14,
         "sequences": [],
         "settings": { "frameRate": 40 }
       },
-      "summary": { "controllers": 4, "pixels": 90, "props": 17, "universes": 4 }
+      "summary": { "controllers": 6, "pixels": 92, "props": 18, "universes": 5 }
     }
   }
 ]

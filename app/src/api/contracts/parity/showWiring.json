@@ -2,13 +2,13 @@
   "about": "Props wired to ports become controller channels and sACN universes, numbered round the ones that are pinned.",
   "devices": [],
   "start": {
-    "channelMapNow": { "controllers": [], "frameLen": 0, "props": [] },
+    "channelMapNow": { "controllers": [], "fixtures": [], "frameLen": 0, "props": [] },
     "issuesNow": [],
     "sequence": null,
     "sequenceIssuesNow": null,
     "sequenceNow": null,
     "show": { "canRedo": false, "canUndo": false, "dirty": false, "path": null, "revision": 0 },
-    "showNow": { "background": null, "controllers": [], "groups": [], "name": "Untitled Show", "props": [], "schemaVersion": 13, "sequences": [], "settings": { "frameRate": 40 } },
+    "showNow": { "background": null, "controllers": [], "groups": [], "name": "Untitled Show", "props": [], "schemaVersion": 14, "sequences": [], "settings": { "frameRate": 40 } },
     "summaryNow": { "controllers": 0, "pixels": 0, "props": 0, "universes": 0 }
   },
   "steps": [
@@ -87,6 +87,7 @@
           },
           { "addressing": { "type": "ddp" }, "channelCount": 30, "controller": "33333333-0000-4000-8000-000000000003", "spans": [{ "brightness": 100, "channelsPerPixel": 3, "colorOrder": "RGB", "controllerChannel": 0, "frameOffset": 670, "gamma": 1.0, "pixels": 10, "port": 1, "prop": "11111111-0000-4000-8000-000000000004", "reverse": false }] }
         ],
+        "fixtures": [],
         "frameLen": 715,
         "props": [
           { "channelsPerPixel": 3, "frameOffset": 0, "nodes": 50, "prop": "11111111-0000-4000-8000-000000000001" },
@@ -150,7 +151,7 @@
           { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000004", "name": "Door", "regions": [], "shape": { "length": 3.0, "nodes": 10, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 4.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } },
           { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000005", "name": "Spare", "regions": [], "shape": { "length": 3.0, "nodes": 5, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 5.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } }
         ],
-        "schemaVersion": 13,
+        "schemaVersion": 14,
         "sequences": [],
         "settings": { "frameRate": 40 }
       },
@@ -227,6 +228,7 @@
           },
           { "addressing": { "type": "ddp" }, "channelCount": 30, "controller": "33333333-0000-4000-8000-000000000003", "spans": [{ "brightness": 100, "channelsPerPixel": 3, "colorOrder": "RGB", "controllerChannel": 0, "frameOffset": 670, "gamma": 1.0, "pixels": 10, "port": 1, "prop": "11111111-0000-4000-8000-000000000004", "reverse": false }] }
         ],
+        "fixtures": [],
         "frameLen": 715,
         "props": [
           { "channelsPerPixel": 3, "frameOffset": 0, "nodes": 50, "prop": "11111111-0000-4000-8000-000000000001" },
@@ -289,7 +291,7 @@
           { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000004", "name": "Door", "regions": [], "shape": { "length": 3.0, "nodes": 10, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 4.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } },
           { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000005", "name": "Spare", "regions": [], "shape": { "length": 3.0, "nodes": 5, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 5.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } }
         ],
-        "schemaVersion": 13,
+        "schemaVersion": 14,
         "sequences": [],
         "settings": { "frameRate": 40 }
       },
@@ -341,6 +343,7 @@
           },
           { "addressing": { "type": "ddp" }, "channelCount": 30, "controller": "33333333-0000-4000-8000-000000000003", "spans": [{ "brightness": 100, "channelsPerPixel": 3, "colorOrder": "RGB", "controllerChannel": 0, "frameOffset": 670, "gamma": 1.0, "pixels": 10, "port": 1, "prop": "11111111-0000-4000-8000-000000000004", "reverse": false }] }
         ],
+        "fixtures": [],
         "frameLen": 715,
         "props": [
           { "channelsPerPixel": 3, "frameOffset": 0, "nodes": 50, "prop": "11111111-0000-4000-8000-000000000001" },
@@ -407,7 +410,7 @@
           { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000004", "name": "Door", "regions": [], "shape": { "length": 3.0, "nodes": 10, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 4.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } },
           { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000005", "name": "Spare", "regions": [], "shape": { "length": 3.0, "nodes": 5, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 5.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } }
         ],
-        "schemaVersion": 13,
+        "schemaVersion": 14,
         "sequences": [],
         "settings": { "frameRate": 40 }
       },
@@ -434,6 +437,7 @@
           },
           { "addressing": { "type": "ddp" }, "channelCount": 30, "controller": "33333333-0000-4000-8000-000000000003", "spans": [{ "brightness": 100, "channelsPerPixel": 3, "colorOrder": "RGB", "controllerChannel": 0, "frameOffset": 520, "gamma": 1.0, "pixels": 10, "port": 1, "prop": "11111111-0000-4000-8000-000000000004", "reverse": false }] }
         ],
+        "fixtures": [],
         "frameLen": 565,
         "props": [
           { "channelsPerPixel": 4, "frameOffset": 0, "nodes": 100, "prop": "11111111-0000-4000-8000-000000000002" },
@@ -489,7 +493,7 @@
           { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000004", "name": "Door", "regions": [], "shape": { "length": 3.0, "nodes": 10, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 4.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } },
           { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000005", "name": "Spare", "regions": [], "shape": { "length": 3.0, "nodes": 5, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 5.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } }
         ],
-        "schemaVersion": 13,
+        "schemaVersion": 14,
         "sequences": [],
         "settings": { "frameRate": 40 }
       },
@@ -517,6 +521,7 @@
           },
           { "addressing": { "type": "ddp" }, "channelCount": 30, "controller": "33333333-0000-4000-8000-000000000003", "spans": [{ "brightness": 100, "channelsPerPixel": 3, "colorOrder": "RGB", "controllerChannel": 0, "frameOffset": 670, "gamma": 1.0, "pixels": 10, "port": 1, "prop": "11111111-0000-4000-8000-000000000004", "reverse": false }] }
         ],
+        "fixtures": [],
         "frameLen": 715,
         "props": [
           { "channelsPerPixel": 3, "frameOffset": 0, "nodes": 50, "prop": "11111111-0000-4000-8000-000000000001" },
@@ -583,7 +588,7 @@
           { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000004", "name": "Door", "regions": [], "shape": { "length": 3.0, "nodes": 10, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 4.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } },
           { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000005", "name": "Spare", "regions": [], "shape": { "length": 3.0, "nodes": 5, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 5.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } }
         ],
-        "schemaVersion": 13,
+        "schemaVersion": 14,
         "sequences": [],
         "settings": { "frameRate": 40 }
       },

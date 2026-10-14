@@ -32,7 +32,7 @@ export function dropTargetAt(x: number, y: number): DropTarget | null {
 /** The edits a drop makes, built from the show as it is when their turn comes. */
 export function dropEdits(item: DragItem, target: DropTarget): (show: Show) => Edit[] {
   return (show) => {
-    const nodes = nodeCounts(useApp.getState().snapshot?.channelMap ?? { frameLen: 0, props: [], controllers: [] });
+    const nodes = nodeCounts(useApp.getState().snapshot?.channelMap ?? { frameLen: 0, props: [], fixtures: [], controllers: [] });
     if (target.kind === "props") return item.kind === "slot" ? unwireEdits(show, item.from) : [];
     const to = { controller: target.controller, port: target.port, at: target.at, index: target.index };
     return item.kind === "slot" ? moveSlotEdits(show, item.from, to) : wirePropEdits(show, item.prop, to, nodes);

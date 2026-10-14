@@ -2,13 +2,13 @@
   "about": "Edits that carry the same gesture id, one after another, undo together.",
   "devices": [],
   "start": {
-    "channelMapNow": { "controllers": [], "frameLen": 0, "props": [] },
+    "channelMapNow": { "controllers": [], "fixtures": [], "frameLen": 0, "props": [] },
     "issuesNow": [],
     "sequence": null,
     "sequenceIssuesNow": null,
     "sequenceNow": null,
     "show": { "canRedo": false, "canUndo": false, "dirty": false, "path": null, "revision": 0 },
-    "showNow": { "background": null, "controllers": [], "groups": [], "name": "Untitled Show", "props": [], "schemaVersion": 13, "sequences": [], "settings": { "frameRate": 40 } },
+    "showNow": { "background": null, "controllers": [], "groups": [], "name": "Untitled Show", "props": [], "schemaVersion": 14, "sequences": [], "settings": { "frameRate": 40 } },
     "summaryNow": { "controllers": 0, "pixels": 0, "props": 0, "universes": 0 }
   },
   "steps": [
@@ -19,7 +19,7 @@
           { "prop": { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000002", "name": "Fence", "regions": [], "shape": { "length": 3, "nodes": 4, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 2, "y": 0, "z": 0 }, "rotationDeg": { "x": 0, "y": 0, "z": 0 }, "scale": { "x": 1, "y": 1, "z": 1 } } }, "type": "addProp" }
         ]
       },
-      "channelMapNow": { "controllers": [], "frameLen": 24, "props": [{ "channelsPerPixel": 3, "frameOffset": 0, "nodes": 4, "prop": "11111111-0000-4000-8000-000000000001" }, { "channelsPerPixel": 3, "frameOffset": 12, "nodes": 4, "prop": "11111111-0000-4000-8000-000000000002" }] },
+      "channelMapNow": { "controllers": [], "fixtures": [], "frameLen": 24, "props": [{ "channelsPerPixel": 3, "frameOffset": 0, "nodes": 4, "prop": "11111111-0000-4000-8000-000000000001" }, { "channelsPerPixel": 3, "frameOffset": 12, "nodes": 4, "prop": "11111111-0000-4000-8000-000000000002" }] },
       "command": "apply_edits",
       "issuesNow": [{ "code": "unassignedNodes", "fix": "Drag the prop onto a controller port.", "message": "The prop 'Gutter' is not wired to any controller port.", "severity": "warning" }, { "code": "unassignedNodes", "fix": "Drag the prop onto a controller port.", "message": "The prop 'Fence' is not wired to any controller port.", "severity": "warning" }],
       "reply": {},
@@ -34,7 +34,7 @@
           { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000001", "name": "Gutter", "regions": [], "shape": { "length": 3.0, "nodes": 4, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 1.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } },
           { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000002", "name": "Fence", "regions": [], "shape": { "length": 3.0, "nodes": 4, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 2.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } }
         ],
-        "schemaVersion": 13,
+        "schemaVersion": 14,
         "sequences": [],
         "settings": { "frameRate": 40 }
       },
@@ -52,7 +52,7 @@
         "frameMs": 25,
         "name": "Song",
         "rows": [{ "id": "44444444-0000-4000-8000-000000000001", "layers": [{ "effects": [] }], "target": { "prop": "11111111-0000-4000-8000-000000000001" } }, { "id": "44444444-0000-4000-8000-000000000002", "layers": [{ "effects": [] }], "target": { "prop": "11111111-0000-4000-8000-000000000002" } }],
-        "schemaVersion": 14,
+        "schemaVersion": 15,
         "timingTracks": []
       },
       "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }
@@ -159,7 +159,7 @@
             "target": { "prop": "11111111-0000-4000-8000-000000000002" }
           }
         ],
-        "schemaVersion": 14,
+        "schemaVersion": 15,
         "timingTracks": []
       },
       "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }
@@ -197,7 +197,7 @@
             "target": { "prop": "11111111-0000-4000-8000-000000000002" }
           }
         ],
-        "schemaVersion": 14,
+        "schemaVersion": 15,
         "timingTracks": []
       },
       "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }
@@ -237,7 +237,7 @@
             "target": { "prop": "11111111-0000-4000-8000-000000000002" }
           }
         ],
-        "schemaVersion": 14,
+        "schemaVersion": 15,
         "timingTracks": []
       },
       "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }
@@ -276,7 +276,7 @@
             "target": { "prop": "11111111-0000-4000-8000-000000000002" }
           }
         ],
-        "schemaVersion": 14,
+        "schemaVersion": 15,
         "timingTracks": []
       },
       "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }
@@ -334,7 +334,7 @@
             "target": { "prop": "11111111-0000-4000-8000-000000000002" }
           }
         ],
-        "schemaVersion": 14,
+        "schemaVersion": 15,
         "timingTracks": []
       },
       "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }
@@ -374,7 +374,7 @@
             "target": { "prop": "11111111-0000-4000-8000-000000000002" }
           }
         ],
-        "schemaVersion": 14,
+        "schemaVersion": 15,
         "timingTracks": []
       },
       "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }
@@ -484,7 +484,7 @@
             "target": { "prop": "11111111-0000-4000-8000-000000000002" }
           }
         ],
-        "schemaVersion": 14,
+        "schemaVersion": 15,
         "timingTracks": []
       },
       "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }
@@ -542,7 +542,7 @@
             "target": { "prop": "11111111-0000-4000-8000-000000000002" }
           }
         ],
-        "schemaVersion": 14,
+        "schemaVersion": 15,
         "timingTracks": []
       },
       "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }
@@ -654,7 +654,7 @@
         "frameMs": 25,
         "name": "Song",
         "rows": [{ "id": "44444444-0000-4000-8000-000000000001", "layers": [{ "effects": [] }], "target": { "prop": "11111111-0000-4000-8000-000000000001" } }, { "id": "44444444-0000-4000-8000-000000000002", "layers": [{ "effects": [] }], "target": { "prop": "11111111-0000-4000-8000-000000000002" } }],
-        "schemaVersion": 14,
+        "schemaVersion": 15,
         "timingTracks": []
       },
       "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }

@@ -664,6 +664,19 @@ export function packPositions(props: PreviewProp3d[]): { xyz: Float32Array; star
   return { xyz, starts };
 }
 
+/** For each pixel in `packPositions`' order, 1 when it's a DMX flood's cell (drawn with a wash round it), else 0. */
+export function packFloods(props: PreviewProp3d[]): Uint8Array {
+  const total = props.reduce((n, p) => n + Math.floor(p.xyz.length / 3), 0);
+  const floods = new Uint8Array(total);
+  let at = 0;
+  for (const p of props) {
+    const count = Math.floor(p.xyz.length / 3);
+    if (p.flood) floods.fill(1, at, at + count);
+    at += count;
+  }
+  return floods;
+}
+
 // ---- How lights are drawn --------------------------------------------------------------
 //
 // The 3D view draws lights by the flat previews' rules (lib/pixelBatches.ts), worked out for each

@@ -57,7 +57,7 @@ export function WireMode({ session, data, preview }: { session: WireSession; dat
     leave(s);
     if (s.ops.length === 0) return;
     // Built from the show as it is when the edit's turn comes.
-    await apply((show) => sessionEdits(show, s, nodeCounts(useApp.getState().snapshot?.channelMap ?? { frameLen: 0, props: [], controllers: [] })));
+    await apply((show) => sessionEdits(show, s, nodeCounts(useApp.getState().snapshot?.channelMap ?? { frameLen: 0, props: [], fixtures: [], controllers: [] })));
   };
   const cancel = () => {
     const s = current();

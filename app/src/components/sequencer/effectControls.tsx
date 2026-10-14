@@ -409,8 +409,9 @@ export function SettingControl({
   if (setting.type === "image") {
     return <ImageSetting setting={setting} value={typeof value === "string" ? value : setting.default} onChange={onChange} mixed={mixed} />;
   }
-  // A shader and its inputs are shown together, for one effect at a time (see ShaderSettings).
-  if (setting.type === "shaderFile" || setting.type === "shaderInputs") return null;
+  // A shader and its inputs are shown together, for one effect at a time (see ShaderSettings), and
+  // a DMX effect's channels by the row's fixture's names (see DmxSettings).
+  if (setting.type === "shaderFile" || setting.type === "shaderInputs" || setting.type === "dmxChannels") return null;
   if (setting.type === "bool") {
     return (
       <label className="flex items-center gap-2 text-sm" title={setting.description}>

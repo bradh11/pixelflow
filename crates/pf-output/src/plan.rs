@@ -43,6 +43,10 @@ pub enum Wire {
         /// when it expects raw channel numbers (`SequenceChannels::raw_ddp_offsets`).
         offset_base: u32,
     },
+    /// Art-Net ArtDMX, a whole universe a packet, unicast.
+    ArtNet { universes: Vec<UniverseSpan> },
+    /// A USB DMX interface (ENTTEC DMX USB Pro protocol) on the serial port `port`.
+    DmxUsb { port: String },
 }
 
 /// Everything needed to send one controller's channels.
@@ -133,6 +137,18 @@ fn plan_with(
                     },
                     SACN_PORT,
                 ),
+                Addressing::ArtNet { universes } => (
+                    Wire::ArtNet {
+                        universes: universes.clone(),
+                    },
+                    crate::artnet::ART_NET_PORT,
+                ),
+                Addressing::DmxUsb => (
+                    Wire::DmxUsb {
+                        port: controller.address.trim().to_string(),
+                    },
+                    0,
+                ),
                 Addressing::Ddp => {
                     let all_rgbw = !spans.is_empty() && spans.iter().all(|s| s.channels_per_pixel == 4);
                     let data_type = if all_rgbw { DDP_TYPE_RGBW32 } else { DDP_TYPE_RGB24 };
@@ -199,24 +215,33 @@ pub fn build_passthrough_plan(routes: &[PassthroughRoute], frame_len: usize, fra
                     },
                     DDP_PORT,
                 ),
-                Protocol::Sacn(sacn) => {
-                    let size = usize::from(sacn.universe_size.channels());
-                    let first = sacn.start_universe.unwrap_or(1);
-                    let universes = (0..route.count.div_ceil(size))
-                        .map(|i| UniverseSpan {
-                            universe: first.saturating_add(u16::try_from(i).unwrap_or(u16::MAX)),
-                            controller_channel: i * size,
-                            len: u16::try_from(size.min(route.count - i * size)).unwrap_or(u16::MAX),
-                        })
-                        .collect();
-                    (
-                        Wire::Sacn {
-                            universes,
-                            multicast: sacn.multicast,
-                        },
-                        SACN_PORT,
-                    )
-                }
+                Protocol::Sacn(sacn) => (
+                    Wire::Sacn {
+                        universes: passthrough_universes(
+                            route.count,
+                            sacn.universe_size.channels(),
+                            sacn.start_universe.unwrap_or(1),
+                        ),
+                        multicast: sacn.multicast,
+                    },
+                    SACN_PORT,
+                ),
+                Protocol::ArtNet(art) => (
+                    Wire::ArtNet {
+                        universes: passthrough_universes(
+                            route.count,
+                            art.universe_size.channels(),
+                            art.start_universe.unwrap_or(0),
+                        ),
+                    },
+                    crate::artnet::ART_NET_PORT,
+                ),
+                Protocol::DmxUsb => (
+                    Wire::DmxUsb {
+                        port: route.address.trim().to_string(),
+                    },
+                    0,
+                ),
             };
             ControllerPlan {
                 id: route.id,
@@ -244,6 +269,21 @@ pub fn build_passthrough_plan(routes: &[PassthroughRoute], frame_len: usize, fra
     }
 }
 
+/// `count` channels in universes of `size`, numbered from `first`.
+fn passthrough_universes(count: usize, size: u16, first: u16) -> Vec<UniverseSpan> {
+    let size = usize::from(size);
+    (0..count.div_ceil(size))
+        .map(|i| UniverseSpan {
+            universe: first.saturating_add(u16::try_from(i).unwrap_or(u16::MAX)),
+            controller_channel: i * size,
+            len: u16::try_from(size.min(count - i * size)).unwrap_or(u16::MAX),
+        })
+        .collect()
+}
+
+/// What a USB DMX interface's [`ControllerPlan::destination`] says: it has no network address.
+pub const USB_DESTINATION: &str = "not used: a USB DMX interface";
+
 /// What a multicast sACN controller's [`ControllerPlan::destination`] says: its address is never
 /// looked up, because every universe goes to its multicast group.
 const MULTICAST_DESTINATION: &str = "not used: sent by multicast";
@@ -258,6 +298,7 @@ fn destination(
 ) -> Result<SocketAddr, String> {
     match wire {
         Wire::Sacn { multicast: true, .. } => Err(MULTICAST_DESTINATION.to_string()),
+        Wire::DmxUsb { .. } => Err(USB_DESTINATION.to_string()),
         _ => resolve(address, port),
     }
 }
@@ -579,10 +620,56 @@ mod tests {
             .iter()
             .map(|c| match c.wire {
                 Wire::Ddp { offset_base, .. } => offset_base,
-                Wire::Sacn { .. } => panic!("DDP"),
+                _ => panic!("DDP"),
             })
             .collect();
         assert_eq!(bases, vec![3000, 0]);
+    }
+
+    #[test]
+    fn fixtures_are_sent_as_they_are_to_art_net_and_usb_interfaces() {
+        let mut show = Show::new("t");
+        let mut flood = prop(1, ColorOrder::Grb);
+        flood.dmx = Some(pf_model::DmxFixture::from_layout(
+            pf_model::dmx_layout("dimmer-rgb").unwrap(),
+            1,
+            10,
+        ));
+        let mut art = Controller::dmx(
+            "Node",
+            "10.0.0.7",
+            Protocol::ArtNet(pf_model::ArtNetConfig::default()),
+            1,
+        );
+        art.ports[0].slots.push(PortSlot::new(flood.id));
+        art.ports[0].brightness = 50;
+        let mut usb = Controller::dmx("USB", " /dev/cu.usbserial-1 ", Protocol::DmxUsb, 1);
+        usb.ports[0].slots.push(PortSlot::new(flood.id));
+        show.props = vec![flood];
+        show.controllers = vec![art, usb];
+        let (map, _) = pf_mapping::map_show(&show);
+        let plan = build_plan(&show, &map);
+        let art = &plan.controllers[0];
+        assert_eq!(art.destination, Ok("10.0.0.7:6454".parse().unwrap()));
+        assert!(
+            matches!(&art.wire, Wire::ArtNet { universes } if universes.len() == 1 && universes[0].universe == 0)
+        );
+        // One channel at a time, in the fixture's order, untouched by colour order or brightness.
+        let span = &art.spans[0];
+        assert_eq!(
+            (span.controller_channel, span.channels_per_pixel, span.pixels),
+            (9, 1, 4)
+        );
+        assert_eq!(plan.luts[span.lut], build_lut(100, 1.0));
+        let usb = &plan.controllers[1];
+        assert_eq!(
+            usb.wire,
+            Wire::DmxUsb {
+                port: "/dev/cu.usbserial-1".into()
+            }
+        );
+        assert_eq!(usb.destination, Err(USB_DESTINATION.to_string()));
+        assert_eq!(usb.channel_count, 512);
     }
 
     #[test]

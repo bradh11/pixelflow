@@ -222,7 +222,7 @@ fn prop_lines(prop: &Prop) -> Vec<String> {
         .map(words)
         .unwrap_or_else(|| "measured points".to_string());
     let p = prop.transform.position;
-    vec![
+    let mut lines = vec![
         format!("kind: {kind}"),
         format!("pixels: {}", prop.node_count()),
         format!(
@@ -231,7 +231,16 @@ fn prop_lines(prop: &Prop) -> Vec<String> {
             number(p.y),
             number(p.z)
         ),
-    ]
+    ];
+    if let Some(dmx) = &prop.dmx {
+        let roles: Vec<&str> = dmx.channels.iter().map(|c| c.role.label()).collect();
+        lines.push(format!(
+            "DMX fixture: address {}, channels {}",
+            dmx.address,
+            roles.join(", ")
+        ));
+    }
+    lines
 }
 
 fn number(value: f32) -> String {
@@ -282,8 +291,16 @@ fn controller_lines(c: &Controller, show: &Show) -> Vec<String> {
                 sacn.universe_size.channels()
             )
         }
+        Protocol::ArtNet(art) => match art.start_universe {
+            Some(u) => format!("Art-Net, universes from {u}"),
+            None => "Art-Net, universes assigned automatically".to_string(),
+        },
+        Protocol::DmxUsb => "USB DMX interface".to_string(),
     };
     let mut lines = vec![format!("address: {}", c.address), format!("protocol: {protocol}")];
+    if c.is_dmx() {
+        lines.push("drives: DMX universes, a port each".to_string());
+    }
     if c.adapter != pf_model::AdapterKind::Generic {
         lines.push(format!(
             "device type: {}",

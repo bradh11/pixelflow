@@ -40,6 +40,9 @@ pub enum IssueCode {
     MissingAddress,
     /// A controller address PixelFlow can't send to: an IPv6 address, or one with a space in it.
     InvalidAddress,
+    /// A DMX fixture PixelFlow can't use: no channels, an address outside 1-512, channels that
+    /// run past the end of the universe, or a colour channel for a cell it doesn't have.
+    InvalidFixture,
     // Wiring checks (pf-mapping).
     PortOverCapacity,
     UnassignedNodes,
@@ -49,6 +52,14 @@ pub enum IssueCode {
     /// A DDP controller wired to both RGB and RGBW props: DDP tells the controller one pixel type
     /// for the whole stream, so some controllers (WLED) misread the other kind.
     MixedPixelTypes,
+    /// A pixel prop on a DMX controller: not sent.
+    WrongControllerKind,
+    /// Two fixtures on one DMX universe share channels.
+    DmxChannelsOverlap,
+    /// A fixture on a pixel controller whose channels don't start at its address.
+    DmxAddressMismatch,
+    /// A DMX controller with no universe to send, or a USB DMX interface with more than one.
+    DmxUniverses,
 }
 
 /// One problem found in a show, written for end users.

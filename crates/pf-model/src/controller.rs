@@ -95,13 +95,81 @@ pub struct SacnConfig {
     pub multicast: bool,
 }
 
-/// Network protocol a controller receives.
+/// The highest Art-Net universe (its 15-bit port-address: net, sub-net and universe together).
+pub const MAX_ART_NET_UNIVERSE: u16 = 32_767;
+
+/// Art-Net (ArtDMX) output settings. Universes count from 0, as Art-Net numbers them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct ArtNetConfig {
+    /// Pinned first universe (0–32767). `None` lets PixelFlow assign universes automatically.
+    #[serde(default)]
+    pub start_universe: Option<u16>,
+    #[serde(default)]
+    pub universe_size: UniverseSize,
+    /// When false, a pixel's channels are never split across two universes.
+    #[serde(default)]
+    pub allow_pixel_straddle: bool,
+}
+
+/// Protocol a controller receives: over the network, or a USB DMX interface.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum Protocol {
     Sacn(SacnConfig),
     Ddp,
+    // The two below are left out of the Assistant's tool definitions, whose size is budgeted:
+    // the Assistant doesn't set DMX controllers up.
+    #[cfg_attr(feature = "schema", schemars(skip))]
+    ArtNet(ArtNetConfig),
+    /// A USB DMX interface that speaks the ENTTEC DMX USB Pro protocol; the controller's
+    /// address is its serial port (`/dev/cu.usbserial-…`, `COM3`). One universe.
+    #[cfg_attr(feature = "schema", schemars(skip))]
+    DmxUsb,
+}
+
+impl Protocol {
+    /// The universes settings of a protocol that numbers universes on the wire (sACN and
+    /// Art-Net): the pinned start, channels per universe, and whether pixels may straddle.
+    pub fn universes(&self) -> Option<(Option<u16>, UniverseSize, bool)> {
+        match *self {
+            Protocol::Sacn(c) => Some((c.start_universe, c.universe_size, c.allow_pixel_straddle)),
+            Protocol::ArtNet(c) => Some((c.start_universe, c.universe_size, c.allow_pixel_straddle)),
+            Protocol::Ddp | Protocol::DmxUsb => None,
+        }
+    }
+
+    /// The name people see.
+    pub fn label(&self) -> &'static str {
+        match self {
+            Protocol::Sacn(_) => "sACN",
+            Protocol::Ddp => "DDP",
+            Protocol::ArtNet(_) => "Art-Net",
+            Protocol::DmxUsb => "USB DMX",
+        }
+    }
+}
+
+/// What a controller drives: pixels packed one after another, or DMX universes with fixtures
+/// at their addresses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum ControllerKind {
+    /// A pixel controller: each port's props follow one another.
+    #[default]
+    Pixels,
+    /// A DMX node or interface: each port is one whole DMX universe (512 channels, sent in full
+    /// every frame), and each fixture on it sits at its own address.
+    Dmx,
+}
+
+impl ControllerKind {
+    fn is_pixels(&self) -> bool {
+        *self == ControllerKind::Pixels
+    }
 }
 
 /// A prop (or a segment of one) wired to a port, in wiring order.
@@ -223,6 +291,11 @@ pub struct Controller {
     #[serde(default)]
     pub adapter: AdapterKind,
     pub protocol: Protocol,
+    /// Pixels, or DMX universes (each port one universe).
+    // Left out of the Assistant's tool definitions (see `Protocol`).
+    #[serde(default, skip_serializing_if = "ControllerKind::is_pixels")]
+    #[cfg_attr(feature = "schema", schemars(skip))]
+    pub kind: ControllerKind,
     #[serde(default)]
     pub ports: Vec<Port>,
     #[serde(default)]
@@ -237,9 +310,28 @@ impl Controller {
             address: address.into(),
             adapter: AdapterKind::default(),
             protocol,
+            kind: ControllerKind::default(),
             ports: Vec::new(),
             sequence_channels: None,
         }
+    }
+
+    /// A DMX controller (each port one universe), with `universes` ports.
+    pub fn dmx(
+        name: impl Into<String>,
+        address: impl Into<String>,
+        protocol: Protocol,
+        universes: u16,
+    ) -> Self {
+        let mut controller = Self::new(name, address, protocol);
+        controller.kind = ControllerKind::Dmx;
+        controller.ports = (1..=universes).map(Port::new).collect();
+        controller
+    }
+
+    /// Whether its ports are DMX universes (a DMX node, or any USB DMX interface).
+    pub fn is_dmx(&self) -> bool {
+        self.kind == ControllerKind::Dmx || self.protocol == Protocol::DmxUsb
     }
 }
 
@@ -299,6 +391,40 @@ mod tests {
         assert_eq!(json["universeSize"], 510);
         assert_eq!(serde_json::to_value(Protocol::Ddp).unwrap()["type"], "ddp");
         assert_eq!(serde_json::from_value::<Protocol>(json).unwrap(), sacn);
+    }
+
+    #[test]
+    fn art_net_and_usb_dmx_json_shapes() {
+        let art = Protocol::ArtNet(ArtNetConfig {
+            start_universe: Some(0),
+            ..ArtNetConfig::default()
+        });
+        let json = serde_json::to_value(art).unwrap();
+        assert_eq!(json["type"], "artNet");
+        assert_eq!(json["startUniverse"], 0);
+        assert_eq!(serde_json::from_value::<Protocol>(json).unwrap(), art);
+        assert_eq!(
+            serde_json::to_value(Protocol::DmxUsb).unwrap(),
+            serde_json::json!({ "type": "dmxUsb" })
+        );
+        assert_eq!(art.universes().map(|u| u.0), Some(Some(0)));
+        assert_eq!(Protocol::DmxUsb.universes(), None);
+    }
+
+    #[test]
+    fn a_controller_says_it_drives_dmx_only_when_it_does() {
+        let pixels = Controller::new("C", "10.0.0.1", Protocol::Ddp);
+        let json = serde_json::to_value(&pixels).unwrap();
+        assert!(json.get("kind").is_none(), "{json}");
+        assert!(!pixels.is_dmx());
+        let node = Controller::dmx("Node", "10.0.0.2", Protocol::Sacn(SacnConfig::default()), 2);
+        let json = serde_json::to_value(&node).unwrap();
+        assert_eq!(json["kind"], "dmx");
+        assert_eq!(node.ports.len(), 2);
+        assert!(node.is_dmx());
+        assert_eq!(serde_json::from_value::<Controller>(json).unwrap(), node);
+        // A USB interface is DMX whatever its kind says.
+        assert!(Controller::new("USB", "COM3", Protocol::DmxUsb).is_dmx());
     }
 
     #[test]

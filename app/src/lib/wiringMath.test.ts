@@ -409,7 +409,7 @@ describe("channels", () => {
     a.protocol = { type: "sacn", startUniverse: null, universeSize: 510, allowPixelStraddle: false, multicast: false };
     a.ports[0].slots = [blankSlot(arch.id), blankSlot(line.id)];
     a.ports[1].slots = [{ ...blankSlot(star.id), nullPixels: 1 }];
-    const map: ChannelMap = { frameLen: 0, props: [], controllers: mapControllers(show) };
+    const map: ChannelMap = { frameLen: 0, props: [], fixtures: [], controllers: mapControllers(show) };
     expect(portChannels(map, a.id, 1)).toEqual({ first: 1, last: 300, universes: [1, 1] });
     // Null pixels stay dark: the range starts at the first lit pixel.
     expect(portChannels(map, a.id, 2)).toEqual({ first: 304, last: 603, universes: [1, 2] });
@@ -422,7 +422,7 @@ describe("channels", () => {
     a.protocol = { type: "sacn", startUniverse: null, universeSize: 510, allowPixelStraddle: false, multicast: false };
     a.ports[0].slots = [blankSlot(arch.id), blankSlot("gone"), { ...blankSlot(line.id), segment: { start: 0, end: 10 } }];
     a.ports[1].slots = [{ ...blankSlot(star.id), nullPixels: 1 }];
-    const map: ChannelMap = { frameLen: 0, props: [], controllers: mapControllers(show) };
+    const map: ChannelMap = { frameLen: 0, props: [], fixtures: [], controllers: mapControllers(show) };
     expect(slotChannels(map, a.id, a.ports[0], nodes)).toEqual([{ first: 1, universes: [1, 1] }, null, { first: 151, universes: [1, 1] }]);
     // After the 180 channels on port 1 and one null pixel: 184 on.
     expect(slotChannels(map, a.id, a.ports[1], nodes)).toEqual([{ first: 184, universes: [1, 1] }]);

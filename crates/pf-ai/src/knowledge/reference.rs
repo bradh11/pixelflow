@@ -159,6 +159,10 @@ fn setting_line(kind: EffectKind, setting: &SettingInfo) -> String {
             "the shader's own inputs by name, each as list_effect_kinds with kind \"shader\" and its file describes it; one left out is as the shader has it"
                 .to_string()
         }
+        SettingValue::DmxChannels { .. } => {
+            "channel numbers (1 is the fixture's first) to values 0 to 255; one left out comes from the color"
+                .to_string()
+        }
     };
     format!(
         "- `{}` ({}{more}): {holds}. {}",

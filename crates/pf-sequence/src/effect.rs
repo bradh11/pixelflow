@@ -1,7 +1,7 @@
 //! Effects: what lights up, when, and how it mixes with what's underneath.
 
 use crate::settings::{SettingRange, SettingSpec, choices, effect_params};
-use crate::{Curve, CurveInputs, CurveTime, EffectId, Rgb, ShaderInputs, TimingTrackId};
+use crate::{Curve, CurveInputs, CurveTime, DmxValues, EffectId, Rgb, ShaderInputs, TimingTrackId};
 use pf_model::{BufferTransform, RenderStyle};
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
@@ -388,6 +388,13 @@ impl Effect {
             });
         }
         if let Some((setting, part)) = key.split_once('.') {
+            let channels = kind
+                .settings()
+                .iter()
+                .any(|s| s.key == setting && s.range == SettingRange::DmxChannels);
+            if channels {
+                return DmxValues::channel_of(part).map(|_| whole(255));
+            }
             let inputs = kind
                 .settings()
                 .iter()
@@ -649,10 +656,11 @@ pub enum EffectKind {
     Fill,
     Fireworks,
     Shader,
+    Dmx,
 }
 
 impl EffectKind {
-    pub const ALL: [EffectKind; 41] = [
+    pub const ALL: [EffectKind; 42] = [
         EffectKind::On,
         EffectKind::Off,
         EffectKind::ColorWash,
@@ -694,6 +702,7 @@ impl EffectKind {
         EffectKind::Fill,
         EffectKind::Fireworks,
         EffectKind::Shader,
+        EffectKind::Dmx,
     ];
 
     /// The name people see.
@@ -740,6 +749,7 @@ impl EffectKind {
             EffectKind::Fill => "Fill",
             EffectKind::Fireworks => "Fireworks",
             EffectKind::Shader => "Shader",
+            EffectKind::Dmx => "DMX",
         }
     }
 
@@ -809,6 +819,9 @@ impl EffectKind {
             EffectKind::Shader => {
                 "A shader file's moving pattern drawn over the prop: one of PixelFlow's own, or your own file."
             }
+            EffectKind::Dmx => {
+                "Sets a DMX fixture's channels directly (strobe, modes, anything color can't say), changing with curves."
+            }
         }
     }
 
@@ -856,6 +869,7 @@ impl EffectKind {
             EffectKind::Fill => FillParams::SETTINGS,
             EffectKind::Fireworks => FireworksParams::SETTINGS,
             EffectKind::Shader => ShaderParams::SETTINGS,
+            EffectKind::Dmx => DmxParams::SETTINGS,
         }
     }
 }
@@ -907,6 +921,7 @@ pub enum EffectParams {
     Fill(FillParams),
     Fireworks(FireworksParams),
     Shader(ShaderParams),
+    Dmx(DmxParams),
 }
 
 impl EffectParams {
@@ -953,6 +968,7 @@ impl EffectParams {
             EffectParams::Fill(_) => EffectKind::Fill,
             EffectParams::Fireworks(_) => EffectKind::Fireworks,
             EffectParams::Shader(_) => EffectKind::Shader,
+            EffectParams::Dmx(_) => EffectKind::Dmx,
         }
     }
 
@@ -1000,6 +1016,7 @@ impl EffectParams {
             EffectKind::Fill => EffectParams::Fill(FillParams::default()),
             EffectKind::Fireworks => EffectParams::Fireworks(FireworksParams::default()),
             EffectKind::Shader => EffectParams::Shader(ShaderParams::default()),
+            EffectKind::Dmx => EffectParams::Dmx(DmxParams::default()),
         }
     }
 
@@ -1048,6 +1065,7 @@ impl EffectParams {
             EffectParams::Fill(p) => p.sanitize(),
             EffectParams::Fireworks(p) => p.sanitize(),
             EffectParams::Shader(p) => p.sanitize(),
+            EffectParams::Dmx(p) => p.sanitize(),
         }
     }
 
@@ -1102,6 +1120,7 @@ impl EffectParams {
             EffectParams::Fill(p) => p.number(key),
             EffectParams::Fireworks(p) => p.number(key),
             EffectParams::Shader(p) => p.number(key),
+            EffectParams::Dmx(p) => p.number(key),
         }
     }
 
@@ -1150,6 +1169,7 @@ impl EffectParams {
             EffectParams::Fill(p) => p.set_number(key, value),
             EffectParams::Fireworks(p) => p.set_number(key, value),
             EffectParams::Shader(p) => p.set_number(key, value),
+            EffectParams::Dmx(p) => p.set_number(key, value),
         }
     }
 
@@ -1197,6 +1217,7 @@ impl EffectParams {
             EffectParams::Fill(p) => p.setting_problem(),
             EffectParams::Fireworks(p) => p.setting_problem(),
             EffectParams::Shader(p) => p.setting_problem(),
+            EffectParams::Dmx(p) => p.setting_problem(),
         };
         found.map(|(spec, why)| format!("{} {why}", spec.label))
     }
@@ -3283,6 +3304,19 @@ effect_params! {
         offset_y: f32 = 0.0 => "offsetY", "xLights offset Y (not applied)", number(-1000.0, 1000.0, 1.0), more;
         /// xLights' Zoom, kept from an import. PixelFlow doesn't apply it.
         zoom: f32 = 0.0 => "zoom", "xLights zoom (not applied)", number(-1000.0, 1000.0, 1.0), more;
+    }
+}
+
+effect_params! {
+    /// Sets the channels of the DMX fixtures it plays on directly, by number from the fixture's
+    /// own first channel: what the color drawn on a fixture can't say (its strobe, a mode or
+    /// macro, a moving head's position). The channels it doesn't name come from the color as
+    /// usual. Draws no color itself.
+    // Rows later in the sequence, and higher layers, win where two set one channel. Fades don't
+    // scale the values: a fade would change a mode channel into another mode.
+    pub struct DmxParams {
+        /// The channels it sets, by number (1 is the fixture's first), each to 0-255.
+        channels: DmxValues = DmxValues::default() => "channels", "Channels", dmx_channels;
     }
 }
 

@@ -1,9 +1,12 @@
 //! Walks controller → port → slot to place prop pixels on controller channels.
 
-use crate::layout::{OutputSpan, PropLayout};
+use crate::layout::{FixtureLayout, OutputSpan, PropLayout};
 use crate::universes::PixelRun;
-use pf_model::{Controller, Issue, IssueCode, PropId, Protocol, Show, ValidationReport};
+use pf_model::{ColorOrder, Controller, Issue, IssueCode, PropId, Protocol, Show, ValidationReport};
 use std::collections::HashMap;
+
+/// Channels in a DMX universe.
+pub const DMX_UNIVERSE: usize = 512;
 
 /// Wiring result for one controller.
 #[derive(Debug, Clone, Default)]
@@ -12,11 +15,15 @@ pub(crate) struct WiredController {
     pub channel_count: usize,
     /// Every physical pixel in channel order, including null pixels.
     pub runs: Vec<PixelRun>,
+    /// A DMX controller's universes (one a port, 512 channels each); `None` for a pixel
+    /// controller.
+    pub dmx_universes: Option<usize>,
 }
 
 pub(crate) fn wire_controllers(
     show: &Show,
     props: &[PropLayout],
+    fixtures: &[Option<FixtureLayout>],
     report: &mut ValidationReport,
 ) -> Vec<WiredController> {
     // First occurrence wins, matching `Show::prop`.
@@ -28,7 +35,13 @@ pub(crate) fn wire_controllers(
     let wired = show
         .controllers
         .iter()
-        .map(|c| wire_controller(show, c, props, &index, &mut coverage, report))
+        .map(|c| {
+            if c.is_dmx() {
+                wire_dmx_controller(show, c, fixtures, &index, &mut coverage, report)
+            } else {
+                wire_controller(show, c, props, fixtures, &index, &mut coverage, report)
+            }
+        })
         .collect();
     check_coverage(show, &coverage, report);
     wired
@@ -38,6 +51,7 @@ fn wire_controller(
     show: &Show,
     controller: &Controller,
     props: &[PropLayout],
+    fixtures: &[Option<FixtureLayout>],
     index: &HashMap<PropId, usize>,
     coverage: &mut [Vec<u8>],
     report: &mut ValidationReport,
@@ -50,6 +64,33 @@ fn wire_controller(
                 continue;
             };
             let prop = &show.props[i];
+            if prop.dmx.is_some() {
+                // A fixture on a pixel controller (a Falcon's or an FPP's DMX output, carried in
+                // its universes) takes its channels where it falls, after the null channels
+                // before it, as one piece: it is never split between two universes.
+                let Some(fixture) = &fixtures[i] else {
+                    continue;
+                };
+                if slot.null_pixels > 0 {
+                    out.runs.push(PixelRun {
+                        pixels: slot.null_pixels,
+                        channels_per_pixel: 1,
+                    });
+                    out.channel_count += slot.null_pixels as usize;
+                }
+                out.spans
+                    .push(fixture_span(prop.id, port.number, out.channel_count, fixture));
+                out.runs.push(PixelRun {
+                    pixels: 1,
+                    channels_per_pixel: fixture.footprint() as u16,
+                });
+                out.channel_count += fixture.footprint();
+                load.channels += u64::from(slot.null_pixels) + fixture.footprint() as u64;
+                for hits in coverage[i].iter_mut() {
+                    *hits = hits.saturating_add(1);
+                }
+                continue;
+            }
             let layout = &props[i];
             let range = slot.node_range(layout.nodes);
             if !range.fits_within(layout.nodes) {
@@ -59,7 +100,7 @@ fn wire_controller(
             if slot.null_pixels > 0 {
                 out.runs.push(PixelRun {
                     pixels: slot.null_pixels,
-                    channels_per_pixel: cpp,
+                    channels_per_pixel: u16::from(cpp),
                 });
                 out.channel_count += slot.null_pixels as usize * cpp as usize;
             }
@@ -80,7 +121,7 @@ fn wire_controller(
                 out.spans.push(span);
                 out.runs.push(PixelRun {
                     pixels: range.len(),
-                    channels_per_pixel: cpp,
+                    channels_per_pixel: u16::from(cpp),
                 });
                 for node in range.start..range.end {
                     let hits = &mut coverage[i][node as usize];
@@ -101,6 +142,175 @@ fn wire_controller(
         }
     }
     out
+}
+
+/// A DMX controller: each port one universe of 512 channels, each fixture at its address.
+/// Fixtures may share channels (a warning: the later one's are sent); pixel props aren't sent.
+fn wire_dmx_controller(
+    show: &Show,
+    controller: &Controller,
+    fixtures: &[Option<FixtureLayout>],
+    index: &HashMap<PropId, usize>,
+    coverage: &mut [Vec<u8>],
+    report: &mut ValidationReport,
+) -> WiredController {
+    let usb = controller.protocol == Protocol::DmxUsb;
+    let ports = if usb {
+        controller.ports.len().min(1)
+    } else {
+        controller.ports.len()
+    };
+    if usb && controller.ports.len() > 1 {
+        report.push(
+            Issue::error(
+                IssueCode::DmxUniverses,
+                format!(
+                    "'{}' is a USB DMX interface, which sends one universe, but it has {} ports: only port {} is sent.",
+                    controller.name,
+                    controller.ports.len(),
+                    controller.ports[0].number
+                ),
+            )
+            .with_fix("Move the fixtures to the first port, then remove the others."),
+        );
+    }
+    let mut out = WiredController {
+        channel_count: ports * DMX_UNIVERSE,
+        runs: vec![PixelRun {
+            pixels: (ports * DMX_UNIVERSE) as u32,
+            channels_per_pixel: 1,
+        }],
+        dmx_universes: Some(ports),
+        ..WiredController::default()
+    };
+    for (n, port) in controller.ports.iter().take(ports).enumerate() {
+        let base = n * DMX_UNIVERSE;
+        // Channels used on this universe so far, and by which fixture.
+        let mut used: Vec<(usize, usize, &str)> = Vec::new();
+        for slot in &port.slots {
+            let Some(&i) = index.get(&slot.prop) else {
+                continue;
+            };
+            let prop = &show.props[i];
+            let Some(fixture) = &fixtures[i] else {
+                if prop.dmx.is_none() {
+                    wrong_kind(report, &prop.name, controller);
+                    coverage[i].fill(1);
+                }
+                continue;
+            };
+            let start = usize::from(fixture.address) - 1;
+            let end = start + fixture.footprint();
+            if let Some(&(_, _, other)) = used.iter().find(|&&(s, e, _)| start < e && s < end) {
+                report.push(
+                    Issue::warning(
+                        IssueCode::DmxChannelsOverlap,
+                        format!(
+                            "'{}' and '{other}' share channels on port {} of '{}', so the later one's values are sent there.",
+                            prop.name, port.number, controller.name
+                        ),
+                    )
+                    .with_fix("Give one of them a start address after the other's last channel."),
+                );
+            }
+            used.push((start, end, &prop.name));
+            out.spans
+                .push(fixture_span(prop.id, port.number, base + start, fixture));
+            for hits in coverage[i].iter_mut() {
+                *hits = hits.saturating_add(1);
+            }
+        }
+    }
+    // Spans in channel order; fixtures sharing channels keep their wiring order, so the later
+    // one is copied last.
+    out.spans.sort_by_key(|s| s.controller_channel);
+    if ports == 0 {
+        report.push(
+            Issue::warning(
+                IssueCode::DmxUniverses,
+                format!(
+                    "The DMX controller '{}' has no universes, so nothing is sent to it.",
+                    controller.name
+                ),
+            )
+            .with_fix("Add a universe (a port) to it on the Wiring screen."),
+        );
+    }
+    out
+}
+
+/// The span sending a fixture's channels from `controller_channel` on: one byte a channel, as
+/// they are (no color order, brightness, or gamma: those would change a mode or a strobe).
+fn fixture_span(prop: PropId, port: u16, controller_channel: usize, fixture: &FixtureLayout) -> OutputSpan {
+    OutputSpan {
+        prop,
+        port,
+        controller_channel,
+        frame_offset: fixture.dmx_offset,
+        pixels: fixture.footprint() as u32,
+        channels_per_pixel: 1,
+        reverse: false,
+        color_order: ColorOrder::Rgb,
+        brightness: 100,
+        gamma: 1.0,
+    }
+}
+
+/// A pixel prop on a DMX controller: not sent.
+fn wrong_kind(report: &mut ValidationReport, prop: &str, controller: &Controller) {
+    report.push(
+        Issue::warning(
+            IssueCode::WrongControllerKind,
+            format!(
+                "The prop '{prop}' is wired to '{}', a DMX controller, so it isn't sent: DMX controllers drive fixtures.",
+                controller.name
+            ),
+        )
+        .with_fix("Wire it to a pixel controller."),
+    );
+}
+
+/// A fixture on a pixel controller whose channels land somewhere other than its start address in
+/// their universe: the fixture listens at its address, so it would see other channels.
+pub(crate) fn check_fixture_addresses(
+    show: &Show,
+    controllers: &[crate::layout::ControllerOutput],
+    fixtures: &[FixtureLayout],
+    report: &mut ValidationReport,
+) {
+    for (controller, output) in show.controllers.iter().zip(controllers) {
+        if controller.is_dmx() {
+            continue;
+        }
+        for span in &output.spans {
+            let Some(fixture) = fixtures
+                .iter()
+                .find(|f| f.prop == span.prop && f.dmx_offset == span.frame_offset)
+            else {
+                continue;
+            };
+            let landed = match output.addressing.address_of(span.controller_channel) {
+                Some(
+                    crate::ChannelAddress::Sacn { channel, .. }
+                    | crate::ChannelAddress::ArtNet { channel, .. },
+                ) => channel,
+                _ => continue,
+            };
+            if landed != fixture.address {
+                let name = show.prop(span.prop).map_or("?", |p| p.name.as_str());
+                report.push(
+                    Issue::warning(
+                        IssueCode::DmxAddressMismatch,
+                        format!(
+                            "The DMX fixture '{name}' is set to address {}, but on '{}' its channels start at {landed} of their universe.",
+                            fixture.address, controller.name
+                        ),
+                    )
+                    .with_fix(format!("Set its start address to {landed}, or move it on its port.")),
+                );
+            }
+        }
+    }
 }
 
 /// Pixels on one port, across any smart receivers it feeds.

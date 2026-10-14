@@ -357,6 +357,8 @@ pub struct SceneGeometry {
     pub(crate) area: [f32; 2],
     pub(crate) pixel_count: usize,
     pub(crate) frame_len: usize,
+    /// The DMX fixtures: where their cells and channels are in the frame.
+    pub(crate) fixtures: Vec<pf_mapping::FixtureLayout>,
 }
 
 impl SceneGeometry {
@@ -429,7 +431,30 @@ impl SceneGeometry {
             area,
             pixel_count: first_pixel,
             frame_len: map.frame_len,
+            fixtures: map.fixtures.clone(),
         }
+    }
+
+    /// The DMX fixtures a row on `target` plays on, as places in [`Self::fixtures`]: the prop's
+    /// own (for a submodel, its prop's), or every one among a group's members, each once.
+    pub(crate) fn fixtures_of(&self, target: Target) -> Vec<u32> {
+        let props: Vec<PropId> = match target {
+            Target::Prop(id) | Target::Region { prop: id, .. } => vec![id],
+            Target::Group(id) => self
+                .groups
+                .get(&id)
+                .map(|g| g.members.iter().map(GroupMember::prop).collect())
+                .unwrap_or_default(),
+        };
+        let mut found: Vec<u32> = Vec::new();
+        for prop in props {
+            if let Some(f) = self.fixtures.iter().position(|f| f.prop == prop)
+                && !found.contains(&(f as u32))
+            {
+                found.push(f as u32);
+            }
+        }
+        found
     }
 
     /// Show-frame bytes (prop order, RGB/RGBW per pixel).

@@ -4499,5 +4499,19 @@
         "type": "number"
       }
     ]
+  },
+  {
+    "description": "Sets a DMX fixture's channels directly (strobe, modes, anything color can't say), changing with curves.",
+    "kind": "dmx",
+    "label": "DMX",
+    "settings": [
+      {
+        "default": {},
+        "description": "The channels it sets, by number (1 is the fixture's first), each to 0-255.",
+        "key": "channels",
+        "label": "Channels",
+        "type": "dmxChannels"
+      }
+    ]
   }
 ]

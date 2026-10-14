@@ -121,11 +121,20 @@ fn spans(map: &ChannelMap, controller: ControllerId, port: Option<u16>) -> Vec<T
         .filter(|c| c.controller == controller)
         .flat_map(|c| &c.spans)
         .filter(|s| port.is_none_or(|p| s.port == p))
-        .map(|s| TargetRange {
-            frame_offset: s.frame_offset,
-            pixels: s.pixels,
-            channels_per_pixel: s.channels_per_pixel,
-            reverse: s.reverse,
+        .map(|s| match map.fixture(s.prop) {
+            // A DMX fixture is lit through its cells: their colour becomes its channels.
+            Some(fixture) => TargetRange {
+                frame_offset: fixture.cells_offset,
+                pixels: fixture.cells,
+                channels_per_pixel: 3,
+                reverse: false,
+            },
+            None => TargetRange {
+                frame_offset: s.frame_offset,
+                pixels: s.pixels,
+                channels_per_pixel: s.channels_per_pixel,
+                reverse: s.reverse,
+            },
         })
         .collect()
 }
@@ -243,5 +252,31 @@ mod tests {
             vec![range(12, 2, true)]
         );
         assert!(resolve_target(&show, &map, &Target::Prop(PropId::new())).is_empty());
+    }
+
+    #[test]
+    fn a_dmx_controller_lights_its_fixtures_cells() {
+        let mut flood = line("Flood", 2);
+        flood.dmx = Some(pf_model::DmxFixture::from_layout(
+            pf_model::dmx_layout("bar-rgb").unwrap(),
+            2,
+            5,
+        ));
+        let mut node = Controller::dmx("Node", "192.0.2.5", Protocol::Ddp, 1);
+        node.ports[0].slots.push(PortSlot::new(flood.id));
+        let mut show = Show::new("t");
+        show.props.push(line("Arch", 4));
+        show.props.push(flood);
+        show.controllers.push(node.clone());
+        let (map, _) = pf_mapping::map_show(&show);
+        assert_eq!(
+            resolve_target(&show, &map, &Target::Controller(node.id)),
+            vec![TargetRange {
+                frame_offset: 12,
+                pixels: 2,
+                channels_per_pixel: 3,
+                reverse: false
+            }]
+        );
     }
 }

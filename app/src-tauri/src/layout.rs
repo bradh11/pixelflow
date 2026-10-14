@@ -204,13 +204,16 @@ impl Dims {
     }
 }
 
+/// Set in an entry's channels per pixel when the prop is a flood (see `previewBytes.ts`).
+const FLOOD_BIT: u32 = 0x100;
+
 /// Packs the props' pixel positions into bytes the window reads without parsing (a large
 /// show's positions as JSON would be megabytes of text after every edit). Little-endian:
 ///
 /// - header: format `u32` (1: x, y pairs; 2: x, y, z triples), prop count `u32`, the show
 ///   revision the positions are for `f64`
 /// - one 48-byte entry per prop: its id as 36 ASCII characters, frame offset `u32`, channels
-///   per pixel `u32`, pixel count `u32`
+///   per pixel `u32` (with [`FLOOD_BIT`] set for a DMX fixture), pixel count `u32`
 /// - then every prop's coordinates as `f32`, props in the same order
 pub(crate) fn encode_preview(revision: u64, props: &[PreviewProp], dims: Dims) -> Vec<u8> {
     let floats: usize = props.iter().map(|p| p.points.len()).sum();
@@ -221,7 +224,9 @@ pub(crate) fn encode_preview(revision: u64, props: &[PreviewProp], dims: Dims) -
     for p in props {
         out.extend_from_slice(p.prop.to_string().as_bytes());
         out.extend_from_slice(&(p.frame_offset as u32).to_le_bytes());
-        out.extend_from_slice(&u32::from(p.channels_per_pixel).to_le_bytes());
+        // A flood (a DMX fixture's cells) is said by the bit above the channels per pixel.
+        let flood = if p.flood { FLOOD_BIT } else { 0 };
+        out.extend_from_slice(&(u32::from(p.channels_per_pixel) | flood).to_le_bytes());
         out.extend_from_slice(&((p.points.len() / dims.per_pixel()) as u32).to_le_bytes());
     }
     for p in props {
@@ -314,6 +319,7 @@ mod tests {
             frame_offset: 6,
             channels_per_pixel: 3,
             points: vec![1.5, -2.0, 3.0, 4.25],
+            flood: false,
         }];
         let bytes = encode_preview(7, &props, Dims::Flat);
         assert_eq!(bytes.len(), 16 + 48 + 4 * 4);
@@ -337,12 +343,17 @@ mod tests {
             frame_offset: 0,
             channels_per_pixel: 4,
             points: vec![1.0, 2.0, -3.5, 4.0, 5.0, 6.25],
+            flood: true,
         }];
         let bytes = encode_preview(9, &props, Dims::Deep);
         assert_eq!(bytes.len(), 16 + 48 + 6 * 4);
         assert_eq!(&bytes[0..4], &2u32.to_le_bytes(), "format 2: x, y, z");
         assert_eq!(&bytes[8..16], &9f64.to_le_bytes());
-        assert_eq!(&bytes[56..60], &4u32.to_le_bytes());
+        assert_eq!(
+            &bytes[56..60],
+            &(4u32 | FLOOD_BIT).to_le_bytes(),
+            "a flood: the bit above its channels"
+        );
         assert_eq!(&bytes[60..64], &2u32.to_le_bytes(), "two pixels, not three");
         assert_eq!(&bytes[72..76], &(-3.5f32).to_le_bytes());
         assert_eq!(&bytes[84..88], &6.25f32.to_le_bytes());

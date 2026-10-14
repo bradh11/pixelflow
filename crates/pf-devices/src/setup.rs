@@ -196,6 +196,8 @@ pub fn show_setup(show: &Show, controller: &Controller, one_per_port: bool) -> S
             start_universe: sacn.start_universe,
             universe_size: sacn.universe_size.channels(),
         },
+        Protocol::ArtNet(_) => SetupInput::Other("Art-Net".into()),
+        Protocol::DmxUsb => SetupInput::Other("USB DMX".into()),
     };
     Setup {
         input,
@@ -782,7 +784,7 @@ fn take_input(controller: &mut Controller, device: &SetupInput, kind: ChangeKind
         ) => {
             let mut sacn = match controller.protocol {
                 Protocol::Sacn(sacn) => sacn,
-                Protocol::Ddp => SacnConfig::default(),
+                Protocol::Ddp | Protocol::ArtNet(_) | Protocol::DmxUsb => SacnConfig::default(),
             };
             let size = UniverseSize::new(u32::from(*universe_size));
             match kind {

@@ -463,6 +463,7 @@ fn build_show_within(
     let mut over_budget = Vec::new();
     let mut odd_colors = Vec::new();
     let mut upright = Vec::new();
+    let (mut floods, mut uncolored) = (Vec::new(), Vec::new());
     let mut region_notes = crate::submodels::RegionNotes::default();
     for model in &layout.models {
         if !seen.insert(model.name.as_str()) {
@@ -513,8 +514,22 @@ fn build_show_within(
                 Vec3::new(x / n * LAYOUT_SCALE, y / n * LAYOUT_SCALE, 0.0)
             })
             .collect();
+        // A flood is one light, at the middle of its channels' dots.
+        let flood = crate::dmx::is_flood(model);
+        let points = if flood {
+            let n = points.len().max(1) as f32;
+            let sum = points.iter().fold(Vec3::ZERO, |sum, &p| sum + p);
+            vec![sum * (1.0 / n)]
+        } else {
+            points
+        };
         // An editable shape when PixelFlow has one that lands every pixel where xLights does.
-        let mut prop = match crate::shapes::editable(model, &points) {
+        let found = if flood {
+            None
+        } else {
+            crate::shapes::editable(model, &points)
+        };
+        let mut prop = match found {
             Some((generator, transform)) => {
                 let mut prop = Prop::new(model.name.clone(), ShapeSource::Generator(generator));
                 prop.transform = transform;
@@ -532,10 +547,18 @@ fn build_show_within(
             ),
         };
         let (order, exact) = color_order(model.text("StringType", "RGB Nodes"), g.channels_per_node);
-        if !exact {
+        prop.color_order = order;
+        if flood {
+            prop.color_order = ColorOrder::Rgb;
+            let (fixture, colored) = crate::dmx::fixture(model, 1);
+            prop.dmx = Some(fixture);
+            floods.push(model.name.clone());
+            if !colored {
+                uncolored.push(model.name.clone());
+            }
+        } else if !exact {
             odd_colors.push(model.name.clone());
         }
-        prop.color_order = order;
         prop.own_layout = own_layout(&prop, g.buffer.as_ref());
         prop.regions = crate::submodels::regions(
             &model.name,
@@ -567,6 +590,18 @@ fn build_show_within(
             "PixelFlow can't represent the color order of {}, so their colors may be swapped in \
              PixelFlow's preview and effects (xLights sequences still play as rendered).",
             list(&odd_colors)
+        ));
+    }
+    if !floods.is_empty() {
+        notes.push(format!(
+            "These DMX floods became DMX fixtures, wired on their controller at the channels xLights gives them: {}.",
+            list(&floods)
+        ));
+    }
+    if !uncolored.is_empty() {
+        notes.push(format!(
+            "The file doesn't say which channels of these DMX fixtures are their colors, so they hold their channels at 0 until you set them on the Layout screen: {}.",
+            list(&uncolored)
         ));
     }
     region_notes.into_notes(&mut notes);
@@ -625,6 +660,16 @@ fn build_show_within(
                  renders it.",
                 model.name
             ));
+        }
+        // A DMX fixture listens at the address its channels start at in their universe.
+        if let Some(fixture) = show
+            .props
+            .iter_mut()
+            .find(|p| p.id == prop)
+            .and_then(|p| p.dmx.as_mut())
+            && let Some(address) = dmx_address(&targets, start)
+        {
+            fixture.address = address;
         }
         match targets.iter().position(|t| t.contains(start)) {
             Some(slot) => by_target.entry(slot).or_default().push(Placed {
@@ -775,6 +820,17 @@ fn build_show_within(
     XlightsImport { show, summary, notes }
 }
 
+/// The address (1-based, in its universe) of xLights channel `start` on the sACN controller that
+/// holds it; `None` on a controller that doesn't number universes.
+fn dmx_address(targets: &[Target], start: u32) -> Option<u16> {
+    let target = targets.iter().find(|t| t.contains(start))?;
+    let Protocol::Sacn(cfg) = target.controller.protocol else {
+        return None;
+    };
+    let size = u32::from(cfg.universe_size.channels());
+    u16::try_from((start - target.start) % size + 1).ok()
+}
+
 /// Wires `placed` (in channel order) onto `target`'s ports, each prop exactly at its xLights
 /// channels or not at all. Returns how many props were wired.
 fn wire(
@@ -792,7 +848,11 @@ fn wire(
     let mut wired = 0;
     for p in placed {
         let order = props.iter().find(|q| q.id == p.prop).map(|q| q.color_order);
-        if order.map(|o| u32::from(o.channels_per_pixel())) != Some(p.cpn) {
+        let fixture = props
+            .iter()
+            .find(|q| q.id == p.prop)
+            .is_some_and(|q| q.dmx.is_some());
+        if !fixture && order.map(|o| u32::from(o.channels_per_pixel())) != Some(p.cpn) {
             notes.push(format!(
                 "{} uses {} channel(s) per pixel; PixelFlow wires only RGB and RGBW props, so it isn't wired.",
                 p.name, p.cpn
@@ -841,6 +901,17 @@ fn wire(
             }
             let mut slot = PortSlot::new(p.prop);
             slot.null_pixels = nulls as u32;
+            if fixture {
+                // A fixture's channels go as they are, in one piece (its null "pixels" are
+                // channels, as it has one channel a node here).
+                if i > 0 {
+                    problem = Some(format!("its channels have a gap {place} on {name}"));
+                    break;
+                }
+                slots.push(slot);
+                at_end = at + u64::from(run.nodes) * u64::from(p.cpn);
+                continue;
+            }
             slot.brightness = Some(p.conn.brightness);
             slot.gamma = Some(p.conn.gamma);
             slot.reverse = p.conn.reverse && p.runs.len() == 1;
@@ -1259,12 +1330,12 @@ mod tests {
 
     #[test]
     fn a_gap_that_isnt_whole_pixels_leaves_the_prop_unwired() {
-        // A 7-channel DMX fixture (not wired), then A right after it, B right after A, and C one
+        // A 7-channel moving head (not wired), then A right after it, B right after A, and C one
         // pixel past an even gap from the true end of the last wired channels.
         let dmx = with(
             XmlModel {
                 name: "Dmx".into(),
-                display_as: "DmxGeneral".into(),
+                display_as: "DmxMovingHead".into(),
                 ..XmlModel::default()
             },
             &[("StartChannel", "!Falcon:1"), ("DmxChannelCount", "7")],
@@ -1309,6 +1380,83 @@ mod tests {
                 })
                 .collect(),
         }
+    }
+
+    #[test]
+    fn dmx_floods_ride_their_controllers_universes_beside_its_pixels_with_no_collision() {
+        // A made-up Falcon-like board on universes 10 and 11: 50 pixels from channel 1, a
+        // 4-channel flood at universe 10's channel 201, and another at universe 11's channel 9.
+        let x = sacn("Board", &[(10, 512), (11, 512)]);
+        let flood = |name: &str, start: &str| {
+            with(
+                XmlModel {
+                    name: name.into(),
+                    display_as: "DmxFloodlight".into(),
+                    ..XmlModel::default()
+                },
+                &[
+                    ("StartChannel", start),
+                    ("DmxChannelCount", "4"),
+                    ("DmxRedChannel", "2"),
+                    ("DmxGreenChannel", "3"),
+                    ("DmxBlueChannel", "4"),
+                ],
+            )
+        };
+        let layout = layout(vec![
+            model("Eaves", "#10:1", 50, None),
+            flood("Left", "#10:201"),
+            flood("Right", "#11:9"),
+        ]);
+        let result = build_show("t", &[x], &layout, geometry);
+        has_note(&result, "These DMX floods became DMX fixtures");
+        assert_eq!(result.summary.wired, 3, "{:?}", result.notes);
+        assert_eq!(
+            result.show.controllers.len(),
+            1,
+            "no second controller on the same universes"
+        );
+        let left = result.show.props.iter().find(|p| p.name == "Left").unwrap();
+        assert_eq!(left.node_count(), 1, "one light");
+        let dmx = left.dmx.as_ref().unwrap();
+        assert_eq!(dmx.address, 201);
+        assert_eq!(dmx.channels[1].role, pf_model::DmxRole::Red);
+        let right = result.show.props.iter().find(|p| p.name == "Right").unwrap();
+        assert_eq!(right.dmx.as_ref().unwrap().address, 9);
+
+        let (map, report) = pf_mapping::map_show(&result.show);
+        for code in [
+            pf_model::IssueCode::UniverseCollision,
+            pf_model::IssueCode::WrongControllerKind,
+            pf_model::IssueCode::DmxAddressMismatch,
+            pf_model::IssueCode::UnassignedNodes,
+        ] {
+            assert!(!report.has_code(code), "{code:?}: {:?}", report.issues);
+        }
+        let at = |prop: PropId| map.locate(prop, 0)[0].address;
+        assert_eq!(
+            at(left.id),
+            pf_mapping::ChannelAddress::Sacn {
+                universe: 10,
+                channel: 201
+            }
+        );
+        assert_eq!(
+            at(right.id),
+            pf_mapping::ChannelAddress::Sacn {
+                universe: 11,
+                channel: 9
+            }
+        );
+        // The flood's channels are what's sent there: red drawn on it is red on channel 2.
+        let fixture = map.fixture(left.id).unwrap();
+        let mut frame = vec![0u8; map.frame_len];
+        frame[fixture.cells_offset] = 255;
+        map.write_fixtures(&mut frame);
+        assert_eq!(
+            &frame[fixture.dmx_offset..fixture.dmx_offset + 4],
+            &[0, 255, 0, 0]
+        );
     }
 
     #[test]

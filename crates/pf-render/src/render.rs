@@ -28,6 +28,7 @@ use crate::adjust::Adjust;
 use crate::audio::{Audio, AudioSource, AudioTrack, RenderContext};
 use crate::blur::{Grid, PIECE_OF_CELLS, SHARE_FROM_CELLS, Working, in_pieces};
 use crate::color::{Acc, Colors, Rgba, to_u8, write_pixel};
+use crate::dmx::DmxState;
 use crate::effects::{Canvas, EffectTime, RUN_PIXELS, Shade, Shader, ShaderVisitor};
 use crate::faces::FaceProp;
 use crate::geometry::{Pixel, PixelBuffer, SceneGeometry};
@@ -141,6 +142,8 @@ pub struct Renderer {
     threads: Threads,
     /// How long the frame drawn last took, step by step.
     times: FrameTimes,
+    /// The DMX effects playing, and what they set each fixture's channels to.
+    dmx: DmxState,
 }
 
 impl Renderer {
@@ -150,6 +153,7 @@ impl Renderer {
 
     pub fn from_geometry(geometry: SceneGeometry) -> Self {
         Self {
+            dmx: DmxState::new(&geometry),
             show_acc: vec![Acc::ZERO; geometry.pixel_count()],
             tiles: Tiles::new(&geometry),
             geometry,
@@ -364,6 +368,8 @@ impl Renderer {
         if !self.tiles.in_frame_order {
             self.write(frame);
         }
+        // The fixtures' colour becomes their channels, with what the DMX effects set.
+        self.dmx.write(&self.geometry, seq, t_ms, &cx, frame);
     }
 
     /// How long each step of the frame drawn last took, and how many threads drew it.
@@ -446,11 +452,12 @@ impl Renderer {
     fn plan(&mut self, seq: &Sequence, t_ms: u64, cx: &RenderContext) {
         self.plan.clear(self.tiles.tiles.len());
         self.drew.clear();
+        self.dmx.clear();
         if t_ms >= seq.duration_ms {
             return;
         }
         for (r, row) in seq.rows.iter().enumerate() {
-            let mut active = row
+            let playing = row
                 .layers
                 .iter()
                 .enumerate()
@@ -458,7 +465,16 @@ impl Renderer {
                     let effects = layer.effects.iter().enumerate();
                     effects.map(move |(e, effect)| (l as u32, e as u32, effect))
                 })
-                .filter(|(_, _, effect)| effect.is_active_at(t_ms))
+                .filter(|(_, _, effect)| effect.is_active_at(t_ms));
+            // A DMX effect draws no color: it sets fixtures' channels once the frame is drawn.
+            for (layer, place, _) in playing
+                .clone()
+                .filter(|(_, _, effect)| matches!(effect.params, EffectParams::Dmx(_)))
+            {
+                self.dmx.play(r, layer, place);
+            }
+            let mut active = playing
+                .filter(|(_, _, effect)| !matches!(effect.params, EffectParams::Dmx(_)))
                 .peekable();
             if active.peek().is_none() {
                 continue;

@@ -31,7 +31,7 @@ type Migration = fn(Value) -> Result<Value, ModelError>;
 /// `MIGRATIONS[i]` upgrades a document from schema version `i + 1` to `i + 2`.
 const MIGRATIONS: &[Migration] = &[
     v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8, v8_to_v9, v9_to_v10, v10_to_v11,
-    v11_to_v12, v12_to_v13,
+    v11_to_v12, v12_to_v13, v13_to_v14,
 ];
 
 /// Version 2 only adds the `falcon` adapter value, so version 1 documents are already valid.
@@ -137,6 +137,13 @@ fn v11_to_v12(mut doc: Value) -> Result<Value, ModelError> {
 /// Version 13 only adds a prop's `ownLayout` (laid out as its shape is when missing, as every
 /// prop was), so version 12 documents are already valid.
 fn v12_to_v13(doc: Value) -> Result<Value, ModelError> {
+    Ok(doc)
+}
+
+/// Version 14 only adds DMX: a prop's `dmx`, a controller's `kind` (pixels when missing, as every
+/// controller was) and the `artNet` and `dmxUsb` protocols, so version 13 documents are already
+/// valid.
+fn v13_to_v14(doc: Value) -> Result<Value, ModelError> {
     Ok(doc)
 }
 
@@ -276,23 +283,65 @@ mod tests {
     }
 
     #[test]
-    fn version_7_to_12_files_open_unchanged_and_save_as_version_13() {
+    fn version_7_to_13_files_open_unchanged_and_save_as_version_14() {
         // A show with no new prop shapes, saved now, then labelled as written by older versions:
         // 7 (full paths), 8 (relative paths and `savedIn`) and 9 (new prop shapes, none used here).
         let mut show = sample_show();
         show.sequences
             .push(crate::SequenceEntry::new("Medley", "Medley.fseq"));
         let text = show_file_to_json(&show, Some("/Shows/Home")).unwrap();
-        assert!(text.contains("\"schemaVersion\": 13"), "written as version 13");
-        for version in [7, 8, 9, 10, 11, 12, 13] {
-            let old = text.replace("\"schemaVersion\": 13", &format!("\"schemaVersion\": {version}"));
+        assert!(text.contains("\"schemaVersion\": 14"), "written as version 14");
+        assert!(
+            !text.contains("\"dmx\""),
+            "nothing DMX is written for a show without it"
+        );
+        assert!(!text.contains("\"kind\""), "nor a controller's kind");
+        for version in [7, 8, 9, 10, 11, 12, 13, 14] {
+            let old = text.replace("\"schemaVersion\": 14", &format!("\"schemaVersion\": {version}"));
             let (read, saved_in) = show_file_from_json(&old).unwrap();
             assert_eq!(read, show, "version {version} reads as it was");
-            assert_eq!(read.schema_version, 13);
+            assert_eq!(read.schema_version, 14);
             assert_eq!(saved_in.as_deref(), Some("/Shows/Home"), "version {version}");
             let saved: Value = serde_json::from_str(&show_to_json(&read).unwrap()).unwrap();
-            assert_eq!(saved["schemaVersion"], 13);
+            assert_eq!(saved["schemaVersion"], 14);
         }
+    }
+
+    #[test]
+    fn dmx_fixtures_and_controllers_round_trip() {
+        let mut show = Show::new("Floods");
+        let mut flood = Prop::new(
+            "Flood",
+            ShapeSource::Generator(Generator::Line {
+                nodes: 1,
+                length: 0.5,
+            }),
+        );
+        flood.dmx = Some(crate::DmxFixture::from_layout(
+            crate::dmx_layout("dimmer-rgbw-strobe-mode").unwrap(),
+            1,
+            8,
+        ));
+        let mut node = Controller::dmx(
+            "Node",
+            "192.0.2.40",
+            Protocol::ArtNet(crate::ArtNetConfig::default()),
+            1,
+        );
+        node.ports[0].slots.push(PortSlot::new(flood.id));
+        show.props.push(flood);
+        show.controllers.push(node);
+        show.controllers
+            .push(Controller::dmx("USB", "/dev/cu.usbserial-1", Protocol::DmxUsb, 1));
+        let text = show_to_json(&show).unwrap();
+        let read = show_from_json(&text).unwrap();
+        assert_eq!(read, show);
+        let json: Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(json["props"][0]["dmx"]["address"], 8);
+        assert_eq!(json["props"][0]["dmx"]["channels"][0]["role"], "dimmer");
+        assert_eq!(json["controllers"][0]["kind"], "dmx");
+        assert_eq!(json["controllers"][0]["protocol"]["type"], "artNet");
+        assert_eq!(crate::validate_show(&read).issues, vec![]);
     }
 
     #[test]

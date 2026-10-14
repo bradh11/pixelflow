@@ -107,7 +107,7 @@ export function ControllerEditForm({ controller, onDone }: { controller: Control
               onChange={(e) => set({ name: e.target.value })}
             />
           </Field>
-          <Field label="IP address" id={id("address")} problem={problems.address} warning={warnings.address}>
+          <Field label={draft.protocol === "dmxUsb" ? "Serial port" : "IP address"} id={id("address")} problem={problems.address} warning={warnings.address}>
             <Input
               id={id("address")}
               value={draft.address}
@@ -122,11 +122,13 @@ export function ControllerEditForm({ controller, onDone }: { controller: Control
           <legend className={LEGEND}>Output</legend>
           <Field label="Protocol" id={id("protocol")}>
             <Select id={id("protocol")} value={draft.protocol} onChange={(e) => set({ protocol: e.target.value as ControllerDraft["protocol"] })}>
-              <option value="ddp">DDP</option>
+              {controller.kind !== "dmx" && <option value="ddp">DDP</option>}
               <option value="sacn">sACN (E1.31)</option>
+              <option value="artNet">Art-Net</option>
+              {controller.kind === "dmx" && <option value="dmxUsb">USB DMX interface</option>}
             </Select>
           </Field>
-          {draft.protocol === "sacn" ? (
+          {draft.protocol === "sacn" || draft.protocol === "artNet" ? (
             <Field
               label="Start universe"
               id={id("startUniverse")}
@@ -144,11 +146,13 @@ export function ControllerEditForm({ controller, onDone }: { controller: Control
               />
             </Field>
           ) : (
-            <p className="self-end pb-2 text-xs text-neutral-500">DDP needs no universes: channels follow the wiring.</p>
+            <p className="self-end pb-2 text-xs text-neutral-500">
+              {draft.protocol === "dmxUsb" ? "One DMX universe, over USB (ENTTEC DMX USB Pro protocol)." : "DDP needs no universes: channels follow the wiring."}
+            </p>
           )}
         </fieldset>
       </div>
-      {draft.protocol === "sacn" && (
+      {draft.protocol === "sacn" && controller.kind !== "dmx" && (
         <More id="controller-edit" label="More: universe size and multicast" forceOpen={multicast || !!problems.universeSize}>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field

@@ -1,8 +1,8 @@
 //! Props (physical light elements) and groups of props.
 
 use crate::{
-    ColorOrder, DEFAULT_GRID_SIZE, GroupId, GroupLayout, PropId, Region, RegionId, RegionRef, ShapeSource,
-    Transform,
+    ColorOrder, DEFAULT_GRID_SIZE, DmxFixture, GroupId, GroupLayout, PropId, Region, RegionId, RegionRef,
+    ShapeSource, Transform,
 };
 use serde::{Deserialize, Serialize};
 
@@ -97,6 +97,13 @@ pub struct Prop {
     #[serde(default, skip_serializing_if = "OwnLayout::is_shape")]
     #[cfg_attr(feature = "schema", schemars(description = ""))]
     pub own_layout: OwnLayout,
+    /// What makes it a DMX fixture (a flood, par or bar): its address and channels. Its shape's
+    /// pixels are its cells, where its light comes from.
+    // Left out of the Assistant's tool definitions, whose size is budgeted: the Assistant doesn't
+    // set fixtures up, and one it sends back whole keeps its `dmx`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "schema", schemars(skip))]
+    pub dmx: Option<DmxFixture>,
 }
 
 impl Prop {
@@ -111,6 +118,7 @@ impl Prop {
             regions: Vec::new(),
             tags: Vec::new(),
             own_layout: OwnLayout::Shape,
+            dmx: None,
         }
     }
 
@@ -118,13 +126,24 @@ impl Prop {
         self.shape.node_count()
     }
 
+    /// Bytes each pixel takes in the frame: 3 or 4 by its color order. A DMX fixture's cells
+    /// hold the colour it shows, red, green and blue, whatever its channels.
     pub fn channels_per_pixel(&self) -> u8 {
-        self.color_order.channels_per_pixel()
+        if self.dmx.is_some() {
+            3
+        } else {
+            self.color_order.channels_per_pixel()
+        }
     }
 
-    /// Bytes this prop occupies in the frame buffer.
+    /// Bytes this prop occupies in the frame buffer: its pixels, and a DMX fixture's channels.
     pub fn channel_count(&self) -> usize {
-        self.node_count() as usize * self.channels_per_pixel() as usize
+        self.node_count() as usize * self.channels_per_pixel() as usize + self.dmx_channels()
+    }
+
+    /// DMX channels it takes (none unless it is a DMX fixture).
+    pub fn dmx_channels(&self) -> usize {
+        self.dmx.as_ref().map_or(0, DmxFixture::footprint)
     }
 
     pub fn region(&self, id: RegionId) -> Option<&Region> {

@@ -305,6 +305,23 @@ impl<'a> RenderContext<'a> {
         effect.at_with(t_ms, &inputs)
     }
 
+    /// What `curve` (one of `effect`'s) gives at `t_ms`, reading the music and timing tracks.
+    pub fn curve_value(&self, effect: &Effect, curve: &pf_sequence::Curve, t_ms: u64) -> f32 {
+        let audio = self.audio;
+        let peak = move |frame: u64| audio.map_or(0.0, |a| a.peak(frame));
+        let inputs = CurveInputs {
+            peak: audio.is_some().then_some(&peak as &dyn Fn(u64) -> f32),
+            frame_ms: self.frame_ms,
+            tracks: self.tracks,
+        };
+        let at = pf_sequence::CurveTime {
+            start_ms: effect.start_ms,
+            end_ms: effect.end_ms,
+            t_ms,
+        };
+        curve.value_in(at, &inputs)
+    }
+
     /// The marks of the timing track `track`, if the sequence has it.
     pub fn marks(&self, track: Option<pf_sequence::TimingTrackId>) -> Option<&'a [Mark]> {
         let track = track?;

@@ -2285,6 +2285,27 @@ mod tests {
     }
 
     #[test]
+    fn the_dmx_layout_library_matches_the_ui_copy() {
+        // The window picks a fixture's channels from the engine's library of layouts; its copy
+        // (app/src/api/dmxLayouts.json) must not drift. Run with PIXELFLOW_UPDATE_CATALOG=1 to
+        // rewrite it.
+        let copy = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("src")
+            .join("api")
+            .join("dmxLayouts.json");
+        let text = serde_json::to_string_pretty(pf_model::DMX_LAYOUTS).unwrap() + "\n";
+        if std::env::var_os("PIXELFLOW_UPDATE_CATALOG").is_some() {
+            std::fs::write(&copy, &text).unwrap();
+        }
+        let saved = std::fs::read_to_string(&copy).unwrap_or_default();
+        assert_eq!(
+            saved, text,
+            "app/src/api/dmxLayouts.json is out of date: run `PIXELFLOW_UPDATE_CATALOG=1 cargo test`"
+        );
+    }
+
+    #[test]
     fn pixelflows_own_shaders_are_listed_and_match_the_ui_copy() {
         let (_app, webview, _dir) = app();
         // With no show saved there are no files to list: PixelFlow's own, each with what its

@@ -16,6 +16,7 @@ mod health;
 mod lut;
 mod plan;
 pub mod sacn;
+mod serial;
 mod settings;
 mod transport;
 pub mod usb;
@@ -30,6 +31,7 @@ pub use plan::{
     ControllerPlan, DDP_PORT, GatherSpan, OutputPlan, PassthroughRoute, SACN_PORT, USB_DESTINATION, Wire,
     build_offline_plan, build_passthrough_plan, build_plan, wire_order,
 };
+pub use serial::SystemSerialPorts;
 pub use settings::OutputSettings;
 pub use transport::{Recorded, RecordedSerial, RecordingTransport, Transport, UdpTransport};
-pub use usb::{FakeSerialPorts, NoSerialPorts, SerialPort, SerialPorts};
+pub use usb::{FakeSerialPorts, PortChoice, SerialPort, SerialPorts};

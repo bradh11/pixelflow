@@ -50,6 +50,10 @@ gif = "0.14.2"
 # The threads frames are drawn on (work stealing; MIT OR Apache-2.0). Already in the tree by way
 # of tract.
 rayon = "1.12.0"
+# Opening a USB DMX interface's serial port in raw 8-bit mode (termios on macOS and Linux, the DCB
+# on Windows) and listing serial ports with their USB names (MPL-2.0). Without its default
+# `libudev` feature, so Linux builds need no libudev: ports are listed from /sys instead.
+serialport = { version = "4.10.1", default-features = false }
 pf-model = { path = "crates/pf-model" }
 pf-geometry = { path = "crates/pf-geometry" }
 pf-mapping = { path = "crates/pf-mapping" }

@@ -70,9 +70,9 @@ On **Wiring**, choose **Add controller** and a DMX controller type:
   multicast.
 - **USB DMX interface**: an interface that speaks the ENTTEC DMX USB Pro protocol (many do). Its
   address is its serial port (`/dev/cu.usbserial-…` on a Mac, `/dev/ttyUSB0` on Linux, `COM3` on
-  Windows); the ports PixelFlow can see are offered. One universe. **Not yet working**: this
-  version can't open a serial port, so the Test screen says so instead of sending. Everything else
-  about it (the wiring, the messages it would send) is in place.
+  Windows). The ports PixelFlow can see are offered by what each device calls itself, such as
+  "ENTTEC DMX USB Pro (cu.usbserial-EN123456)"; listing them doesn't open any. One universe. See
+  [USB DMX interfaces](#usb-dmx-interfaces) below.
 
 Drag each fixture onto its universe (or use **+ Add…**): it goes to its own start address, shown
 as "@ 9". A DMX controller can't drive pixels; the Wiring screen says so.
@@ -92,5 +92,54 @@ PixelFlow doesn't drive them yet.
 
 On **Test**, pick the fixture as the target and choose **DMX channels by hand**: a slider for each
 channel, live on the fixture while you move it. Any other pattern lights the fixture through its
-color, like a pixel. The same rules apply as for every test: nothing is sent until you press
-Start, and Stop sends black.
+color, like a pixel. The same rules apply as for every test, over the network or USB: nothing is
+sent (and no USB interface is opened) until you press Start, and Stop sends black.
+
+## USB DMX interfaces
+
+PixelFlow drives interfaces that speak the ENTTEC DMX USB Pro protocol: the ENTTEC DMX USB Pro
+and Pro Mk2 (its first universe), and the many interfaces that copy the Pro's protocol, such as
+DMXking's ultraDMX range. Each frame it sends the interface the universe's 512 channels as one
+"send DMX" message; the interface makes the DMX signal itself and repeats the last message it was
+given until the next one comes.
+
+- **How often.** One message per show frame, but no more often than a DMX line can carry a whole
+  universe (about 44 a second): a show at 40 frames a second sends every frame, a faster one the
+  newest frame each time.
+- **The port.** PixelFlow opens the port only when you start a test or playback, and holds it
+  while it sends: another program can't use the interface at the same time (close other lighting
+  software first). It opens only real serial ports: a name in a show file that isn't one of this
+  computer's serial ports is refused.
+- **Unplugged mid-show.** The controller turns to "degraded" in the Test screen's list, with
+  "the USB DMX interface on … stopped answering: was it unplugged?", and everything else carries
+  on. PixelFlow tries again after a moment, less often the longer it's gone (up to every five
+  seconds), and picks the interface up again by itself once it's plugged back in on the same
+  port. An interface that is still there but stops taking data is given 20 ms per message before
+  it counts as stuck, so it never holds up the rest of the show.
+
+### Setting up, by system
+
+- **macOS.** The Pro and most copies appear as `/dev/cu.usbserial-<serial number>` (FTDI chips,
+  with the driver built into macOS) or `/dev/cu.usbmodem…` (interfaces that are USB serial
+  devices themselves). Use the `cu.` port; each also has a `tty.` twin, meant for modems. No driver
+  to install. If PixelFlow is ever built as a sandboxed app, it needs the
+  `com.apple.security.device.serial` entitlement to open serial ports (today's builds aren't
+  sandboxed and need nothing).
+- **Linux.** The interface appears as `/dev/ttyUSB0` (FTDI, the `ftdi_sio` driver) or
+  `/dev/ttyACM0` (`cdc_acm`). Opening it needs your user in the group that owns it: `dialout` on
+  Debian, Ubuntu and Fedora, `uucp` on Arch (`sudo usermod -aG dialout $USER`, then sign out and
+  in again). Without it, Test says PixelFlow isn't allowed to open the port. A name that stays the
+  same whichever USB socket you use is under `/dev/serial/by-id/`; PixelFlow accepts those too.
+  The port list comes from `/sys`, so nothing extra (no libudev) needs to be installed.
+- **Windows.** The interface is a COM port (`COM3`, say) through FTDI's VCP ("virtual COM port")
+  driver, which Windows Update usually installs (if not, it's on FTDI's website); Device Manager
+  under **Ports (COM & LPT)** shows its number. Windows lets only one program open a COM port at a time.
+
+### Interfaces that aren't supported
+
+"Open DMX"-style interfaces (the ENTTEC Open DMX USB and its many copies: a bare FTDI chip with no
+processor of its own) don't speak the Pro protocol. With them the computer has to make the DMX
+signal itself: switch the line to 250 kbaud, make the break and the mark after it with exact
+timing, and send all 513 slots, again and again. A desktop system's scheduling makes that timing
+waver, which fixtures show as flicker, and doing it well needs FTDI's own closed-source driver.
+PixelFlow doesn't drive them; use a Pro-compatible interface or an Art-Net or sACN node instead.

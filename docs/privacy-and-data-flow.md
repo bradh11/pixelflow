@@ -81,8 +81,8 @@ showing you what will change:
 
 When you start a test pattern or play a sequence, PixelFlow sends light data (sACN, DDP, or
 Art-Net) to the address of each controller in your show, many times a second, until you stop. A
-USB DMX interface would get the same data over its USB serial port, on this computer only (this
-version can't open one yet). PixelFlow doesn't search the network for Art-Net nodes: it sends
+USB DMX interface gets the same data over its USB serial port, on this computer only; PixelFlow
+opens the port when you start and closes it when you stop. PixelFlow doesn't search the network for Art-Net nodes: it sends
 only to the addresses in your show.
 
 ### A note on shows from other people

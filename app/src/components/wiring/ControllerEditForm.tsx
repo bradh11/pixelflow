@@ -3,6 +3,7 @@ import type { Controller } from "../../api/types";
 import { type ControllerDraft, type DraftProblems, MAX_UNIVERSE, MAX_UNIVERSE_SIZE, checkDraft, controllerDraft, controllerEdits } from "../../lib/controllerEdit";
 import { useApp } from "../../state/store";
 import { Button, Input, More, Select } from "../ui";
+import { SerialPortList, portLabel, useSerialPorts } from "./SerialPorts";
 
 const LEGEND = "col-span-full mb-1 text-xs font-semibold tracking-wide text-neutral-500 uppercase";
 
@@ -64,6 +65,8 @@ export function ControllerEditForm({ controller, onDone }: { controller: Control
   useEffect(() => {
     if (!touched) setDraft(controllerDraft(controller));
   }, [controller, touched]);
+  const usb = draft.protocol === "dmxUsb";
+  const serialPorts = useSerialPorts(usb);
   if (!show) return null;
   const { problems, warnings } = checkDraft(draft, controller, show);
   const blocking = (Object.keys(problems) as (keyof DraftProblems)[]).map((k) => FIELD_NAMES[k]);
@@ -107,15 +110,20 @@ export function ControllerEditForm({ controller, onDone }: { controller: Control
               onChange={(e) => set({ name: e.target.value })}
             />
           </Field>
-          <Field label={draft.protocol === "dmxUsb" ? "Serial port" : "IP address"} id={id("address")} problem={problems.address} warning={warnings.address}>
+          <Field label={usb ? "Serial port" : "IP address"} id={id("address")} problem={problems.address} warning={warnings.address}>
             <Input
               id={id("address")}
               value={draft.address}
-              placeholder={multicast ? "Not needed for multicast" : "e.g. 192.168.1.50"}
+              list={usb ? id("ports") : undefined}
+              placeholder={usb ? "e.g. /dev/cu.usbserial-EN1234 or COM3" : multicast ? "Not needed for multicast" : "e.g. 192.168.1.50"}
               aria-invalid={!!problems.address}
               aria-describedby={described("address")}
               onChange={(e) => set({ address: e.target.value })}
             />
+            {usb && <SerialPortList id={id("ports")} ports={serialPorts} />}
+            {usb && !problems.address && !warnings.address && portLabel(serialPorts, draft.address) && (
+              <p className="text-xs text-neutral-500">{portLabel(serialPorts, draft.address)}</p>
+            )}
           </Field>
         </fieldset>
         <fieldset className="grid grid-cols-1 gap-3 sm:grid-cols-2">

@@ -1,7 +1,8 @@
 //! Where packets go: real UDP sockets (and USB DMX interfaces' serial ports), or an in-memory
 //! recorder for tests.
 
-use crate::usb::{NoSerialPorts, SerialPort, SerialPorts, USB_UNAVAILABLE};
+use crate::serial::SystemSerialPorts;
+use crate::usb::{SerialPort, SerialPorts};
 use std::collections::HashMap;
 use std::io;
 use std::net::{SocketAddr, UdpSocket};
@@ -14,12 +15,44 @@ pub trait Transport: Send {
 
     /// Writes one message to the serial port `port` (a USB DMX interface).
     fn send_serial(&mut self, _port: &str, _message: &[u8]) -> io::Result<()> {
-        Err(io::Error::new(io::ErrorKind::Unsupported, USB_UNAVAILABLE))
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "this output can't reach USB DMX interfaces",
+        ))
     }
 }
 
+/// Why a USB DMX interface's port didn't open, in plain words.
+fn open_failed(port: &str, e: &io::Error) -> io::Error {
+    let message = match e.kind() {
+        // The name isn't a serial port at all: that says so already.
+        io::ErrorKind::InvalidInput => e.to_string(),
+        io::ErrorKind::PermissionDenied => format!(
+            "not allowed to open the USB DMX interface on {port} (on Linux, add yourself to the \
+             dialout or uucp group and sign in again)"
+        ),
+        // Missing, or held by another program (the systems don't tell the two apart).
+        io::ErrorKind::NotFound => format!(
+            "no USB DMX interface on {port}: is it plugged in, and not in use by another program? ({e})"
+        ),
+        _ => format!("couldn't open the USB DMX interface on {port} ({e})"),
+    };
+    io::Error::new(e.kind(), message)
+}
+
+/// Why a write to an open USB DMX interface failed, in plain words.
+fn write_failed(port: &str, e: &io::Error) -> io::Error {
+    let message = if e.kind() == io::ErrorKind::TimedOut {
+        format!("the USB DMX interface on {port} stopped taking data; trying it again")
+    } else {
+        format!("the USB DMX interface on {port} stopped answering: was it unplugged? ({e})")
+    };
+    io::Error::new(e.kind(), message)
+}
+
 /// A non-blocking UDP socket, so a slow or unreachable controller can never stall output, and
-/// the serial ports of any USB DMX interfaces, opened the first time each is sent to.
+/// the serial ports of any USB DMX interfaces (this computer's, unless [`Self::with_serial`]
+/// says otherwise), opened the first time each is sent to.
 pub struct UdpTransport {
     socket: UdpSocket,
     serial: Box<dyn SerialPorts>,
@@ -43,7 +76,7 @@ impl UdpTransport {
         socket.set_multicast_ttl_v4(4)?;
         Ok(Self {
             socket,
-            serial: Box::new(NoSerialPorts),
+            serial: Box::new(SystemSerialPorts),
             open: HashMap::new(),
         })
     }
@@ -64,17 +97,18 @@ impl Transport for UdpTransport {
     /// unplugged and plugged back in).
     fn send_serial(&mut self, port: &str, message: &[u8]) -> io::Result<()> {
         if !self.open.contains_key(port) {
-            let opened = self.serial.open(port)?;
+            let opened = self.serial.open(port).map_err(|e| open_failed(port, &e))?;
             self.open.insert(port.to_string(), opened);
         }
         let result = self
             .open
             .get_mut(port)
             .map_or(Ok(()), |open| open.write_all(message));
-        if result.is_err() {
+        if let Err(e) = result {
             self.open.remove(port);
+            return Err(write_failed(port, &e));
         }
-        result
+        Ok(())
     }
 }
 
@@ -198,15 +232,52 @@ mod tests {
             .with_serial(Box::new(ports));
         transport.send_serial("COM3", &[1, 2]).unwrap();
         transport.send_serial("COM3", &[3]).unwrap();
-        assert!(transport.send_serial("COM9", &[4]).is_err());
+        let error = transport.send_serial("COM9", &[4]).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "no USB DMX interface on COM9: is it plugged in, and not in use by another program? \
+             (No such file or directory)"
+        );
         assert_eq!(
             *written.lock().unwrap(),
             vec![("COM3".to_string(), vec![1, 2]), ("COM3".to_string(), vec![3])]
         );
-        // Without a serial-port library nothing opens.
-        let mut plain = UdpTransport::bind("127.0.0.1:0".parse().unwrap()).unwrap();
-        let error = plain.send_serial("COM3", &[1]).unwrap_err();
-        assert_eq!(error.kind(), io::ErrorKind::Unsupported);
+    }
+
+    #[test]
+    fn an_unplugged_interface_is_reported_plainly_and_opened_again_once_back() {
+        let ports = crate::usb::FakeSerialPorts::default();
+        let unplugged = Arc::clone(&ports.unplugged);
+        let written = Arc::clone(&ports.written);
+        let mut transport = UdpTransport::bind("127.0.0.1:0".parse().unwrap())
+            .unwrap()
+            .with_serial(Box::new(ports));
+        transport.send_serial("COM3", &[1]).unwrap();
+        unplugged.lock().unwrap().push("COM3".into());
+        let error = transport.send_serial("COM3", &[2]).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "the USB DMX interface on COM3 stopped answering: was it unplugged? (Device not configured)"
+        );
+        assert!(transport.send_serial("COM3", &[3]).is_err(), "still gone");
+        unplugged.lock().unwrap().clear();
+        transport.send_serial("COM3", &[4]).unwrap();
+        let bytes: Vec<u8> = written
+            .lock()
+            .unwrap()
+            .iter()
+            .flat_map(|(_, b)| b.clone())
+            .collect();
+        assert_eq!(bytes, vec![1, 4]);
+    }
+
+    #[test]
+    fn errors_name_the_port_and_what_to_do() {
+        let denied = open_failed("/dev/ttyUSB0", &io::Error::from(io::ErrorKind::PermissionDenied));
+        assert!(denied.to_string().contains("dialout"), "{denied}");
+        let slow = write_failed("COM3", &io::Error::from(io::ErrorKind::TimedOut));
+        assert_eq!(slow.kind(), io::ErrorKind::TimedOut);
+        assert!(slow.to_string().contains("stopped taking data"), "{slow}");
     }
 
     #[test]

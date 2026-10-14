@@ -142,8 +142,8 @@ Code and data taken from xLights and other projects' **source** are a different 
 
 | Scope | Third-party packages | Shipped | Build-time only | Tests only | Not used on desktop targets |
 | --- | --- | --- | --- | --- | --- |
-| (a) Engine workspace (`Cargo.toml`) | 424 | 296 | 41 | 35 | 52 |
-| (b) Desktop app (`app/src-tauri/Cargo.toml`) | 634 | 451 | 98 | 1 | 84 |
+| (a) Engine workspace (`Cargo.toml`) | 429 | 302 | 41 | 35 | 51 |
+| (b) Desktop app (`app/src-tauri/Cargo.toml`) | 639 | 457 | 97 | 1 | 84 |
 | (c) App UI, production (`app/package.json`) | 34 | 34 | 0 | 0 | 0 |
 
 "Shipped" means linked into a binary for macOS, Windows, or Linux. "Build-time only" covers build scripts and procedural macros, which run while compiling and are not in the binary. "Not used on desktop targets" are packages the lockfile lists for other platforms (Android, iOS, WebAssembly).
@@ -154,7 +154,7 @@ All 25 of PixelFlow's own packages state `GPL-3.0-only`: the GNU General Public 
 
 ## Shipped packages against PixelFlow's licence (`GPL-3.0-only`)
 
-Of the 502 packages shipped (engine, app, and UI together), 484 offer a licence the Free Software Foundation's licence list names as compatible with the GNU GPL, version 3. Where a package offers a choice, one compatible option is enough.
+Of the 508 packages shipped (engine, app, and UI together), 490 offer a licence the Free Software Foundation's licence list names as compatible with the GNU GPL, version 3. Where a package offers a choice, one compatible option is enough.
 
 **Shipped under a permissive licence that list does not name (read, and nothing in it limits distribution under the GPL; not confirmed by anyone with authority)** (18):
 
@@ -183,15 +183,15 @@ Of the 502 packages shipped (engine, app, and UI together), 484 offer a licence 
 
 | Licence (as the package states it) | Packages | Flag |
 | --- | --- | --- |
-| `Apache-2.0 OR MIT` | 203 |  |
-| `MIT` | 34 |  |
+| `Apache-2.0 OR MIT` | 205 |  |
+| `MIT` | 35 |  |
+| `MPL-2.0` | 14 | copyleft |
 | `Apache-2.0 OR MIT OR Zlib` | 13 |  |
-| `MPL-2.0` | 13 | copyleft |
 | `MIT OR Unlicense` | 7 |  |
 | `BSD-3-Clause` | 4 |  |
+| `Apache-2.0 OR BSD-2-Clause OR MIT` | 3 |  |
 | `Apache-2.0` | 2 |  |
 | `Apache-2.0 OR Apache-2.0 WITH LLVM-exception OR MIT` | 2 |  |
-| `Apache-2.0 OR BSD-2-Clause OR MIT` | 2 |  |
 | `Apache-2.0 OR BSD-3-Clause` | 2 |  |
 | `BSD-2-Clause` | 2 |  |
 | `ISC` | 2 |  |
@@ -204,22 +204,23 @@ Of the 502 packages shipped (engine, app, and UI together), 484 offer a licence 
 | `Apache-2.0 OR ISC OR MIT` | 1 |  |
 | `BSD-3-Clause OR MIT` | 1 |  |
 | `CDLA-Permissive-2.0` | 1 | own terms |
+| `GPL-3.0-only OR MIT` | 1 | copyleft is one option |
 
 ## (b) Desktop app: shipped packages by licence
 
 | Licence (as the package states it) | Packages | Flag |
 | --- | --- | --- |
-| `Apache-2.0 OR MIT` | 274 |  |
-| `MIT` | 80 |  |
+| `Apache-2.0 OR MIT` | 276 |  |
+| `MIT` | 81 |  |
 | `Apache-2.0 OR MIT OR Zlib` | 20 |  |
-| `MPL-2.0` | 17 | copyleft |
+| `MPL-2.0` | 18 | copyleft |
 | `Unicode-3.0` | 15 | own terms |
 | `MIT OR Unlicense` | 11 |  |
 | `BSD-3-Clause` | 6 |  |
 | `Apache-2.0` | 3 |  |
+| `Apache-2.0 OR BSD-2-Clause OR MIT` | 3 |  |
 | `ISC` | 3 |  |
 | `Apache-2.0 OR Apache-2.0 WITH LLVM-exception OR MIT` | 2 |  |
-| `Apache-2.0 OR BSD-2-Clause OR MIT` | 2 |  |
 | `Apache-2.0 OR BSD-3-Clause` | 2 |  |
 | `BSD-2-Clause` | 2 |  |
 | `BSD-3-Clause OR MIT` | 2 |  |
@@ -234,6 +235,7 @@ Of the 502 packages shipped (engine, app, and UI together), 484 offer a licence 
 | `Apache-2.0 OR ISC OR MIT` | 1 |  |
 | `BSD-3-Clause AND MIT` | 1 |  |
 | `CDLA-Permissive-2.0` | 1 | own terms |
+| `GPL-3.0-only OR MIT` | 1 | copyleft is one option |
 
 ## (c) App UI: production packages by licence
 
@@ -248,13 +250,14 @@ Of the 502 packages shipped (engine, app, and UI together), 484 offer a licence 
 
 Across both Cargo workspaces (every use, not only shipped) and the app UI's production packages.
 
-**Copyleft licence applies** (18):
+**Copyleft licence applies** (19):
 
 - `cssparser` 0.37.0: `MPL-2.0` (shipped: all)
 - `cssparser-macros` 0.7.1: `MPL-2.0` (build)
 - `dtoa-short` 0.3.5: `MPL-2.0` (shipped: all)
 - `option-ext` 0.2.0: `MPL-2.0` (shipped: all)
 - `selectors` 0.38.0: `MPL-2.0` (shipped: all)
+- `serialport` 4.10.1: `MPL-2.0` (shipped: all)
 - `symphonia` 0.5.5: `MPL-2.0` (shipped: all)
 - `symphonia-bundle-flac` 0.5.5: `MPL-2.0` (shipped: all)
 - `symphonia-bundle-mp3` 0.5.5: `MPL-2.0` (shipped: all)
@@ -269,10 +272,11 @@ Across both Cargo workspaces (every use, not only shipped) and the app UI's prod
 - `symphonia-utils-xiph` 0.5.5: `MPL-2.0` (shipped: all)
 - `triple_buffer` 9.0.0: `MPL-2.0` (shipped: all)
 
-**Copyleft is one of several options (a permissive option is offered)** (2):
+**Copyleft is one of several options (a permissive option is offered)** (3):
 
 - `r-efi` 5.3.0: `MIT OR Apache-2.0 OR LGPL-2.1-or-later` (not used on desktop targets)
 - `r-efi` 6.0.0: `MIT OR Apache-2.0 OR LGPL-2.1-or-later` (not used on desktop targets)
+- `unescaper` 0.1.10: `MIT OR GPL-3.0-only` (shipped: Linux)
 
 **Permissive, with terms of their own** (20):
 
@@ -585,6 +589,7 @@ Across both Cargo workspaces (every use, not only shipped) and the app UI's prod
 | `infer` | 0.22.0 | `MIT` |  | shipped (all) |
 | `inout` | 0.2.2 | `MIT OR Apache-2.0` | shipped (Linux) | shipped (Linux) |
 | `inventory` | 0.3.25 | `MIT OR Apache-2.0` | shipped (all) | shipped (all) |
+| `io-kit-sys` | 0.4.1 | `MIT OR Apache-2.0` | shipped (macOS) | shipped (macOS) |
 | `ipnet` | 2.12.2 | `MIT OR Apache-2.0` |  | not on desktop |
 | `is_terminal_polyfill` | 1.70.2 | `MIT OR Apache-2.0` | shipped (all) |  |
 | `itertools` | 0.14.0 | `MIT OR Apache-2.0` | build | build |
@@ -623,6 +628,7 @@ Across both Cargo workspaces (every use, not only shipped) and the app UI's prod
 | `litemap` | 0.8.3 | `Unicode-3.0` |  | shipped (all) |
 | `lock_api` | 0.4.14 | `MIT OR Apache-2.0` | shipped (all) | shipped (all) |
 | `log` | 0.4.34 | `MIT OR Apache-2.0` | shipped (all) | shipped (all) |
+| `mach2` | 0.4.3 | `BSD-2-Clause OR MIT OR Apache-2.0` | shipped (macOS) | shipped (macOS) |
 | `mach2` | 0.5.0 | `BSD-2-Clause OR MIT OR Apache-2.0` | shipped (macOS) | shipped (macOS) |
 | `maplit` | 1.0.2 | `MIT OR Apache-2.0` | shipped (all) | shipped (all) |
 | `markup5ever` | 0.39.0 | `MIT OR Apache-2.0` |  | shipped (all) |
@@ -647,6 +653,7 @@ Across both Cargo workspaces (every use, not only shipped) and the app UI's prod
 | `ndk-context` | 0.1.1 | `MIT OR Apache-2.0` | not on desktop | not on desktop |
 | `ndk-sys` | 0.6.0+11769913 | `MIT OR Apache-2.0` | not on desktop | not on desktop |
 | `new_debug_unreachable` | 1.0.6 | `MIT` |  | shipped (all) |
+| `nix` | 0.26.4 | `MIT` | shipped (macOS, Linux) | shipped (macOS, Linux) |
 | `nix` | 0.31.3 | `MIT` | shipped (macOS, Linux) |  |
 | `nom` | 8.0.0 | `MIT` | shipped (all) | shipped (all) |
 | `nom-language` | 0.1.0 | `MIT` | shipped (all) | shipped (all) |
@@ -795,6 +802,7 @@ Across both Cargo workspaces (every use, not only shipped) and the app UI's prod
 | `serde_with_macros` | 3.24.0 | `MIT OR Apache-2.0` |  | build |
 | `serialize-to-javascript` | 0.1.2 | `MIT OR Apache-2.0` |  | shipped (all) |
 | `serialize-to-javascript-impl` | 0.1.2 | `MIT OR Apache-2.0` |  | build |
+| `serialport` | 4.10.1 | `MPL-2.0` | shipped (all) | shipped (all) |
 | `servo_arc` | 0.4.3 | `MIT OR Apache-2.0` |  | shipped (all) |
 | `sha2` | 0.10.9 | `MIT OR Apache-2.0` | shipped (all) | shipped (all) |
 | `sha2` | 0.11.0 | `MIT OR Apache-2.0` | shipped (Linux) | shipped (Linux) |
@@ -901,6 +909,7 @@ Across both Cargo workspaces (every use, not only shipped) and the app UI's prod
 | `typenum` | 1.20.1 | `MIT OR Apache-2.0` | shipped (all) | shipped (all) |
 | `uds_windows` | 1.2.1 | `MIT` | not on desktop | not on desktop |
 | `unarray` | 0.1.4 | `MIT OR Apache-2.0` | tests |  |
+| `unescaper` | 0.1.10 | `MIT OR GPL-3.0-only` | shipped (Linux) | shipped (Linux) |
 | `unicode-general-category` | 1.1.0 | `Apache-2.0` | tests |  |
 | `unicode-ident` | 1.0.26 | `(MIT OR Apache-2.0) AND Unicode-3.0` | shipped (Linux) | shipped (all) |
 | `unicode-normalization` | 0.1.25 | `MIT OR Apache-2.0` | shipped (all) | shipped (all) |
@@ -989,7 +998,7 @@ Across both Cargo workspaces (every use, not only shipped) and the app UI's prod
 | `windows_x86_64_gnullvm` | 0.52.6 | `MIT OR Apache-2.0` | not on desktop | not on desktop |
 | `windows_x86_64_gnullvm` | 0.53.1 | `MIT OR Apache-2.0` |  | not on desktop |
 | `windows_x86_64_msvc` | 0.42.2 | `MIT OR Apache-2.0` | not on desktop | not on desktop |
-| `windows_x86_64_msvc` | 0.52.6 | `MIT OR Apache-2.0` | not on desktop | build |
+| `windows_x86_64_msvc` | 0.52.6 | `MIT OR Apache-2.0` | shipped (Windows) | shipped (Windows) |
 | `windows_x86_64_msvc` | 0.53.1 | `MIT OR Apache-2.0` |  | shipped (Windows) |
 | `winnow` | 0.5.40 | `MIT` |  | build |
 | `winnow` | 1.0.4 | `MIT` | shipped (Linux) | shipped (all) |

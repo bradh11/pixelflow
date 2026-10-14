@@ -486,6 +486,32 @@ describe("wiring screen", () => {
     expect(screen.getAllByRole("meter")).toHaveLength(16);
   });
 
+  it("offers a USB DMX interface's serial ports by what each device is, and keeps the port's name", async () => {
+    const user = await setup();
+    backend.serialPorts = [
+      { name: "/dev/cu.usbserial-EN123456", label: "ENTTEC DMX USB Pro (cu.usbserial-EN123456)" },
+      { name: "/dev/cu.usbmodem1101", label: "cu.usbmodem1101" },
+    ];
+    await user.click(screen.getByRole("button", { name: /add controller/i }));
+    await user.selectOptions(screen.getByLabelText("Controller type"), "USB DMX interface");
+    const port = screen.getByLabelText("Serial port");
+    const options = await waitFor(() => {
+      const found = [...document.querySelectorAll(`datalist#${port.getAttribute("list")} option`)] as HTMLOptionElement[];
+      expect(found).toHaveLength(2);
+      return found;
+    });
+    expect(options.map((o) => [o.value, o.label])).toEqual([
+      ["/dev/cu.usbserial-EN123456", "ENTTEC DMX USB Pro (cu.usbserial-EN123456)"],
+      ["/dev/cu.usbmodem1101", "cu.usbmodem1101"],
+    ]);
+    await user.type(port, "/dev/cu.usbserial-EN123456");
+    expect(screen.getByText("ENTTEC DMX USB Pro (cu.usbserial-EN123456)")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Add" }));
+    const usb = backend.show.controllers[2];
+    expect(usb.address).toBe("/dev/cu.usbserial-EN123456");
+    expect(usb.protocol).toEqual({ type: "dmxUsb" });
+  });
+
   it("edits a controller in place as one undo step, keeping its wiring and what was found on the network", async () => {
     const user = await setup();
     const before = structuredClone(backend.show.controllers[0]);

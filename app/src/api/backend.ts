@@ -42,6 +42,7 @@ import type {
   FilesFound,
   HistoryEntry,
   OutputStatus,
+  SerialPortChoice,
   PatternSpec,
   ShowSnapshot,
   TargetSpec,
@@ -95,8 +96,8 @@ export interface Backend {
   outputStatus(): Promise<OutputStatus>;
   /** Sets the channels of the DMX fixture being tested by hand (a "channels" pattern), without stopping output. */
   setTestChannels(channels: number[]): Promise<OutputStatus>;
-  /** The serial ports a USB DMX interface could be on (none where they can't be listed: type one). */
-  listSerialPorts(): Promise<string[]>;
+  /** The serial ports a USB DMX interface could be on, named by their devices (none where they can't be listed: type one). Opens none. */
+  listSerialPorts(): Promise<SerialPortChoice[]>;
   /** The pixels a camera-mapping capture of `target` covers, and how long its sequence runs. */
   cameraMapTarget(target: TargetSpec, base: CodeBase): Promise<CameraMapTargetInfo>;
   /** Finds where the camera-mapping sequence starts in a video, from each frame's brightness. */

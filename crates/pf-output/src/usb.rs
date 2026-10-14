@@ -6,13 +6,17 @@
 //! (513: the start code and 512 channels) low byte first, the DMX start code 0, the 512
 //! channels, and the end byte 0xE7.
 //!
-//! Opening a serial port takes setting it to raw 8-bit mode (or the system turns a newline into
-//! two bytes and the channels shift), which needs the operating system's serial settings
-//! (termios, or Windows' DCB). That takes a serial-port library this build doesn't have yet, so
-//! [`NoSerialPorts`] lists the ports it can see but can't open them; everything else here works
-//! against any [`SerialPorts`].
+//! The interface itself is opened by a [`SerialPorts`]: [`crate::SystemSerialPorts`] for this
+//! computer's real ports (raw 8-bit mode, so a newline byte isn't turned into two and the
+//! channels don't shift), or [`FakeSerialPorts`] in tests.
+//!
+//! The Pro sends DMX on its own, over and over, from the last message it was given, so one
+//! message per show frame is all it needs: [`UsbDmxPacket::due`] keeps that to no more often than
+//! a whole universe can go out on the DMX line ([`MIN_GAP`]).
 
 use std::io;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 /// Bytes in one "send DMX" message: 4 header bytes, the start code, 512 channels, the end byte.
 pub const PRO_MESSAGE_LEN: usize = 4 + 1 + 512 + 1;
@@ -22,9 +26,10 @@ const END: u8 = 0xE7;
 const LABEL_SEND_DMX: u8 = 6;
 const DMX_START_CODE: u8 = 0;
 
-/// Why USB DMX can't be sent from this build, in plain words.
-pub const USB_UNAVAILABLE: &str =
-    "this version of PixelFlow can't open USB DMX interfaces yet (it needs a serial-port library)";
+/// The shortest time between two messages to one interface: how long a whole universe takes on
+/// the DMX line (a break, the mark after it, and 513 slots of 44 µs), about 44 a second. Messages
+/// sent faster than that would only replace each other in the interface before it sends them.
+pub const MIN_GAP: Duration = Duration::from_micros(22_700);
 
 /// A "send DMX" message for `channels` (the first 512; any missing are zero), into `out`.
 pub fn write_pro_send_dmx(channels: &[u8], out: &mut [u8; PRO_MESSAGE_LEN]) {
@@ -47,31 +52,41 @@ pub trait SerialPort: Send {
     fn write_all(&mut self, bytes: &[u8]) -> io::Result<()>;
 }
 
+/// A serial port a USB DMX interface could be on, as the port picker offers it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PortChoice {
+    /// What opens it, and what a controller's address holds: `/dev/cu.usbserial-EN1234`, `COM3`.
+    pub name: String,
+    /// What a person reads: "ENTTEC DMX USB Pro (cu.usbserial-EN1234)".
+    pub label: String,
+}
+
+impl PortChoice {
+    /// A port known only by its name.
+    pub fn named(name: impl Into<String>) -> Self {
+        let name = name.into();
+        Self {
+            label: short_name(&name).to_string(),
+            name,
+        }
+    }
+}
+
+/// A port's name without its directory: `cu.usbserial-EN1234` for `/dev/cu.usbserial-EN1234`.
+pub fn short_name(name: &str) -> &str {
+    name.rsplit('/').next().filter(|s| !s.is_empty()).unwrap_or(name)
+}
+
 /// Opens serial ports by name, and lists the ones there are.
 pub trait SerialPorts: Send {
     fn open(&mut self, name: &str) -> io::Result<Box<dyn SerialPort>>;
-    /// The serial ports a USB DMX interface could be on, by name.
-    fn list(&self) -> io::Result<Vec<String>>;
-}
-
-/// The serial ports of a build without a serial-port library: listed (on macOS and Linux, from
-/// `/dev`), never opened.
-#[derive(Debug, Default, Clone, Copy)]
-pub struct NoSerialPorts;
-
-impl SerialPorts for NoSerialPorts {
-    fn open(&mut self, _name: &str) -> io::Result<Box<dyn SerialPort>> {
-        Err(io::Error::new(io::ErrorKind::Unsupported, USB_UNAVAILABLE))
-    }
-
-    fn list(&self) -> io::Result<Vec<String>> {
-        list_dev_ports(std::path::Path::new("/dev"))
-    }
+    /// The serial ports a USB DMX interface could be on.
+    fn list(&self) -> io::Result<Vec<PortChoice>>;
 }
 
 /// The USB serial devices in `dev` (macOS names them `cu.usbserial-…` and `cu.usbmodem…`, Linux
-/// `ttyUSB…` and `ttyACM…`), sorted. Windows numbers its ports (`COM3`) in the registry, which
-/// needs the serial-port library to read: there, the list is empty and a port is typed in.
+/// `ttyUSB…` and `ttyACM…`), sorted: the ports offered when the system can't describe them.
+/// Windows has no `/dev`: there, the list is empty.
 pub fn list_dev_ports(dev: &std::path::Path) -> io::Result<Vec<String>> {
     if !dev.is_dir() {
         return Ok(Vec::new());
@@ -91,7 +106,7 @@ pub fn list_dev_ports(dev: &std::path::Path) -> io::Result<Vec<String>> {
 }
 
 /// What was written to each serial port, in order: the port, then the bytes.
-pub type Written = std::sync::Arc<std::sync::Mutex<Vec<(String, Vec<u8>)>>>;
+pub type Written = Arc<Mutex<Vec<(String, Vec<u8>)>>>;
 
 /// A pretend serial port for tests: records what is written, or fails.
 #[derive(Debug, Default, Clone)]
@@ -101,16 +116,33 @@ pub struct FakeSerialPorts {
     /// Ports that fail to open.
     pub missing: Vec<String>,
     /// Ports there are.
-    pub ports: Vec<String>,
+    pub ports: Vec<PortChoice>,
+    /// Ports unplugged right now: they don't open, and a port already open fails to write, as a
+    /// real interface pulled out mid-show does. Shared, so a test can unplug one (and plug it back
+    /// in) while output runs.
+    pub unplugged: Arc<Mutex<Vec<String>>>,
+}
+
+fn is_unplugged(unplugged: &Mutex<Vec<String>>, name: &str) -> bool {
+    unplugged
+        .lock()
+        .expect("fake serial lock")
+        .iter()
+        .any(|u| u == name)
 }
 
 struct FakePort {
     name: String,
     written: Written,
+    unplugged: Arc<Mutex<Vec<String>>>,
 }
 
 impl SerialPort for FakePort {
     fn write_all(&mut self, bytes: &[u8]) -> io::Result<()> {
+        if is_unplugged(&self.unplugged, &self.name) {
+            // What macOS says when a USB serial device goes away under an open port.
+            return Err(io::Error::new(io::ErrorKind::BrokenPipe, "Device not configured"));
+        }
         self.written
             .lock()
             .expect("fake serial lock")
@@ -121,16 +153,20 @@ impl SerialPort for FakePort {
 
 impl SerialPorts for FakeSerialPorts {
     fn open(&mut self, name: &str) -> io::Result<Box<dyn SerialPort>> {
-        if self.missing.iter().any(|m| m == name) {
-            return Err(io::Error::new(io::ErrorKind::NotFound, format!("no port {name}")));
+        if self.missing.iter().any(|m| m == name) || is_unplugged(&self.unplugged, name) {
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                "No such file or directory",
+            ));
         }
         Ok(Box::new(FakePort {
             name: name.to_string(),
-            written: std::sync::Arc::clone(&self.written),
+            written: Arc::clone(&self.written),
+            unplugged: Arc::clone(&self.unplugged),
         }))
     }
 
-    fn list(&self) -> io::Result<Vec<String>> {
+    fn list(&self) -> io::Result<Vec<PortChoice>> {
         Ok(self.ports.clone())
     }
 }
@@ -140,6 +176,8 @@ impl SerialPorts for FakeSerialPorts {
 pub struct UsbDmxPacket {
     pub port: String,
     message: Box<[u8; PRO_MESSAGE_LEN]>,
+    /// When the next message may go (see [`UsbDmxPacket::due`]).
+    next: Option<Instant>,
 }
 
 impl UsbDmxPacket {
@@ -149,6 +187,26 @@ impl UsbDmxPacket {
         Self {
             port: port.into(),
             message,
+            next: None,
+        }
+    }
+
+    /// Whether a frame drawn at `now` should go to the interface, keeping messages [`MIN_GAP`]
+    /// apart on average: every frame of a show at 40 frames a second or slower goes, and a
+    /// faster show sends about 44 a second (the newest frame each time). The next one is counted
+    /// from when this one was due rather than when it went, so a frame clock running a little
+    /// late doesn't halve the rate.
+    pub fn due(&mut self, now: Instant) -> bool {
+        match self.next {
+            Some(at) if now < at => false,
+            Some(at) if now.duration_since(at) <= MIN_GAP => {
+                self.next = Some(at + MIN_GAP);
+                true
+            }
+            _ => {
+                self.next = Some(now + MIN_GAP);
+                true
+            }
         }
     }
 
@@ -193,11 +251,58 @@ mod tests {
     }
 
     #[test]
-    fn without_a_serial_library_ports_are_listed_but_not_opened() {
-        let mut ports = NoSerialPorts;
-        let error = ports.open("/dev/cu.usbserial-1").err().expect("refused");
-        assert_eq!(error.kind(), io::ErrorKind::Unsupported);
-        assert!(error.to_string().contains("serial-port library"));
+    fn messages_are_paced_to_what_the_dmx_line_can_carry() {
+        let t0 = Instant::now();
+        let ms = |n: u64| t0 + Duration::from_millis(n);
+        // 40 frames a second: every frame goes, even one a little late or early.
+        let mut packet = UsbDmxPacket::new("COM3");
+        let sent = [0, 25, 51, 74, 100, 125, 150]
+            .iter()
+            .filter(|&&t| packet.due(ms(t)))
+            .count();
+        assert_eq!(sent, 7);
+        // 100 frames a second for a second: about 44 go, never two closer than a frame apart.
+        let mut packet = UsbDmxPacket::new("COM3");
+        let times: Vec<u64> = (0..100).map(|i| i * 10).filter(|&t| packet.due(ms(t))).collect();
+        assert!((40..=46).contains(&times.len()), "{}", times.len());
+        assert!(times.windows(2).all(|w| w[1] - w[0] >= 20));
+        // After a pause (a stall, a backoff) it starts again at once, without a burst.
+        assert!(packet.due(ms(5000)));
+        assert!(!packet.due(ms(5010)));
+    }
+
+    #[test]
+    fn a_fake_port_fails_once_unplugged_and_opens_again_when_plugged_back_in() {
+        let ports = FakeSerialPorts::default();
+        let mut opener = ports.clone();
+        let mut port = opener.open("COM3").unwrap();
+        port.write_all(&[1]).unwrap();
+        ports.unplugged.lock().unwrap().push("COM3".into());
+        assert_eq!(
+            port.write_all(&[2]).unwrap_err().kind(),
+            io::ErrorKind::BrokenPipe
+        );
+        assert_eq!(opener.open("COM3").err().unwrap().kind(), io::ErrorKind::NotFound);
+        ports.unplugged.lock().unwrap().clear();
+        opener.open("COM3").unwrap().write_all(&[3]).unwrap();
+        let written: Vec<u8> = ports
+            .written
+            .lock()
+            .unwrap()
+            .iter()
+            .flat_map(|(_, b)| b.clone())
+            .collect();
+        assert_eq!(written, vec![1, 3]);
+    }
+
+    #[test]
+    fn a_port_is_offered_by_its_short_name_when_nothing_better_is_known() {
+        assert_eq!(
+            PortChoice::named("/dev/cu.usbserial-EN1").label,
+            "cu.usbserial-EN1"
+        );
+        assert_eq!(PortChoice::named("COM3").label, "COM3");
+        assert_eq!(short_name("/dev/"), "/dev/");
     }
 
     #[test]

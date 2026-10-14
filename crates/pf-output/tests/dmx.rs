@@ -7,8 +7,8 @@ use pf_model::{
     dmx_layout,
 };
 use pf_output::{
-    FakeSerialPorts, OutputSettings, RecordingTransport, UdpTransport, artnet, build_plan, sacn,
-    start_output, usb,
+    ControllerState, FakeSerialPorts, OutputSettings, RecordingTransport, UdpTransport, artnet, build_plan,
+    sacn, start_output, usb,
 };
 use std::net::UdpSocket;
 use std::time::{Duration, Instant};
@@ -139,23 +139,78 @@ fn a_usb_interface_gets_pro_messages_and_black_on_stop() {
 }
 
 #[test]
-fn without_a_serial_library_a_usb_interface_says_why_nothing_is_sent() {
+fn a_usb_interface_is_sent_no_faster_than_the_dmx_line_carries() {
+    // A show at 100 frames a second: the interface gets about 44 messages a second.
     let (show, frame) = show("COM3", Protocol::DmxUsb);
     let (map, _) = pf_mapping::map_show(&show);
     let plan = build_plan(&show, &map);
     let (mut writer, reader) = frame_buffers(plan.frame_len);
     writer.frame_mut().copy_from_slice(&frame);
     writer.publish();
-    let transport = UdpTransport::bind("127.0.0.1:0".parse().unwrap()).unwrap();
+    let ports = FakeSerialPorts::default();
+    let written = std::sync::Arc::clone(&ports.written);
+    let transport = UdpTransport::bind("127.0.0.1:0".parse().unwrap())
+        .unwrap()
+        .with_serial(Box::new(ports));
+    let started = Instant::now();
     let handle = start_output(plan, OutputSettings::default(), reader, Box::new(transport));
+    std::thread::sleep(Duration::from_millis(500));
+    let sent = written.lock().unwrap().len();
+    let elapsed = started.elapsed();
+    let stats = handle.stop();
+    // At most one per gap, plus the first and one caught up.
+    let most = (elapsed.as_secs_f64() / usb::MIN_GAP.as_secs_f64()) as usize + 2;
+    assert!(sent <= most, "{sent} messages in {elapsed:?}, at most {most}");
+    assert!(
+        (sent as u64) < stats.frames,
+        "{sent} messages for {} frames",
+        stats.frames
+    );
+}
+
+#[test]
+fn an_interface_unplugged_mid_show_is_reported_and_picked_up_again_when_plugged_back_in() {
+    let (show, frame) = show("/dev/cu.usbserial-TEST", Protocol::DmxUsb);
+    let (map, _) = pf_mapping::map_show(&show);
+    let plan = build_plan(&show, &map);
+    let (mut writer, reader) = frame_buffers(plan.frame_len);
+    writer.frame_mut().copy_from_slice(&frame);
+    writer.publish();
+    let ports = FakeSerialPorts::default();
+    let written = std::sync::Arc::clone(&ports.written);
+    let unplugged = std::sync::Arc::clone(&ports.unplugged);
+    let transport = UdpTransport::bind("127.0.0.1:0".parse().unwrap())
+        .unwrap()
+        .with_serial(Box::new(ports));
+    let handle = start_output(plan, OutputSettings::default(), reader, Box::new(transport));
+    wait_until(|| !written.lock().unwrap().is_empty());
+
+    unplugged.lock().unwrap().push("/dev/cu.usbserial-TEST".into());
     wait_until(|| {
         handle
             .stats()
             .controllers
             .first()
-            .is_some_and(|c| c.last_error.is_some())
+            .is_some_and(|c| c.state == ControllerState::Degraded && c.last_error.is_some())
     });
-    let stats = handle.stop();
-    let error = stats.controllers[0].last_error.clone().unwrap();
-    assert!(error.contains("can't open USB DMX interfaces yet"), "{error}");
+    let error = handle.stats().controllers[0].last_error.clone().unwrap();
+    assert!(
+        error.starts_with(
+            "the USB DMX interface on /dev/cu.usbserial-TEST stopped answering: was it unplugged?"
+        ),
+        "{error}"
+    );
+
+    // Back in: the next try opens it again and the error clears.
+    let before = written.lock().unwrap().len();
+    unplugged.lock().unwrap().clear();
+    wait_until(|| {
+        handle
+            .stats()
+            .controllers
+            .first()
+            .is_some_and(|c| c.state == ControllerState::Ok && c.last_error.is_none())
+    });
+    assert!(written.lock().unwrap().len() > before);
+    handle.stop();
 }

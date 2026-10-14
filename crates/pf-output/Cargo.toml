@@ -12,6 +12,7 @@ pf-model.workspace = true
 pf-mapping.workspace = true
 pf-frame.workspace = true
 uuid.workspace = true
+serialport.workspace = true
 
 [lints]
 workspace = true

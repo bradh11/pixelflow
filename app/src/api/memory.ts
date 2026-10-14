@@ -48,6 +48,7 @@ import type {
   ProjectLink,
   MissingFile,
   OutputStatus,
+  SerialPortChoice,
   PatternSpec,
   PreviewLinked,
   PreviewSet,
@@ -472,9 +473,11 @@ export class MemoryBackend implements Backend {
     return this.output;
   }
 
-  /** No serial ports in the browser: a USB DMX interface's port is typed. */
-  async listSerialPorts(): Promise<string[]> {
-    return [];
+  /** No serial ports in the browser, unless a test gives some: a USB DMX interface's port is typed. */
+  serialPorts: SerialPortChoice[] = [];
+
+  async listSerialPorts(): Promise<SerialPortChoice[]> {
+    return structuredClone(this.serialPorts);
   }
 
   async discoverDevices(hosts: string[], network: boolean): Promise<Discovery> {

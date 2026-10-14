@@ -5,6 +5,7 @@ import { usePreviewProps } from "../components/layout/useLayoutData";
 import { ControllerCard, type WiringData } from "../components/wiring/ControllerCard";
 import { GoToScreen } from "../components/GoToScreen";
 import { PropsPanel } from "../components/wiring/PropsPanel";
+import { SerialPortList, portLabel, useSerialPorts } from "../components/wiring/SerialPorts";
 import { SlotSettings } from "../components/wiring/SlotSettings";
 import { WiringPreview } from "../components/wiring/WiringPreview";
 import { useDragEscape } from "../components/wiring/useWiringDrag";
@@ -21,7 +22,6 @@ import { useWiring } from "../state/wiring";
 function AddControllerForm({ onDone }: { onDone: () => void }) {
   const snapshot = useApp((s) => s.snapshot);
   const apply = useApp((s) => s.apply);
-  const backend = useApp((s) => s.backend);
   const [name, setName] = useState(() => uniqueName("Controller", snapshot?.show.controllers.map((c) => c.name) ?? []));
   const [address, setAddress] = useState("");
   const [protocol, setProtocol] = useState<"ddp" | "sacn">("ddp");
@@ -31,10 +31,8 @@ function AddControllerForm({ onDone }: { onDone: () => void }) {
   const limit = known.dmx ? null : kindPixelLimit(known, ports);
   const usb = known.dmx === "usb";
   // The serial ports a USB DMX interface could be on, to pick from (none listed: type one).
-  const [serialPorts, setSerialPorts] = useState<string[]>([]);
-  useEffect(() => {
-    if (usb && backend) void backend.listSerialPorts().then(setSerialPorts, () => setSerialPorts([]));
-  }, [usb, backend]);
+  const serialPorts = useSerialPorts(usb);
+  const device = usb ? portLabel(serialPorts, address) : undefined;
   const problem = !name.trim()
     ? "Give the controller a name."
     : usb
@@ -75,21 +73,19 @@ function AddControllerForm({ onDone }: { onDone: () => void }) {
             ))}
           </Select>
         </Field>
-        <Field label={usb ? "Serial port" : "IP address"}>
-          <Input
-            value={address}
-            list={usb ? "serial-ports" : undefined}
-            placeholder={usb ? "e.g. /dev/cu.usbserial-EN1234 or COM3" : "e.g. 192.168.1.50"}
-            onChange={(e) => setAddress(e.target.value)}
-          />
-          {usb && (
-            <datalist id="serial-ports">
-              {serialPorts.map((p) => (
-                <option key={p} value={p} />
-              ))}
-            </datalist>
-          )}
-        </Field>
+        {/* A serial port's path is long, and a USB interface has no protocol or port count: it takes their room. */}
+        <div className={usb ? "col-span-2" : undefined}>
+          <Field label={usb ? "Serial port" : "IP address"}>
+            <Input
+              value={address}
+              list={usb ? "serial-ports" : undefined}
+              placeholder={usb ? "e.g. /dev/cu.usbserial-EN1234 or COM3" : "e.g. 192.168.1.50"}
+              onChange={(e) => setAddress(e.target.value)}
+            />
+            {usb && <SerialPortList id="serial-ports" ports={serialPorts} />}
+            {device && <span className="text-xs text-neutral-500">{device}</span>}
+          </Field>
+        </div>
         {!known.dmx && (
           <Field label="Protocol">
             <Select value={protocol} onChange={(e) => setProtocol(e.target.value as "ddp" | "sacn")}>

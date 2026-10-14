@@ -102,10 +102,28 @@ impl From<&TargetSpec> for Target {
     }
 }
 
-/// The serial ports a USB DMX interface could be on, by name (none where they can't be listed).
-pub fn serial_ports() -> std::io::Result<Vec<String>> {
+/// A serial port a USB DMX interface could be on, for the port picker.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SerialPortChoice {
+    /// The port's name, as a USB DMX controller's address holds it (`/dev/cu.usbserial-…`, `COM3`).
+    pub name: String,
+    /// What the device is, and the port's short name: "ENTTEC DMX USB Pro (cu.usbserial-EN1234)".
+    pub label: String,
+}
+
+/// The serial ports a USB DMX interface could be on. Listing reads the system's list of
+/// devices; it opens none of them.
+pub fn serial_ports() -> std::io::Result<Vec<SerialPortChoice>> {
     use pf_output::SerialPorts;
-    pf_output::NoSerialPorts.list()
+    Ok(pf_output::SystemSerialPorts
+        .list()?
+        .into_iter()
+        .map(|p| SerialPortChoice {
+            name: p.name,
+            label: p.label,
+        })
+        .collect())
 }
 
 /// One controller's live output health, for the UI.

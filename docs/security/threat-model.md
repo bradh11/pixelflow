@@ -472,7 +472,7 @@ require. Internet traffic is HTTPS (rustls, Mozilla's root list, certificates ch
 | A controller that is both discovered and in the show | HTTP | Its pixel-output or LED settings | "Send setup", after the changes are shown | Review, a check it is the same device, a copy kept first |
 | The system browser | via the OS | `http://<controller>/` | "Open web page" | The click; address and page allow-lists |
 | Each controller in the show (any IPv4 address and port) | UDP 5568 (sACN), 4048 (DDP), 6454 (Art-Net ArtDMX, unicast), or as given | Pixel data and DMX channels (whole 512-channel universes for DMX controllers), 20 to 120 times a second | Start test, Play, or the sequencer with "send to controllers" on | The click; the show must have no errors |
-| A USB DMX interface in the show (a serial port the show file names) | ENTTEC DMX USB Pro "send DMX" messages over the serial port | DMX channels, one universe | As above | As above. Not reachable in this version: no serial port can be opened (see 8.1) |
+| A USB DMX interface in the show (a serial port the show file names) | ENTTEC DMX USB Pro "send DMX" messages over the serial port | DMX channels, one universe | As above | As above; only a name that is one of this computer's serial ports is opened (see 8.1) |
 | `lrclib.net` | HTTPS | Artist, title, album, and length from the song's tags (the title may come from the file name); `User-Agent: PixelFlow/<version> (repository URL)` | "Find lyrics" | The click; an assistant key must be set |
 | `api.openai.com` or `api.anthropic.com` | HTTPS | The conversation, the tool definitions, and whatever the model asks the tools for (see below); the key as a header | Sending a chat message; opening AI settings (model list) | A key the user entered |
 | `api.openai.com` (audio) | HTTPS | The song: the file as it is if under 25 MB, else mono 16 kHz WAV parts; its file name; the language; a hint of title, artist, and first line | "Find lyrics" with an OpenAI key | The user's separate agreement to send audio |
@@ -493,12 +493,21 @@ DMX adds two output paths and a new kind of risk.
   the show gives, on UDP 6454. Nothing is broadcast and nothing listens: there is no ArtPoll, so
   no node on the network can make PixelFlow send anywhere it wasn't told to. Addresses are
   resolved and checked like every controller's (IPv4 only; finding 1's rules).
-- **USB DMX** (`crates/pf-output/src/usb.rs`) writes to the serial port a show names. A show file
-  from someone else could name any device path, so the path is a file-to-engine input like a
-  controller address. In this version no serial port is ever opened (`NoSerialPorts` refuses
-  every one), so the risk is not reachable. When a serial-port library is added, opening must be
-  limited to serial devices (the names `list_dev_ports` offers, or `COMn` on Windows), never an
-  arbitrary path, and only when the user starts output.
+- **USB DMX** (`crates/pf-output/src/usb.rs`, `crates/pf-output/src/serial.rs`) writes to the
+  serial port a show names. A show file from someone else could name any device path, so the
+  path is a file-to-engine input like a controller address. `SystemSerialPorts::open` opens a
+  name only if it is one of this computer's serial ports: on macOS and Linux an absolute path
+  that the system's serial-port list (IOKit; `/sys/class/tty` on Linux) or the USB serial names
+  in `/dev` hold, compared after resolving links (so `/dev/serial/by-id/…` works); on Windows
+  `COMn` (or `\\.\COMn`) only. Anything else is refused before it is opened (a test names a
+  regular file and checks it is untouched). Ports are opened only by the output thread, so only
+  after the user starts a test or playback, never by listing them (the port picker reads the
+  system's list; it opens nothing). A port is opened exclusively (`TIOCEXCL` and `flock` on macOS
+  and Linux; Windows' COM ports are exclusive), raw and 8-bit, through the `serialport` crate
+  (MPL-2.0), the only code with `unsafe` on this path; PixelFlow's own has none. A write is given
+  20 ms; an interface that stops taking data or is unplugged fails the write, its pending output
+  is discarded so closing can't wait on it, and the controller backs off like an unreachable
+  network one.
 - **What the data can do.** A DMX channel is not a light level: it can be a strobe rate, a macro
   that starts a fixture's own program, a moving head's position, or a fog machine. A show from
   someone else could hold mode or strobe values (held channel values and DMX effects) that make a

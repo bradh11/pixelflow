@@ -14,13 +14,13 @@ use super::settings::{ParsedPalette, Settings};
 use pf_model::{BufferTransform, RenderStyle};
 use pf_sequence::{
     Axis, BarsMotion, BarsParams, Blend, ButterflyColors, ButterflyParams, ChaseParams, CirclesLook,
-    CirclesParams, ColorWashParams, Curve, CurveShape, Direction, EffectParams, FaceColorSource, FaceEyes,
-    FacesParams, FanParams, FillDirection, FillParams, FireLocation, FireParams, FireStyle, FireworksColors,
-    FireworksParams, GarlandShape, GarlandsDirection, GarlandsParams, Gradient, LifeParams, LifeRules,
-    LightningParams, LinesParams, MAX_CURVE_CYCLES, MIN_CURVE_CYCLES, MeteorDirection, MeteorsParams,
-    MorphParams, OffParams, OnParams, Palette, PictureFit, PictureMovement, PictureParams, PictureResize,
-    PictureTiming, PinwheelParams, PinwheelShading, PinwheelStyle, PlasmaColors, PlasmaParams, Rgb,
-    RippleParams, SettingRange, ShaderInputs, ShaderParams, ShaderValue, ShapeObject, ShapeParams,
+    CirclesParams, ColorWashParams, Curve, CurveShape, Direction, DmxParams, DmxValues, EffectParams,
+    FaceColorSource, FaceEyes, FacesParams, FanParams, FillDirection, FillParams, FireLocation, FireParams,
+    FireStyle, FireworksColors, FireworksParams, GarlandShape, GarlandsDirection, GarlandsParams, Gradient,
+    LifeParams, LifeRules, LightningParams, LinesParams, MAX_CURVE_CYCLES, MIN_CURVE_CYCLES, MeteorDirection,
+    MeteorsParams, MorphParams, OffParams, OnParams, Palette, PictureFit, PictureMovement, PictureParams,
+    PictureResize, PictureTiming, PinwheelParams, PinwheelShading, PinwheelStyle, PlasmaColors, PlasmaParams,
+    Rgb, RippleParams, SettingRange, ShaderInputs, ShaderParams, ShaderValue, ShapeObject, ShapeParams,
     ShimmerParams, ShockwaveParams, SnowflakeShape, SnowflakesMotion, SnowflakesParams, SpiralParams,
     StrobeParams, TendrilMovement, TendrilParams, TextCountdown, TextMovement, TextOrientation, TextParams,
     TwinkleParams, VuMeterParams, VuMeterShape, VuMeterType, WaveParams,
@@ -1967,6 +1967,64 @@ fn pictures(r: &Reader, duration_ms: u64, diff: &mut Diff) -> EffectParams {
     })
 }
 
+/// The most channels xLights' DMX effect sets (its sliders `DMX1` to `DMX48`).
+const XLIGHTS_DMX_CHANNELS: u16 = 48;
+
+/// The channel an xLights DMX effect control (`DMX7`) sets.
+fn dmx_channel(id: &str) -> Option<u16> {
+    id.strip_prefix("DMX")?
+        .parse()
+        .ok()
+        .filter(|n| (1..=XLIGHTS_DMX_CHANNELS).contains(n))
+}
+
+/// xLights' DMX effect: a slider for each of the fixture's channels (`DMX1`, `DMX2`, …), each
+/// 0-255, flipped by its "invert" box. Every slider the file has is a channel it sets.
+fn dmx(r: &Reader) -> EffectParams {
+    let mut channels = DmxValues::default();
+    for key in r.s.keys() {
+        let Some(n) = key.strip_prefix("E_SLIDER_").and_then(dmx_channel) else {
+            continue;
+        };
+        let value = r.get(&format!("DMX{n}"), 0.0, 0.0, 255.0);
+        let value = if r.check(&format!("INVDMX{n}")) {
+            255.0 - value
+        } else {
+            value
+        };
+        channels.set(n, value.round() as u8);
+    }
+    EffectParams::Dmx(DmxParams { channels })
+}
+
+/// The value curves on an xLights DMX effect's channels, as curves on the channels it sets
+/// (`channels.<n>`): one that follows the music or a timing track does so between its two ends.
+fn dmx_curves(
+    s: &Settings,
+    params: &EffectParams,
+    curves: &mut BTreeMap<String, Curve>,
+    tracks: &mut Vec<(String, String)>,
+    diff: &mut Diff,
+) {
+    if !matches!(params, EffectParams::Dmx(_)) {
+        return;
+    }
+    for (id, curve) in effect_curves(s) {
+        let Some(n) = dmx_channel(&id) else { continue };
+        let invert = s.flag(&format!("E_CHECKBOX_INVDMX{n}"), false);
+        let convert = |v: f64| {
+            let v = v.clamp(0.0, 255.0) as f32;
+            if invert { 255.0 - v } else { v }
+        };
+        let (_, made, track) = setting_curve(&curve, convert, diff);
+        let key = format!("channels.{n}");
+        if let Some(made) = made {
+            curves.insert(key.clone(), made);
+        }
+        tracks.extend(track.map(|t| (key, t)));
+    }
+}
+
 /// What an xLights Pictures effect changes over the effect besides its value curves: its size
 /// from the start scale to the end scale (shown pixel for pixel), and a "vector" move from its
 /// offsets to its end offsets. xLights repeats both as often as the effect's speed says.
@@ -2082,7 +2140,8 @@ fn effect_params(
             Some(found) => shader(&r, found, frame, diff),
             None => return Kind::Placeholder,
         },
-        "adjust" | "warp" | "duplicate" | "dmx" | "servo" | "movinghead" => return Kind::Skip,
+        "dmx" => dmx(&r),
+        "adjust" | "warp" | "duplicate" | "servo" | "movinghead" => return Kind::Skip,
         _ => return Kind::Placeholder,
     })
 }
@@ -2363,8 +2422,10 @@ pub fn translate(
     let mut driven = Vec::new();
     for (id, curve) in effect_curves(s) {
         // A curve on one of a shader's own inputs isn't carried over (see `shader`), and must
-        // not move the slider's value either.
-        if id.starts_with("SHADERXYZZY_") {
+        // not move the slider's value either. A DMX channel's is carried over on its own (see
+        // `dmx_curves`).
+        if id.starts_with("SHADERXYZZY_") || (name.eq_ignore_ascii_case("dmx") && dmx_channel(&id).is_some())
+        {
             continue;
         }
         if curve.driven().is_some() {
@@ -2400,6 +2461,7 @@ pub fn translate(
                 }
                 on_cycles(&start, &clamped, &mut curves, &mut diff);
                 picture_curves(&start, &clamped, &mut curves, &mut diff);
+                dmx_curves(&start, &clamped, &mut curves, &mut curve_tracks, &mut diff);
                 dim_flames(&clamped, &curves, blend, &mut diff);
                 for (id, curve) in &driven {
                     let at = |value: f64| {
@@ -5007,5 +5069,30 @@ mod tests {
             ]
         );
         assert!(tally.skipped_note().is_some_and(|n| n.ends_with("DMX (1).")));
+    }
+
+    #[test]
+    fn the_dmx_effect_carries_its_channels_their_inversion_and_their_curves() {
+        let s = Settings::parse(
+            "E_SLIDER_DMX1=255,E_SLIDER_DMX2=10,E_CHECKBOX_INVDMX2=1,E_SLIDER_DMX3=0,\
+             E_VALUECURVE_DMX3=Active=TRUE|Type=Ramp|Min=0.00|Max=255.00|P1=0.00|P2=255.00|RV=TRUE|",
+        );
+        let t = translate("DMX", &s, &palette(&[Rgb::RED]), 1000, 25).unwrap();
+        let EffectParams::Dmx(p) = &t.params else {
+            panic!("{:?}", t.params)
+        };
+        assert_eq!(p.channels, DmxValues::new([(1, 255), (2, 245), (3, 0)]));
+        let curve = &t.curves["channels.3"];
+        let at = |t_ms| {
+            curve.value_in(
+                pf_sequence::CurveTime {
+                    start_ms: 0,
+                    end_ms: 1000,
+                    t_ms,
+                },
+                &Default::default(),
+            )
+        };
+        assert!(at(0) < 10.0 && at(999) > 245.0, "{curve:?}");
     }
 }

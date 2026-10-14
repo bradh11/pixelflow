@@ -184,7 +184,10 @@ fn dispatch(cx: &mut Ctx) -> Raw {
         _ => {}
     }
     if t.starts_with("Dmx") {
-        return dmx(cx);
+        return dmx(
+            cx,
+            matches!(t.as_str(), "DmxGeneral" | "DmxFloodlight" | "DmxFloodArea"),
+        );
     }
     if t.contains("Matrix") {
         return grid::matrix(cx);
@@ -211,15 +214,18 @@ fn dispatch(cx: &mut Ctx) -> Raw {
 }
 
 /// DMX fixtures: `DmxChannelCount` single-channel nodes (`DmxModel::InitModel`), shown as a small
-/// row at the model position since their real look comes from a 3D fixture drawing.
-fn dmx(cx: &mut Ctx) -> Raw {
+/// row at the model position since their real look comes from a 3D fixture drawing. A flood
+/// (`flood`) becomes a DMX fixture on import (see `dmx.rs`); the others stay as these dots.
+fn dmx(cx: &mut Ctx, flood: bool) -> Raw {
     cx.cpn = 1;
     let n = cx.parm("DmxChannelCount", "parm1", "1").max(0);
     if cx.over_cap(n) {
         cx.capped_block(|_| n);
         return Raw::empty();
     }
-    cx.note("DMX fixture shown as a row of channel dots at its position");
+    if !flood {
+        cx.note("DMX fixture shown as a row of channel dots at its position; PixelFlow doesn't drive moving heads and servos yet");
+    }
     let start = cx.string_starts(1, n, &[])[0];
     row_at_position(cx, n, |i| start + i)
 }

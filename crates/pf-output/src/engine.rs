@@ -352,9 +352,16 @@ impl Runtime {
         }
     }
 
-    /// Sends one frame, unless the controller is unresolved or backing off after failures.
+    /// Sends one frame, unless the controller is unresolved or backing off after failures, or
+    /// is a USB DMX interface whose last message went too recently (see [`UsbDmxPacket::due`]).
+    /// Black at the end, and a retired controller's black, always go.
     fn send(&mut self, frame: &[u8], luts: &[[u8; 256]], transport: &mut dyn Transport, now: Instant) {
         if !self.health.ready(now) {
+            return;
+        }
+        if let Packets::Usb(p) = &mut self.packets
+            && !p.due(now)
+        {
             return;
         }
         render_controller(frame, &self.plan, luts, &mut self.buffer);

@@ -2089,6 +2089,7 @@ dependencies = [
  "pf-output",
  "pf-render",
  "pf-sequence",
+ "pf-video",
  "regex",
  "schemars",
  "serde",

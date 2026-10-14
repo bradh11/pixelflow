@@ -35,6 +35,17 @@ effect side by side in a line each (what it is for, and the kinds of prop its lo
 for), generated from the effects' own guides, so the Assistant can choose before reading the
 guides of only the effects it will place.
 
+Topic `range` is the whole palette at a glance, so the Assistant knows every effect well enough
+to reach past the few it uses by habit: for every effect, the moments and moods it suits, the
+kinds of prop its looks were written for, and one of its looks to start from. It assigns nothing
+and requires nothing; the method points to it as a place to choose from to express the show's
+idea, a familiar formula included. The only "never" in it is the honest one: the effects whose
+guides have no look for a single run of pixels are listed (generated, `{{grid-only}}`), because
+they show only a slice of themselves on an outline or an arch and the review's fit criterion says
+so. A test (`the_range_says_what_every_effect_can_do_from_its_guide` in
+`crates/pf-ai/tests/knowledge.rs`) holds it to the guides: a line for every effect, each prop it
+names one its looks are written for, and each look it names one of its guide's.
+
 ## The rules a guide keeps
 
 Tests (`crates/pf-ai/tests/knowledge.rs`, through `crates/pf-ai/src/knowledge/check.rs`) fail,

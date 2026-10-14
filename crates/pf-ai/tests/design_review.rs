@@ -451,3 +451,24 @@ fn a_shimmer_over_the_whole_house_is_unsafe_though_no_frame_shows_it() {
     small.put("Arch 1", 1, shimmer);
     assert!(small.review().flashes_safe);
 }
+
+#[test]
+fn a_matrix_effect_on_an_arch_is_named_and_on_the_matrix_it_is_fine() {
+    // A fan's blades show as dashes on one row of pixels.
+    let mut show = Show::new();
+    show.a_look_per_section();
+    show.put("Arch 1", 1, Effect::new(EffectKind::Fan, 24_000, 32_000));
+    let review = show.review();
+    assert!(review.criteria.fit < 100, "{review:#?}");
+    let fan = find(&review, "Arch 1 is a single run of pixels");
+    assert!(
+        fan.what
+            .contains("so Fan shows only a slice of itself there (its guide has looks for: matrix, house)"),
+        "{}",
+        fan.what
+    );
+    let mut show = Show::new();
+    show.a_look_per_section();
+    show.put("Matrix", 1, Effect::new(EffectKind::Fan, 24_000, 32_000));
+    assert_eq!(show.review().criteria.fit, 100);
+}

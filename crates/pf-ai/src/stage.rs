@@ -711,32 +711,64 @@ pub fn lyric_tracks() -> Vec<TimingTrack> {
     ]
 }
 
-/// The song as sound, for the effects that follow the music: a low thump on every beat and a
-/// steady tone, as loud as each part's energy, silent through the stop. Made once and kept.
+/// How many samples a second the song's sound has.
+const SOUND_RATE: u32 = 11_025;
+
+/// The song as sound: a low thump on every beat and a steady tone, as loud as each part's energy,
+/// silent through the stop. Mono, at [`SOUND_RATE`].
+fn sound() -> impl Iterator<Item = f32> {
+    let total = SONG_MS * u64::from(SOUND_RATE) / 1000;
+    (0..total).map(|n| {
+        let ms = n * 1000 / u64::from(SOUND_RATE);
+        if (79_000..80_000).contains(&ms) {
+            return 0.0;
+        }
+        let energy = PARTS
+            .iter()
+            .find(|p| (p.2 * BAR_MS..(p.2 + p.3) * BAR_MS).contains(&ms))
+            .map_or(0.2, |p| p.4);
+        let t = n as f32 / SOUND_RATE as f32;
+        let since_beat = (ms % BEAT_MS) as f32 / 1000.0;
+        let thump = (std::f32::consts::TAU * 60.0 * t).sin() * (-since_beat * 18.0).exp();
+        let tone = (std::f32::consts::TAU * 440.0 * t).sin() * 0.35
+            + (std::f32::consts::TAU * 1_760.0 * t).sin() * 0.15;
+        energy * (0.7 * thump + tone)
+    })
+}
+
+/// The song as sound, for the effects that follow the music (see [`sound`]). Made once and kept.
 pub fn audio() -> AudioSource {
     static TRACK: OnceLock<Arc<pf_analysis::AudioTrack>> = OnceLock::new();
-    let track = TRACK.get_or_init(|| {
-        const RATE: u32 = 11_025;
-        let total = SONG_MS * u64::from(RATE) / 1000;
-        let samples = (0..total).map(|n| {
-            let ms = n * 1000 / u64::from(RATE);
-            if (79_000..80_000).contains(&ms) {
-                return 0.0;
-            }
-            let energy = PARTS
-                .iter()
-                .find(|p| (p.2 * BAR_MS..(p.2 + p.3) * BAR_MS).contains(&ms))
-                .map_or(0.2, |p| p.4);
-            let t = n as f32 / RATE as f32;
-            let since_beat = (ms % BEAT_MS) as f32 / 1000.0;
-            let thump = (std::f32::consts::TAU * 60.0 * t).sin() * (-since_beat * 18.0).exp();
-            let tone = (std::f32::consts::TAU * 440.0 * t).sin() * 0.35
-                + (std::f32::consts::TAU * 1_760.0 * t).sin() * 0.15;
-            energy * (0.7 * thump + tone)
-        });
-        Arc::new(pf_analysis::audio_track(samples, RATE, 25))
-    });
+    let track = TRACK.get_or_init(|| Arc::new(pf_analysis::audio_track(sound(), SOUND_RATE, 25)));
     AudioSource::ready(Arc::clone(track))
+}
+
+/// The song's sound as a WAV file's bytes (16-bit, mono): what [`audio`] is worked out from, for
+/// a copy of the stage opened in the app or drawn as a video, so the effects that follow the
+/// music there hear what they hear here.
+pub fn song_wav() -> Vec<u8> {
+    let samples: Vec<i16> = sound()
+        .map(|s| (s.clamp(-1.0, 1.0) * f32::from(i16::MAX)).round() as i16)
+        .collect();
+    let data = samples.len() as u32 * 2;
+    let mut wav = Vec::with_capacity(44 + data as usize);
+    wav.extend(b"RIFF");
+    wav.extend((36 + data).to_le_bytes());
+    wav.extend(b"WAVEfmt ");
+    wav.extend(16u32.to_le_bytes());
+    // PCM, one channel, the rate, bytes a second, bytes a sample, bits a sample.
+    wav.extend(1u16.to_le_bytes());
+    wav.extend(1u16.to_le_bytes());
+    wav.extend(SOUND_RATE.to_le_bytes());
+    wav.extend((SOUND_RATE * 2).to_le_bytes());
+    wav.extend(2u16.to_le_bytes());
+    wav.extend(16u16.to_le_bytes());
+    wav.extend(b"data");
+    wav.extend(data.to_le_bytes());
+    for sample in samples {
+        wav.extend(sample.to_le_bytes());
+    }
+    wav
 }
 
 #[cfg(test)]

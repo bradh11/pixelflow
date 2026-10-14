@@ -9,6 +9,7 @@ const TOPICS: &[(&str, &str)] = &[
     ("song", include_str!("../../guides/topics/song.md")),
     ("roles", include_str!("../../guides/topics/roles.md")),
     ("choosing", include_str!("../../guides/topics/choosing.md")),
+    ("range", include_str!("../../guides/topics/range.md")),
     ("layering", include_str!("../../guides/topics/layering.md")),
     ("palettes", include_str!("../../guides/topics/palettes.md")),
     ("motion", include_str!("../../guides/topics/motion.md")),

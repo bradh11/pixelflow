@@ -61,6 +61,19 @@ impl Suit {
     }
 }
 
+/// Whether `kind`'s guide has a look for a single run of pixels (a string or an arch): `None`
+/// for a kind without a guide. One without is what the review's fit criterion flags on an
+/// outline or an arch.
+pub fn suits_a_run(kind: EffectKind) -> Option<bool> {
+    let guide = effect_guide(kind)?;
+    Some(
+        guide
+            .looks
+            .iter()
+            .any(|l| l.suits.contains(&Suit::String) || l.suits.contains(&Suit::Arch)),
+    )
+}
+
 /// The longest a guide may be as the Assistant reads it (bytes), reference and all: several fit
 /// in one answer.
 pub const MAX_GUIDE_BYTES: usize = 12_000;
@@ -125,8 +138,9 @@ pub fn topic_text(key: &str) -> Option<String> {
 }
 
 /// The lists a topic can ask for by `{{name}}` on a line of its own, each generated.
-pub const GENERATED: [&str; 14] = [
+pub const GENERATED: [&str; 15] = [
     "effect-overview",
+    "grid-only",
     "blends",
     "row-blending",
     "curve-shapes",
@@ -158,8 +172,20 @@ fn generated(name: &str) -> Option<String> {
         "effects" => effect_index(),
         "effect-overview" => effect_overview(),
         "looks-by-target" => looks_by_target(),
+        "grid-only" => grid_only(),
         _ => return None,
     })
+}
+
+/// The kinds with no look for a single run of pixels: the ones not to put on an outline or an
+/// arch (the review says so when they are).
+fn grid_only() -> String {
+    let kinds: Vec<String> = EffectKind::ALL
+        .iter()
+        .filter(|&&kind| suits_a_run(kind) == Some(false))
+        .map(|kind| format!("`{}`", reference::key_of(kind)))
+        .collect();
+    format!("{}\n", kinds.join(", "))
 }
 
 /// `source` with each `{{name}}` replaced by its generated list.

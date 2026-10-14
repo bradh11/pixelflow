@@ -145,17 +145,7 @@ fn named(names: &[&str]) -> String {
     }
 }
 
-/// The kinds with a look written for a single run of pixels (a string or an arch), going by
-/// their guides. `None` for a kind without a guide: not judged.
-fn suits_a_run(kind: EffectKind) -> Option<bool> {
-    let guide = knowledge::effect_guide(kind)?;
-    Some(
-        guide
-            .looks
-            .iter()
-            .any(|l| l.suits.contains(&Suit::String) || l.suits.contains(&Suit::Arch)),
-    )
-}
+use knowledge::suits_a_run;
 
 /// The targets `kind`'s guide gives looks for, in words.
 fn suited_to(kind: EffectKind) -> String {

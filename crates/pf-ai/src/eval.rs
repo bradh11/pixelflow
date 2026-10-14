@@ -14,6 +14,7 @@
 //! reports. `docs/dev/assistant-eval.md` says how to run it, what it sends, and what it may cost.
 
 pub mod cli;
+pub mod drafts;
 pub mod scenarios;
 pub mod stand_in;
 
@@ -653,6 +654,8 @@ pub struct Measures {
     pub section_starts: usize,
     /// The most colors any one section uses.
     pub most_colors_in_a_section: usize,
+    /// Every color the effects were given, as "#rrggbb", sorted.
+    pub colors: Vec<String>,
     /// Mean brightness (0–1) and props lit, in the verses and in the choruses.
     pub verse_light: f32,
     pub chorus_light: f32,
@@ -719,6 +722,10 @@ pub struct Outcome {
     pub checks: Vec<Check>,
     pub measures: Measures,
     pub transcript: Vec<ToolUse>,
+    /// The sequence as the answer left its draft (as it was, when nothing was drafted): kept as
+    /// a file to open and drawn as a video by [`drafts::keep`], not part of the results.
+    #[serde(skip)]
+    pub draft: Sequence,
 }
 
 impl Outcome {
@@ -906,6 +913,16 @@ fn measure(
         section_changes: changes,
         section_starts: starts.len(),
         most_colors_in_a_section: most_colors,
+        colors: effects(doc)
+            .flat_map(|(_, _, e)| {
+                e.palette
+                    .colors
+                    .iter()
+                    .map(|c| format!("#{:02x}{:02x}{:02x}", c.r, c.g, c.b))
+            })
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect(),
         verse_light: lights.level(&verses),
         chorus_light: lights.level(&choruses),
         verse_props: lights.lit(&verses),
@@ -1029,6 +1046,7 @@ pub fn run_within(
         checks,
         measures,
         transcript: tools,
+        draft: after,
     }
 }
 
@@ -1117,6 +1135,87 @@ fn round_trips(outcomes: &[Outcome]) -> String {
     out
 }
 
+/// What some sets of names have in common, in a sentence: how many each has, those in every one,
+/// those in only some, and the share each pair has in common (what both have, of what either
+/// has).
+fn compared(what: &str, sets: &[BTreeSet<&str>]) -> String {
+    let every: Vec<&str> = sets[0]
+        .iter()
+        .copied()
+        .filter(|x| sets.iter().all(|s| s.contains(x)))
+        .collect();
+    let some: Vec<&str> = sets
+        .iter()
+        .flatten()
+        .copied()
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .filter(|x| !every.contains(x))
+        .collect();
+    let mut pairs = Vec::new();
+    for i in 0..sets.len() {
+        for j in i + 1..sets.len() {
+            let both = sets[i].intersection(&sets[j]).count();
+            let either = sets[i].union(&sets[j]).count().max(1);
+            pairs.push(format!("{} and {}: {}%", i + 1, j + 1, 100 * both / either));
+        }
+    }
+    let list = |names: &[&str]| {
+        if names.is_empty() {
+            "none".to_string()
+        } else {
+            names.join(", ")
+        }
+    };
+    format!(
+        "{what} per run {}; in every run ({}): {}; in only some ({}): {}; shared by each pair of runs: {}.",
+        sets.iter()
+            .map(|s| s.len().to_string())
+            .collect::<Vec<_>>()
+            .join(", "),
+        every.len(),
+        list(&every),
+        some.len(),
+        list(&some),
+        pairs.join("; ")
+    )
+}
+
+/// How the answers to one request differ from run to run (with `--runs` above 1): the kinds of
+/// effect and the colors every run used, those only some did, and how much each pair of runs has
+/// in common. Information for judging variety (beside the videos), not a check.
+pub fn runs_compared(outcomes: &[Outcome]) -> String {
+    let mut groups: Vec<(&str, Vec<&Outcome>)> = Vec::new();
+    for o in outcomes {
+        let key = o.scenario.split(" #").next().unwrap_or(&o.scenario);
+        match groups.iter_mut().find(|(k, _)| *k == key) {
+            Some((_, runs)) => runs.push(o),
+            None => groups.push((key, vec![o])),
+        }
+    }
+    let mut out = String::new();
+    for (scenario, runs) in groups.iter().filter(|(_, runs)| runs.len() > 1) {
+        if out.is_empty() {
+            out.push_str("\nHow the runs differ, for each request answered more than once:\n\n");
+        }
+        let kinds: Vec<BTreeSet<&str>> = runs
+            .iter()
+            .map(|o| o.measures.effect_kinds.iter().map(String::as_str).collect())
+            .collect();
+        let colors: Vec<BTreeSet<&str>> = runs
+            .iter()
+            .map(|o| o.measures.colors.iter().map(String::as_str).collect())
+            .collect();
+        out.push_str(&format!(
+            "- {scenario}, {} runs. {}\n  {}\n",
+            runs.len(),
+            compared("Kinds of effect", &kinds),
+            compared("Colors", &colors),
+        ));
+    }
+    out
+}
+
 /// The outcomes as a report to read: a line per scenario, then each one's checks.
 pub fn report(outcomes: &[Outcome], model: &str, prices: &Prices) -> String {
     let mut out = format!("# Assistant evaluation: {model}\n\n");
@@ -1191,6 +1290,7 @@ pub fn report(outcomes: &[Outcome], model: &str, prices: &Prices) -> String {
             },
         ));
     }
+    out.push_str(&runs_compared(outcomes));
     for o in outcomes {
         out.push_str(&format!(
             "\n## {} ({})\n\n> {}\n\n",

@@ -90,6 +90,43 @@ fn a_careful_answer_passes_every_check() {
 }
 
 #[test]
+fn a_report_of_several_runs_says_how_they_differ() {
+    // Two answers to the same request: the careful one and one that recolored the same plan.
+    let stage = Stage::new();
+    let mut runs = cli::stand_in_outcomes_on(&[scenario("dancers"), scenario("dancers")], &stage);
+    runs[0].scenario = "dancers #1".into();
+    runs[1].scenario = "dancers #2".into();
+    runs[1].measures.effect_kinds.push("plasma".into());
+    runs[1].measures.colors = vec!["#000001".into()];
+    let report = eval::report(&runs, "the stand-in", &Prices::default());
+    let kinds = runs[0].measures.effect_kinds.len();
+    for words in [
+        "How the runs differ, for each request answered more than once:",
+        &format!(
+            "- dancers, 2 runs. Kinds of effect per run {kinds}, {}; in every run ({kinds}): ",
+            kinds + 1
+        ),
+        "; in only some (1): plasma; shared by each pair of runs: 1 and 2: ",
+        "  Colors per run ",
+        "shared by each pair of runs: 1 and 2: 0%.",
+    ] {
+        assert!(report.contains(words), "{words}:\n{report}");
+    }
+    // One run of each says nothing of the kind.
+    let once = eval::report(&runs[..1], "the stand-in", &Prices::default());
+    assert!(!once.contains("How the runs differ"), "{once}");
+    // Every color a show used is in its results.
+    assert!(
+        runs[0]
+            .measures
+            .colors
+            .iter()
+            .all(|c| c.len() == 7 && c.starts_with('#'))
+    );
+    assert!(!runs[0].measures.colors.is_empty());
+}
+
+#[test]
 fn an_idle_answer_fails_every_scenario() {
     for scenario in scenarios() {
         let stage = Stage::new();
@@ -374,6 +411,113 @@ fn every_scenario_starts_from_a_sound_made_up_sequence() {
         assert!(!scenario.opens.is_empty() && !scenario.title.is_empty());
         assert_eq!(outcome.measures.props, stage.show.props.len());
     }
+}
+
+/// A PNG's width and height, from its header.
+fn png_size(bytes: &[u8]) -> (u32, u32) {
+    assert_eq!(&bytes[..8], b"\x89PNG\r\n\x1a\n");
+    let number = |at: usize| u32::from_be_bytes(bytes[at..at + 4].try_into().unwrap());
+    (number(16), number(20))
+}
+
+#[test]
+fn a_run_keeps_each_draft_with_the_stage_to_open_in_the_app() {
+    let folder = tempfile::tempdir().unwrap();
+    let out = folder.path().join("run");
+    let (status, said, connected) = command(
+        &[
+            "--scenario",
+            "dancers,question",
+            "--out",
+            out.to_str().unwrap(),
+            "--no-render",
+        ],
+        Vec::new(),
+    );
+    assert_eq!((status, connected), (0, 0), "{said}");
+    let show_folder = out.join(eval::drafts::SHOW_FOLDER);
+    let show = show_folder.join(eval::drafts::SHOW_FILE);
+    assert!(
+        said.contains(&format!("Written to {}:", out.display()))
+            && said.contains("show/Paper Lanterns stage.pixelflow.json: the made-up stage")
+            && said.contains("show/dancers.pfseq.json: the dancers draft"),
+        "{said}"
+    );
+    // The show and each draft open as the app opens them: the show with its picture beside it,
+    // the draft playing the song's sound, kept beside it too.
+    let opened = pf_engine::load_show(&show).unwrap();
+    assert_eq!(opened.props.len(), Stage::new().show.props.len());
+    assert!(show_folder.join(pf_ai::stage::PICTURE).is_file());
+    let sound = std::fs::read(show_folder.join(eval::drafts::SONG_SOUND)).unwrap();
+    assert_eq!(&sound[..4], b"RIFF");
+    let dancers = pf_engine::load_sequence(&show_folder.join("dancers.pfseq.json")).unwrap();
+    assert_eq!(dancers.audio.as_deref(), Some(eval::drafts::SONG_SOUND));
+    assert!(
+        eval::effects(&dancers).any(|(_, _, e)| e.kind() == pf_sequence::EffectKind::Dancer),
+        "the skeletons are in the saved draft"
+    );
+    // Every scenario played on the stage that was saved: each row lights a prop or group of it.
+    let question = pf_engine::load_sequence(&show_folder.join("question.pfseq.json")).unwrap();
+    for doc in [&dancers, &question] {
+        for row in &doc.rows {
+            let found = match row.target {
+                pf_sequence::Target::Group(id) => opened.groups.iter().any(|g| g.id == id),
+                pf_sequence::Target::Prop(id) | pf_sequence::Target::Region { prop: id, .. } => {
+                    opened.props.iter().any(|p| p.id == id)
+                }
+            };
+            assert!(found, "{:?} is on the saved stage", row.target);
+        }
+    }
+    // A question changes nothing: what was open is kept as it was.
+    let effects_of = |doc: &pf_sequence::Sequence| -> Vec<(pf_sequence::EffectId, u64, u64)> {
+        eval::effects(doc)
+            .map(|(_, _, e)| (e.id, e.start_ms, e.end_ms))
+            .collect()
+    };
+    assert_eq!(
+        effects_of(&question),
+        effects_of(&eval::scenarios::christmas(&Stage::new()))
+    );
+    // Without rendering, nothing is drawn.
+    assert!(!out.join(eval::drafts::VIDEO_FOLDER).exists());
+}
+
+#[test]
+fn a_kept_draft_is_drawn_as_a_video_and_a_sheet_of_its_sections() {
+    let folder = tempfile::tempdir().unwrap();
+    let stage = Stage::new();
+    let outcomes = cli::stand_in_outcomes_on(&[scenario("dancers")], &stage);
+    let small = eval::drafts::Rendering {
+        width: 160,
+        height: 90,
+        fps: 10,
+        end_ms: Some(1_000),
+        frame_width: 192,
+        frame_height: 108,
+    };
+    let said = eval::drafts::keep(folder.path(), &stage, &outcomes, "the stand-in", Some(&small)).unwrap();
+    let video = folder.path().join("videos/dancers.mp4");
+    let sheet = folder.path().join("sheets/dancers.png");
+    assert!(
+        said.iter()
+            .any(|line| line.contains("videos/dancers.mp4, sheets/dancers.png")),
+        "{said:?}"
+    );
+    let mp4 = std::fs::read(&video).unwrap();
+    assert_eq!(&mp4[4..8], b"ftyp");
+    // A frame for each of the song's eight sections, two across, captioned.
+    let (width, height) = png_size(&std::fs::read(&sheet).unwrap());
+    let sections = pf_ai::stage::song().sections.len() as u32;
+    assert_eq!(sections, 8);
+    assert_eq!(width, 14 + 2 * (192 + 14));
+    assert!(height > sections / 2 * 108, "{height}");
+    // The engine's working folder is gone.
+    let left: Vec<String> = std::fs::read_dir(folder.path())
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert!(!left.iter().any(|name| name.starts_with('.')), "{left:?}");
 }
 
 // Spending: a run that sends keeps to a hard ceiling, from what the provider reports.
@@ -770,6 +914,7 @@ fn the_report_and_results_show_the_tokens_billed_and_what_they_cost() {
         "1.25",
         "--out",
         out.to_str().unwrap(),
+        "--no-render",
     ];
     args.extend(PRICED);
     let stage = Stage::new();

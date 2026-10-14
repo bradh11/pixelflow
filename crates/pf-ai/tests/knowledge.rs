@@ -480,6 +480,61 @@ fn every_effect_is_on_one_page_for_choosing() {
 }
 
 #[test]
+fn the_range_says_what_every_effect_can_do_from_its_guide() {
+    // A line for every effect: the props in its brackets are ones its guide has looks for, and
+    // the look it names is one of that guide's. A look renamed or retargeted in its guide, or an
+    // effect added without a line, fails here.
+    let written = written_topic("range");
+    let line = regex::Regex::new(r#"^- `(\w+)` \(([^)]*)\): .*"([^"]+)"\.$"#).unwrap();
+    let mut described = BTreeSet::new();
+    for text in written.lines() {
+        let Some(found) = line.captures(text) else {
+            assert!(
+                !text.starts_with("- `"),
+                "a line of topic `range` not in the form of the others: {text}"
+            );
+            continue;
+        };
+        let (key, props, name) = (&found[1], &found[2], &found[3]);
+        let kind = reference::kind_named(key).unwrap_or_else(|| panic!("there's no effect `{key}`"));
+        let guide = knowledge::effect_guide(kind).unwrap();
+        let written_for: BTreeSet<knowledge::Suit> =
+            guide.looks.iter().flat_map(|l| l.suits.clone()).collect();
+        for prop in props.split(", ") {
+            let suit = knowledge::Suit::parse(prop)
+                .unwrap_or_else(|| panic!("`{key}`: \"{prop}\" isn't a kind of prop"));
+            assert!(
+                written_for.contains(&suit),
+                "topic `range` puts `{key}` on a {prop}, which none of its guide's looks are written for"
+            );
+        }
+        assert!(
+            guide.looks.iter().any(|l| l.name == name),
+            "topic `range` names \"{name}\", which `{key}`'s guide has no look called"
+        );
+        assert!(described.insert(key.to_string()), "`{key}` twice");
+    }
+    let missing: Vec<String> = reference::kind_keys()
+        .into_iter()
+        .filter(|key| !described.contains(key))
+        .collect();
+    assert!(missing.is_empty(), "topic `range` has no line for: {missing:?}");
+    // As read: the effects with no look for a run of pixels (the ones the review flags on an
+    // outline or an arch), listed from their guides.
+    let page = knowledge::topic_text("range").unwrap();
+    let flagged: Vec<String> = EffectKind::ALL
+        .iter()
+        .filter(|&&kind| knowledge::suits_a_run(kind) == Some(false))
+        .map(|kind| format!("`{}`", reference::key_of(kind)))
+        .collect();
+    for key in ["`fan`", "`dancer`", "`picture`", "`text`"] {
+        assert!(flagged.iter().any(|k| k == key), "{key}: {flagged:?}");
+    }
+    assert!(page.contains(&format!("\n{}\n", flagged.join(", "))), "{page}");
+    assert!(page.len() <= MAX_GUIDE_BYTES, "{}", page.len());
+}
+
+#[test]
 fn a_long_answer_keeps_whole_guides_and_names_the_ones_left_for_another_call() {
     // Eight of the longest guides can't all fit one answer.
     let mut kinds: Vec<(usize, String)> = EffectKind::ALL

@@ -5,8 +5,9 @@ The order a seasoned show designer works in, with the tool for each step and the
 ## Before anything: how big is the job?
 
 - A small request ("make the arches chase", "add a skeleton to the chorus", "make the tree red in the verses") is one job, done small: read that effect's guide, look at what is there (the context block's rows, `list_sequence_effects` for the stretch), place or change it, `review_draft`, `propose_changes`. Leave the rest of the sequence alone.
-- "Make a sequence for this song" is the whole method below.
-- "Make it better" starts at step 9: review, then fix what the review finds.
+- "Make a sequence for this song" is the whole method below, concepts first (step 3).
+- "Something different", "a new look for the choruses": concepts first (step 3), then the method for the part asked for. A request that already names the idea or the colors ("make it spooky purple") has its concept already: build on it.
+- "Make it better" starts at step 10: review, then fix what the review finds.
 - A request about how the parts feel ("calmer verses, bigger choruses", "it all looks the same") is a job about levels: every section's level follows its own music, the parts nobody named too (topic `intensity`).
 
 ## 1. Understand the song
@@ -17,11 +18,15 @@ The song's analysis comes with the first message, as `analyze_song` answers it. 
 
 The first message's context block has the rows with their ids, what each prop is (its role, its grid, where it sits, whether it has a face), and the groups, which can move together. `get_open_sequence`, `list_props`, and `list_groups` give the same in full when the block is cut short. Know which props are the big canvases (matrices, trees), which are structure (rooflines, outlines, windows), and which are rhythm (arches, canes, stakes). Topic `roles`.
 
-## 3. Plan by section
+## 3. Sketch two or three concepts
+
+For a whole show, or a new look the person hasn't described: two or three truly different ideas for the show, each a line or two (an image from the song, a palette, a feel of motion, effects that could say it), then choose one and say why. Write them for the person in the same reply as your next call, and carry on. Topic `concepts` says how, and when to skip them (a request that already names the idea, a small job).
+
+## 4. Plan by section
 
 Decide, for each group of sections (every verse, every chorus):
 
-- its palette, two or three colors (topic `palettes`);
+- its palette, two or three colors from the concept (topic `palettes`);
 - which props play and which rest (topic `layering`);
 - what each playing prop does, by its role (topic `roles`);
 - which way things move (topic `motion`);
@@ -29,29 +34,29 @@ Decide, for each group of sections (every verse, every chorus):
 
 Plan the loudest section first, with everything you have, then work down: each quieter section is that look with something taken away. It is far easier than building up from the intro and running out of ideas at the last chorus.
 
-## 4. Lay the base
+## 5. Lay the base
 
-One look per section on the bottom layer, with `place_effects` on the group rows and prop rows, cut on the "Sections" track so each look starts where its section does. Take the looks from the effects' guides (`get_guide` with `effects`): each has ready-made ones written for each kind of prop. To choose the effects, topic `choosing` sets every one side by side; then read the guides of only those you will place, all in one call. Choose from the whole range to express the show's idea (topic `range` says what each effect can do): a familiar formula is fine, and so is something new, and when the music changes the effects can change with it. None of it is required. A section that comes back gets the same look again with `repeat_effects`, then a variation with `change_effects` (new colors, a faster speed).
+One look per section on the bottom layer, with `place_effects` on the group rows and prop rows, cut on the "Sections" track so each look starts where its section does. Take the looks from the effects' guides (`get_guide` with `effects`): each has ready-made ones written for each kind of prop. To choose the effects, topic `choosing` sets every one side by side; then read the guides of only those you will place, all in one call. Choose from the whole range to express the concept (topic `range` says what each effect can do): a familiar formula is fine, and so is something new, and when the music changes the effects can change with it. None of it is required. A section that comes back gets the same look again with `repeat_effects`, then a variation with `change_effects` (new colors, a faster speed).
 
 Lay the base in one call: `place_effects` with `items`, an item for each look on each row and section, so the whole base goes down at once rather than an effect a call. Fields beside `items` are every item's default (a shared `layer`, a shared `track`). The repeats are one `repeat_effects` call with `items`, and a pass of variations one `change_effects` call. Each item is done or refused on its own: send again only the refused ones.
 
-## 5. Add movement
+## 6. Add movement
 
 On a layer above the base, the thing that moves with the music: chases and bars cut on "Bars" or "Beats", a spiral on the tree, a pulse on the beat. One moving idea per prop group is enough, all of it in one `place_effects` call with `items`. Blends decide how it sits on the base (topic `blends`).
 
-## 6. Stage the moments
+## 7. Stage the moments
 
 `stage_cue` with `stageMoments` for a first pass over every moment the song has, then cues by hand for the ones that matter most: a `blackout` before the biggest hit, a `ramp` through the build, `minimal` through the breakdown. Topic `cues`.
 
-## 7. Handle the vocals
+## 8. Handle the vocals
 
 If the song has lyrics: faces sing, a matrix shows the hook, key words pop. If it has none in the sequence, say so and offer Find lyrics. Topic `vocals`.
 
-## 8. Open and close
+## 9. Open and close
 
 The first bars and the last chord are what people remember. Topic `openings-endings`.
 
-## 9. Review
+## 10. Review
 
 `review_draft` scores the draft against the song and as a design, and lists fixes, most with the tool calls that make them. Make them, review once more, then `propose_changes`. Two reviews at most: a third pass is rarely worth the user's wait.
 

@@ -727,6 +727,26 @@ fn the_instructions_point_at_the_guides_and_the_method_at_every_topic() {
 }
 
 #[test]
+fn the_concepts_topic_leaves_every_choice_of_effect_and_palette_to_the_assistant() {
+    // Sketching concepts is a way to choose, not a list of choices: the topic names no effect
+    // and gives no colors, so whatever a show is made of comes from its own idea.
+    let written = written_topic("concepts");
+    let kinds = reference::kind_keys();
+    let parsed = knowledge::guide::parse(&written).unwrap();
+    let named: Vec<&String> = parsed.names.iter().filter(|name| kinds.contains(*name)).collect();
+    assert!(named.is_empty(), "topic `concepts` names effects: {named:?}");
+    let color = regex::Regex::new("#[0-9a-fA-F]{6}").unwrap();
+    assert!(!color.is_match(&written), "topic `concepts` gives colors");
+    // The method sends a whole show there before planning, and the topic says when to skip it.
+    let method = written_topic("method");
+    let (sketch, plan) = (method.find("`concepts`"), method.find("## 4. Plan by section"));
+    assert!(sketch.is_some() && plan.is_some() && sketch < plan, "{method}");
+    for words in ["no sketches", "`reset_draft`", "`propose_changes`"] {
+        assert!(written.contains(words), "{words}");
+    }
+}
+
+#[test]
 fn every_topic_is_sound() {
     // Names in backticks are real, generated lists are filled in, looks are real effects, and
     // each topic fits its budget.

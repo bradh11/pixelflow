@@ -1,6 +1,6 @@
 //! Channel map types and frame-buffer layout.
 
-use pf_model::{ColorOrder, ControllerId, PropId, Show};
+use pf_model::{ColorOrder, ControllerId, DmxChannel, PropId, Show};
 use serde::Serialize;
 
 /// Where a prop's pixels live in the show-wide frame buffer.
@@ -37,6 +37,103 @@ pub(crate) fn prop_layouts(show: &Show) -> Vec<PropLayout> {
             layout
         })
         .collect()
+}
+
+/// Each prop's fixture layout (`None` for a pixel prop, or a fixture PixelFlow can't use), its
+/// channels laid out back to back from `from`, after every prop's pixels.
+pub(crate) fn fixture_layouts(show: &Show, props: &[PropLayout], from: usize) -> Vec<Option<FixtureLayout>> {
+    let mut offset = from;
+    show.props
+        .iter()
+        .zip(props)
+        .map(|(prop, layout)| {
+            let dmx = prop.dmx.as_ref()?;
+            if dmx.problem(layout.nodes).is_some() {
+                return None;
+            }
+            let fixture = FixtureLayout {
+                prop: prop.id,
+                cells_offset: layout.frame_offset,
+                cells: layout.nodes,
+                dmx_offset: offset,
+                address: dmx.address,
+                channels: dmx.channels.clone(),
+            };
+            offset += fixture.footprint();
+            Some(fixture)
+        })
+        .collect()
+}
+
+/// Where a DMX fixture's channels live in the show frame: after every prop's pixels, one byte a
+/// channel, in the fixture's own order. Its cells (in [`PropLayout`]) hold the colour it shows.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FixtureLayout {
+    pub prop: PropId,
+    /// Frame offset of its first cell's colour (three bytes a cell).
+    pub cells_offset: usize,
+    pub cells: u32,
+    /// Frame offset of its first channel.
+    pub dmx_offset: usize,
+    /// The DMX address (1-512) its first channel goes to.
+    pub address: u16,
+    pub channels: Vec<DmxChannel>,
+}
+
+impl FixtureLayout {
+    /// Channels it takes.
+    pub fn footprint(&self) -> usize {
+        self.channels.len()
+    }
+
+    /// Its cells' colour and its channels, as two slices of `frame`; `None` when it isn't in it.
+    fn parts<'a>(&self, frame: &'a mut [u8]) -> Option<(&'a mut [u8], &'a mut [u8])> {
+        let cells_end = self.cells_offset + self.cells as usize * 3;
+        if cells_end > self.dmx_offset || self.dmx_offset + self.footprint() > frame.len() {
+            return None;
+        }
+        let (pixels, dmx) = frame.split_at_mut(self.dmx_offset);
+        Some((
+            &mut pixels[self.cells_offset..cells_end],
+            &mut dmx[..self.footprint()],
+        ))
+    }
+
+    /// Turns the colour drawn on its cells into its channels (see `pf_model::write_channels`),
+    /// sets the channels `overrides` sets (channel `i` to `overrides[i]` where that's `Some`;
+    /// empty: none), then writes the colour those channels make back into its cells, for the
+    /// previews. Allocation-free; a fixture outside `frame` is left alone.
+    pub fn write(&self, frame: &mut [u8], overrides: &[Option<u8>]) {
+        let Some((cells, dmx)) = self.parts(frame) else {
+            return;
+        };
+        pf_model::write_channels(&self.channels, cells, dmx);
+        for (byte, value) in dmx.iter_mut().zip(overrides) {
+            if let Some(value) = value {
+                *byte = *value;
+            }
+        }
+        pf_model::emitted_colors(&self.channels, dmx, cells);
+    }
+
+    /// Sets its channels to `values` as they are (the others: colour and dimmer channels to
+    /// zero, the rest to their held values), and its cells to the colour they make: a test of
+    /// the fixture by hand.
+    pub fn write_values(&self, frame: &mut [u8], values: &[Option<u8>]) {
+        let Some((cells, dmx)) = self.parts(frame) else {
+            return;
+        };
+        for (i, (byte, channel)) in dmx.iter_mut().zip(&self.channels).enumerate() {
+            let held = if channel.role.from_color() {
+                0
+            } else {
+                channel.value
+            };
+            *byte = values.get(i).copied().flatten().unwrap_or(held);
+        }
+        pf_model::emitted_colors(&self.channels, dmx, cells);
+    }
 }
 
 /// A run of consecutive prop pixels copied from the frame buffer to consecutive
@@ -104,6 +201,10 @@ pub enum Addressing {
     },
     /// DDP addresses controller channels directly as byte offsets.
     Ddp,
+    /// Art-Net universes in controller-channel order, numbered from 0.
+    ArtNet { universes: Vec<UniverseSpan> },
+    /// A USB DMX interface: one universe, controller channel `n` is DMX channel `n + 1`.
+    DmxUsb,
 }
 
 /// Protocol address of one controller channel.
@@ -118,6 +219,15 @@ pub enum ChannelAddress {
     Ddp {
         offset: usize,
     },
+    /// `channel` is 1-based within the universe.
+    ArtNet {
+        universe: u16,
+        channel: u16,
+    },
+    /// `channel` is 1-based.
+    DmxUsb {
+        channel: u16,
+    },
 }
 
 impl Addressing {
@@ -128,17 +238,35 @@ impl Addressing {
                 offset: controller_channel,
             }),
             Addressing::Sacn { universes, .. } => {
-                let i = universes
-                    .partition_point(|u| u.controller_channel + u.len as usize <= controller_channel);
-                let u = universes.get(i)?;
-                let within = controller_channel.checked_sub(u.controller_channel)?;
-                Some(ChannelAddress::Sacn {
-                    universe: u.universe,
-                    channel: u16::try_from(within + 1).ok()?,
-                })
+                let (universe, channel) = within(universes, controller_channel)?;
+                Some(ChannelAddress::Sacn { universe, channel })
             }
+            Addressing::ArtNet { universes } => {
+                let (universe, channel) = within(universes, controller_channel)?;
+                Some(ChannelAddress::ArtNet { universe, channel })
+            }
+            Addressing::DmxUsb => (controller_channel < 512).then(|| ChannelAddress::DmxUsb {
+                channel: controller_channel as u16 + 1,
+            }),
         }
     }
+
+    /// The universes it numbers on the wire (sACN or Art-Net).
+    pub fn universes(&self) -> &[UniverseSpan] {
+        match self {
+            Addressing::Sacn { universes, .. } | Addressing::ArtNet { universes } => universes,
+            Addressing::Ddp | Addressing::DmxUsb => &[],
+        }
+    }
+}
+
+/// The universe holding `controller_channel` among `universes`, and the channel's place in it
+/// (1-based).
+fn within(universes: &[UniverseSpan], controller_channel: usize) -> Option<(u16, u16)> {
+    let i = universes.partition_point(|u| u.controller_channel + u.len as usize <= controller_channel);
+    let u = universes.get(i)?;
+    let within = controller_channel.checked_sub(u.controller_channel)?;
+    Some((u.universe, u16::try_from(within + 1).ok()?))
 }
 
 /// Output plan for one controller.
@@ -170,6 +298,8 @@ pub struct ChannelMap {
     /// Size of the show-wide frame buffer in bytes.
     pub frame_len: usize,
     pub props: Vec<PropLayout>,
+    /// The DMX fixtures' channels, after every prop's pixels, in show order.
+    pub fixtures: Vec<FixtureLayout>,
     pub controllers: Vec<ControllerOutput>,
 }
 
@@ -178,7 +308,20 @@ impl ChannelMap {
         self.props.iter().find(|p| p.prop == prop)
     }
 
-    /// Every wire location of a prop node (usually one; more if it is wired twice).
+    pub fn fixture(&self, prop: PropId) -> Option<&FixtureLayout> {
+        self.fixtures.iter().find(|f| f.prop == prop)
+    }
+
+    /// Turns the colour drawn on every fixture into its channels (see [`FixtureLayout::write`]),
+    /// with no channel set by hand or by an effect.
+    pub fn write_fixtures(&self, frame: &mut [u8]) {
+        for fixture in &self.fixtures {
+            fixture.write(frame, &[]);
+        }
+    }
+
+    /// Every wire location of a prop node (usually one; more if it is wired twice). For a DMX
+    /// fixture, where its first channel goes, whichever cell.
     pub fn locate(&self, prop: PropId, node: u32) -> Vec<PixelLocation> {
         let Some(layout) = self.prop_layout(prop) else {
             return Vec::new();
@@ -186,7 +329,10 @@ impl ChannelMap {
         if node >= layout.nodes {
             return Vec::new();
         }
-        let frame_byte = layout.frame_offset + node as usize * layout.channels_per_pixel as usize;
+        let frame_byte = match self.fixture(prop) {
+            Some(fixture) => fixture.dmx_offset,
+            None => layout.frame_offset + node as usize * layout.channels_per_pixel as usize,
+        };
         let mut found = Vec::new();
         for output in &self.controllers {
             for span in &output.spans {
@@ -206,14 +352,11 @@ impl ChannelMap {
         found
     }
 
-    /// Total sACN universes across all controllers.
+    /// Total sACN and Art-Net universes across all controllers.
     pub fn universe_count(&self) -> usize {
         self.controllers
             .iter()
-            .map(|c| match &c.addressing {
-                Addressing::Sacn { universes, .. } => universes.len(),
-                Addressing::Ddp => 0,
-            })
+            .map(|c| c.addressing.universes().len())
             .sum()
     }
 }

@@ -199,13 +199,43 @@ fn assert_every_variant(what: &str, count: usize, indexes: impl IntoIterator<Ite
     );
 }
 
+/// A DMX flood of two cells (prop 90): a dimmer, red, green, blue and white, a strobe, a mode held
+/// at 32, and the second cell's red, at address 9.
+pub(crate) fn flood() -> Value {
+    let mut flood = strip(90, "Flood", 2);
+    flood["dmx"] = json!({ "address": 9, "layout": "dimmer-rgbw-strobe-mode", "channels": [
+        { "name": "Dimmer", "role": "dimmer" }, { "name": "Red", "role": "red" },
+        { "name": "Green", "role": "green" }, { "name": "Blue", "role": "blue" },
+        { "name": "White", "role": "white" }, { "name": "Strobe", "role": "strobe" },
+        { "name": "Mode", "role": "fixed", "value": 32 }, { "name": "Red 2", "role": "red", "cell": 1 },
+    ] });
+    flood
+}
+
 /// A show with every shape, groups, a controller of each protocol, and wiring with every
-/// setting, as the window's own edits would build it.
+/// setting, as the window's own edits would build it; and a DMX flood on a DMX node.
 fn full_show_edits() -> Vec<Value> {
     let mut edits: Vec<Value> = every_shape()
         .into_iter()
+        .chain([flood()])
         .map(|prop| json!({ "type": "addProp", "prop": prop }))
         .collect();
+    let mut node = controller(
+        5,
+        "Floods",
+        "192.0.2.13",
+        json!({ "type": "artNet", "startUniverse": null, "universeSize": 512, "allowPixelStraddle": false }),
+        json!([port(1, json!([slot(90)]))]),
+    );
+    node["kind"] = json!("dmx");
+    let mut usb = controller(
+        6,
+        "USB DMX",
+        "/dev/cu.usbserial-0001",
+        json!({ "type": "dmxUsb" }),
+        json!([port(1, json!([]))]),
+    );
+    usb["kind"] = json!("dmx");
     let mut wired = slot(2);
     wired["segment"] = json!({ "start": 0, "end": 3 });
     wired["nullPixels"] = json!(1);
@@ -245,6 +275,8 @@ fn full_show_edits() -> Vec<Value> {
         json!({ "type": "addController", "controller": controller(4, "Unset", "",
             json!({ "type": "sacn", "startUniverse": null, "universeSize": 510, "allowPixelStraddle": true, "multicast": false }),
             json!([])) }),
+        json!({ "type": "addController", "controller": node }),
+        json!({ "type": "addController", "controller": usb }),
     ]);
     edits
 }

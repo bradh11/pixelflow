@@ -37,7 +37,7 @@
             }
           }
         ],
-        "schemaVersion": 14,
+        "schemaVersion": 15,
         "timingTracks": []
       }
     }
@@ -1132,6 +1132,24 @@
             "index": 40,
             "layer": 0,
             "row": "44444444-0000-4000-8000-000000000001"
+          },
+          {
+            "effect": {
+              "blend": "normal",
+              "blur": 0,
+              "endMs": 42000,
+              "fadeInMs": 0,
+              "fadeOutMs": 0,
+              "id": "55555555-0000-4000-8000-000000000042",
+              "palette": { "colors": ["#ff0000", "#00ff00"] },
+              "params": { "channels": {}, "kind": "dmx" },
+              "sparkleColor": "#ffffff",
+              "sparkles": 0,
+              "startMs": 41000
+            },
+            "index": 41,
+            "layer": 0,
+            "row": "44444444-0000-4000-8000-000000000001"
           }
         ],
         "info": null,
@@ -1160,6 +1178,12 @@
         {
           "effect": "55555555-0000-4000-8000-000000000041",
           "message": "The Shader effect at 0:40.000 on 'Strip' (layer 1) starts after the sequence ends (0:40.000), so it never shows.",
+          "row": "44444444-0000-4000-8000-000000000001",
+          "severity": "warning"
+        },
+        {
+          "effect": "55555555-0000-4000-8000-000000000042",
+          "message": "The DMX effect at 0:41.000 on 'Strip' (layer 1) starts after the sequence ends (0:40.000), so it never shows.",
           "row": "44444444-0000-4000-8000-000000000001",
           "severity": "warning"
         }
@@ -1609,7 +1633,7 @@
             "target": { "group": "22222222-0000-4000-8000-000000000001" }
           }
         ],
-        "schemaVersion": 14,
+        "schemaVersion": 15,
         "timingTracks": [
           {
             "id": "66666666-0000-4000-8000-000000000002",
@@ -1895,7 +1919,7 @@
             "target": { "group": "22222222-0000-4000-8000-000000000001" }
           }
         ],
-        "schemaVersion": 14,
+        "schemaVersion": 15,
         "timingTracks": [
           {
             "id": "66666666-0000-4000-8000-000000000002",

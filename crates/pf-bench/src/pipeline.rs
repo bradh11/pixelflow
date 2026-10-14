@@ -278,6 +278,12 @@ impl Controllers {
                     *offset_base,
                     destination,
                 )),
+                Wire::ArtNet { .. } | Wire::DmxUsb { .. } => {
+                    bail!(
+                        "{} is a DMX controller, which the benchmark doesn't measure",
+                        controller.name
+                    )
+                }
             };
             runtimes.push(Runtime {
                 buffer: vec![0; controller.channel_count],

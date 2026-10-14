@@ -180,8 +180,12 @@ fn look_effect(look: &Look, stage: &Stage) -> Result<pf_sequence::Effect, String
     Ok(effect)
 }
 
-/// Whether `effect` lights anything on `suit`'s target at any of the moments it's tried.
+/// Whether `effect` lights anything on `suit`'s target at any of the moments it's tried. A DMX
+/// effect, which acts only on DMX fixtures (the stage has none), is tried on a group of floods.
 fn draws(effect: &pf_sequence::Effect, suit: Suit, stage: &Stage) -> bool {
+    if effect.kind() == EffectKind::Dmx {
+        return lights_floods(effect);
+    }
     let doc = stage.with_effects(suit, std::slice::from_ref(effect));
     let times: Vec<u64> = TRY_AT_MS.iter().map(|t| TRY_FROM_MS + t).collect();
     let pixels = stage.pixels(suit);
@@ -195,6 +199,41 @@ fn draws(effect: &pf_sequence::Effect, suit: Suit, stage: &Stage) -> bool {
                     .is_some_and(|c| c.iter().any(|v| *v > 12))
             })
         })
+}
+
+/// Whether `effect` lights a group of two floods (dimmer, red, green, blue and strobe channels)
+/// at any of the moments it's tried.
+fn lights_floods(effect: &pf_sequence::Effect) -> bool {
+    use pf_model::{DmxFixture, Generator, Group, Prop, ShapeSource, Show, dmx_layout};
+    let mut show = Show::new("Floods");
+    for (n, address) in [(0.0, 1), (2.0, 6)] {
+        let mut flood = Prop::new(
+            format!("Flood {address}"),
+            ShapeSource::Generator(Generator::Line {
+                nodes: 1,
+                length: 0.5,
+            }),
+        );
+        flood.transform.position.x = n;
+        let layout = dmx_layout("dimmer-rgb-strobe").expect("a library layout");
+        flood.dmx = Some(DmxFixture::from_layout(layout, 1, address));
+        show.props.push(flood);
+    }
+    let mut group = Group::new("Floods");
+    group.members = show.props.iter().map(|p| p.id.into()).collect();
+    let target = pf_sequence::Target::Group(group.id);
+    show.groups.push(group);
+    let mut doc = pf_sequence::Sequence::new("floods", TRY_FROM_MS + TRY_FOR_MS);
+    let mut row = pf_sequence::Row::new(target);
+    row.layers = vec![pf_sequence::Layer {
+        effects: vec![effect.clone()],
+    }];
+    doc.rows.push(row);
+    let mut renderer = pf_engine::DraftRenderer::new(&show);
+    TRY_AT_MS.iter().any(|t| {
+        let frame = renderer.frame(&doc, TRY_FROM_MS + t);
+        frame.get(..6).is_some_and(|cells| cells.iter().any(|v| *v > 12))
+    })
 }
 
 /// What's wrong with the written guide for `kind` (`None`: there isn't one), in words that say

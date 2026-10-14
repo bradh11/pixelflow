@@ -1,5 +1,6 @@
 //! The output thread: paces frames and sends every controller's packets.
 
+use crate::artnet::ArtNetPackets;
 use crate::clock::FrameClock;
 use crate::ddp::DdpPackets;
 use crate::gather::render_controller;
@@ -8,6 +9,7 @@ use crate::plan::{ControllerPlan, OutputPlan, Wire};
 use crate::sacn::{SacnPackets, SacnSequences, multicast_addr, sync_packet};
 use crate::settings::OutputSettings;
 use crate::transport::Transport;
+use crate::usb::UsbDmxPacket;
 use pf_frame::FrameReader;
 use pf_mapping::UniverseSpan;
 use pf_model::ControllerId;
@@ -147,6 +149,8 @@ fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
 enum Packets {
     Sacn(SacnPackets),
     Ddp(DdpPackets),
+    ArtNet(ArtNetPackets),
+    Usb(UsbDmxPacket),
     None,
 }
 
@@ -155,6 +159,8 @@ impl Packets {
         match self {
             Packets::Sacn(p) => p.update(channels),
             Packets::Ddp(p) => p.update(channels),
+            Packets::ArtNet(p) => p.update(channels),
+            Packets::Usb(p) => p.update(channels),
             Packets::None => {}
         }
     }
@@ -163,14 +169,34 @@ impl Packets {
         match self {
             Packets::Sacn(p) => p.len(),
             Packets::Ddp(p) => p.len(),
+            Packets::ArtNet(p) => p.len(),
+            Packets::Usb(_) => 1,
             Packets::None => 0,
         }
     }
 
-    fn packet(&self, i: usize) -> (&[u8], SocketAddr) {
-        match self {
+    /// Sends packet `i` where it goes.
+    fn send(&self, i: usize, transport: &mut dyn Transport) -> io::Result<()> {
+        let (packet, to) = match self {
             Packets::Sacn(p) => p.packet(i),
             Packets::Ddp(p) => p.packet(i),
+            Packets::ArtNet(p) => p.packet(i),
+            Packets::Usb(p) => return transport.send_serial(&p.port, p.message()),
+            Packets::None => unreachable!("no packets"),
+        };
+        transport.send_to(packet, to)
+    }
+
+    /// Where packet `i` goes, as a stream (see [`Stream`]).
+    fn stream(&self, i: usize) -> Stream {
+        match self {
+            Packets::Sacn(p) => {
+                let (packet, to) = p.packet(i);
+                Stream::Net(to, Some(u16::from_be_bytes([packet[113], packet[114]])))
+            }
+            Packets::ArtNet(p) => Stream::Net(p.destination(), Some(p.universes()[i].universe)),
+            Packets::Ddp(p) => Stream::Net(p.destination(), None),
+            Packets::Usb(p) => Stream::Serial(p.port.clone()),
             Packets::None => unreachable!("no packets"),
         }
     }
@@ -182,8 +208,14 @@ impl Packets {
     }
 }
 
-/// One stream on the wire: an sACN universe at a destination, or a DDP destination.
-type Stream = (SocketAddr, Option<u16>);
+/// One stream on the wire: an sACN or Art-Net universe at a destination, a DDP destination, or a
+/// USB DMX interface's serial port. (sACN and Art-Net go to different ports, so their universes
+/// can't be taken for each other's.)
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum Stream {
+    Net(SocketAddr, Option<u16>),
+    Serial(String),
+}
 
 /// What one pass of sending a controller's packets came to.
 #[derive(Default)]
@@ -201,8 +233,7 @@ fn transmit(packets: &mut Packets, channels: &[u8], transport: &mut dyn Transpor
     packets.update(channels);
     let mut sent = Sent::default();
     for i in 0..packets.len() {
-        let (packet, destination) = packets.packet(i);
-        match transport.send_to(packet, destination) {
+        match packets.send(i, transport) {
             Ok(()) => sent.packets += 1,
             Err(e) if is_transient(&e) => {
                 sent.errors += 1;
@@ -270,6 +301,12 @@ impl Runtime {
                 ControllerState::Ok,
                 None,
             ),
+            (Wire::ArtNet { universes }, Ok(destination)) => (
+                Packets::ArtNet(ArtNetPackets::new(universes, *destination)),
+                ControllerState::Ok,
+                None,
+            ),
+            (Wire::DmxUsb { port }, _) => (Packets::Usb(UsbDmxPacket::new(port)), ControllerState::Ok, None),
             (_, Err(reason)) => (Packets::None, ControllerState::Unresolved, Some(reason.clone())),
         };
         let stats = ControllerStats {
@@ -306,9 +343,11 @@ impl Runtime {
         match (&self.packets, &self.plan.wire) {
             (Packets::Sacn(_), Wire::Sacn { universes, multicast }) => universes
                 .iter()
-                .map(|u| (self.sacn_destination(*multicast, u.universe), Some(u.universe)))
+                .map(|u| Stream::Net(self.sacn_destination(*multicast, u.universe), Some(u.universe)))
                 .collect(),
-            (Packets::Ddp(p), _) if !p.is_empty() => vec![(p.destination(), None)],
+            (Packets::Ddp(p), _) if !p.is_empty() => vec![Stream::Net(p.destination(), None)],
+            (Packets::ArtNet(p), _) => (0..p.len()).map(|i| self.packets.stream(i)).collect(),
+            (Packets::Usb(p), _) => vec![Stream::Serial(p.port.clone())],
             _ => Vec::new(),
         }
     }
@@ -415,7 +454,9 @@ impl Runtime {
                     })
                     .map(|(u, _)| *u)
                     .collect();
-                let first = streams.first()?.0;
+                let Stream::Net(first, _) = streams.first()?.clone() else {
+                    return None;
+                };
                 if dropped.is_empty() {
                     return None;
                 }
@@ -427,11 +468,29 @@ impl Runtime {
                     passes: 0,
                 })
             }
-            (packets @ Packets::Ddp(_), _) if streams.iter().any(|s| !kept.contains(s)) => Some(Retiring {
-                packets,
-                buffer,
-                passes: 0,
-            }),
+            (Packets::ArtNet(p), _) => {
+                let dropped: Vec<UniverseSpan> = p
+                    .universes()
+                    .iter()
+                    .zip(&streams)
+                    .filter(|(_, stream)| !kept.contains(stream))
+                    .map(|(u, _)| *u)
+                    .collect();
+                (!dropped.is_empty()).then(|| Retiring {
+                    packets: Packets::ArtNet(ArtNetPackets::new(&dropped, p.destination())),
+                    buffer,
+                    passes: 0,
+                })
+            }
+            (packets @ (Packets::Ddp(_) | Packets::Usb(_)), _)
+                if streams.iter().any(|s| !kept.contains(s)) =>
+            {
+                Some(Retiring {
+                    packets,
+                    buffer,
+                    passes: 0,
+                })
+            }
             _ => None,
         }
     }
@@ -468,15 +527,7 @@ impl Retiring {
     }
 
     fn streams(&self) -> Vec<Stream> {
-        (0..self.packets.len())
-            .map(|i| {
-                let (packet, to) = self.packets.packet(i);
-                match self.packets {
-                    Packets::Sacn(_) => (to, Some(u16::from_be_bytes([packet[113], packet[114]]))),
-                    _ => (to, None),
-                }
-            })
-            .collect()
+        (0..self.packets.len()).map(|i| self.packets.stream(i)).collect()
     }
 }
 

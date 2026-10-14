@@ -63,12 +63,18 @@ pub(crate) fn chunk_channels(
 
 /// Chooses each controller's first universe. Pinned starts are kept; the rest are
 /// packed from universe 1 upward, skipping pinned ranges.
+#[cfg(test)]
 pub(crate) fn allocate(requests: &[(Option<u16>, u32)]) -> Vec<u32> {
+    allocate_from(requests, 1)
+}
+
+/// [`allocate`], packing from universe `first` (1 for sACN, 0 for Art-Net).
+pub(crate) fn allocate_from(requests: &[(Option<u16>, u32)], first: u32) -> Vec<u32> {
     let pinned: Vec<(u32, u32)> = requests
         .iter()
         .filter_map(|&(start, count)| start.map(|s| (u32::from(s), u32::from(s) + count)))
         .collect();
-    let mut next = 1u32;
+    let mut next = first;
     requests
         .iter()
         .map(|&(start, count)| {
@@ -88,87 +94,140 @@ pub(crate) fn allocate(requests: &[(Option<u16>, u32)]) -> Vec<u32> {
         .collect()
 }
 
-/// Packs and numbers universes for every sACN controller. `runs[i]` are controller `i`'s pixels.
-pub(crate) fn assign(show: &Show, runs: &[&[PixelRun]], report: &mut ValidationReport) -> Vec<Addressing> {
+/// The highest Art-Net universe.
+const MAX_ART_NET: u32 = pf_model::MAX_ART_NET_UNIVERSE as u32;
+
+/// Packs and numbers universes for every sACN and Art-Net controller. `runs[i]` are controller
+/// `i`'s pixels; `dmx[i]` its universes when it's a DMX controller (each a whole 512 channels).
+/// sACN and Art-Net number universes apart: each is packed, and checked for collisions, on its
+/// own.
+pub(crate) fn assign(
+    show: &Show,
+    runs: &[&[PixelRun]],
+    dmx: &[Option<usize>],
+    report: &mut ValidationReport,
+) -> Vec<Addressing> {
     let chunks: Vec<Vec<(usize, u16)>> = show
         .controllers
         .iter()
         .zip(runs)
-        .map(|(c, r)| match c.protocol {
-            Protocol::Sacn(cfg) => chunk_channels(r, cfg.universe_size.channels(), cfg.allow_pixel_straddle),
-            Protocol::Ddp => Vec::new(),
+        .zip(dmx)
+        .map(|((c, r), dmx)| match (c.protocol.universes(), dmx) {
+            (Some(_), Some(universes)) => (0..*universes)
+                .map(|u| {
+                    (
+                        u * crate::wiring::DMX_UNIVERSE,
+                        crate::wiring::DMX_UNIVERSE as u16,
+                    )
+                })
+                .collect(),
+            (Some((_, size, straddle)), None) => chunk_channels(r, size.channels(), straddle),
+            (None, _) => Vec::new(),
         })
         .collect();
-    let requests: Vec<(Option<u16>, u32)> = show
-        .controllers
-        .iter()
-        .zip(&chunks)
-        .map(|(c, ch)| match c.protocol {
-            Protocol::Sacn(cfg) => (cfg.start_universe, ch.len() as u32),
-            Protocol::Ddp => (None, 0),
-        })
-        .collect();
-    let starts = allocate(&requests);
-
-    let mut ranges: Vec<(usize, u32, u32, bool)> = Vec::new();
+    let art_net = |c: &pf_model::Controller| matches!(c.protocol, Protocol::ArtNet(_));
+    let requests = |of_art_net: bool| -> Vec<(Option<u16>, u32)> {
+        show.controllers
+            .iter()
+            .zip(&chunks)
+            .map(|(c, ch)| match c.protocol.universes() {
+                Some((start, _, _)) if art_net(c) == of_art_net => (start, ch.len() as u32),
+                _ => (None, 0),
+            })
+            .collect()
+    };
+    let sacn_starts = allocate_from(&requests(false), 1);
+    let art_net_starts = allocate_from(&requests(true), 0);
+    let mut sacn_ranges: Vec<(usize, u32, u32, bool)> = Vec::new();
+    let mut art_net_ranges: Vec<(usize, u32, u32, bool)> = Vec::new();
     let addressing = show
         .controllers
         .iter()
         .enumerate()
-        .map(|(i, c)| match c.protocol {
-            Protocol::Ddp => Addressing::Ddp,
-            Protocol::Sacn(cfg) => {
-                let start = starts[i];
-                let count = chunks[i].len() as u32;
-                if count > 0 {
-                    let last = start + count - 1;
-                    if start == 0 || last > MAX_UNIVERSE {
-                        report.push(
-                            Issue::error(
-                                IssueCode::UniverseOutOfRange,
-                                format!(
-                                    "'{}' needs universes {start}–{last}, but sACN universes must be between 1 and {MAX_UNIVERSE}.",
-                                    c.name
-                                ),
-                            )
-                            .with_fix(if start == 0 {
-                                "Choose a start universe of 1 or more, or clear it to assign automatically."
-                            } else {
-                                "Choose a lower start universe, or clear it to assign automatically."
-                            }),
-                        );
-                    }
-                    ranges.push((i, start, start + count, cfg.multicast));
+        .map(|(i, c)| {
+            let (start, max, multicast) = match c.protocol {
+                Protocol::Ddp => return Addressing::Ddp,
+                Protocol::DmxUsb => return Addressing::DmxUsb,
+                Protocol::Sacn(cfg) => (sacn_starts[i], MAX_UNIVERSE, cfg.multicast),
+                Protocol::ArtNet(_) => (art_net_starts[i], MAX_ART_NET, false),
+            };
+            let count = chunks[i].len() as u32;
+            if count > 0 {
+                let last = start + count - 1;
+                let sacn = !art_net(c);
+                if (sacn && start == 0) || last > max {
+                    let (name, low) = if sacn { ("sACN", 1) } else { ("Art-Net", 0) };
+                    report.push(
+                        Issue::error(
+                            IssueCode::UniverseOutOfRange,
+                            format!(
+                                "'{}' needs universes {start}–{last}, but {name} universes must be between {low} and {max}.",
+                                c.name
+                            ),
+                        )
+                        .with_fix(if sacn && start == 0 {
+                            "Choose a start universe of 1 or more, or clear it to assign automatically."
+                        } else {
+                            "Choose a lower start universe, or clear it to assign automatically."
+                        }),
+                    );
                 }
-                let universes = chunks[i]
-                    .iter()
-                    .enumerate()
-                    .map(|(n, &(channel, len))| UniverseSpan {
-                        universe: u16::try_from(start + n as u32).unwrap_or(u16::MAX),
-                        controller_channel: channel,
-                        len,
-                    })
-                    .collect();
-                Addressing::Sacn {
+                let ranges = if sacn {
+                    &mut sacn_ranges
+                } else {
+                    &mut art_net_ranges
+                };
+                ranges.push((i, start, start + count, multicast));
+            }
+            let universes = chunks[i]
+                .iter()
+                .enumerate()
+                .map(|(n, &(channel, len))| UniverseSpan {
+                    universe: u16::try_from(start + n as u32).unwrap_or(u16::MAX),
+                    controller_channel: channel,
+                    len,
+                })
+                .collect();
+            match c.protocol {
+                Protocol::ArtNet(_) => Addressing::ArtNet { universes },
+                _ => Addressing::Sacn {
                     universes,
-                    multicast: cfg.multicast,
-                }
+                    multicast,
+                },
             }
         })
         .collect();
-
-    check_collisions(show, &ranges, report);
+    check_collisions(show, &sacn_ranges, false, report);
+    check_collisions(show, &art_net_ranges, true, report);
     addressing
 }
 
-fn check_collisions(show: &Show, ranges: &[(usize, u32, u32, bool)], report: &mut ValidationReport) {
+fn check_collisions(
+    show: &Show,
+    ranges: &[(usize, u32, u32, bool)],
+    art_net: bool,
+    report: &mut ValidationReport,
+) {
     for (a, &(ia, sa, ea, ma)) in ranges.iter().enumerate() {
         for &(ib, sb, eb, mb) in &ranges[a + 1..] {
             if sa < eb && sb < ea {
                 let (lo, hi) = (sa.max(sb), ea.min(eb) - 1);
                 let (na, nb) = (&show.controllers[ia].name, &show.controllers[ib].name);
-                let message = format!("'{na}' and '{nb}' both use universes {lo}–{hi}.");
                 let fix = "Clear the pinned start universe on one controller so PixelFlow assigns it automatically.";
+                if art_net {
+                    // Art-Net goes to each controller's own address.
+                    report.push(
+                        Issue::warning(
+                            IssueCode::UniverseCollision,
+                            format!(
+                                "'{na}' and '{nb}' both use Art-Net universes {lo}–{hi}. That only matters if they are the same device."
+                            ),
+                        )
+                        .with_fix(fix),
+                    );
+                    continue;
+                }
+                let message = format!("'{na}' and '{nb}' both use universes {lo}–{hi}.");
                 let issue = if ma || mb {
                     Issue::error(IssueCode::UniverseCollision, message)
                 } else {

@@ -7,6 +7,9 @@ import type { Controller, Edit, Protocol, Show } from "../api/types";
 /** The highest sACN universe (the engine's limit). */
 export const MAX_UNIVERSE = 63_999;
 
+/** The highest Art-Net universe (its 15-bit port-address). */
+export const MAX_ART_NET_UNIVERSE = 32_767;
+
 /** The most channels an sACN universe carries. */
 export const MAX_UNIVERSE_SIZE = 512;
 
@@ -19,7 +22,7 @@ export function isUniverseSize(size: number): boolean {
 export interface ControllerDraft {
   name: string;
   address: string;
-  protocol: "ddp" | "sacn";
+  protocol: Protocol["type"];
   /** Empty lets PixelFlow choose the universes. */
   startUniverse: string;
   /** Channels per universe, as typed. */
@@ -30,15 +33,20 @@ export interface ControllerDraft {
 export type DraftProblems = Partial<Record<"name" | "address" | "startUniverse" | "universeSize", string>>;
 
 export function controllerDraft(c: Controller): ControllerDraft {
-  const sacn = c.protocol.type === "sacn" ? c.protocol : null;
+  const numbered = c.protocol.type === "sacn" || c.protocol.type === "artNet" ? c.protocol : null;
   return {
     name: c.name,
     address: c.address,
     protocol: c.protocol.type,
-    startUniverse: sacn?.startUniverse != null ? String(sacn.startUniverse) : "",
-    universeSize: String(sacn?.universeSize ?? 510),
-    multicast: sacn?.multicast ?? false,
+    startUniverse: numbered?.startUniverse != null ? String(numbered.startUniverse) : "",
+    universeSize: String(numbered?.universeSize ?? 510),
+    multicast: c.protocol.type === "sacn" ? c.protocol.multicast : false,
   };
+}
+
+/** Whether the form's protocol numbers universes (sACN or Art-Net). */
+export function numbersUniverses(protocol: ControllerDraft["protocol"]): boolean {
+  return protocol === "sacn" || protocol === "artNet";
 }
 
 const PORT_PROBLEM = "The port after the colon must be a number from 1 to 65535, or leave the colon off.";
@@ -79,7 +87,8 @@ function startUniverse(draft: ControllerDraft): number | null | undefined {
   if (!text) return null;
   if (!/^\d+$/.test(text)) return undefined;
   const n = Number(text);
-  return n >= 1 && n <= MAX_UNIVERSE ? n : undefined;
+  const [low, high] = draft.protocol === "artNet" ? [0, MAX_ART_NET_UNIVERSE] : [1, MAX_UNIVERSE];
+  return n >= low && n <= high ? n : undefined;
 }
 
 /** The channels per universe typed, or undefined when it isn't a whole number from 1 to 512. */
@@ -118,16 +127,20 @@ export function checkDraft(draft: ControllerDraft, before: Controller, show: Sho
   const multicast = draft.protocol === "sacn" && draft.multicast;
   const wasMulticast = was.protocol === "sacn" && was.multicast;
   const address = draft.address.trim();
-  if (address !== was.address.trim() || (wasMulticast && !multicast)) {
+  if (draft.protocol === "dmxUsb") {
+    if (!address) problems.address = "Choose the USB DMX interface's port, or type it (like COM3).";
+  } else if (address !== was.address.trim() || (wasMulticast && !multicast) || was.protocol === "dmxUsb") {
     const problem = addressProblem(address, { emptyOk: multicast });
     const shared = address ? others.find((c) => c.address.trim().toLowerCase() === address.toLowerCase()) : undefined;
     if (problem) problems.address = problem;
     else if (shared) warnings.address = `${shared.name} also uses ${address}. That's fine if it's the same controller.`;
   }
-  if (draft.protocol === "sacn" && draft.startUniverse.trim() !== was.startUniverse.trim() && startUniverse(draft) === undefined) {
-    problems.startUniverse = `The start universe must be a whole number from 1 to ${MAX_UNIVERSE}, or empty to let PixelFlow choose.`;
+  const changedKind = draft.protocol !== was.protocol;
+  if (numbersUniverses(draft.protocol) && (changedKind || draft.startUniverse.trim() !== was.startUniverse.trim()) && startUniverse(draft) === undefined) {
+    const [low, high] = draft.protocol === "artNet" ? [0, MAX_ART_NET_UNIVERSE] : [1, MAX_UNIVERSE];
+    problems.startUniverse = `The start universe must be a whole number from ${low} to ${high}, or empty to let PixelFlow choose.`;
   }
-  if (draft.protocol === "sacn" && universeSize(draft) === undefined) {
+  if (numbersUniverses(draft.protocol) && universeSize(draft) === undefined) {
     problems.universeSize = `Channels per universe must be a whole number from 1 to ${MAX_UNIVERSE_SIZE}. Match what the controller is set to.`;
   }
   return { problems, warnings };
@@ -135,8 +148,17 @@ export function checkDraft(draft: ControllerDraft, before: Controller, show: Sho
 
 function protocolOf(draft: ControllerDraft, before: Protocol): Protocol {
   if (draft.protocol === "ddp") return { type: "ddp" };
-  const kept = before.type === "sacn" ? before : { allowPixelStraddle: false, startUniverse: null };
+  if (draft.protocol === "dmxUsb") return { type: "dmxUsb" };
+  const kept = before.type === draft.protocol ? before : { allowPixelStraddle: false, startUniverse: null };
   const universe = startUniverse(draft);
+  if (draft.protocol === "artNet") {
+    return {
+      type: "artNet",
+      startUniverse: universe === undefined ? kept.startUniverse : universe,
+      universeSize: universeSize(draft) ?? 512,
+      allowPixelStraddle: kept.allowPixelStraddle,
+    };
+  }
   return {
     type: "sacn",
     // An untouched start universe the form can't read (out of range in an old file) stays as it was.

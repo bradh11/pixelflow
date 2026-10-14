@@ -97,6 +97,7 @@
         "canUndo": true,
         "channelMap": {
           "controllers": [],
+          "fixtures": [],
           "frameLen": 312,
           "props": [
             {
@@ -182,7 +183,7 @@
               }
             }
           ],
-          "schemaVersion": 13,
+          "schemaVersion": 14,
           "sequences": [],
           "settings": { "frameRate": 40 }
         },

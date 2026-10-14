@@ -26,8 +26,9 @@ use serde::{Deserialize, Serialize};
 /// an older xLights resized it (`resize`); 12 = the Fireworks effect; 13 = the sequence says which
 /// channel of its music is how loud the music is (`musicLevelSource`); 14 = the Shader
 /// effect, whose settings include the inputs its shader file declares, by name (`inputs`), and
-/// whose curves can change one of those (`inputs.<name>`).
-pub const CURRENT_SCHEMA_VERSION: u32 = 14;
+/// whose curves can change one of those (`inputs.<name>`); 15 = the DMX effect, which sets
+/// fixtures' channels by number (`channels`), and whose curves can change one (`channels.<n>`).
+pub const CURRENT_SCHEMA_VERSION: u32 = 15;
 
 fn default_frame_ms() -> u32 {
     25

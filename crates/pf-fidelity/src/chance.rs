@@ -182,7 +182,8 @@ fn of_kind(params: &EffectParams) -> Declared {
         | EffectParams::Fill(_)
         // A shader is a function of the time and its inputs: its date is fixed and nothing is drawn
         // at random.
-        | EffectParams::Shader(_) => NOTHING,
+        | EffectParams::Shader(_)
+        | EffectParams::Dmx(_) => NOTHING,
     }
 }
 

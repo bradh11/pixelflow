@@ -63,6 +63,13 @@ pub fn channel_map(show: &Show, map: &ChannelMap) -> String {
                     _ => format!("sACN, no universes ({mode})"),
                 }
             }
+            Addressing::ArtNet { universes } => match (universes.first(), universes.last()) {
+                (Some(first), Some(last)) => {
+                    format!("Art-Net universes {}–{}", first.universe, last.universe)
+                }
+                _ => "Art-Net, no universes".to_string(),
+            },
+            Addressing::DmxUsb => "USB DMX".to_string(),
         };
         let _ = writeln!(out, "{}  {}  {}", controller.name, controller.address, protocol);
         let mut current_port = None;
@@ -92,6 +99,8 @@ fn address(address: Option<ChannelAddress>) -> String {
     match address {
         Some(ChannelAddress::Sacn { universe, channel }) => format!("U{universe}:{channel}"),
         Some(ChannelAddress::Ddp { offset }) => format!("@{offset}"),
+        Some(ChannelAddress::ArtNet { universe, channel }) => format!("Art-Net U{universe}:{channel}"),
+        Some(ChannelAddress::DmxUsb { channel }) => format!("DMX {channel}"),
         None => "?".to_string(),
     }
 }

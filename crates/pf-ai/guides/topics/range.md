@@ -19,6 +19,7 @@ Every effect below has a full guide (`get_guide` with `effects`) with what it dr
 - `twinkle` (string, arch, matrix, tree, house): starlight, sparse and slow for an intro or a bridge, thick for a glittering chorus. "Starlight".
 - `shimmer` (string, arch, matrix, tree, house): a whole prop blinking between colors on the beat; keep it slow on anything large (topic `safety`). "Blink on the beat, red then green".
 - `strobe` (string, arch, matrix, tree, house): scattered flashes, a still field of stars or a burst at the very biggest hit. "Still field of stars".
+- `dmx` (house): DMX floods' own channels set directly: a strobe burst, a dimmer swell, a mode; their color comes from the other effects. "Dimmer swell".
 
 ## Movement along and across
 

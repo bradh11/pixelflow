@@ -167,7 +167,8 @@ pub fn varied(pixels: u32, seconds: u32, blending: RowBlending) -> Varied {
                     .map(|slot| {
                         // A different kind in every layer of every row, and a new one each slot.
                         let n = t * LAYERS + layer + slot as usize * 5;
-                        let kind = EffectKind::ALL[(n * 7) % EffectKind::ALL.len()];
+                        // The step shares no factor with the number of kinds (42), so every kind comes up.
+                        let kind = EffectKind::ALL[(n * 11) % EffectKind::ALL.len()];
                         let span = (slot * SLOT_MS, ((slot + 1) * SLOT_MS).min(duration_ms));
                         let mut effect = maker.plain(kind, span, (n as u64) << 4 | slot, on);
                         dress(&mut effect, n, singing);

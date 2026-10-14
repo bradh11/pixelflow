@@ -769,6 +769,7 @@ fn everything_the_guides_name_can_be_said_to_a_tool() {
                 SettingValue::TimingTrack { .. } => vec![json!("Beats"), Value::Null],
                 SettingValue::ShaderFile { .. } => vec![json!(pf_sequence::DEFAULT_SHADER)],
                 SettingValue::ShaderInputs { .. } => vec![json!({}), json!({ "speed": 2 })],
+                SettingValue::DmxChannels { .. } => vec![json!({}), json!({ "1": 0, "512": 255 })],
             };
             for value in values {
                 placed(json!({ "kind": kind, "settings": { setting.key: value } }));

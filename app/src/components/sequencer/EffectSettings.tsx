@@ -30,6 +30,7 @@ import {
 } from "./effectControls";
 import { MultiEffectSettings } from "./MultiEffectSettings";
 import { ShaderFileSetting, ShaderInputsSetting } from "./ShaderSettings";
+import { DmxChannelsSetting, fixtureChannels } from "./DmxSettings";
 import { More } from "../ui";
 import { BUFFER_TRANSFORMS, renderStyleOptions } from "../../lib/renderStyles";
 import type { BufferTransform, RenderStyle } from "../../api/sequence";
@@ -111,6 +112,16 @@ function Settings({ doc }: { doc: Sequence }) {
       else inputs[name] = value;
       return { ...e, params: { ...e.params, inputs } };
     }, gesture);
+  /** One channel of a DMX effect set, or (undefined) no longer set, with any curve on it. */
+  const setDmxChannel = (channel: number, value: number | undefined, gesture?: string) =>
+    change((e) => {
+      if (e.params.kind !== "dmx") return null;
+      const channels = { ...e.params.channels };
+      if (value === undefined) delete channels[String(channel)];
+      else channels[String(channel)] = Math.max(0, Math.min(255, Math.round(value)));
+      const curves = value === undefined ? withCurve(e.curves, `channels.${channel}`, null) : e.curves;
+      return { ...e, params: { ...e.params, channels }, curves };
+    }, gesture);
   const length = effect.endMs - effect.startMs;
   // xLights' own offset and zoom for a shader are kept from an import but not applied, so there
   // is nothing to set: they show only on an effect that came with one, to say so.
@@ -151,6 +162,15 @@ function Settings({ doc }: { doc: Sequence }) {
                   description={setting.description}
                   file={effect.params.file ?? setting.default}
                   onChoose={chooseShader}
+                />
+              ) : effect.params.kind === "dmx" && setting.type === "dmxChannels" ? (
+                <DmxChannelsSetting
+                  key={`${id}:${setting.key}`}
+                  effectId={id}
+                  values={effect.params.channels ?? {}}
+                  channels={fixtureChannels(show, target)}
+                  onChange={setDmxChannel}
+                  animate={animate}
                 />
               ) : effect.params.kind === "shader" && setting.type === "shaderInputs" ? (
                 <ShaderInputsSetting

@@ -52,6 +52,8 @@ pub enum SettingRange {
     ShaderInputs,
     /// One of the sequence's timing tracks (or none).
     TimingTrack,
+    /// DMX channels set by number, each to 0-255 (see [`crate::DmxValues`]).
+    DmxChannels,
 }
 
 /// One setting of one effect kind.
@@ -273,6 +275,9 @@ macro_rules! range {
     ($ty:ty, timing_track) => {
         $crate::settings::SettingRange::TimingTrack
     };
+    ($ty:ty, dmx_channels) => {
+        $crate::settings::SettingRange::DmxChannels
+    };
 }
 pub(crate) use range;
 
@@ -465,6 +470,10 @@ pub enum SettingValue {
     TimingTrack {
         default: Option<TimingTrackId>,
     },
+    /// DMX channels by number (1-512), each set to 0-255 (`{}` = none set).
+    DmxChannels {
+        default: crate::DmxValues,
+    },
 }
 
 /// Every effect kind, in menu order, with its settings, ranges, and defaults.
@@ -518,6 +527,9 @@ fn effect_info(kind: EffectKind) -> EffectInfo {
                 },
                 SettingRange::TimingTrack => SettingValue::TimingTrack {
                     default: serde_json::from_value(default.clone()).expect("a timing track default"),
+                },
+                SettingRange::DmxChannels => SettingValue::DmxChannels {
+                    default: serde_json::from_value(default.clone()).expect("a DMX channels default"),
                 },
             };
             SettingInfo {
@@ -580,7 +592,9 @@ mod tests {
                     | SettingRange::ShaderFile => {
                         assert!(value.is_string(), "{kind:?}.{}", spec.key)
                     }
-                    SettingRange::ShaderInputs => assert!(value.is_object(), "{kind:?}.{}", spec.key),
+                    SettingRange::ShaderInputs | SettingRange::DmxChannels => {
+                        assert!(value.is_object(), "{kind:?}.{}", spec.key)
+                    }
                     SettingRange::TimingTrack => assert!(value.is_null(), "{kind:?}.{}", spec.key),
                     SettingRange::Choice(options) => {
                         assert!(

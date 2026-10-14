@@ -69,7 +69,7 @@ import { deepView, frontView } from "../lib/geometry";
 import { type SampleCapture, cameraOwners, ownerProps, planInMemory, sampleCapture } from "./memoryCameraMap";
 import { sequenceSeconds, slotCount, SLOT_SECONDS } from "../lib/cameraMap";
 import type { FrameSource } from "../lib/captureFrames";
-import { mapControllers } from "./memoryMapping";
+import { mapControllers, mapFixtures } from "./memoryMapping";
 import { channelsPerPixel, memberProp, newController, nodeCount } from "../lib/shows";
 import { fileName, thousands } from "../lib/format";
 import { fppFileName } from "../lib/fppNames";
@@ -1541,7 +1541,10 @@ export class MemoryBackend implements Backend {
         props: this.show.props.length,
         pixels: channelMap.props.reduce((sum, p) => sum + p.nodes, 0),
         controllers: this.show.controllers.length,
-        universes: channelMap.controllers.reduce((sum, c) => sum + (c.addressing.type === "sacn" ? c.addressing.universes.length : 0), 0),
+        universes: channelMap.controllers.reduce(
+          (sum, c) => sum + (c.addressing.type === "sacn" || c.addressing.type === "artNet" ? c.addressing.universes.length : 0),
+          0,
+        ),
       },
       missingFiles: this.filesChecked ? this.missingFiles() : [],
       filesChecked: this.filesChecked,
@@ -1618,7 +1621,7 @@ export interface PreviewWindowHandle {
 
 export function emptyShow(name: string): Show {
   return {
-    schemaVersion: 13,
+    schemaVersion: 14,
     name,
     settings: { frameRate: 40 },
     props: [],
@@ -1651,7 +1654,9 @@ function layoutOnly(show: Show): ChannelMap {
     offset += layout.nodes * layout.channelsPerPixel;
     return layout;
   });
-  return { frameLen: offset, props, controllers: [] };
+  const fixtures = mapFixtures(show, offset);
+  const last = fixtures[fixtures.length - 1];
+  return { frameLen: last ? last.dmxOffset + last.channels.length : offset, props, fixtures, controllers: [] };
 }
 
 /** Refuses a universe size the engine can't read, in its words. */

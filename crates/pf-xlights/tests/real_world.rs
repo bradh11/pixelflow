@@ -133,7 +133,7 @@ fn controllers_with_odd_universe_sizes_import_with_their_wiring() {
         .iter()
         .map(|c| match c.protocol {
             Protocol::Sacn(cfg) => (c.name.as_str(), cfg.start_universe, cfg.universe_size.channels()),
-            Protocol::Ddp => panic!("{} is sACN", c.name),
+            _ => panic!("{} is sACN", c.name),
         })
         .collect();
     assert_eq!(

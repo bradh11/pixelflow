@@ -51,13 +51,13 @@
     }
   ],
   "start": {
-    "channelMapNow": { "controllers": [], "frameLen": 0, "props": [] },
+    "channelMapNow": { "controllers": [], "fixtures": [], "frameLen": 0, "props": [] },
     "issuesNow": [],
     "sequence": null,
     "sequenceIssuesNow": null,
     "sequenceNow": null,
     "show": { "canRedo": false, "canUndo": false, "dirty": false, "path": null, "revision": 0 },
-    "showNow": { "background": null, "controllers": [], "groups": [], "name": "Untitled Show", "props": [], "schemaVersion": 13, "sequences": [], "settings": { "frameRate": 40 } },
+    "showNow": { "background": null, "controllers": [], "groups": [], "name": "Untitled Show", "props": [], "schemaVersion": 14, "sequences": [], "settings": { "frameRate": 40 } },
     "summaryNow": { "controllers": 0, "pixels": 0, "props": 0, "universes": 0 }
   },
   "steps": [
@@ -71,7 +71,7 @@
     { "args": { "address": "192.0.2.10", "expected": ["192.0.2.77"] }, "command": "fpp_set_up_show", "reply": { "error": "What this FPP sends to, or your show, changed since you looked. Check the list again before adding." }, "sequence": null, "show": { "canRedo": false, "canUndo": false, "dirty": false, "path": null, "revision": 0 } },
     {
       "args": { "address": "192.0.2.10", "expected": ["192.0.2.20"] },
-      "channelMapNow": { "controllers": [{ "addressing": { "type": "ddp" }, "channelCount": 0, "controller": "00000000-0000-4000-a000-000000000009", "spans": [] }], "frameLen": 0, "props": [] },
+      "channelMapNow": { "controllers": [{ "addressing": { "type": "ddp" }, "channelCount": 0, "controller": "00000000-0000-4000-a000-000000000009", "spans": [] }], "fixtures": [], "frameLen": 0, "props": [] },
       "command": "fpp_set_up_show",
       "reply": {},
       "sequence": null,
@@ -82,7 +82,7 @@
         "groups": [],
         "name": "Untitled Show",
         "props": [],
-        "schemaVersion": 13,
+        "schemaVersion": 14,
         "sequences": [],
         "settings": { "frameRate": 40 }
       },
@@ -92,12 +92,12 @@
     { "args": { "address": "192.0.2.10", "expected": [] }, "command": "fpp_set_up_show", "reply": { "error": "Your show already has everything this FPP sends to." }, "sequence": null, "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 } },
     {
       "args": {},
-      "channelMapNow": { "controllers": [], "frameLen": 0, "props": [] },
+      "channelMapNow": { "controllers": [], "fixtures": [], "frameLen": 0, "props": [] },
       "command": "undo",
       "reply": {},
       "sequence": null,
       "show": { "canRedo": true, "canUndo": false, "dirty": true, "path": null, "revision": 2 },
-      "showNow": { "background": null, "controllers": [], "groups": [], "name": "Untitled Show", "props": [], "schemaVersion": 13, "sequences": [], "settings": { "frameRate": 40 } },
+      "showNow": { "background": null, "controllers": [], "groups": [], "name": "Untitled Show", "props": [], "schemaVersion": 14, "sequences": [], "settings": { "frameRate": 40 } },
       "summaryNow": { "controllers": 0, "pixels": 0, "props": 0, "universes": 0 }
     },
     {

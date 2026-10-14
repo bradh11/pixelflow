@@ -104,6 +104,7 @@
               ]
             }
           ],
+          "fixtures": [],
           "frameLen": 2319,
           "props": [
             {
@@ -511,7 +512,7 @@
               }
             }
           ],
-          "schemaVersion": 13,
+          "schemaVersion": 14,
           "sequences": [],
           "settings": { "frameRate": 40 }
         },
@@ -1122,7 +1123,7 @@
               "target": { "group": "00000000-0000-4000-a000-000000000009" }
             }
           ],
-          "schemaVersion": 14,
+          "schemaVersion": 15,
           "timingTracks": []
         }
       },
@@ -1454,7 +1455,7 @@
           "name": "Effects",
           "rowBlending": "blend",
           "rows": [],
-          "schemaVersion": 14,
+          "schemaVersion": 15,
           "timingTracks": []
         }
       },

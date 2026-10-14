@@ -47,7 +47,8 @@ export type EffectKind =
   | "shockwave"
   | "fill"
   | "fireworks"
-  | "shader";
+  | "shader"
+  | "dmx";
 
 export type Gradient = "none" | "horizontal" | "vertical";
 /** What the Shape effect draws. */
@@ -507,7 +508,15 @@ export type EffectParams =
       offsetX?: number;
       offsetY?: number;
       zoom?: number;
+    }
+  | {
+      kind: "dmx";
+      /** The DMX fixtures' channels it sets, by number from each fixture's first (1-512), to 0-255. */
+      channels?: DmxValues;
     };
+
+/** DMX channels by number (as text: "1" is a fixture's first channel), each set to 0-255. */
+export type DmxValues = Record<string, number>;
 
 /**
  * What one input of a shader is set to: a switch, a number (for a choice, the number of the one
@@ -953,6 +962,8 @@ export type EffectSetting = SettingBase &
     | { type: "shaderInputs"; default: ShaderInputs }
     /** One of the sequence's timing tracks, by id. */
     | { type: "timingTrack"; default: Uuid | null }
+    /** DMX channels by number, each set to 0-255 ({} = none set). */
+    | { type: "dmxChannels"; default: DmxValues }
   );
 
 /**
@@ -1209,6 +1220,7 @@ export const EFFECT_KINDS: { kind: EffectKind; label: string }[] = [
   { kind: "fill", label: "Fill" },
   { kind: "fireworks", label: "Fireworks" },
   { kind: "shader", label: "Shader" },
+  { kind: "dmx", label: "DMX" },
 ];
 
 /** A new effect of `kind` (engine-default settings, white) from `startMs` to `endMs`. */

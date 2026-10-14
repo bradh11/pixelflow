@@ -255,6 +255,43 @@ export type OwnLayout =
   | { kind: "strand"; reversed?: boolean }
   | { kind: "cells"; columns: number; rows: number; cells: [number, number][] };
 
+/** What one DMX channel of a fixture does (see `DmxRole` in crates/pf-model/src/dmx.rs). */
+export type DmxRole =
+  | "dimmer"
+  | "red"
+  | "green"
+  | "blue"
+  | "white"
+  | "amber"
+  | "uv"
+  | "strobe"
+  | "fixed"
+  | "pan"
+  | "panFine"
+  | "tilt"
+  | "tiltFine"
+  | "colorWheel"
+  | "gobo"
+  | "other";
+
+/** One channel of a DMX fixture, in the order the fixture takes them. */
+export interface DmxChannel {
+  name: string;
+  role: DmxRole;
+  /** The cell a colour channel belongs to (0, the first, when missing). */
+  cell?: number;
+  /** The value it holds when nothing sets it (0 when missing); colour and dimmer channels follow the colour. */
+  value?: number;
+}
+
+/** What makes a prop a DMX fixture: its start address (1-512) and its channels. */
+export interface DmxFixture {
+  address: number;
+  channels: DmxChannel[];
+  /** The library layout it was made from (see `DMX_LAYOUTS`), when it was. */
+  layout?: string;
+}
+
 export interface Prop {
   id: Uuid;
   name: string;
@@ -264,6 +301,8 @@ export interface Prop {
   regions: Region[];
   tags: string[];
   ownLayout?: OwnLayout;
+  /** Present when the prop is a DMX fixture (a flood, a par, a bar of cells). */
+  dmx?: DmxFixture;
 }
 
 /** A group member: a whole prop (its id) or one of a prop's submodels. */
@@ -327,7 +366,19 @@ export type Protocol =
       allowPixelStraddle: boolean;
       multicast: boolean;
     }
-  | { type: "ddp" };
+  | { type: "ddp" }
+  | {
+      type: "artNet";
+      /** The first Art-Net universe (0-32767), or null to number them automatically. */
+      startUniverse: number | null;
+      universeSize: number;
+      allowPixelStraddle: boolean;
+    }
+  /** A USB DMX interface (ENTTEC DMX USB Pro protocol); the controller's address is its serial port. */
+  | { type: "dmxUsb" };
+
+/** What a controller drives: pixels one after another, or DMX universes (a port each) with fixtures at their addresses. */
+export type ControllerKind = "pixels" | "dmx";
 
 export interface Controller {
   id: Uuid;
@@ -335,6 +386,8 @@ export interface Controller {
   address: string;
   adapter: "fpp" | "falcon" | "wled" | "generic";
   protocol: Protocol;
+  /** Pixels when missing. */
+  kind?: ControllerKind;
   ports: Port[];
   /** Where this controller's data sits in a rendered sequence (channels from 1), when known. */
   sequenceChannels: { start: number; count: number; rawDdpOffsets?: boolean } | null;
@@ -429,13 +482,31 @@ export interface OutputSpan {
 export interface ControllerOutput {
   controller: Uuid;
   channelCount: number;
-  addressing: { type: "sacn"; universes: UniverseSpan[]; multicast: boolean } | { type: "ddp" };
+  addressing:
+    | { type: "sacn"; universes: UniverseSpan[]; multicast: boolean }
+    | { type: "ddp" }
+    | { type: "artNet"; universes: UniverseSpan[] }
+    | { type: "dmxUsb" };
   spans: OutputSpan[];
+}
+
+/** Where a DMX fixture's channels are in the show frame (after every prop's pixels). */
+export interface FixtureLayout {
+  prop: Uuid;
+  /** Frame offset of its first cell's colour (three bytes a cell). */
+  cellsOffset: number;
+  cells: number;
+  /** Frame offset of its first channel. */
+  dmxOffset: number;
+  address: number;
+  channels: DmxChannel[];
 }
 
 export interface ChannelMap {
   frameLen: number;
   props: PropLayout[];
+  /** The DMX fixtures' channels. */
+  fixtures: FixtureLayout[];
   controllers: ControllerOutput[];
 }
 

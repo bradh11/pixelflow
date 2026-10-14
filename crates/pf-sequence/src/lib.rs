@@ -6,6 +6,7 @@
 //! limits, and validation; rendering lives in `pf-render`.
 
 mod curve;
+mod dmx;
 mod document;
 mod effect;
 mod ids;
@@ -20,6 +21,7 @@ pub use curve::{
     Curve, CurveInputs, CurveShape, CurveTime, MAX_CURVE_CYCLES, MAX_CURVE_FADE, MAX_CURVE_POINTS,
     MIN_CURVE_CYCLES,
 };
+pub use dmx::{DmxValues, MAX_DMX_EFFECT_CHANNEL, dmx_value};
 pub use document::{
     CURRENT_SCHEMA_VERSION, Layer, Mark, MusicLevelSource, Row, RowBlending, Sequence, Target, TimingKind,
     TimingTrack,
@@ -27,8 +29,8 @@ pub use document::{
 pub use effect::{
     Axis, BarsMotion, BarsParams, Blend, ButterflyColors, ButterflyParams, ChaseOrder, ChaseParams,
     CirclesLook, CirclesParams, ColorShiftParams, ColorWashParams, CurveRange, DEFAULT_SHADER,
-    DancerBackground, DancerCharacter, DancerMove, DancerParams, DancerSpeed, Direction, Effect, EffectKind,
-    EffectParams, FaceColorSource, FaceEyes, FacesParams, FadeDirection, FadeParams, FanParams,
+    DancerBackground, DancerCharacter, DancerMove, DancerParams, DancerSpeed, Direction, DmxParams, Effect,
+    EffectKind, EffectParams, FaceColorSource, FaceEyes, FacesParams, FadeDirection, FadeParams, FanParams,
     FillDirection, FillParams, FireLocation, FireParams, FireStyle, FireworksColors, FireworksParams,
     GarlandShape, GarlandsDirection, GarlandsParams, Gradient, HitColor, ImpactDecay, ImpactParams,
     LifeParams, LifeRules, LightningParams, LinesParams, MeteorDirection, MeteorsParams, MorphParams,

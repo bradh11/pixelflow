@@ -61,6 +61,7 @@ const HUES: Record<EffectKind, number> = {
   fill: 130,
   fireworks: 320,
   shader: 265,
+  dmx: 30,
 };
 
 interface Theme {

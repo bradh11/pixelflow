@@ -93,6 +93,24 @@ pub(crate) fn check_limits(show: &Show) -> Vec<LimitProblem> {
             }
         };
         total += nodes;
+        if let Some(dmx) = &prop.dmx
+            && (dmx.channels.len() > crate::MAX_DMX_CHANNELS
+                || dmx
+                    .channels
+                    .iter()
+                    .any(|c| c.name.chars().count() > crate::MAX_DMX_CHANNEL_NAME))
+        {
+            push(
+                IssueCode::LimitExceeded,
+                format!(
+                    "The DMX fixture '{}' has more than {} channels or a channel name longer than {} characters.",
+                    prop.name,
+                    crate::MAX_DMX_CHANNELS,
+                    crate::MAX_DMX_CHANNEL_NAME
+                ),
+                "Give the fixture at most 512 channels, with short names.",
+            );
+        }
         if prop.regions.len() > MAX_REGIONS_PER_PROP {
             push(
                 IssueCode::LimitExceeded,

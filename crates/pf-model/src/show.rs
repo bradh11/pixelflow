@@ -24,8 +24,10 @@ use std::path::Path;
 /// 1 to 512, not just 510 or 512; 12 = groups have a `layout` and `gridSize` saying how effects
 /// lay out their pixels, and the show an optional `layoutArea`; 13 = a prop can say how effects
 /// on it lay its own pixels out (`ownLayout`: one row along the wiring, or a cell for each
-/// pixel), as an xLights line, poly line, or custom model does.
-pub const CURRENT_SCHEMA_VERSION: u32 = 13;
+/// pixel), as an xLights line, poly line, or custom model does; 14 = DMX: a prop can be a DMX
+/// fixture (`dmx`: its address and channels), a controller can drive DMX universes (`kind`), and
+/// controllers can receive Art-Net (`artNet`) or be a USB DMX interface (`dmxUsb`).
+pub const CURRENT_SCHEMA_VERSION: u32 = 14;
 
 /// Show-wide settings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

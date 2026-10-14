@@ -2,13 +2,13 @@
   "about": "The demo show built into the app: the same props, channels, and universes on both sides.",
   "devices": [],
   "start": {
-    "channelMapNow": { "controllers": [], "frameLen": 0, "props": [] },
+    "channelMapNow": { "controllers": [], "fixtures": [], "frameLen": 0, "props": [] },
     "issuesNow": [],
     "sequence": null,
     "sequenceIssuesNow": null,
     "sequenceNow": null,
     "show": { "canRedo": false, "canUndo": false, "dirty": false, "path": null, "revision": 0 },
-    "showNow": { "background": null, "controllers": [], "groups": [], "name": "Untitled Show", "props": [], "schemaVersion": 13, "sequences": [], "settings": { "frameRate": 40 } },
+    "showNow": { "background": null, "controllers": [], "groups": [], "name": "Untitled Show", "props": [], "schemaVersion": 14, "sequences": [], "settings": { "frameRate": 40 } },
     "summaryNow": { "controllers": 0, "pixels": 0, "props": 0, "universes": 0 }
   },
   "steps": [
@@ -42,6 +42,7 @@
           },
           { "addressing": { "type": "ddp" }, "channelCount": 0, "controller": "00000000-0000-4000-8000-000000000011", "spans": [] }
         ],
+        "fixtures": [],
         "frameLen": 4386,
         "props": [
           { "channelsPerPixel": 3, "frameOffset": 0, "nodes": 50, "prop": "00000000-0000-4000-8000-000000000001" },
@@ -178,7 +179,7 @@
             "transform": { "position": { "x": -3.0, "y": 8.2, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } }
           }
         ],
-        "schemaVersion": 13,
+        "schemaVersion": 14,
         "sequences": [],
         "settings": { "frameRate": 40 }
       },
@@ -313,7 +314,7 @@
             "transform": { "position": { "x": -3.0, "y": 8.2, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } }
           }
         ],
-        "schemaVersion": 13,
+        "schemaVersion": 14,
         "sequences": [],
         "settings": { "frameRate": 40 }
       }
@@ -447,7 +448,7 @@
             "transform": { "position": { "x": -3.0, "y": 8.2, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } }
           }
         ],
-        "schemaVersion": 13,
+        "schemaVersion": 14,
         "sequences": [],
         "settings": { "frameRate": 40 }
       }

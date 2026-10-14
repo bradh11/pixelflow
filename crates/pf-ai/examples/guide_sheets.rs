@@ -298,7 +298,10 @@ fn auto_variants(kind: EffectKind) -> Vec<(String, Value)> {
                     out.push((format!("{key} = {file}"), json!({ key: file })));
                 }
             }
-            SettingValue::Face { .. } | SettingValue::Text { .. } | SettingValue::ShaderInputs { .. } => {}
+            SettingValue::Face { .. }
+            | SettingValue::Text { .. }
+            | SettingValue::ShaderInputs { .. }
+            | SettingValue::DmxChannels { .. } => {}
         }
     }
     out

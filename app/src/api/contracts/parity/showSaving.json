@@ -2,22 +2,22 @@
   "about": "Whether the show has unsaved changes, through saving, undoing past a save, and starting or opening another.",
   "devices": [],
   "start": {
-    "channelMapNow": { "controllers": [], "frameLen": 0, "props": [] },
+    "channelMapNow": { "controllers": [], "fixtures": [], "frameLen": 0, "props": [] },
     "issuesNow": [],
     "sequence": null,
     "sequenceIssuesNow": null,
     "sequenceNow": null,
     "show": { "canRedo": false, "canUndo": false, "dirty": false, "path": null, "revision": 0 },
-    "showNow": { "background": null, "controllers": [], "groups": [], "name": "Untitled Show", "props": [], "schemaVersion": 13, "sequences": [], "settings": { "frameRate": 40 } },
+    "showNow": { "background": null, "controllers": [], "groups": [], "name": "Untitled Show", "props": [], "schemaVersion": 14, "sequences": [], "settings": { "frameRate": 40 } },
     "summaryNow": { "controllers": 0, "pixels": 0, "props": 0, "universes": 0 }
   },
   "steps": [
-    { "args": { "edits": [{ "name": "House", "type": "renameShow" }] }, "command": "apply_edits", "reply": {}, "sequence": null, "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }, "showNow": { "background": null, "controllers": [], "groups": [], "name": "House", "props": [], "schemaVersion": 13, "sequences": [], "settings": { "frameRate": 40 } } },
+    { "args": { "edits": [{ "name": "House", "type": "renameShow" }] }, "command": "apply_edits", "reply": {}, "sequence": null, "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }, "showNow": { "background": null, "controllers": [], "groups": [], "name": "House", "props": [], "schemaVersion": 14, "sequences": [], "settings": { "frameRate": 40 } } },
     { "args": {}, "command": "save_show", "reply": { "error": "This show has not been saved yet. Choose where to save it." }, "sequence": null, "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 } },
     { "args": { "path": "/fixture/House.pixelflow.json" }, "command": "save_show_as", "reply": {}, "sequence": null, "show": { "canRedo": false, "canUndo": true, "dirty": false, "path": "/fixture/House.pixelflow.json", "revision": 1 } },
     {
       "args": { "edits": [{ "prop": { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000001", "name": "Gutter", "regions": [], "shape": { "length": 3, "nodes": 50, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 1, "y": 0, "z": 0 }, "rotationDeg": { "x": 0, "y": 0, "z": 0 }, "scale": { "x": 1, "y": 1, "z": 1 } } }, "type": "addProp" }] },
-      "channelMapNow": { "controllers": [], "frameLen": 150, "props": [{ "channelsPerPixel": 3, "frameOffset": 0, "nodes": 50, "prop": "11111111-0000-4000-8000-000000000001" }] },
+      "channelMapNow": { "controllers": [], "fixtures": [], "frameLen": 150, "props": [{ "channelsPerPixel": 3, "frameOffset": 0, "nodes": 50, "prop": "11111111-0000-4000-8000-000000000001" }] },
       "command": "apply_edits",
       "issuesNow": [{ "code": "unassignedNodes", "fix": "Drag the prop onto a controller port.", "message": "The prop 'Gutter' is not wired to any controller port.", "severity": "warning" }],
       "reply": {},
@@ -29,7 +29,7 @@
         "groups": [],
         "name": "House",
         "props": [{ "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000001", "name": "Gutter", "regions": [], "shape": { "length": 3.0, "nodes": 50, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 1.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } }],
-        "schemaVersion": 13,
+        "schemaVersion": 14,
         "sequences": [],
         "settings": { "frameRate": 40 }
       },
@@ -37,19 +37,19 @@
     },
     {
       "args": {},
-      "channelMapNow": { "controllers": [], "frameLen": 0, "props": [] },
+      "channelMapNow": { "controllers": [], "fixtures": [], "frameLen": 0, "props": [] },
       "command": "undo",
       "issuesNow": [],
       "reply": {},
       "sequence": null,
       "show": { "canRedo": true, "canUndo": true, "dirty": true, "path": "/fixture/House.pixelflow.json", "revision": 3 },
-      "showNow": { "background": null, "controllers": [], "groups": [], "name": "House", "props": [], "schemaVersion": 13, "sequences": [], "settings": { "frameRate": 40 } },
+      "showNow": { "background": null, "controllers": [], "groups": [], "name": "House", "props": [], "schemaVersion": 14, "sequences": [], "settings": { "frameRate": 40 } },
       "summaryNow": { "controllers": 0, "pixels": 0, "props": 0, "universes": 0 }
     },
     { "args": {}, "command": "save_show", "reply": {}, "sequence": null, "show": { "canRedo": true, "canUndo": true, "dirty": false, "path": "/fixture/House.pixelflow.json", "revision": 3 } },
     {
       "args": {},
-      "channelMapNow": { "controllers": [], "frameLen": 150, "props": [{ "channelsPerPixel": 3, "frameOffset": 0, "nodes": 50, "prop": "11111111-0000-4000-8000-000000000001" }] },
+      "channelMapNow": { "controllers": [], "fixtures": [], "frameLen": 150, "props": [{ "channelsPerPixel": 3, "frameOffset": 0, "nodes": 50, "prop": "11111111-0000-4000-8000-000000000001" }] },
       "command": "redo",
       "issuesNow": [{ "code": "unassignedNodes", "fix": "Drag the prop onto a controller port.", "message": "The prop 'Gutter' is not wired to any controller port.", "severity": "warning" }],
       "reply": {},
@@ -61,7 +61,7 @@
         "groups": [],
         "name": "House",
         "props": [{ "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000001", "name": "Gutter", "regions": [], "shape": { "length": 3.0, "nodes": 50, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 1.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } }],
-        "schemaVersion": 13,
+        "schemaVersion": 14,
         "sequences": [],
         "settings": { "frameRate": 40 }
       },
@@ -69,13 +69,13 @@
     },
     {
       "args": { "name": "Shed" },
-      "channelMapNow": { "controllers": [], "frameLen": 0, "props": [] },
+      "channelMapNow": { "controllers": [], "fixtures": [], "frameLen": 0, "props": [] },
       "command": "new_show",
       "issuesNow": [],
       "reply": {},
       "sequence": null,
       "show": { "canRedo": false, "canUndo": false, "dirty": false, "path": null, "revision": 5 },
-      "showNow": { "background": null, "controllers": [], "groups": [], "name": "Shed", "props": [], "schemaVersion": 13, "sequences": [], "settings": { "frameRate": 40 } },
+      "showNow": { "background": null, "controllers": [], "groups": [], "name": "Shed", "props": [], "schemaVersion": 14, "sequences": [], "settings": { "frameRate": 40 } },
       "summaryNow": { "controllers": 0, "pixels": 0, "props": 0, "universes": 0 }
     },
     { "args": {}, "command": "undo", "reply": {}, "sequence": null, "show": { "canRedo": false, "canUndo": false, "dirty": false, "path": null, "revision": 5 } },
@@ -86,7 +86,7 @@
       "reply": {},
       "sequence": null,
       "show": { "canRedo": false, "canUndo": false, "dirty": false, "path": "/fixture/House.pixelflow.json", "revision": 6 },
-      "showNow": { "background": null, "controllers": [], "groups": [], "name": "House", "props": [], "schemaVersion": 13, "sequences": [], "settings": { "frameRate": 40 } }
+      "showNow": { "background": null, "controllers": [], "groups": [], "name": "House", "props": [], "schemaVersion": 14, "sequences": [], "settings": { "frameRate": 40 } }
     },
     { "args": {}, "command": "undo", "reply": {}, "sequence": null, "show": { "canRedo": false, "canUndo": false, "dirty": false, "path": "/fixture/House.pixelflow.json", "revision": 6 } },
     {
@@ -95,7 +95,7 @@
       "reply": {},
       "sequence": null,
       "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": "/fixture/House.pixelflow.json", "revision": 7 },
-      "showNow": { "background": null, "controllers": [], "groups": [], "name": "House 2", "props": [], "schemaVersion": 13, "sequences": [], "settings": { "frameRate": 40 } }
+      "showNow": { "background": null, "controllers": [], "groups": [], "name": "House 2", "props": [], "schemaVersion": 14, "sequences": [], "settings": { "frameRate": 40 } }
     },
     {
       "args": { "path": "/fixture/House.pixelflow.json" },
@@ -103,7 +103,7 @@
       "reply": {},
       "sequence": null,
       "show": { "canRedo": false, "canUndo": false, "dirty": false, "path": "/fixture/House.pixelflow.json", "revision": 8 },
-      "showNow": { "background": null, "controllers": [], "groups": [], "name": "House", "props": [], "schemaVersion": 13, "sequences": [], "settings": { "frameRate": 40 } }
+      "showNow": { "background": null, "controllers": [], "groups": [], "name": "House", "props": [], "schemaVersion": 14, "sequences": [], "settings": { "frameRate": 40 } }
     }
   ]
 }

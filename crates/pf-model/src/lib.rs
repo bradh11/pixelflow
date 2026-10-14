@@ -5,6 +5,7 @@
 
 mod color;
 mod controller;
+mod dmx;
 mod ids;
 mod io;
 mod issue;
@@ -21,7 +22,12 @@ mod validate;
 
 pub use color::Rgb;
 pub use controller::{
-    AdapterKind, Controller, Port, PortSlot, Protocol, SacnConfig, SequenceChannels, UniverseSize,
+    AdapterKind, ArtNetConfig, Controller, ControllerKind, MAX_ART_NET_UNIVERSE, Port, PortSlot, Protocol,
+    SacnConfig, SequenceChannels, UniverseSize,
+};
+pub use dmx::{
+    DMX_LAYOUTS, DmxChannel, DmxFixture, DmxLayout, DmxRole, MAX_DMX_CELLS, MAX_DMX_CHANNEL_NAME,
+    MAX_DMX_CHANNELS, dmx_layout, emitted_colors, write_channels,
 };
 pub use ids::{ControllerId, GroupId, PropId, RegionId, SequenceId};
 pub use io::{ModelError, check_show, show_file_from_json, show_file_to_json, show_from_json, show_to_json};

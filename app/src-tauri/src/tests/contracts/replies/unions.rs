@@ -86,6 +86,15 @@ fn union_members() {
             SingleLineModelAsPixel, DefaultModelAsPixel, PerModelDefault),
     );
     all(
+        "types.DmxRole",
+        every!(pf_model::DmxRole: Dimmer, Red, Green, Blue, White, Amber, Uv, Strobe, Fixed, Pan, PanFine, Tilt,
+            TiltFine, ColorWheel, Gobo, Other),
+    );
+    all(
+        "types.ControllerKind",
+        every!(pf_model::ControllerKind: Pixels, Dmx),
+    );
+    all(
         "types.Issue['severity']",
         every!(pf_model::Severity: Warning, Error),
     );
@@ -100,7 +109,7 @@ fn union_members() {
         every!(pf_sequence::EffectKind: On, Off, ColorWash, Fade, Chase, Bars, Wave, Twinkle, Shimmer, Strobe, Spiral,
             Fire, Meteors, Ripple, Shape, Fan, Morph, Circles, Pinwheel, Snowflakes, Plasma, Butterfly, Garlands,
             Lines, Life, Tendril, Text, Faces, VuMeter, Impact, Wipe, Lightning, Pulse, Sing, ColorShift, Dancer,
-            Picture, Shockwave, Fill, Fireworks, Shader),
+            Picture, Shockwave, Fill, Fireworks, Shader, Dmx),
     );
     all(
         "sequence.Blend",
@@ -381,10 +390,12 @@ fn union_members() {
         serde_json::from_value(full["show"]["controllers"].clone()).unwrap();
     assert_every_variant(
         "protocol",
-        2,
+        4,
         controllers.iter().map(|c| match c.protocol {
             pf_model::Protocol::Sacn(_) => 0,
             pf_model::Protocol::Ddp => 1,
+            pf_model::Protocol::ArtNet(_) => 2,
+            pf_model::Protocol::DmxUsb => 3,
         }),
     );
     let protocols: Vec<Value> = full["show"]["controllers"]

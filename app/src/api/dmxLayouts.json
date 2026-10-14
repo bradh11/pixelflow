@@ -1,0 +1,180 @@
+[
+  {
+    "id": "rgb",
+    "label": "3 channels: red, green, blue",
+    "head": [],
+    "cell": [
+      "red",
+      "green",
+      "blue"
+    ],
+    "tail": [],
+    "multiCell": false
+  },
+  {
+    "id": "dimmer-rgb",
+    "label": "4 channels: dimmer, red, green, blue",
+    "head": [
+      "dimmer"
+    ],
+    "cell": [
+      "red",
+      "green",
+      "blue"
+    ],
+    "tail": [],
+    "multiCell": false
+  },
+  {
+    "id": "rgbw",
+    "label": "4 channels: red, green, blue, white",
+    "head": [],
+    "cell": [
+      "red",
+      "green",
+      "blue",
+      "white"
+    ],
+    "tail": [],
+    "multiCell": false
+  },
+  {
+    "id": "dimmer-rgb-strobe",
+    "label": "5 channels: dimmer, red, green, blue, strobe",
+    "head": [
+      "dimmer"
+    ],
+    "cell": [
+      "red",
+      "green",
+      "blue"
+    ],
+    "tail": [
+      "strobe"
+    ],
+    "multiCell": false
+  },
+  {
+    "id": "rgbwa",
+    "label": "5 channels: red, green, blue, white, amber",
+    "head": [],
+    "cell": [
+      "red",
+      "green",
+      "blue",
+      "white",
+      "amber"
+    ],
+    "tail": [],
+    "multiCell": false
+  },
+  {
+    "id": "dimmer-rgbw-strobe",
+    "label": "6 channels: dimmer, red, green, blue, white, strobe",
+    "head": [
+      "dimmer"
+    ],
+    "cell": [
+      "red",
+      "green",
+      "blue",
+      "white"
+    ],
+    "tail": [
+      "strobe"
+    ],
+    "multiCell": false
+  },
+  {
+    "id": "rgbwa-uv",
+    "label": "6 channels: red, green, blue, white, amber, UV",
+    "head": [],
+    "cell": [
+      "red",
+      "green",
+      "blue",
+      "white",
+      "amber",
+      "uv"
+    ],
+    "tail": [],
+    "multiCell": false
+  },
+  {
+    "id": "dimmer-rgbw-strobe-mode",
+    "label": "7 channels: dimmer, red, green, blue, white, strobe, mode",
+    "head": [
+      "dimmer"
+    ],
+    "cell": [
+      "red",
+      "green",
+      "blue",
+      "white"
+    ],
+    "tail": [
+      "strobe",
+      "fixed"
+    ],
+    "multiCell": false
+  },
+  {
+    "id": "dimmer-rgbwa-uv-strobe",
+    "label": "8 channels: dimmer, red, green, blue, white, amber, UV, strobe",
+    "head": [
+      "dimmer"
+    ],
+    "cell": [
+      "red",
+      "green",
+      "blue",
+      "white",
+      "amber",
+      "uv"
+    ],
+    "tail": [
+      "strobe"
+    ],
+    "multiCell": false
+  },
+  {
+    "id": "bar-rgb",
+    "label": "Bar: red, green, blue for each cell",
+    "head": [],
+    "cell": [
+      "red",
+      "green",
+      "blue"
+    ],
+    "tail": [],
+    "multiCell": true
+  },
+  {
+    "id": "bar-dimmer-strobe-rgb",
+    "label": "Bar: dimmer, strobe, then red, green, blue for each cell",
+    "head": [
+      "dimmer",
+      "strobe"
+    ],
+    "cell": [
+      "red",
+      "green",
+      "blue"
+    ],
+    "tail": [],
+    "multiCell": true
+  },
+  {
+    "id": "bar-rgbw",
+    "label": "Bar: red, green, blue, white for each cell",
+    "head": [],
+    "cell": [
+      "red",
+      "green",
+      "blue",
+      "white"
+    ],
+    "tail": [],
+    "multiCell": true
+  }
+]

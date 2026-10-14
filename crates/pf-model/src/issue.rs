@@ -52,10 +52,12 @@ pub enum IssueCode {
     /// A DDP controller wired to both RGB and RGBW props: DDP tells the controller one pixel type
     /// for the whole stream, so some controllers (WLED) misread the other kind.
     MixedPixelTypes,
-    /// A DMX fixture on a pixel controller, or a pixel prop on a DMX controller: not sent.
+    /// A pixel prop on a DMX controller: not sent.
     WrongControllerKind,
     /// Two fixtures on one DMX universe share channels.
     DmxChannelsOverlap,
+    /// A fixture on a pixel controller whose channels don't start at its address.
+    DmxAddressMismatch,
     /// A DMX controller with no universe to send, or a USB DMX interface with more than one.
     DmxUniverses,
 }

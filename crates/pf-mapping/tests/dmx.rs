@@ -169,7 +169,7 @@ fn art_net_universes_collide_only_with_art_net() {
 }
 
 #[test]
-fn overlapping_fixtures_and_the_wrong_kind_of_controller_are_reported() {
+fn overlapping_fixtures_and_pixels_on_a_dmx_controller_are_reported() {
     let a = flood("A", "dimmer-rgb", 1);
     let b = flood("B", "rgb", 3);
     let arch = line("Arch", 5);
@@ -195,15 +195,78 @@ fn overlapping_fixtures_and_the_wrong_kind_of_controller_are_reported() {
         found(IssueCode::DmxChannelsOverlap),
         vec!["'B' and 'A' share channels on port 1 of 'Node', so the later one's values are sent there."]
     );
-    assert_eq!(found(IssueCode::WrongControllerKind).len(), 2);
+    assert_eq!(found(IssueCode::WrongControllerKind).len(), 1, "the arch");
     assert!(
         !report.has_code(IssueCode::UnassignedNodes),
         "wired to the wrong kind isn't also 'not wired': {:?}",
         report.issues
     );
-    // Neither is sent.
+    // The arch isn't sent; the stray flood is, on the pixel controller.
     assert_eq!(map.controllers[0].spans.len(), 2);
-    assert!(map.controllers[1].spans.is_empty());
+    assert_eq!(map.controllers[1].spans.len(), 1);
+}
+
+#[test]
+fn a_pixel_controller_carries_a_fixture_whole_where_it_falls_in_its_universes() {
+    // 160 RGB pixels (480 channels), 30 null channels, then a 7-channel flood at channel 511 of
+    // universe 1: it doesn't fit there, so it starts universe 2 at channel 1.
+    let arch = line("Arch", 160);
+    let mut flood = flood("Flood", "dimmer-rgbw-strobe-mode", 1);
+    let mut controller = Controller::new(
+        "Falcon",
+        "192.0.2.22",
+        Protocol::Sacn(SacnConfig {
+            start_universe: Some(1),
+            universe_size: pf_model::UniverseSize::CHANNELS_512,
+            ..SacnConfig::default()
+        }),
+    );
+    controller.ports.push(pf_model::Port::new(1));
+    controller.ports[0].slots.push(PortSlot::new(arch.id));
+    let mut slot = PortSlot::new(flood.id);
+    slot.null_pixels = 30;
+    controller.ports[0].slots.push(slot);
+    let mut show = Show::new("Mixed");
+    show.props = vec![arch, flood.clone()];
+    show.controllers.push(controller.clone());
+    let (map, report) = map_show(&show);
+    let universes: Vec<(u16, u16)> = map.controllers[0]
+        .addressing
+        .universes()
+        .iter()
+        .map(|u| (u.universe, u.len))
+        .collect();
+    assert_eq!(universes, vec![(1, 510), (2, 7)], "the flood isn't split");
+    assert_eq!(
+        map.locate(flood.id, 0)[0].address,
+        ChannelAddress::Sacn {
+            universe: 2,
+            channel: 1
+        }
+    );
+    assert!(!report.has_code(IssueCode::WrongControllerKind));
+    assert!(
+        !report.has_code(IssueCode::DmxAddressMismatch),
+        "{:?}",
+        report.issues
+    );
+
+    // Set to another address than it lands on: said so.
+    flood.dmx.as_mut().unwrap().address = 9;
+    show.props[1] = flood;
+    let (_, report) = map_show(&show);
+    let found: Vec<&str> = report
+        .issues
+        .iter()
+        .filter(|i| i.code == IssueCode::DmxAddressMismatch)
+        .map(|i| i.message.as_str())
+        .collect();
+    assert_eq!(
+        found,
+        vec![
+            "The DMX fixture 'Flood' is set to address 9, but on 'Falcon' its channels start at 1 of their universe."
+        ]
+    );
 }
 
 #[test]

@@ -92,7 +92,7 @@ export function DmxSection({ prop }: { prop: Prop }) {
         )}
       </div>
       <p className="mt-1 text-xs text-neutral-500">
-        Uses channels {fixture.address}–{lastAddress(fixture)} of its universe. Wire it to a DMX controller's universe on the Wiring screen.
+        Uses channels {fixture.address}–{lastAddress(fixture)} of its universe. Wire it on the Wiring screen to a DMX controller's universe, or to a pixel controller's DMX output.
       </p>
       {problem && (
         <p role="alert" className="mt-1 text-xs text-red-700 dark:text-red-400">

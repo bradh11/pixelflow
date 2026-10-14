@@ -119,7 +119,31 @@ export function mapControllers(show: Show): ControllerOutput[] {
         const layout = layouts.get(slot.prop);
         if (!layout) continue;
         const prop = layout.prop;
-        if (prop.dmx) continue;
+        if (prop.dmx) {
+          // A fixture on a pixel controller takes its channels where it falls, in one piece
+          // (never split between universes), after its null channels.
+          const fixture = fixtures.get(prop.id);
+          if (!fixture) continue;
+          if (slot.nullPixels > 0) {
+            runs.push({ pixels: slot.nullPixels, cpp: 1 });
+            channel += slot.nullPixels;
+          }
+          spans.push({
+            prop: prop.id,
+            port: port.number,
+            controllerChannel: channel,
+            frameOffset: fixture.dmxOffset,
+            pixels: fixture.channels.length,
+            channelsPerPixel: 1,
+            reverse: false,
+            colorOrder: "RGB",
+            brightness: 100,
+            gamma: 1,
+          });
+          runs.push({ pixels: 1, cpp: fixture.channels.length });
+          channel += fixture.channels.length;
+          continue;
+        }
         const range = slot.segment ?? { start: 0, end: layout.nodes };
         if (range.start > range.end || range.end > layout.nodes) continue;
         if (slot.nullPixels > 0) {

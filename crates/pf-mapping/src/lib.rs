@@ -40,7 +40,7 @@ pub fn map_show(show: &Show) -> (ChannelMap, ValidationReport) {
     let dmx: Vec<Option<usize>> = wired.iter().map(|w| w.dmx_universes).collect();
     let addressing = universes::assign(show, &runs, &dmx, &mut report);
 
-    let controllers = show
+    let controllers: Vec<ControllerOutput> = show
         .controllers
         .iter()
         .zip(wired)
@@ -53,6 +53,7 @@ pub fn map_show(show: &Show) -> (ChannelMap, ValidationReport) {
         })
         .collect();
 
+    wiring::check_fixture_addresses(show, &controllers, &fixtures, &mut report);
     let map = ChannelMap {
         frame_len,
         props,

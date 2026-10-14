@@ -7,7 +7,7 @@ use pf_model::{Issue, IssueCode, Protocol, Show, ValidationReport};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct PixelRun {
     pub pixels: u32,
-    pub channels_per_pixel: u8,
+    pub channels_per_pixel: u16,
 }
 
 /// Highest valid sACN universe number.
@@ -248,7 +248,7 @@ fn check_collisions(
 mod tests {
     use super::*;
 
-    fn run(pixels: u32, channels_per_pixel: u8) -> PixelRun {
+    fn run(pixels: u32, channels_per_pixel: u16) -> PixelRun {
         PixelRun {
             pixels,
             channels_per_pixel,
@@ -317,7 +317,7 @@ mod tests {
                 .as_array()
                 .unwrap()
                 .iter()
-                .map(|r| run(number(&r["pixels"]) as u32, number(&r["cpp"]) as u8))
+                .map(|r| run(number(&r["pixels"]) as u32, number(&r["cpp"]) as u16))
                 .collect();
             let expect: Vec<(usize, u16)> = case["expect"]
                 .as_array()

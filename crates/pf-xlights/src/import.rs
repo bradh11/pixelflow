@@ -594,7 +594,7 @@ fn build_show_within(
     }
     if !floods.is_empty() {
         notes.push(format!(
-            "These DMX floods became DMX fixtures, each on a DMX controller for its universe at its own address: {}.",
+            "These DMX floods became DMX fixtures, wired on their controller at the channels xLights gives them: {}.",
             list(&floods)
         ));
     }
@@ -636,9 +636,6 @@ fn build_show_within(
     // Group placed models by the controller whose channel range holds their start.
     let mut by_target: HashMap<usize, Vec<Placed>> = HashMap::new();
     let mut unwired = Vec::new();
-    // DMX floods by the universe they're on: (controller, universe) and each fixture there.
-    let mut dmx_universes: Vec<((usize, u16), Vec<PropId>)> = Vec::new();
-    let mut dmx_unwired = Vec::new();
     for ((model, info), start) in layout.models.iter().zip(&infos).zip(&starts) {
         let Some(info) = info else { continue };
         let Some(prop) = info.prop else { continue };
@@ -664,20 +661,15 @@ fn build_show_within(
                 model.name
             ));
         }
-        if let Some(prop) = show.props.iter_mut().find(|p| p.id == prop && p.dmx.is_some()) {
-            match dmx_place(&targets, start, prop.dmx_channels()) {
-                Some((slot, universe, address)) => {
-                    if let Some(dmx) = prop.dmx.as_mut() {
-                        dmx.address = address;
-                    }
-                    match dmx_universes.iter_mut().find(|(key, _)| *key == (slot, universe)) {
-                        Some((_, props)) => props.push(prop.id),
-                        None => dmx_universes.push(((slot, universe), vec![prop.id])),
-                    }
-                }
-                None => dmx_unwired.push(model.name.clone()),
-            }
-            continue;
+        // A DMX fixture listens at the address its channels start at in their universe.
+        if let Some(fixture) = show
+            .props
+            .iter_mut()
+            .find(|p| p.id == prop)
+            .and_then(|p| p.dmx.as_mut())
+            && let Some(address) = dmx_address(&targets, start)
+        {
+            fixture.address = address;
         }
         match targets.iter().position(|t| t.contains(start)) {
             Some(slot) => by_target.entry(slot).or_default().push(Placed {
@@ -712,34 +704,7 @@ fn build_show_within(
         wired += wire(target, placed, &show.props, &mut notes, &mut unmapped);
     }
     unmapped.into_notes(&mut notes);
-    if !dmx_unwired.is_empty() {
-        notes.push(format!(
-            "These DMX fixtures aren't wired: they aren't inside one sACN universe of an imported controller: {}.",
-            list(&dmx_unwired)
-        ));
-    }
-    let dmx_controllers: Vec<Controller> = dmx_universes
-        .iter()
-        .map(|((slot, universe), props)| {
-            let on = &targets[*slot].controller;
-            let mut node = Controller::dmx(
-                format!("{} DMX (universe {universe})", on.name),
-                on.address.clone(),
-                Protocol::Sacn(SacnConfig {
-                    start_universe: Some(*universe),
-                    universe_size: UniverseSize::CHANNELS_512,
-                    allow_pixel_straddle: false,
-                    multicast: matches!(on.protocol, Protocol::Sacn(c) if c.multicast),
-                }),
-                1,
-            );
-            node.ports[0].slots = props.iter().map(|p| PortSlot::new(*p)).collect();
-            node
-        })
-        .collect();
-    wired += dmx_universes.iter().map(|(_, props)| props.len()).sum::<usize>();
     show.controllers = targets.into_iter().map(|t| t.controller).collect();
-    show.controllers.extend(dmx_controllers);
 
     // Groups: members by name (`Prop/Submodel` for a submodel); nested groups are flattened.
     let group_members: HashMap<&str, &Vec<String>> = layout
@@ -855,23 +820,15 @@ fn build_show_within(
     XlightsImport { show, summary, notes }
 }
 
-/// Where a DMX fixture of `channels` channels starting at xLights channel `start` sits: the
-/// controller holding it, its sACN universe, and its address there. `None` unless the controller
-/// numbers sACN universes from a known one and the fixture is inside one of them.
-fn dmx_place(targets: &[Target], start: u32, channels: usize) -> Option<(usize, u16, u16)> {
-    let slot = targets.iter().position(|t| t.contains(start))?;
-    let Protocol::Sacn(cfg) = targets[slot].controller.protocol else {
+/// The address (1-based, in its universe) of xLights channel `start` on the sACN controller that
+/// holds it; `None` on a controller that doesn't number universes.
+fn dmx_address(targets: &[Target], start: u32) -> Option<u16> {
+    let target = targets.iter().find(|t| t.contains(start))?;
+    let Protocol::Sacn(cfg) = target.controller.protocol else {
         return None;
     };
-    let first = cfg.start_universe?;
     let size = u32::from(cfg.universe_size.channels());
-    let offset = start - targets[slot].start;
-    let (index, within) = (offset / size, offset % size);
-    if within as usize + channels > size as usize {
-        return None;
-    }
-    let universe = u16::try_from(u32::from(first) + index).ok()?;
-    Some((slot, universe, u16::try_from(within + 1).ok()?))
+    u16::try_from((start - target.start) % size + 1).ok()
 }
 
 /// Wires `placed` (in channel order) onto `target`'s ports, each prop exactly at its xLights
@@ -891,7 +848,11 @@ fn wire(
     let mut wired = 0;
     for p in placed {
         let order = props.iter().find(|q| q.id == p.prop).map(|q| q.color_order);
-        if order.map(|o| u32::from(o.channels_per_pixel())) != Some(p.cpn) {
+        let fixture = props
+            .iter()
+            .find(|q| q.id == p.prop)
+            .is_some_and(|q| q.dmx.is_some());
+        if !fixture && order.map(|o| u32::from(o.channels_per_pixel())) != Some(p.cpn) {
             notes.push(format!(
                 "{} uses {} channel(s) per pixel; PixelFlow wires only RGB and RGBW props, so it isn't wired.",
                 p.name, p.cpn
@@ -940,6 +901,17 @@ fn wire(
             }
             let mut slot = PortSlot::new(p.prop);
             slot.null_pixels = nulls as u32;
+            if fixture {
+                // A fixture's channels go as they are, in one piece (its null "pixels" are
+                // channels, as it has one channel a node here).
+                if i > 0 {
+                    problem = Some(format!("its channels have a gap {place} on {name}"));
+                    break;
+                }
+                slots.push(slot);
+                at_end = at + u64::from(run.nodes) * u64::from(p.cpn);
+                continue;
+            }
             slot.brightness = Some(p.conn.brightness);
             slot.gamma = Some(p.conn.gamma);
             slot.reverse = p.conn.reverse && p.runs.len() == 1;
@@ -1411,8 +1383,10 @@ mod tests {
     }
 
     #[test]
-    fn dmx_floods_become_fixtures_at_their_address_on_a_dmx_controller_for_their_universe() {
-        let x = sacn("Floods", &[(10, 512), (11, 512)]);
+    fn dmx_floods_ride_their_controllers_universes_beside_its_pixels_with_no_collision() {
+        // A made-up Falcon-like board on universes 10 and 11: 50 pixels from channel 1, a
+        // 4-channel flood at universe 10's channel 201, and another at universe 11's channel 9.
+        let x = sacn("Board", &[(10, 512), (11, 512)]);
         let flood = |name: &str, start: &str| {
             with(
                 XmlModel {
@@ -1429,34 +1403,59 @@ mod tests {
                 ],
             )
         };
-        let edge = flood("Edge", "#10:511");
-        let layout = layout(vec![flood("Left", "#10:1"), flood("Right", "#11:9"), edge]);
+        let layout = layout(vec![
+            model("Eaves", "#10:1", 50, None),
+            flood("Left", "#10:201"),
+            flood("Right", "#11:9"),
+        ]);
         let result = build_show("t", &[x], &layout, geometry);
         has_note(&result, "These DMX floods became DMX fixtures");
-        has_note(
-            &result,
-            "These DMX fixtures aren't wired: they aren't inside one sACN universe of an imported controller: Edge.",
+        assert_eq!(result.summary.wired, 3, "{:?}", result.notes);
+        assert_eq!(
+            result.show.controllers.len(),
+            1,
+            "no second controller on the same universes"
         );
         let left = result.show.props.iter().find(|p| p.name == "Left").unwrap();
         assert_eq!(left.node_count(), 1, "one light");
         let dmx = left.dmx.as_ref().unwrap();
-        assert_eq!(dmx.address, 1);
+        assert_eq!(dmx.address, 201);
         assert_eq!(dmx.channels[1].role, pf_model::DmxRole::Red);
         let right = result.show.props.iter().find(|p| p.name == "Right").unwrap();
         assert_eq!(right.dmx.as_ref().unwrap().address, 9);
-        let nodes: Vec<_> = result.show.controllers.iter().filter(|c| c.is_dmx()).collect();
-        assert_eq!(nodes.len(), 2, "one for each universe");
-        assert_eq!(nodes[0].name, "Floods DMX (universe 10)");
-        assert_eq!(nodes[0].address, "192.0.2.30");
-        assert_eq!(nodes[0].ports[0].slots[0].prop, left.id);
+
         let (map, report) = pf_mapping::map_show(&result.show);
-        assert!(!report.has_code(pf_model::IssueCode::WrongControllerKind));
+        for code in [
+            pf_model::IssueCode::UniverseCollision,
+            pf_model::IssueCode::WrongControllerKind,
+            pf_model::IssueCode::DmxAddressMismatch,
+            pf_model::IssueCode::UnassignedNodes,
+        ] {
+            assert!(!report.has_code(code), "{code:?}: {:?}", report.issues);
+        }
+        let at = |prop: PropId| map.locate(prop, 0)[0].address;
         assert_eq!(
-            map.locate(right.id, 0)[0].address,
+            at(left.id),
+            pf_mapping::ChannelAddress::Sacn {
+                universe: 10,
+                channel: 201
+            }
+        );
+        assert_eq!(
+            at(right.id),
             pf_mapping::ChannelAddress::Sacn {
                 universe: 11,
                 channel: 9
             }
+        );
+        // The flood's channels are what's sent there: red drawn on it is red on channel 2.
+        let fixture = map.fixture(left.id).unwrap();
+        let mut frame = vec![0u8; map.frame_len];
+        frame[fixture.cells_offset] = 255;
+        map.write_fixtures(&mut frame);
+        assert_eq!(
+            &frame[fixture.dmx_offset..fixture.dmx_offset + 4],
+            &[0, 255, 0, 0]
         );
     }
 

@@ -74,13 +74,18 @@ On **Wiring**, choose **Add controller** and a DMX controller type:
   about it (the wiring, the messages it would send) is in place.
 
 Drag each fixture onto its universe (or use **+ Add…**): it goes to its own start address, shown
-as "@ 9". A pixel controller can't drive a fixture, and a DMX controller can't drive pixels; the
-Wiring screen says so.
+as "@ 9". A DMX controller can't drive pixels; the Wiring screen says so.
+
+A pixel controller with a DMX output (a Falcon's or an FPP's DMX port, fed from its own
+universes) carries fixtures too: wire the fixture on that controller's port after its pixels,
+with null channels before it if there's a gap. It takes its channels where it falls, in one piece
+(never split between two universes), and the Wiring screen warns when that isn't the start
+address set on the fixture.
 
 An xLights show's DMX floods (`DmxGeneral`, `DmxFloodlight`, `DmxFloodArea`) import as fixtures,
-with their color channels and their shutter, each on a DMX controller for its universe at its
-address. Moving heads and servos import as rows of channel dots, not wired: PixelFlow doesn't
-drive them yet.
+with their color channels and their shutter, wired on their controller at the channels xLights
+gives them, beside its pixels. Moving heads and servos import as rows of channel dots, not wired:
+PixelFlow doesn't drive them yet.
 
 ## Testing
 

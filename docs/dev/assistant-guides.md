@@ -46,6 +46,35 @@ so. A test (`the_range_says_what_every_effect_can_do_from_its_guide` in
 `crates/pf-ai/tests/knowledge.rs`) holds it to the guides: a line for every effect, each prop it
 names one its looks are written for, and each look it names one of its guide's.
 
+## Concepts before a whole show
+
+For a whole show, or a new look the person hasn't described, the Assistant sketches two or three
+truly different concepts before it chooses a single effect, picks one, and says why. Each concept
+is a line or two: an idea taken from the song (its title, its words, its mood, how it is built), a
+palette, the feel of the motion, and a few effects from the whole range that could say it, as its
+own choice. The instructions say this in one line (`SYSTEM_PROMPT` in
+`crates/pf-ai/src/agent.rs`); how, and when not to, is topic `concepts`
+(`crates/pf-ai/guides/topics/concepts.md`), which the method sends a whole show to as its step 3,
+before planning by section.
+
+- **It costs no request of its own.** The topic is read with the other design topics in the job's
+  first `get_guide` call, and the concepts are written as words in the same reply as the next
+  call (the guides of the effects the chosen concept uses), and the Assistant carries on without
+  stopping to ask. What it adds is that topic (about 1,000 tokens, read once and then part of the
+  cached conversation) and a few hundred tokens of output. The instructions and tools stay the
+  same for every chat, so the providers' prompt caches work as before.
+- **Small jobs skip it.** A question, a recolor, a small edit, a fix, or a job about levels
+  sketches nothing and never reads the topic.
+- **The person sees it and can steer it.** The concepts are in the chat as they are written, and
+  the summary given to `propose_changes` (shown with the proposal) opens with the concept built
+  and why, in a sentence. Asking for another of them ("try the second one") builds that one with
+  no new sketches; a request that names its idea or colors ("make it spooky purple") is that
+  concept already, and the Assistant builds on it, sketching takes on it only when it is open.
+- **Nothing prescribes the choice.** The topic names no effect and gives no colors (a test,
+  `the_concepts_topic_leaves_every_choice_of_effect_and_palette_to_the_assistant`, holds it to
+  that), the review scores how a show is built and never which concept it is, and the evaluation
+  reports the concepts to be read without scoring them ([assistant-eval.md](assistant-eval.md)).
+
 ## The rules a guide keeps
 
 Tests (`crates/pf-ai/tests/knowledge.rs`, through `crates/pf-ai/src/knowledge/check.rs`) fail,

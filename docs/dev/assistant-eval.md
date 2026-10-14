@@ -42,10 +42,16 @@ hand-written analysis.
   how many of the biggest moments are hit, whether anything flashes unsafely, how bright the
   verses are against the choruses. Each scenario lists the kinds of effect it used, and
   `results.json` has every color too.
+- **What it sketched before drafting**: everything the Assistant wrote before its first call that
+  changes the sequence, quoted under the scenario, and its proposal's summary. On a whole show
+  that is the two or three concepts it sketched and the one it chose, and the summary names the
+  one it built (see [the guides](assistant-guides.md#concepts-before-a-whole-show)). A small job
+  usually writes nothing first.
 - **How runs differ** (with `--runs` above 1): for each request, the kinds of effect and the
-  colors every run used, those only some runs did, and how much each pair of runs has in common.
-  It is information, not a check: no show is marked down for its choice of effects. Watch the
-  videos to judge the variety.
+  colors every run used, those only some runs did, and how much each pair of runs has in common;
+  then, run by run, the concepts it sketched before drafting and what its summary says it built.
+  It is information, not a check: no show is marked down for its choice of effects, its colors,
+  or its concept. Read the concepts and watch the videos to judge the variety.
 - **Checks for the request itself**: the skeletons are skeletons and are on the matrix for the
   first chorus; the rest of the song was left alone; a recolor kept every effect where it was;
   the words of every chorus are up as they are sung, and can be read (by the review's rule: 300
@@ -106,8 +112,9 @@ For Anthropic, add `--price-cache-write <share of --price-in>` (what writing to 
   run is an anecdote.
 - `--out <folder>` writes `report.md` (what is printed) and `results.json` (the model, the prices,
   the ceiling, what was spent and the tokens billed, the scenarios the budget kept from starting,
-  and for each scenario every measure, its tokens billed, and every tool call the model made with
-  the start of each answer), and the shows themselves (see [Seeing the shows](#seeing-the-shows)).
+  and for each scenario every measure, its tokens billed, what it wrote before drafting
+  (`concepts`) and its proposal's `summary`, and every tool call the model made with the start
+  of each answer), and the shows themselves (see [Seeing the shows](#seeing-the-shows)).
   Keep that folder outside the repository: results are not committed.
 - `--no-render`: with `--out`, save the drafts but draw no videos or contact sheets.
 
@@ -202,17 +209,20 @@ without `--send`) the defaults (3, 15, and 0.1) are placeholders.
 The scripted answers work the way the Assistant is asked to: they look up nothing the first
 message's context block already gives, read what a step needs in one `get_guide` call (an
 effect's guide in parts where that is enough), and lay a whole step in one call with `items`.
-When this was written they took 40 requests for all nine scenarios (`whole-song` 6) and sent
-about 484,000 tokens in all, receiving about 3,600 (the dry run prints today's figures as the
-guides grow): nearly all of the cost is the conversation being sent again with each request,
+The `whole-song` answer sketches three concepts in the reply that reads its effects' guides, as
+the Assistant is asked to, so they cost it no request. When this was written they took 40
+requests for all nine scenarios (`whole-song` 6) and sent about 493,000 tokens in all, receiving
+about 3,900 (the dry run prints today's figures as the guides grow); the concepts added about
+6,700 of those tokens sent and 250 received, all in `whole-song`, and no request. Nearly all of
+the cost is the conversation being sent again with each request,
 which is what a provider's cache makes cheap. A model takes more steps than a script that
 already knows what it will do, reads more guides, and writes more: allow two to four times that.
 At the placeholder prices, that is roughly:
 
 | | The scripted answers | A model, without caching | A model, with the repeated part cached |
 |---|---|---|---|
-| All nine scenarios, once | $1.51 ($0.52 cached) | $3 to $6 | $1 to $2 |
-| `whole-song` alone | $0.45 ($0.15) | $0.90 to $1.80 | $0.30 to $0.60 |
+| All nine scenarios, once | $1.54 ($0.53 cached) | $3 to $6 | $1 to $2 |
+| `whole-song` alone | $0.48 ($0.16) | $0.95 to $1.90 | $0.32 to $0.64 |
 | A small one (`dancers`, `halloween`) | $0.10 ($0.04) | $0.20 to $0.40 | $0.07 to $0.14 |
 
 Those are estimates from sizes, not bills; a run that sends reports the tokens actually billed

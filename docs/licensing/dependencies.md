@@ -143,7 +143,7 @@ Code and data taken from xLights and other projects' **source** are a different 
 | Scope | Third-party packages | Shipped | Build-time only | Tests only | Not used on desktop targets |
 | --- | --- | --- | --- | --- | --- |
 | (a) Engine workspace (`Cargo.toml`) | 429 | 302 | 41 | 35 | 51 |
-| (b) Desktop app (`app/src-tauri/Cargo.toml`) | 639 | 457 | 97 | 1 | 84 |
+| (b) Desktop app (`app/src-tauri/Cargo.toml`) | 640 | 458 | 97 | 1 | 84 |
 | (c) App UI, production (`app/package.json`) | 34 | 34 | 0 | 0 | 0 |
 
 "Shipped" means linked into a binary for macOS, Windows, or Linux. "Build-time only" covers build scripts and procedural macros, which run while compiling and are not in the binary. "Not used on desktop targets" are packages the lockfile lists for other platforms (Android, iOS, WebAssembly).
@@ -170,7 +170,7 @@ Of the 508 packages shipped (engine, app, and UI together), 490 offer a licence 
 - `tinystr` 0.8.4: `Unicode-3.0`
 - `tslib` 2.8.1: `0BSD`
 - `unicode-ident` 1.0.26: `(MIT OR Apache-2.0) AND Unicode-3.0`
-- `webpki-roots` 1.0.9: `CDLA-Permissive-2.0`
+- `webpki-roots` 1.0.11: `CDLA-Permissive-2.0`
 - `writeable` 0.6.4: `Unicode-3.0`
 - `yoke` 0.8.3: `Unicode-3.0`
 - `zerofrom` 0.1.8: `Unicode-3.0`
@@ -211,7 +211,7 @@ Of the 508 packages shipped (engine, app, and UI together), 490 offer a licence 
 | Licence (as the package states it) | Packages | Flag |
 | --- | --- | --- |
 | `Apache-2.0 OR MIT` | 276 |  |
-| `MIT` | 81 |  |
+| `MIT` | 82 |  |
 | `Apache-2.0 OR MIT OR Zlib` | 20 |  |
 | `MPL-2.0` | 18 | copyleft |
 | `Unicode-3.0` | 15 | own terms |
@@ -291,7 +291,7 @@ Across both Cargo workspaces (every use, not only shipped) and the app UI's prod
 - `potential_utf` 0.1.6: `Unicode-3.0` (shipped: all)
 - `tinystr` 0.8.4: `Unicode-3.0` (shipped: all)
 - `unicode-ident` 1.0.26: `(MIT OR Apache-2.0) AND Unicode-3.0` (shipped: all)
-- `webpki-roots` 1.0.9: `CDLA-Permissive-2.0` (shipped: all)
+- `webpki-roots` 1.0.11: `CDLA-Permissive-2.0` (shipped: all)
 - `writeable` 0.6.4: `Unicode-3.0` (shipped: all)
 - `yoke` 0.8.3: `Unicode-3.0` (shipped: all)
 - `yoke-derive` 0.8.4: `Unicode-3.0` (build)
@@ -458,7 +458,7 @@ Across both Cargo workspaces (every use, not only shipped) and the app UI's prod
 | `cssparser-macros` | 0.7.1 | `MPL-2.0` |  | build |
 | `ctor` | 1.0.13 | `Apache-2.0 OR MIT` |  | shipped (all) |
 | `ctrlc` | 3.5.2 | `MIT OR Apache-2.0` | shipped (all) |  |
-| `ctutils` | 0.4.3 | `Apache-2.0 OR MIT` | shipped (Linux) | shipped (Linux) |
+| `ctutils` | 0.4.7 | `Apache-2.0 OR MIT` | shipped (Linux) | shipped (Linux) |
 | `darling` | 0.24.1 | `MIT` |  | build |
 | `darling_core` | 0.24.1 | `MIT` |  | build |
 | `darling_macro` | 0.24.1 | `MIT` |  | build |
@@ -654,7 +654,7 @@ Across both Cargo workspaces (every use, not only shipped) and the app UI's prod
 | `ndk-sys` | 0.6.0+11769913 | `MIT OR Apache-2.0` | not on desktop | not on desktop |
 | `new_debug_unreachable` | 1.0.6 | `MIT` |  | shipped (all) |
 | `nix` | 0.26.4 | `MIT` | shipped (macOS, Linux) | shipped (macOS, Linux) |
-| `nix` | 0.31.3 | `MIT` | shipped (macOS, Linux) |  |
+| `nix` | 0.31.3 | `MIT` | shipped (macOS, Linux) | shipped (macOS) |
 | `nom` | 8.0.0 | `MIT` | shipped (all) | shipped (all) |
 | `nom-language` | 0.1.0 | `MIT` | shipped (all) | shipped (all) |
 | `num` | 0.4.3 | `MIT OR Apache-2.0` | shipped (Linux) | shipped (Linux) |
@@ -772,7 +772,7 @@ Across both Cargo workspaces (every use, not only shipped) and the app UI's prod
 | `rustix` | 1.1.5 | `Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT` | shipped (macOS, Linux) | shipped (macOS, Linux) |
 | `rustls` | 0.23.45 | `Apache-2.0 OR ISC OR MIT` | shipped (all) | shipped (all) |
 | `rustls-pki-types` | 1.15.1 | `MIT OR Apache-2.0` | shipped (all) | shipped (all) |
-| `rustls-webpki` | 0.103.15 | `ISC` | shipped (all) | shipped (all) |
+| `rustls-webpki` | 0.103.16 | `ISC` | shipped (all) | shipped (all) |
 | `rustversion` | 1.0.23 | `MIT OR Apache-2.0` | build | build |
 | `rusty-fork` | 0.3.1 | `MIT OR Apache-2.0` | tests |  |
 | `safe_arch` | 1.2.0 | `Zlib OR Apache-2.0 OR MIT` | shipped (all) | shipped (all) |
@@ -904,7 +904,7 @@ Across both Cargo workspaces (every use, not only shipped) and the app UI's prod
 | `tray-icon` | 0.25.1 | `MIT OR Apache-2.0` |  | shipped (all) |
 | `triple_buffer` | 9.0.0 | `MPL-2.0` | shipped (all) | shipped (all) |
 | `try-lock` | 0.2.5 | `MIT` |  | not on desktop |
-| `typed-path` | 0.12.3 | `MIT OR Apache-2.0` | shipped (all) | shipped (all) |
+| `typed-path` | 0.13.0 | `MIT OR Apache-2.0` | shipped (all) | shipped (all) |
 | `typeid` | 1.0.3 | `MIT OR Apache-2.0` | shipped (all) | shipped (all) |
 | `typenum` | 1.20.1 | `MIT OR Apache-2.0` | shipped (all) | shipped (all) |
 | `uds_windows` | 1.2.1 | `MIT` | not on desktop | not on desktop |
@@ -945,7 +945,7 @@ Across both Cargo workspaces (every use, not only shipped) and the app UI's prod
 | `web_atoms` | 0.2.6 | `MIT OR Apache-2.0` |  | shipped (all) |
 | `webkit2gtk` | 2.0.2 | `MIT` |  | shipped (Linux) |
 | `webkit2gtk-sys` | 2.0.2 | `MIT` |  | shipped (Linux) |
-| `webpki-roots` | 1.0.9 | `CDLA-Permissive-2.0` | shipped (all) | shipped (all) |
+| `webpki-roots` | 1.0.11 | `CDLA-Permissive-2.0` | shipped (all) | shipped (all) |
 | `webview2-com` | 0.39.1 | `MIT` |  | shipped (Windows) |
 | `webview2-com-macros` | 0.8.1 | `MIT` |  | build |
 | `webview2-com-sys` | 0.39.1 | `MIT` |  | shipped (Windows) |
@@ -1026,12 +1026,12 @@ Across both Cargo workspaces (every use, not only shipped) and the app UI's prod
 | `zerotrie` | 0.2.5 | `Unicode-3.0` |  | shipped (all) |
 | `zerovec` | 0.11.8 | `Unicode-3.0` |  | shipped (all) |
 | `zerovec-derive` | 0.11.6 | `Unicode-3.0` |  | build |
-| `zip` | 8.6.0 | `MIT` | shipped (all) | shipped (all) |
+| `zip` | 9.1.3 | `MIT` | shipped (all) | shipped (all) |
 | `zlib-rs` | 0.6.8 | `Zlib` | shipped (all) | shipped (all) |
 | `zmij` | 1.0.23 | `MIT` | shipped (all) | shipped (all) |
-| `zstd` | 0.14.0 | `BSD-3-Clause` | shipped (all) | shipped (all) |
-| `zstd-safe` | 8.0.0 | `BSD-3-Clause` | shipped (all) | shipped (all) |
-| `zstd-sys` | 2.1.0+zstd.1.5.7 | `BSD-3-Clause` | shipped (all) | shipped (all) |
+| `zstd` | 0.14.3 | `BSD-3-Clause` | shipped (all) | shipped (all) |
+| `zstd-safe` | 8.2.0 | `BSD-3-Clause` | shipped (all) | shipped (all) |
+| `zstd-sys` | 2.1.2+zstd.1.5.7 | `BSD-3-Clause` | shipped (all) | shipped (all) |
 | `zune-core` | 0.5.3 | `MIT OR Apache-2.0 OR Zlib` | shipped (all) | shipped (all) |
 | `zune-jpeg` | 0.5.15 | `MIT OR Apache-2.0 OR Zlib` | shipped (all) | shipped (all) |
 | `zvariant` | 5.15.0 | `MIT` | shipped (Linux) | shipped (Linux) |

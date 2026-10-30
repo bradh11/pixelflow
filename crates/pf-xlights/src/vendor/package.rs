@@ -86,9 +86,11 @@ fn is_music(name: &str) -> bool {
 }
 
 /// A zip entry's name that stays inside the package: relative, without `..`, a drive, or a
-/// device name.
+/// device name. A name that can't be read as text doesn't.
 fn stays_inside(entry: &zip::read::ZipFile<'_, File>) -> bool {
-    let name = entry.name();
+    let Ok(name) = entry.name() else {
+        return false;
+    };
     entry.enclosed_name().is_some()
         && !name.is_empty()
         && !name.starts_with(['/', '\\'])
@@ -246,7 +248,8 @@ impl Package {
             if entry.is_dir() || !stays_inside(&entry) {
                 continue;
             }
-            let name = entry.name().replace('\\', "/");
+            let Ok(name) = entry.name() else { continue };
+            let name = name.replace('\\', "/");
             if ignored(&name) {
                 continue;
             }

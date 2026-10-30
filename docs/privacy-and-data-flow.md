@@ -18,6 +18,8 @@ and when.
 - **The assistant is off until you add your own key.** When you use it, parts of your show go to
   the AI company you chose (Anthropic or OpenAI), under your own account with them.
 - **Your music is sent to OpenAI only if you say yes** to that, separately, when finding lyrics.
+- **Video export downloads one file from Cisco, only if you say yes:** Cisco's video encoder,
+  the first time you export a video. Nothing about you or your show goes with it.
 
 ## What stays on your computer
 
@@ -30,6 +32,7 @@ and when.
 | Lyrics it found for a song | The same cache, and the sequence you put them in. |
 | Controllers it has found, your recent shows, your settings | PixelFlow's own settings on your computer. |
 | A copy of a controller's setup, taken before PixelFlow changes it | PixelFlow's data folder, so you can put it back. For a WLED this copy is its whole configuration, which can include the names (not the passwords) of the Wi-Fi networks it knows. You can delete it with "Forget this copy". |
+| Cisco's video encoder, once you've downloaded it | PixelFlow's data folder. **Settings**, **Video export** turns it off or removes it. |
 
 All sound analysis (beats, sections, levels) happens on your computer. So does working out when
 each word is sung, if you turn on the on-device option (see "Lyrics").
@@ -186,10 +189,16 @@ and is added to your sequence as timing marks you can undo.
 |---|---|---|---|
 | The speech model for on-device word timing (about 190 MB) | Hugging Face | Once, when you turn the feature on and confirm the download | Only the request for the file. PixelFlow checks the file is exactly the one it expects before using it. |
 | The list of FPP software releases, to tell you whether your FPP is up to date | GitHub | When an FPP you've found answers; at most every six hours | Only the request for that public list. |
+| Cisco's OpenH264 video encoder (about 0.5 MB) | Cisco's own server, `ciscobinary.openh264.org` | Once, only when you click for it: **Download and export** the first time you export a video with the built-in encoder, or turning it on in **Settings**, **Video export** | Only the request for the file: a plain HTTPS download, which says it is PixelFlow and which version. Nothing about you, your show, or the video. PixelFlow checks the file is exactly Cisco's before keeping it, and again every time before using it. |
 
 As with any internet request, the service sees your computer's public internet address.
 
 PixelFlow doesn't update itself and doesn't check for new versions of itself.
+
+Why the video encoder comes from Cisco: Cisco pays the H.264 patent licence for the copies of
+its encoder that it hands out itself, so PixelFlow's installer doesn't include one and your copy
+of the app fetches Cisco's. If you'd rather not, export with your own ffmpeg (the export dialog
+offers it when it's installed); that sends nothing anywhere.
 
 ## Pages PixelFlow opens in your browser
 
@@ -209,8 +218,8 @@ tells nobody whether you have: there is no reminder, no count, and nothing sent.
 ## If you want to keep everything on your own network
 
 Don't add an AI key. Without one, the assistant and Find lyrics are off, and the only requests
-that leave your network are the FPP release check (when you have an FPP) and the model download
-(only if you ask for it).
+that leave your network are the FPP release check (when you have an FPP), and the model download
+and Cisco's video encoder (each only if you ask for it).
 
 ## Questions or concerns
 

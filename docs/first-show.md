@@ -406,11 +406,24 @@ want the file itself.
 1. On **Sequence**, open the **More ways to export** menu and choose **Export video…**.
 2. Choose the size (1080p or 720p), **Frame rate**, and **What to export**. **Glow** and **Pixel
    size** change how the lights look in the video.
-3. Choose **Export…** and pick where to save the MP4.
+3. Choose **Export…**.
+4. The first time, PixelFlow asks to download Cisco's OpenH264 video encoder (about 0.5 MB, from
+   Cisco's own server). PixelFlow doesn't come with an H.264 encoder: Cisco pays the H.264 patent
+   licence for the copies it hands out itself, so yours comes from Cisco. Choose **Download and
+   export**. It's checked and kept, so later exports don't ask. (With **Encoder** set to ffmpeg,
+   when you have it installed, nothing is downloaded.)
+5. Pick where to save the MP4.
 
-![The Export video window: Size, Frame rate, What to export, Pixel size, Encoder, Show the house photo behind the lights, Glow, and Export….](images/export-video.png)
+![The Export video window: Size, Frame rate, What to export, Pixel size, Encoder, a note that the first export asks before downloading Cisco's OpenH264 encoder, Show the house photo behind the lights, Glow, and Export….](images/export-video.png)
 
-**You should see:** a progress bar, then "Saved" followed by the file name. Choose **Done**.
+![The question before the first export: Download Cisco's video encoder? It says the encoder comes once from Cisco's server (ciscobinary.openh264.org, about 0.5 MB), why it comes from Cisco, that nothing about you or your show is sent, and "OpenH264 Video Codec provided by Cisco Systems, Inc.", with Cancel and Download and export.](images/export-video-download.png)
+
+**You should see:** the first time, a progress bar for the download; then a progress bar for the
+export, and "Saved" followed by the file name. Choose **Done**.
+
+To turn Cisco's encoder off, or remove it, go to **Settings**, **Video export**.
+
+**If it doesn't:** see [The video encoder won't download](troubleshooting.md#the-video-encoder-wont-download).
 
 ## Where to go next
 

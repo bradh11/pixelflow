@@ -8,7 +8,7 @@ cut the release, how signing is set up, and what the people who install it need 
 > are credited in [`NOTICE`](../NOTICE). A release must come with its source (a GitHub release
 > does: the tagged source is attached beside the installers) and with `LICENSE`, `NOTICE`, and
 > the third-party notices inside the app. What else the licences ask, and the decisions still
-> open (the H.264 and AAC encoders above all), are in the
+> open (the AAC encoder above all), are in the
 > [distribution checklist](licensing/distribution-checklist.md). The release workflow only ever
 > makes a **draft**; read the checklist before publishing one.
 
@@ -48,7 +48,12 @@ Tick every row, or write down why not.
       built app holds `LICENSE.txt`, `NOTICE.txt`, and `THIRD-PARTY-NOTICES.txt`, and its About
       opens them. The open items in the
       [distribution checklist](licensing/distribution-checklist.md) have been read, and the one
-      about the H.264 and AAC encoders has been decided.
+      about the AAC encoder has been decided.
+- [ ] **No H.264 encoder inside.** H.264 is decided: the app has no H.264 encoder of its own.
+      It downloads Cisco's OpenH264 binary from Cisco when the user agrees, checks it, and loads
+      it at run time ([distribution checklist](licensing/distribution-checklist.md), item 6,
+      "H.264: decided"). `node scripts/encoder-check.mjs` (or `make encoder-check`) passes on
+      the release commit: it fails if the app's builds would compile OpenH264 from source.
 - [ ] **Real hardware:** someone ran the
       [hardware acceptance checklist](hardware-acceptance.md) against the build being released
       (a dry run's installers, not a development build) and kept the filled-in copy.
@@ -360,9 +365,13 @@ Not tried, because each needs something only the owner has or may do:
 - **Byte-for-byte sameness.** The build starts from locked dependencies and a pinned
   toolchain, but whether two runs of one commit give identical installers was not checked
   (timestamps and signatures usually prevent it). `SHA256SUMS` identifies one run's files.
-- **Encoding speed on Intel.** The video export's H.264 encoder uses its faster assembly code
-  on Intel processors only when NASM is installed where it is built, and its plain code
-  otherwise; either way the build succeeds. Whether the build computers had NASM was not
-  checked, so the Windows app and the Intel half of the macOS app may have either. Worth
-  settling one way (install NASM in the release build, or switch the assembly off) and timing
-  an export.
+- **Cisco's OpenH264 in a built app.** The download, its check, loading it, and exporting a video
+  with it were tried on a Mac with Apple silicon (`cargo run -p pf-video --example
+  cisco_openh264 -- FOLDER`), not in a built app. A binary signed ad hoc with the hardened
+  runtime was refused Cisco's library until it carried the entitlement in
+  `app/src-tauri/Entitlements.plist`, then loaded it. Not tried: a signed and notarised app,
+  an Intel Mac, Windows, and Linux. A dry run's app should export a video on each system it
+  ships for, the first time asking to download the encoder.
+- **The release workflow and the encoder check.** `.github/workflows/release.yml` and `ci.yml`
+  don't run `node scripts/encoder-check.mjs` yet (the workflows are the owner's to change);
+  run it by hand before a release, as the checklist says.

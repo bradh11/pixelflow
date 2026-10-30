@@ -198,7 +198,8 @@ You can scan for it or add it by address.
 **By address:**
 
 1. On **Controllers**, type the controller's address in the box that says "Controller IP
-   address, e.g. 192.168.1.50" and choose **Check address**.
+   address, e.g. 192.168.1.50" and choose **Check address**. PixelFlow says what answered there.
+   Choose **Open** on its row and add it, as above.
 2. Or, on **Wiring**, choose **Add controller** and fill in the form: **Name**, **Controller
    type**, **IP address**, **Protocol** (**DDP** or **sACN (E1.31)**), and **Ports**. Choose
    **Add**. Picking a known **Controller type**, such as **Falcon F16V5**, fills in the port
@@ -276,7 +277,7 @@ over its limit shows a red message with the number of pixels over.
 checks only the controller's web page, not that light data is arriving. Below that, a
 row for each controller with its **State**, **Packets**, and **Errors**.
 
-![The Test screen running a Chase on Main FPP · port 1: Target, Pattern, Color, Restart, and Stop. Under Sends to, the controller's address and universes; the demo's controllers aren't real, so its web page shows as not answering. Below, Sending Chase at 40 fps, with the controller's State (ok), Packets, and Errors.](images/test-screen.png)
+![The Test screen running a Chase on Main FPP · port 1: Target, Pattern, Color, Restart, and Stop, and under them what a chase should do (a block of five lit pixels runs from the first pixel to the last). Under Sends to, the controller's address and universes; the demo's controllers aren't real, so its web page shows as not answering. Below, Sending Chase at 40 fps, with the controller's State (ok), Packets, and Errors.](images/test-screen.png)
 
 **If it doesn't:** see [Nothing lights](troubleshooting.md#nothing-lights). If colors are wrong,
 see [Wrong colors](troubleshooting.md#wrong-colors-color-order).

@@ -34,7 +34,7 @@ way.
 3. Under **Pattern**, pick **Chase** and choose **Start**.
 4. Compare what the lights do with what **Sends to** and the table below it say.
 
-![The Test screen running a Chase on Main FPP · port 1. Under Sends to, the controller's address, protocol, universes, and channels, and whether its web page answers (in this made-up show it doesn't). Below, Sending Chase at 40 fps, and a table of each controller's State, Packets, and Errors.](images/test-screen.png)
+![The Test screen running a Chase on Main FPP · port 1, with a line saying what a chase should do. Under Sends to, the controller's address, protocol, universes, and channels, and whether its web page answers (in this made-up show it doesn't). Below, Sending Chase at 40 fps, and a table of each controller's State, Packets, and Errors.](images/test-screen.png)
 
 Under **Sends to**, each controller shows **Web page answering** or "Web page not answering — check it's
 powered on and on the same network as this computer". **Web page answering** only means something
@@ -90,13 +90,14 @@ The string expects red, green, and blue in a different order than PixelFlow send
 example, red shows as green.
 
 1. On **Test**, pick **Red / green / blue / white** as the **Pattern** and a port as the
-   **Target**. Choose **Start**. Each color shows for one second, in that order. Write down what
-   you see instead. The Test screen also has red, green, blue, and white buttons beside
-   **Color** for the patterns that use one color.
+   **Target**. Choose **Start**. Each color shows for one second, in that order (the line under
+   the controls says so too). Write down what you see instead. The Test screen also has red,
+   green, blue, and white buttons beside **Color** for the patterns that use one color.
 2. On **Layout**, select the prop. In the **Properties** panel, open **More: color order and
    scale** and change **Color order**. (The Wiring and Test screens each have a note with a link
-   to it; from Test, with one prop as the **Target**, the link selects that prop for you.) The choices are RGB, RBG, GRB, GBR, BRG, BGR, RGBW, and
-   GRBW. Run the test again.
+   to it. From Test, with one prop as the **Target**, **Open it on Layout** selects that prop and
+   puts you on its **Color order**, while the test keeps running.) The choices are RGB, RBG,
+   GRB, GBR, BRG, BGR, RGBW, and GRBW. Run the test again.
 
    ![A prop's Properties panel with More: color order and scale open: Color order (GRB here), Scale X, and Scale Y, under the prop's position and rotation.](images/layout-color-order.png)
 3. Common cases: a string that shows red as green and green as red is probably GRB. Choose the

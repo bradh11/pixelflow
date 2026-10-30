@@ -652,13 +652,16 @@ fn dmx_image_and_unknown_types() {
         (channels(&d), d.channels, d.channels_per_node),
         (vec![0, 1, 2, 3, 4], 5, 1)
     );
-    // A flood becomes a fixture on import; a moving head stays a row of dots, said so.
+    // A flood, a moving head or servos become a fixture on import; a skull stays a row of dots,
+    // said so.
     assert!(d.approximate.is_none());
-    assert!(
-        geo("DmxMovingHead", &[("DmxChannelCount", "5")])
-            .approximate
-            .is_some()
-    );
+    for fixture in ["DmxMovingHeadAdv", "DmxMovingHead", "DmxServo"] {
+        assert!(
+            geo(fixture, &[("DmxChannelCount", "5")]).approximate.is_none(),
+            "{fixture}"
+        );
+    }
+    assert!(geo("DmxSkull", &[("DmxChannelCount", "5")]).approximate.is_some());
     let i = geo("Image", &[]);
     assert!(i.nodes.is_empty() && i.approximate.is_none() && i.channels == 0);
     let u = geo("Hologram", &[("parm1", "2"), ("parm2", "3")]);

@@ -62,10 +62,21 @@ fn model_from(node: Node<'_, '_>) -> Option<XmlModel> {
         node.children()
             .filter(move |c| c.is_element() && c.tag_name().name() == name)
     };
+    let mut parts: BTreeMap<String, BTreeMap<String, String>> = BTreeMap::new();
+    for child in node.children().filter(|c| c.is_element()) {
+        let name = child.tag_name().name();
+        if !matches!(
+            name,
+            "ControllerConnection" | "subModel" | "faceInfo" | "stateInfo"
+        ) {
+            parts.entry(name.to_string()).or_insert_with(|| attrs_of(child));
+        }
+    }
     Some(XmlModel {
         name: node.attribute("name").unwrap_or("").trim().to_string(),
         display_as,
         attrs: attrs_of(node),
+        parts,
         connection: children("ControllerConnection")
             .next()
             .map(attrs_of)
@@ -152,6 +163,25 @@ pub fn parse_layout(xml: &str) -> Result<XLayout, XlightsError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn keeps_a_dmx_models_motors_and_servos_by_element() {
+        let xml = r#"<xrgb><models type="rgb_effects">
+    <model name="Spot" DisplayAs="DmxMovingHeadAdv" DmxChannelCount="12" StartChannel="1">
+      <ControllerConnection Port="1"/>
+      <PanMotor ChannelCoarse="1" ChannelFine="2" RangeOfMotion="540"/>
+      <TiltMotor ChannelCoarse="3" ChannelFine="4" RangeOfMotion="270"/>
+      <Servo1 Channel="9"/>
+    </model>
+  </models></xrgb>"#;
+        let layout = parse_layout(xml).unwrap();
+        let spot = &layout.models[0];
+        let get = |part: &str, key: &str| spot.parts.get(part).and_then(|p| p.get(key)).cloned();
+        assert_eq!(get("PanMotor", "ChannelFine").as_deref(), Some("2"));
+        assert_eq!(get("TiltMotor", "RangeOfMotion").as_deref(), Some("270"));
+        assert_eq!(get("Servo1", "Channel").as_deref(), Some("9"));
+        assert!(!spot.parts.contains_key("ControllerConnection"));
+    }
 
     #[test]
     fn reads_models_connections_and_groups() {

@@ -864,9 +864,14 @@ function Start({ onNew, onOpen }: { onNew: () => void; onOpen: (path?: string) =
 }
 
 function Modal({ label, children }: { label: string; children: React.ReactNode }) {
+  const box = useRef<HTMLDivElement>(null);
+  // Takes the focus: its first control.
+  useEffect(() => {
+    box.current?.querySelector<HTMLElement>("button:not(:disabled), input, select, textarea")?.focus();
+  }, []);
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40">
-      <div role="dialog" aria-modal="true" aria-label={label} className="w-[28rem] rounded-lg border border-neutral-200 bg-white p-5 shadow-xl dark:border-neutral-800 dark:bg-neutral-900">
+      <div ref={box} role="dialog" aria-modal="true" aria-label={label} className="w-[28rem] rounded-lg border border-neutral-200 bg-white p-5 shadow-xl dark:border-neutral-800 dark:bg-neutral-900">
         {children}
       </div>
     </div>
@@ -914,11 +919,19 @@ function NewSequenceDialog({ onClose }: { onClose: () => void }) {
     if (ok) onClose();
   };
 
+  // Called off, the focus goes back to what opened the window. Created, it is left with the new
+  // sequence, so Space plays it rather than pressing New sequence again.
+  const opener = useRef(document.activeElement instanceof HTMLElement ? document.activeElement : null);
+  const cancel = useRef(onClose);
+  cancel.current = () => {
+    onClose();
+    if (opener.current?.isConnected) opener.current.focus();
+  };
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && cancel.current();
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, []);
 
   return (
     <Modal label="New sequence">
@@ -969,7 +982,7 @@ function NewSequenceDialog({ onClose }: { onClose: () => void }) {
         <p className="text-xs text-neutral-500">Frames are 25 ms apart (40 per second).</p>
       </div>
       <div className="mt-5 flex justify-end gap-2">
-        <Button variant="ghost" onClick={onClose}>
+        <Button variant="ghost" onClick={() => cancel.current()}>
           Cancel
         </Button>
         <Button variant="primary" onClick={() => void create()} disabled={reading}>

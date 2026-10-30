@@ -76,6 +76,7 @@ export function AddPropMenu({ preview }: { preview: PreviewProp[] }) {
                   className="flex items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-neutral-100 focus:bg-neutral-100 dark:hover:bg-neutral-800 dark:focus:bg-neutral-800"
                   onClick={() => {
                     setOpen(false);
+                    trigger.current?.focus();
                     void addPropInView(kind, preview);
                   }}
                 >
@@ -92,6 +93,7 @@ export function AddPropMenu({ preview }: { preview: PreviewProp[] }) {
             className="mt-0.5 flex items-center gap-2 rounded border-t border-neutral-200 px-2 py-1.5 text-left hover:bg-neutral-100 focus:bg-neutral-100 dark:border-neutral-800 dark:hover:bg-neutral-800 dark:focus:bg-neutral-800"
             onClick={() => {
               setOpen(false);
+              trigger.current?.focus();
               void addPropInView(newFixture, preview);
             }}
           >

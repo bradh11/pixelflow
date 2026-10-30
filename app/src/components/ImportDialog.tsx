@@ -76,12 +76,19 @@ export function ImportDialog({
     };
   }, [backend, address]);
 
+  // Takes the focus once, and gives it back to what opened it (the row's Open) when it closes.
+  const close = useRef(onClose);
+  close.current = onClose;
   useEffect(() => {
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     cancelRef.current?.focus();
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && close.current();
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      if (opener?.isConnected) opener.focus();
+    };
+  }, []);
 
   const add = async () => {
     if (!details || busy) return;

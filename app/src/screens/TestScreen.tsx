@@ -11,14 +11,30 @@ import { type TestDestination, describeUse, isDemoShow, sendingSummary, testDest
 import { currentSetupKey, useSetup } from "../state/setup";
 import { useApp } from "../state/store";
 
-const PATTERNS: { kind: PatternKind; label: string; usesColor: boolean }[] = [
-  { kind: "chase", label: "Chase", usesColor: true },
-  { kind: "solid", label: "Solid color", usesColor: true },
-  { kind: "cycle", label: "Red / green / blue / white", usesColor: false },
-  { kind: "ramp", label: "Brightness ramp", usesColor: true },
-  { kind: "alternate", label: "Alternate pixels", usesColor: true },
-  { kind: "walk", label: "Pixel walk", usesColor: true },
-  { kind: "identify", label: "Identify (blink)", usesColor: false },
+/** Each pattern, and what the lights should do with it (`look`), so a wrong result stands out. */
+const PATTERNS: { kind: PatternKind; label: string; usesColor: boolean; look?: string }[] = [
+  {
+    kind: "chase",
+    label: "Chase",
+    usesColor: true,
+    look: "A block of five lit pixels runs from the first pixel to the last, in wiring order. Where it stops or jumps is where to look.",
+  },
+  { kind: "solid", label: "Solid color", usesColor: true, look: "Every pixel lights in the color. A pixel that stays dark or shows another color is the one to check." },
+  {
+    kind: "cycle",
+    label: "Red / green / blue / white",
+    usesColor: false,
+    look: "Red, then green, then blue, then white, one second each. If the colors come in another order, the color order is wrong.",
+  },
+  { kind: "ramp", label: "Brightness ramp", usesColor: true, look: "Every pixel fades up from off to full over two seconds, again and again." },
+  { kind: "alternate", label: "Alternate pixels", usesColor: true, look: "Every other pixel lights, and they swap each second." },
+  {
+    kind: "walk",
+    label: "Pixel walk",
+    usesColor: true,
+    look: "One pixel lights at a time, stepping along in wiring order, ten a second. Where it goes wrong is where to look.",
+  },
+  { kind: "identify", label: "Identify (blink)", usesColor: false, look: "The target blinks white twice a second, so you can see which lights it is." },
   { kind: "channels", label: "DMX channels by hand", usesColor: false },
 ];
 
@@ -325,10 +341,11 @@ export function TestScreen() {
                 </Select>
               </Field>
               </div>
-              <div className="min-w-36 flex-[1_1_9rem]">
+              <div className="min-w-56 flex-[1_1_14rem]">
               <Field label="Pattern">
                 <Select
                   value={shownKind}
+                  aria-describedby={pattern.look ? "test-pattern-look" : undefined}
                   onChange={(e) => {
                     setKind(e.target.value as PatternKind);
                     change({ kind: e.target.value as PatternKind });
@@ -402,6 +419,11 @@ export function TestScreen() {
                 </Button>
               </div>
             </div>
+            {pattern.look && (
+              <p id="test-pattern-look" className="mt-2 text-xs text-neutral-600 dark:text-neutral-400">
+                {pattern.look}
+              </p>
+            )}
             {nothingToSend ? (
               <div role="status" className="mt-3 flex flex-wrap items-center gap-2 border-t border-neutral-200 pt-2 text-sm dark:border-neutral-800">
                 <span className="text-amber-700 dark:text-amber-400">

@@ -41,6 +41,14 @@ describe("test screen", () => {
     await waitFor(() => expect(backend.output.pattern?.color).toBe("0000ff"));
   });
 
+  it("says what the lights should do with each pattern, so a wrong result stands out", async () => {
+    const { user } = await setup();
+    const pattern = screen.getByRole("combobox", { name: "Pattern" });
+    expect(pattern).toHaveAccessibleDescription(/A block of five lit pixels runs from the first pixel to the last/);
+    await user.selectOptions(pattern, "cycle");
+    expect(pattern).toHaveAccessibleDescription(/Red, then green, then blue, then white, one second each\. If the colors come in another order, the color order is wrong\./);
+  });
+
   it("remembers that the show has been tested, for the setup checklist", async () => {
     const { user } = await setup();
     const key = currentSetupKey();

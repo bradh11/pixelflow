@@ -9,7 +9,10 @@ sequences.
 > **Status:** early development, with no released version yet. To try it you build it from
 > source ([Install](#install)). Expect rough edges, and keep a copy of any show you care about.
 
-*No screenshots yet: they will go here, and in `docs/images/`, once there is a release to show.*
+![A display lit by a sequence: a mega tree with a star, a roofline, two window outlines, a matrix, a singing face, four arches, and candy canes. A blue verse gives way to a gold chase that builds, then a white flash and a red and orange chorus.](docs/images/show-lit-up.gif)
+
+*A made-up display playing a sequence, drawn frame by frame by PixelFlow's own engine (the same
+drawing a video export makes).*
 
 ## What it does
 
@@ -26,6 +29,17 @@ sequences.
   your own props.
 - **Assistant:** bring your own Anthropic or OpenAI key and ask for changes to layouts and
   sequences in plain language. Nothing changes until you apply it.
+
+| Layout | Wiring |
+|---|---|
+| ![The Layout screen: a house photo with a star, a garage arch, a window matrix, and a mega tree drawn over it as rows of dots. The window matrix is selected, and its properties (columns, rows, size, wiring direction, position) are on the right.](docs/images/layout.png) | ![The Wiring screen: the props list on the left, and a controller card with four ports, two props on port 1 and the mega tree on port 2. A small preview on the right draws port 1's wire across the house, from the arch to the window matrix.](docs/images/wiring.png) |
+| **Sequence** | **Play** |
+| ![The Sequence screen: timing tracks for beats, bars, and lyrics, a row of effects for each prop, a small preview of the house, and the selected Color Wash effect's settings.](docs/images/sequence.png) | ![The Play screen: the house filling the window with its lights on, a seek bar, play, stop, Show on my lights, 2D and 3D, Playlist, and full screen.](docs/images/play.png) |
+| **Controllers** | **Assistant** |
+| ![An FPP's page on the Controllers screen: what it is playing and how long is left, the sequences stored on it, its health, the controllers it sends to with Set up my show from this FPP, and its schedule.](docs/images/fpp-page.png) | ![The Assistant panel beside the Layout screen: asked to add two arches, it proposes two new arches and a group, with Preview, Apply, and Discard.](docs/images/assistant.png) |
+
+The app's screens above are from the browser demo (`?demo`, see [Run the desktop app](#run-the-desktop-app)),
+which draws effects only roughly; the picture at the top is the engine's.
 
 What it aims for:
 
@@ -174,7 +188,8 @@ PixelFlow also plays rendered xLights/FPP sequences (`.fseq`) straight to your c
 1. On **Controllers**, open your FPP and choose **Set up my show from this FPP**, then
    **Add N controllers** (N is how many it lists). This tells PixelFlow which sequence channels
    belong to each controller, and it works even while a controller is offline.
-2. On **Play**, open the **Playlist** and choose **Add sequence**, then pick the `.fseq`.
+2. On **Play**, choose **Add a rendered sequence (.fseq)** (once there is something to play,
+   it's **Add sequence** in the **Playlist**), then pick the `.fseq`.
    PixelFlow finds its music next to it. Props you've imported light up in the preview. A
    controller whose strings aren't imported yet shows the channels it receives as a grid.
 
@@ -184,7 +199,7 @@ you about this and can stop the FPP for you.
 ### Put the preview in its own window
 
 **Pop out the preview** (on the Sequence screen's preview, on Play's transport, and as
-**Preview window** on the Layout screen's tool bar) opens the preview in a window of its own, so
+**Preview window** beside **Add prop** on the Layout screen) opens the preview in a window of its own, so
 the main window's room goes to the timeline and controls, or the lights go to another display.
 Drag it there and use its **Full screen** button (or F) to fill that display.
 

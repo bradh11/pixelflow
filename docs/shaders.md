@@ -50,7 +50,10 @@ settings panel shows:
   touched stays as the shader's author set it. A number input can change over the effect, like
   any number setting.
 - **Time speed**: how fast the shader's clock runs; 1 is its own pace, 0 holds it still, below 0
-  runs it backwards. Under More, **Start ahead** starts the shader part-way into its own time.
+  runs it backwards. Under **More settings**, **Start ahead** starts the shader part-way into
+  its own time.
+
+![The settings of a Shader effect on a matrix: Shader (a shader file from the show, Wavy Lines) with the button that adds a file beside it, the shader's description and author, then a control for each of its inputs: Lines and Bend sliders, a Style list, a Mirror checkbox, two sliders for a point (Middle: across and Middle: up), a Line color, and Time speed, with More settings below.](images/shader-settings.png)
 
 Choosing another shader drops the inputs (and curves on them) that belonged to the old one.
 
@@ -111,6 +114,8 @@ A shader is **refused**, and says what it needs, when it uses:
 A file with a mistake in it is refused with the line the mistake is on. Either way the effect
 draws nothing, and its settings panel says why.
 
+![A Shader effect whose file is refused: the Shader list shows "Broken Rings (can't be drawn)", and under it "Broken Rings can't be drawn, so the effect shows nothing. line 14: there is no `ringWidht`".](images/shader-refused.png)
+
 ## Limits
 
 A shader file is a program from a file, and nothing in it is trusted: it can't read or write
@@ -131,6 +136,8 @@ a shader that is stopped is stopped at the same place on every computer and ever
   few places it is tried before a frame is drawn, the effect draws nothing at all that frame
   rather than a picture with holes, and its settings say "Stopped at …: it does more work than a
   shader may in one frame". Try it on a smaller prop, or with fewer shaders playing at once.
+
+  ![A Shader effect's settings with the notice "Stopped at 0:32.000: it does more work than a shader may in one frame, so it draws nothing there. Try it on a smaller prop, or with fewer shaders playing at once."](images/shader-stopped.png)
 
 ## The Assistant and shaders
 

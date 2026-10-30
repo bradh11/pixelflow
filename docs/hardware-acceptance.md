@@ -38,8 +38,8 @@ see [Troubleshooting](troubleshooting.md).
   … Its lights may flicker or go dark while the new setup is saved." Stop the show first, send
   the setup, then start the show again.
 - **Nothing changes on a controller until you click.** Every dialog shows what will change
-  before it writes. This includes **Send setup to this controller…**, **Send to FPP…**, and **Play**
-  and **Stop** on an FPP.
+  before it writes. This includes **Send setup to this controller…**, **Send to FPP…**, and
+  **Play**, **Stop now**, and **Stop after this** on an FPP.
 - **What Send setup changes.** It writes only pixel-output settings, and what the controller
   receives. It never writes Wi-Fi or network settings. At the time of writing it supports FPP and
   WLED. A Falcon controller is read only: its **Send setup** button is off, with the reason shown on hover, so set up a Falcon's pixel ports on its own page.
@@ -64,6 +64,10 @@ see [Troubleshooting](troubleshooting.md).
   **Play** or **Send**.
 - **Stop output when you are done.** The status bar shows "Live output" with a **Stop** button
   while PixelFlow is sending. A test ends with a blackout frame.
+
+The **Send setup** dialog lists what will change, port by port, before anything is written:
+
+![The Send setup to Main FPP dialog: it makes 3 changes, 2 of which turn pixels off or move them, and keeps a copy of the current setup to put back. Port by port: a string's pixel count going from 500 to 512, another from 850 to 800 (the last 50 go dark), and a string removed (its 100 pixels go dark). Cancel and Send to Main FPP at the foot.](images/send-setup.png)
 
 ## Test run details
 
@@ -96,7 +100,7 @@ Fill this in first.
 | 1.5 | A controller is added by scan | **Controllers**, **Scan network**, **Open**, then add it to the show. | [ ] | [ ] | |
 | 1.6 | A controller is added by address | **Controllers**, type its address, **Check address**. | [ ] | [ ] | |
 | 1.7 | An FPP sets up the show | Open the FPP, **Set up my show from this FPP**, and add the controllers it lists. | [ ] | [ ] | |
-| 1.8 | A sequence imports | **Sequence**, **Import from xLights…**, pick an `.xsq`. The report says how much of the sequence comes across the same, looks close, and looks different. | [ ] | [ ] | |
+| 1.8 | A sequence imports | **Sequence**, **Import from xLights**, pick an `.xsq`. The report says how much of the sequence comes across the same, looks close, and looks different. | [ ] | [ ] | |
 | 1.9 | A vendor sequence maps | Import a vendor `.zip`. In the "Map … onto your props" window, **Auto-map**, fix **Not mapped** rows, **Import** the effects. | [ ] | [ ] | |
 
 ## 2. Wiring and mapping

@@ -15,6 +15,8 @@ fixture's channels.
 1. On **Layout**, choose **Add prop ▾ → DMX flood or bar**. A flood lands in the middle of the
    canvas; drag it to where the light is (a flood on the lawn washing the house front, a par at
    the foot of a tree).
+
+   ![The Add prop menu open, with DMX flood or bar at the foot of it, under the shapes.](images/layout-add-prop.png)
 2. In its properties, under **DMX fixture**:
    - **Channels**: pick the layout from the fixture's manual. The library covers the common ones,
      named by their channels: 3 channels (red, green, blue), 4 (dimmer, red, green, blue), 4 (red,
@@ -30,6 +32,8 @@ fixture's channels.
 
 Several fixtures share one universe: give each its own start address, after the last channel of
 the one before. The Wiring screen warns when two overlap.
+
+![A flood on the lawn in front of the house on the Layout screen, selected. Its properties show DMX fixture: Channels (7 channels: dimmer, red, green, blue, white, strobe, mode), Start address 1, and Each channel open, listing each channel's name and what it does, with a value for Strobe and Mode, and Add a channel.](images/dmx-fixture.png)
 
 ## How a color becomes channels
 
@@ -58,6 +62,11 @@ doesn't set come from the color drawn on the fixture as usual, so put it on a la
 DMX effects set one channel at once, the later row (or the higher layer) wins. It draws no color
 and isn't faded by fades.
 
+![The settings of a DMX effect on the Lawn Flood: 1 · Dimmer set to 255 and 6 · Strobe set to 180, each with a slider, a curve button, and a button to stop setting it, then Set a channel… to add another.](images/dmx-effect.png)
+
+To set a channel, pick it in **Set a channel…** and choose the **+** beside it; the **×** beside a
+channel stops setting it.
+
 ## Wiring: DMX nodes and USB interfaces
 
 On **Wiring**, choose **Add controller** and a DMX controller type:
@@ -74,8 +83,14 @@ On **Wiring**, choose **Add controller** and a DMX controller type:
   "ENTTEC DMX USB Pro (cu.usbserial-EN123456)"; listing them doesn't open any. One universe. See
   [USB DMX interfaces](#usb-dmx-interfaces) below.
 
+![The Add controller form with Controller type USB DMX interface: the Serial port box holds /dev/cu.usbserial-EN123456, with "ENTTEC DMX USB Pro (cu.usbserial-EN123456)" under it, and a note that the interface sends one DMX universe, all 512 channels every frame.](images/dmx-usb-port.png)
+
+Pick the port from the list the **Serial port** box offers, or type it.
+
 Drag each fixture onto its universe (or use **+ Add…**): it goes to its own start address, shown
 as "@ 9". A DMX controller can't drive pixels; the Wiring screen says so.
+
+![A DMX node (Art-Net) on the Wiring screen, Lawn DMX: its one port is universe 0 (U0), channels 1 to 12, with Lawn Flood @ 1 and Porch Par @ 9 wired on it.](images/dmx-wiring.png)
 
 A pixel controller with a DMX output (a Falcon's or an FPP's DMX port, fed from its own
 universes) carries fixtures too: wire the fixture on that controller's port after its pixels,
@@ -94,6 +109,8 @@ On **Test**, pick the fixture as the target and choose **DMX channels by hand**:
 channel, live on the fixture while you move it. Any other pattern lights the fixture through its
 color, like a pixel. The same rules apply as for every test, over the network or USB: nothing is
 sent (and no USB interface is opened) until you press Start, and Stop sends black.
+
+![The Test screen with Prop: Lawn Flood as the Target and DMX channels by hand as the Pattern: it sends to Lawn DMX, universe 0, channels 1 to 7, and has a slider for each channel (Dimmer, Red, Green, Blue, White, Strobe, Mode), with a warning to check in the fixture's manual what each channel does.](images/dmx-test-channels.png)
 
 ## USB DMX interfaces
 

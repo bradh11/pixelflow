@@ -34,6 +34,8 @@ way.
 3. Under **Pattern**, pick **Chase** and choose **Start**.
 4. Compare what the lights do with what **Sends to** and the table below it say.
 
+![The Test screen running a Chase on Main FPP · port 1. Under Sends to, the controller's address, protocol, universes, and channels, and whether its web page answers (in this made-up show it doesn't). Below, Sending Chase at 40 fps, and a table of each controller's State, Packets, and Errors.](images/test-screen.png)
+
 Under **Sends to**, each controller shows **Web page answering** or "Web page not answering — check it's
 powered on and on the same network as this computer". **Web page answering** only means something
 replied to a quick check of the controller's web page. It does not prove the light data arrives
@@ -65,8 +67,9 @@ Check these in order.
    can't use. Fix the address on **Wiring**: choose **Edit** on the controller's card.
 3. **The controller isn't reachable.** Under **Sends to**, it shows "Web page not answering". See [The
    controller is not found or "not answering"](#the-controller-is-not-found-or-not-answering).
-4. **The wrong protocol.** The controller's card on **Wiring** has a **Protocol** setting: **DDP**
-   or **sACN (E1.31)**. It must match what your controller listens for. Many controllers and FPP
+4. **The wrong protocol.** The controller's card on **Wiring** shows its protocol beside its
+   address; to change it, choose **Edit** on the card and set **Protocol**: **DDP** or **sACN
+   (E1.31)**. It must match what your controller listens for. Many controllers and FPP
    inputs need to be switched on for sACN. For DDP, PixelFlow sends to UDP port 4048. For sACN it
    sends to UDP port 5568. Check your controller's own page to see what it accepts.
 5. **sACN universes don't match.** With sACN, the **Start universe** and **Channels per
@@ -94,6 +97,8 @@ example, red shows as green.
    scale** and change **Color order**. (The Wiring and Test screens each have a note with a link
    to it; from Test, with one prop as the **Target**, the link selects that prop for you.) The choices are RGB, RBG, GRB, GBR, BRG, BGR, RGBW, and
    GRBW. Run the test again.
+
+   ![A prop's Properties panel with More: color order and scale open: Color order (GRB here), Scale X, and Scale Y, under the prop's position and rotation.](images/layout-color-order.png)
 3. Common cases: a string that shows red as green and green as red is probably GRB. Choose the
    order that makes the test show red, then green, then blue.
 4. Change it in **one place only**. If your controller's own page also has a color order for that
@@ -119,6 +124,8 @@ Likely causes, in order:
    later pixels appear shifted. Also check that **From pixel** and **To pixel** cover the whole
    prop. The checkbox "The whole prop (N pixels)" should be ticked if the prop sits entirely on
    this port.
+
+   ![A prop's slot settings on Wiring: Port, Starts at the other end, The whole prop (50 pixels), Empty pixels before it, Smart receiver, Brightness (%), Gamma, Unwire, and Done.](images/wiring-slot-settings.png)
 3. **The pixel count is wrong.** On **Layout**, select the prop and check its pixel count in
    **Properties**. If the count is higher than the real string, the last pixels "stop" short; if
    it is lower, some real pixels stay dark.
@@ -129,8 +136,8 @@ Likely causes, in order:
    faulty. Use **Pixel walk** on **Test** to light one pixel at a time and find where it stops.
 6. **The controller's own port settings.** The controller has its own pixel count per port. If it
    is lower than your string, the extra pixels never light. Check your controller's own page. To
-   read a controller's current setup into PixelFlow, use **Compare with this controller** on
-   **Controllers**.
+   read a controller's current setup into PixelFlow, use **Compare** on its row on
+   **Controllers** (**Compare with this controller** on its own page).
 7. **A wiring problem listed on Wiring.** A red box headed "N things to fix" lists problems.
    Examples: a prop wired more than once, a slot that uses more pixels than the prop has, or two
    ports with the same number.
@@ -180,6 +187,8 @@ PixelFlow looks for controllers on your network. It cannot find ones it can't re
 6. **An FPP lists a controller that doesn't answer.** A message like "*name* (address) isn't
    responding. *FPP* lists it" means the FPP sends to it but it isn't answering. Check its power
    and network cable, then choose **Scan again**.
+
+   ![The Controllers screen after a scan: the controllers found, each with Open, and under them the warning "Falcon_F16V5_Garage (192.0.2.21) isn't responding. FPP lists it — check that it's powered on and connected, then scan again."](images/controllers-scan.png)
 7. **Use the host name.** A host name such as `fpp.local` can work where scanning doesn't. Type
    it in the address box.
 8. **IPv6.** PixelFlow sends to controllers over IPv4 only. An address that is IPv6 produces an
@@ -197,6 +206,8 @@ PixelFlow's lights then look wrong or flicker.
    the same controllers." Choose **Stop FPP**.
 2. On **Controllers**, open the FPP. **Now playing** shows what it is playing. Choose **Stop now**
    to stop at once, or **Stop after this** to let the current sequence finish.
+
+   ![An FPP's page: Now playing shows the sequence, how far in it is, and what's next, with Stop after this and Stop now beside it.](images/fpp-page.png)
 3. If the FPP's scheduler starts a playlist at a set time, it can start again. Check its
    schedule on the FPP's own page.
 4. When you **Send setup** and the FPP is playing, the dialog warns: "This FPP is playing … Its
@@ -243,18 +254,23 @@ There are three separate timings. Fix the one that matches what you see.
 
 1. **The preview looks late, but the real lights are fine.** Your computer takes time to play
    sound and draw the picture. Open **Settings**, find **Preview sync**, choose **Play the click**,
-   and slide **Preview offset** until the square flashes exactly on the click. Or choose **Tap
-   along** and press Space or T on every click you hear. PixelFlow suggests an offset, which you
-   accept with the **Use** button. **Preview sync** moves only the preview and the timeline's
-   playhead on this computer. It does not change the lights, **Light timing**, **Send to FPP**,
-   or exports.
+   and slide **Preview offset** until the square flashes exactly on the click. Or, while the click
+   plays, choose **Tap along** and press Space or T on every click you hear. PixelFlow suggests
+   an offset, which you accept with the **Use** button. **Preview sync** moves only the preview
+   and the timeline's playhead on this computer. It does not change the lights, **Light timing**,
+   **Send to FPP**, or exports.
    Bluetooth speakers and headphones usually need the most.
+
+   ![Settings, Preview sync, with the click playing: Stop the click, the square that flashes on each click, Stop tapping, the note "Press Space or T on every click you hear", and the Preview offset slider from Later to Earlier, with Reset.](images/settings-preview-sync.png)
 2. **The real lights are early or late against the music from PixelFlow's Play screen.** On **Play**,
    choose **Playlist**. Under **Music**, find **Light timing** ("Move the lights earlier or later against the music"). Use the **−50 ms**, **−10 ms**,
    **+10 ms**, and **+50 ms** buttons to move the lights earlier or later. A plus value moves
    the lights earlier. **Reset** puts it back. This applies to one rendered (`.fseq`) sequence at a time, in
    the preview and on your controllers when it plays from PixelFlow. Settings points here: "Light
    timing for each sequence is set beside it on the Play screen (Playlist, then Music)."
+
+   ![The Playlist drawer on Play: the sequence open in the editor and the show's rendered (.fseq) sequences; under Music, the selected one's music file with Change… and Remove music, its waveform and volume, and Light timing with −50 ms, −10 ms, +10 ms, and +50 ms.](images/play-playlist.png)
+
 3. **The lights are wrong on the FPP itself.** After **Send to FPP**, the FPP plays the file
    and its music on its own. **Light timing** is not saved into the exported file or **Send to
    FPP** (the app only applies it while it plays), so it doesn't carry over. Check the timing on the FPP. If it is off, it may come
@@ -328,12 +344,13 @@ screen. Things to try, in order:
 1. **Use the 2D view** while you edit. Press V on **Layout**, or choose **2D** on the sequence
    preview. The 3D view draws more.
 2. **Turn Glow down** to none, using the **Glow** control beside the **2D** and **3D** buttons. It is a preview-only effect, so turning it off can't change the lights.
-3. **Close the pop-out preview** if you don't need it: choose **Bring the preview back**.
+3. **Close the pop-out preview** if you don't need it: close its window, or choose **Bring it
+   back** where the preview was.
 4. **Turn off Show on my lights** while you edit. Playing then sends only to the on-screen preview.
 5. **Make the preview smaller.** Drag the divider, or choose **Bigger preview** again to give
    the timeline its room back.
-6. **Show only the row you are working on.** Tick **Selected row only** above the sequence
-   preview ("Show only the pixels of the row being worked on").
+6. **Show only the row you are working on.** Tick **Row only** above the sequence preview
+   (**Selected row only** when the preview is above the timeline).
 7. **Close other apps,** especially ones that use a lot of the graphics chip.
 8. **A port that is too full** is not an app problem. On **Wiring**, a message such as "this port
    refreshes about 704 pixels in time" is about the controller's limit, not your computer.

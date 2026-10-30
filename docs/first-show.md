@@ -35,6 +35,11 @@ see [Troubleshooting](troubleshooting.md).
 Both routes end at the same place. Finish with [Play to the lights](#b9-play-to-the-lights) and
 [Send to FPP](#b10-send-to-fpp-for-unattended-playback).
 
+![The welcome screen: Recent shows on the left (empty the first time), and on the right New show, Open…, Import from xLights…, Try the demo show, and Find my controllers.](images/welcome.png)
+
+The pictures in this guide come from **Try the demo show**: a made-up house with four props and
+two controllers.
+
 ## What each screen is for
 
 The sidebar lists the screens in the order you will use them.
@@ -55,6 +60,8 @@ controllers**, **Wire your props**, **Test your lights**, **Make a sequence**, a
 playlist**. Each step is a button that takes you to the right screen, and it ticks itself off as
 you go. Put it away with its close button. To bring it back, press ⌘K (Ctrl+K on Windows and
 Linux) and choose **Show the setup checklist**.
+
+![The Set up your show checklist, opened with All steps: Draw your props, Find your controllers, and Make a sequence are ticked; Wire your props (1 prop not wired), Test your lights, and Add it to the playlist are still to do.](images/setup-checklist.png)
 
 ## Route A: I have an xLights show
 
@@ -105,8 +112,8 @@ of guessing later.
 ### A5. Import a sequence
 
 1. Open **Sequence**.
-2. Choose **Import from xLights…** in the toolbar. Pick an xLights sequence (`.xsq`) or a
-   vendor's package (`.zip`).
+2. Choose **Import from xLights** in the toolbar (on a narrow window, only its icon shows).
+   Pick an xLights sequence (`.xsq`) or a vendor's package (`.zip`).
    To import from a folder a package was unzipped to, press ⌘K and choose **Import xLights
    sequence from a folder…**.
 3. Read the report that opens.
@@ -115,8 +122,8 @@ of guessing later.
 timing tracks, and marks. A line under them says how much of the sequence *comes across the
 same*, *looks close*, *looks different*, or has *no PixelFlow effect yet* (a dim stand-in is
 shown for those). The effects that differ are listed with what you would notice. The sequence
-opens on the **Sequence** screen as an unsaved sequence. Choose
-**Save** to keep it.
+opens on the **Sequence** screen as an unsaved sequence. Choose **Save** (the disk button beside
+the sequence's name) to keep it.
 
 A sequence with music also says "Effects that follow the music follow its left channel, as they
 do in xLights". Sparkles, curves, and effects set to follow the music take how loud it is from
@@ -139,14 +146,17 @@ which of your props matches which of theirs. It asks you.
 2. Choose **Auto-map**. PixelFlow matches by name, alias, kind of prop, and size. Choose
    **Clear** to start over.
 3. Look for rows marked **Not mapped** in amber. These are models that carry many effects, so
-   leaving them out loses a lot. Choose **Map** on the row, then pick your props from the list.
-   Type in **Find a prop or group** to narrow the list. A **suggested** tag marks PixelFlow's
-   guess.
+   leaving them out loses a lot. Choose **+ Choose** on the row (**+ Add** on a row that already
+   goes somewhere), then pick your props from the list. Type in **Find a prop or group** to
+   narrow the list. Where PixelFlow has a guess, the row offers it, such as **Use Garage Arch?**,
+   and a **suggested** tag marks it in the list.
 4. Use **Find one of their models (busiest first)** to search the vendor's list.
 5. If you have already saved a mapping, **Load .xmap…** brings it back. **Save .xmap…** keeps
    yours for next time.
 6. The window shows how much is done as "N of M mapped". When you're happy, choose **Import N
    effects**.
+
+![The Map Holiday Mashup onto your props window: 4 of 12 mapped, with Auto-map, Clear, Load .xmap…, and Save .xmap…. Each of the vendor's models is listed, busiest first, with its effect count and the props it goes to in your show. Busy models that aren't mapped are marked in amber, two of them with the suggestion Use Garage Arch?. Import 270 effects is at the bottom.](images/vendor-mapping.png)
 
 The song's music file is copied into your show's music folder. If the show isn't saved yet, the
 window asks you to **Choose folder…** first.
@@ -180,6 +190,10 @@ You can scan for it or add it by address.
      sends to. Choose **Set up my show from this FPP**, review what it will add, and choose the
      button that adds the controllers.
 
+![The Controllers screen after Scan network: two FPPs (one of them already In show, with Compare and Send setup…), a Falcon, and a WLED, each with an Open button. Below the list, a warning that a Falcon the FPP lists isn't responding.](images/controllers-scan.png)
+
+![An FPP's page: Now playing, with Stop after this and Stop now; On this FPP, with tabs for its Sequences, Music, and Playlists; Health; Outputs → your show, with Set up my show from this FPP; and its schedule.](images/fpp-page.png)
+
 **By address:**
 
 1. On **Controllers**, type the controller's address in the box that says "Controller IP
@@ -188,6 +202,8 @@ You can scan for it or add it by address.
    type**, **IP address**, **Protocol** (**DDP** or **sACN (E1.31)**), and **Ports**. Choose
    **Add**. Picking a known **Controller type**, such as **Falcon F16V5**, fills in the port
    count and a pixel limit for each port.
+
+![The Add controller form on Wiring, filled in: Name, Controller type Falcon F16V5, IP address, Protocol DDP, and Ports 16, with Add and Cancel, and a note that with 16 ports in use each drives up to 1,024 pixels.](images/add-controller.png)
 
 **You should see:** the controller in a list with its name, model, and address. Controllers in
 your show are marked **In show**.
@@ -200,15 +216,20 @@ your show are marked **In show**.
 2. Choose **Add prop** (top right) and pick a shape from the menu, such as **Arch**, **Line /
    string**, **Matrix**, or **Mega tree**. It lands in the middle of the canvas. Or pick a tool on
    the toolbar and drag on the canvas to draw the prop where it belongs.
+
+   ![The Add prop menu open below the Add prop button: Arch, Line / string, Poly line, Matrix, Mega tree, Star, Circle, Wreath, Candy canes, Icicles, Window frame, Spinner, Sphere, Cube, Custom grid, and DMX flood or bar.](images/layout-add-prop.png)
+
 3. Select a prop to see its **Properties** panel. Set its pixel count, name, and position there.
-4. **Photo behind the props:** choose **Photo** on the toolbar, then **Choose photo…**. Pick a
-   picture of your house. Use **Photo strength** to fade it, **Move or resize photo** to line it
-   up, and **Replace…** or **Remove photo** to change it.
+4. **Photo behind the props:** choose **Photo** on the toolbar (the picture button), then
+   **Choose photo…**. Pick a picture of your house. Use **Photo strength** to fade it, **Move or
+   resize photo** to line it up, and **Replace…** or **Remove photo** to change it.
 5. Press V to switch between the 2D and 3D views. Press ⌘Z to undo any mistake.
 
 **You should see:** each prop as a row of dots on the canvas, over your photo.
 
-For more tips, choose **Tips** on the toolbar.
+![The Layout screen: the props list on the left; the canvas with a star, a garage arch, a window matrix, and a mega tree drawn as dots over a photo of a house; and the selected window matrix's properties on the right.](images/layout.png)
+
+For more tips, choose **Tips** on the toolbar (the question mark).
 
 **If it doesn't:** see [Props light in the wrong place or
 reversed](troubleshooting.md#props-light-in-the-wrong-place-or-reversed).
@@ -221,13 +242,17 @@ reversed](troubleshooting.md#props-light-in-the-wrong-place-or-reversed).
    on the port, then click the props on the house picture in the order the wire runs, and
    choose **Done**.
 3. Order matters. Props on a port are listed in wiring order, from the controller outward.
-4. If a string plugs into the far end of a prop, open the prop's settings (its **Settings** button on the port's table)
-   and tick **Starts at the other end**.
+4. If a string plugs into the far end of a prop, open the prop's settings (the sliders button at
+   the end of its row in the port's table) and tick **Starts at the other end**.
 5. If a string has unlit stretches before the prop, set **Empty pixels before it** in the same
    settings. These are *null pixels*.
 
+![The settings of the Garage Arch on its port: the Port it is on, Starts at the other end, The whole prop (50 pixels), Empty pixels before it, Smart receiver, Brightness (%) and Gamma (the port's when left empty), Unwire, and Done.](images/wiring-slot-settings.png)
+
 **You should see:** each port shows how many pixels it uses out of its limit. A port that is
 over its limit shows a red message with the number of pixels over.
+
+![The Wiring screen: the props list on the left, one of them not wired yet; Main FPP's card with port 1 holding the Garage Arch and the Window Matrix in wiring order and port 2 holding the Mega Tree; and a preview that draws port 1's wire across the house.](images/wiring.png)
 
 **If it doesn't:** see [Only some pixels light, or they stop partway](troubleshooting.md#only-some-pixels-light-or-they-stop-partway).
 
@@ -250,6 +275,8 @@ over its limit shows a red message with the number of pixels over.
 checks only the controller's web page, not that light data is arriving. Below that, a
 row for each controller with its **State**, **Packets**, and **Errors**.
 
+![The Test screen running a Chase on Main FPP · port 1: Target, Pattern, Color, Restart, and Stop. Under Sends to, the controller's address and universes; the demo's controllers aren't real, so its web page shows as not answering. Below, Sending Chase at 40 fps, with the controller's State (ok), Packets, and Errors.](images/test-screen.png)
+
 **If it doesn't:** see [Nothing lights](troubleshooting.md#nothing-lights). If colors are wrong,
 see [Wrong colors](troubleshooting.md#wrong-colors-color-order).
 
@@ -260,6 +287,8 @@ see [Wrong colors](troubleshooting.md#wrong-colors-color-order).
 3. Under **Rows**, keep "A row for every prop and group", or choose **Start empty** to add rows
    yourself. Choose **Create**.
 
+![The New sequence window: Choose music…, Name, Length without music (seconds), Rows (A row for every prop and group, or Start empty), and Create.](images/new-sequence.png)
+
 **You should see:** a timeline with your song's waveform and a row for each prop or group.
 
 Choose **Save** often. The **Sequence** screen offers back any unsaved sequence from last time.
@@ -268,6 +297,8 @@ Beside the sequence's name, **Sequence settings** (the small sliders button) hol
 combine where they light the same pixels (**Cover**, **Blend with the rows above**, or
 **Replace**), the sequence's music, where effects that follow the music take its loudness from
 (**Loudness from**: the louder channel, or the left channel as xLights does), and the frame time.
+
+![Sequence settings open below its button: Rows (Cover, Blend with the rows above, or Replace), Music with Locate…, Loudness from, and Frames.](images/sequence-settings.png)
 
 ### B7. Detect beats
 
@@ -287,11 +318,14 @@ language](troubleshooting.md#lyrics-are-wrong-or-in-the-wrong-language) and
 
 **By hand:**
 
-1. Find the **Effects** list. Drag an effect onto a row. Or move to an effect with the Tab key
-   and press Enter to add it at the playhead.
+1. Find the **Effects** list down the left of the timeline. On a narrower window it shows only
+   icons: point at one for its name. Drag an effect onto a row. Or move to an effect with the Tab
+   key and press Enter to add it at the playhead.
 2. Select the effect on the timeline to change its settings.
 3. Press Space to play. Press L to loop.
 4. If a row is missing, choose **Add row**.
+
+![The Sequence screen: the Effects list as a column of icons on the left; timing tracks for beats, bars, and lyrics above a row of effects for each prop; the preview at the top right; and below it the settings of the selected Color Wash effect: Cycles, Gradient, Colors, and Fades.](images/sequence.png)
 
 **With the assistant:**
 
@@ -304,11 +338,14 @@ language](troubleshooting.md#lyrics-are-wrong-or-in-the-wrong-language) and
 4. Review what it proposes. Choose **Play preview** (or **Preview**) to see it, then **Apply**
    or **Discard**. Nothing changes until you choose **Apply**. **Apply** is one undo step.
 
+![The Assistant panel after Create a compelling sequence: it started a new sequence for the song that was chosen, then proposes 107 effects, with a summary, its own review score, a strip of the song's sections (intro, verse, chorus, outro), and what it adds in each.](images/assistant-sequence.png)
+
 **Preview what you made:**
 
 - The preview sits beside or above the timeline. Switch between **2D** and **3D**.
-- **Glow** softens the lit pixels so they look like bulbs behind a diffuser. Slide it to none for
-  bare bulbs. Glow changes only how the preview and exported videos look.
+- **Glow** (the sparkle button beside **2D** and **3D**) softens the lit pixels so they look like
+  bulbs behind a diffuser. Slide it to none for bare bulbs. Glow changes only how the preview and
+  exported videos look.
 - **Pop out the preview** opens the preview in its own window, which you can drag to another
   display. **Bigger preview** gives the preview most of the screen.
 
@@ -330,6 +367,8 @@ You can play a sequence on your real lights from this computer.
 **You should see:** the real lights follow the preview. The status bar at the foot of the window
 shows "Live output" with a **Stop** button while PixelFlow is sending.
 
+![The Play screen during a sequence: the house fills the window with its props lit; under it the seek bar, play, back to the start, stop, loop, Show on my lights, the sequence's name, glow, 2D and 3D, Playlist, pop out, and full screen.](images/play.png)
+
 **If it doesn't:** see [Nothing lights](troubleshooting.md#nothing-lights) and [FPP is playing and
 overriding PixelFlow](troubleshooting.md#fpp-is-playing-and-overriding-pixelflow).
 
@@ -350,6 +389,8 @@ its own, put the sequence on the FPP.
 6. Choose **Send**. Wait for the progress bar.
 7. When the window says the files are on the FPP, choose **Play it now on the FPP** to try it.
 
+![The Send to FPP window: the FPP picked from the list; the sequence's music, with Change… and No music; the FPP already has a sequence and music with the same names, with Replace it, Keep both, and Use the one already on the FPP; the FPP playlist choices; and how much room the FPP has free.](images/send-to-fpp.png)
+
 **You should see:** "…are on" followed by your FPP's name, then "Playing on" the FPP.
 
 To check what is on an FPP later, open it from **Controllers**. The **On this FPP** section lists
@@ -366,6 +407,8 @@ want the file itself.
 2. Choose the size (1080p or 720p), **Frame rate**, and **What to export**. **Glow** and **Pixel
    size** change how the lights look in the video.
 3. Choose **Export…** and pick where to save the MP4.
+
+![The Export video window: Size, Frame rate, What to export, Pixel size, Encoder, Show the house photo behind the lights, Glow, and Export….](images/export-video.png)
 
 **You should see:** a progress bar, then "Saved" followed by the file name. Choose **Done**.
 

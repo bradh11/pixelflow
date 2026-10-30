@@ -13,8 +13,8 @@ and when.
   reports, and it doesn't check in with anyone when it starts.
 - **Your files stay where you put them.** Nothing is uploaded unless you use a feature below
   that says so.
-- **It scans your network only when you ask.** "Find my controllers" looks at your local
-  network; nothing is scanned in the background.
+- **It scans your network only when you ask.** "Find my controllers" (or **Scan network** on
+  the **Controllers** screen) looks at your local network; nothing is scanned in the background.
 - **The assistant is off until you add your own key.** When you use it, parts of your show go to
   the AI company you chose (Anthropic or OpenAI), under your own account with them.
 - **Your music is sent to OpenAI only if you say yes** to that, separately, when finding lyrics.
@@ -42,7 +42,8 @@ is somewhere else.
 
 ### Finding your controllers
 
-When you choose **Find my controllers**, and only then, PixelFlow:
+When you choose **Find my controllers** on the welcome screen, or **Scan network** on
+**Controllers**, and only then, PixelFlow:
 
 1. sends a short "who's there?" message that FPP-compatible devices answer. It carries the
    word "PixelFlow" and nothing about you or your computer;
@@ -72,7 +73,7 @@ for example), and never asks you for a controller's password.
 PixelFlow changes something on a controller only when you click the button that says so, after
 showing you what will change:
 
-- **Play** and **Stop** on an FPP;
+- **Play**, **Stop now**, and **Stop after this** on an FPP;
 - **Send to FPP**: uploads the sequence file and its music to the FPP you chose;
 - **Send setup**: writes pixel-output settings. Before the first change, PixelFlow keeps a copy
   of the controller's setup so you can put it back. It never writes Wi-Fi or network settings.

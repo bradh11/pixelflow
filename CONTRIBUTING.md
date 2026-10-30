@@ -79,6 +79,12 @@ regenerate it:
   `make licenses`.
 - **The version**, which several files state: `make bump VERSION=X.Y.Z`.
 
+**The screenshots in the guides** (`docs/images/`) come from the browser demo, taken by
+`node scripts/screenshots.mjs` (it needs Google Chrome or Chromium, and nothing to install;
+`--only <name>` takes one again, `--list` says which guide uses which, and `--engine` also redraws
+the picture of the show lit up, with cargo and ffmpeg). No test checks them: take them again when a
+change alters a screen they show, and look at each one before committing it.
+
 ## House rules
 
 - **No `unsafe`.** Both Cargo workspaces forbid it (`unsafe_code = "forbid"`), and a change that

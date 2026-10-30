@@ -111,7 +111,7 @@ Fetched only when you ask for it (not part of the installer):
     downloaded from Hugging Face when the user turns on lyric alignment; not in
     the installer
 
-Software components (492). Those marked with * ship no licence file of their
+Software components (493). Those marked with * ship no licence file of their
 own; the standard text of their licence is in part 3.
 
   @radix-ui/primitive 1.1.7 (JavaScript)
@@ -1093,7 +1093,7 @@ own; the standard text of their licence is in part 3.
   rustix 1.1.5 (Rust)
     licence: Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT
     source:  https://github.com/bytecodealliance/rustix
-  rustls 0.23.45 (Rust)
+  rustls 0.23.46 (Rust)
     licence: Apache-2.0 OR ISC OR MIT
     source:  https://github.com/rustls/rustls
   rustls-pki-types 1.15.1 (Rust)
@@ -1325,7 +1325,7 @@ own; the standard text of their licence is in part 3.
   tinyvec 1.13.3 (Rust)
     licence: Zlib OR Apache-2.0 OR MIT
     source:  https://github.com/Lokathor/tinyvec
-  tokio 1.53.2 (Rust)
+  tokio 1.54.1 (Rust)
     licence: MIT
     source:  https://github.com/tokio-rs/tokio
   toml 1.1.6+spec-1.1.0 (Rust)
@@ -1502,6 +1502,9 @@ own; the standard text of their licence is in part 3.
     licence: MIT OR Apache-2.0
     source:  https://github.com/microsoft/windows-rs
   windows-sys 0.52.0 (Rust)
+    licence: MIT OR Apache-2.0
+    source:  https://github.com/microsoft/windows-rs
+  windows-sys 0.59.0 (Rust)
     licence: MIT OR Apache-2.0
     source:  https://github.com/microsoft/windows-rs
   windows-sys 0.60.2 (Rust)
@@ -3311,7 +3314,7 @@ The text below is from:
   ring 0.17.14 (src/polyfill/once_cell/LICENSE-APACHE)
   roxmltree 0.21.1 (LICENSE-APACHE)
   rustix 1.1.5 (LICENSE-APACHE)
-  rustls 0.23.45 (LICENSE-APACHE)
+  rustls 0.23.46 (LICENSE-APACHE)
   scopeguard 1.2.0 (LICENSE-APACHE)
   secret-service 5.2.0 (LICENSE-APACHE)
   security-framework 3.7.0 (LICENSE-APACHE)
@@ -15862,7 +15865,7 @@ at your option.
 
 ================================================================================
 The text below is from:
-  rustls 0.23.45 (LICENSE-ISC)
+  rustls 0.23.46 (LICENSE-ISC)
 --------------------------------------------------------------------------------
 ISC License (ISC)
 Copyright (c) 2016, Joseph Birr-Pixton <jpixton@gmail.com>
@@ -15882,7 +15885,7 @@ THIS SOFTWARE.
 
 ================================================================================
 The text below is from:
-  rustls 0.23.45 (LICENSE-MIT)
+  rustls 0.23.46 (LICENSE-MIT)
 --------------------------------------------------------------------------------
 Copyright (c) 2016 Joseph Birr-Pixton <jpixton@gmail.com>
 
@@ -17355,7 +17358,7 @@ SOFTWARE.
 
 ================================================================================
 The text below is from:
-  tokio 1.53.2 (LICENSE)
+  tokio 1.54.1 (LICENSE)
 --------------------------------------------------------------------------------
 MIT License
 
@@ -19576,6 +19579,7 @@ The text below is from:
   windows-result 0.4.1 (license-apache-2.0)
   windows-strings 0.5.1 (license-apache-2.0)
   windows-sys 0.52.0 (license-apache-2.0)
+  windows-sys 0.59.0 (license-apache-2.0)
   windows-sys 0.60.2 (license-apache-2.0)
   windows-sys 0.61.2 (license-apache-2.0)
   windows-targets 0.52.6 (license-apache-2.0)
@@ -19800,6 +19804,7 @@ The text below is from:
   windows-result 0.4.1 (license-mit)
   windows-strings 0.5.1 (license-mit)
   windows-sys 0.52.0 (license-mit)
+  windows-sys 0.59.0 (license-mit)
   windows-sys 0.60.2 (license-mit)
   windows-sys 0.61.2 (license-mit)
   windows-targets 0.52.6 (license-mit)

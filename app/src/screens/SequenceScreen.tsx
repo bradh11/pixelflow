@@ -228,7 +228,7 @@ function Workspace() {
               <p>Each row lights one prop or a group of props. Drag effects onto a row to make it light up.</p>
               <div className="mt-3">
                 <Button variant="primary" onClick={() => setAdding(true)}>
-                  Add a row
+                  Add row
                 </Button>
               </div>
             </EmptyState>
@@ -388,16 +388,16 @@ function Toolbar({ onNew, onOpen }: { onNew: () => void; onOpen: () => void }) {
       <ToolButton label="New sequence" onClick={onNew}>
         <FilePlus size={16} /> <span className="hidden @min-[1200px]:inline">New sequence</span>
       </ToolButton>
-      <ToolButton label="Open sequence" onClick={onOpen}>
-        <FolderOpen size={16} /> <span className="hidden @min-[1200px]:inline">Open sequence</span>
+      <ToolButton label="Open sequence…" onClick={onOpen}>
+        <FolderOpen size={16} /> <span className="hidden @min-[1200px]:inline">Open sequence…</span>
       </ToolButton>
       {/* Asks about unsaved changes like New and Open do (the import goes through the same question). */}
       <ToolButton
-        label="Import from xLights…"
+        label="Import xLights sequence…"
         hint="Import an xLights sequence (.xsq), or a vendor's package (.zip), onto this show's props and groups"
         onClick={() => void useApp.getState().importXlightsSequence()}
       >
-        <FileInput size={16} /> <span className="hidden @min-[1200px]:inline">Import from xLights</span>
+        <FileInput size={16} /> <span className="hidden @min-[1200px]:inline">Import xLights sequence…</span>
       </ToolButton>
       <ToolButton label="Save" hint={`Save the sequence, and the show if it changed (${hintFor("save")})`} onClick={() => void saveSequenceAndShow()} disabled={s.name === null}>
         <Save size={16} />
@@ -843,7 +843,7 @@ function Start({ onNew, onOpen }: { onNew: () => void; onOpen: (path?: string) =
           </button>
           <button type="button" onClick={() => void onOpen()} className="flex flex-col items-start gap-1 rounded-lg border border-neutral-200 p-4 text-left hover:border-accent-500 dark:border-neutral-800">
             <FolderOpen size={20} className="text-accent-600 dark:text-accent-400" />
-            <span className="font-medium">Open a sequence</span>
+            <span className="font-medium">Open sequence…</span>
             <span className="text-sm text-neutral-500">A .pfseq.json file you saved.</span>
           </button>
           <button
@@ -852,7 +852,7 @@ function Start({ onNew, onOpen }: { onNew: () => void; onOpen: (path?: string) =
             className="col-span-2 flex flex-col items-start gap-1 rounded-lg border border-neutral-200 p-4 text-left hover:border-accent-500 dark:border-neutral-800"
           >
             <FileInput size={20} className="text-accent-600 dark:text-accent-400" />
-            <span className="font-medium">Import an xLights sequence</span>
+            <span className="font-medium">Import xLights sequence…</span>
             <span className="text-sm text-neutral-500">An .xsq file, or a vendor&apos;s .zip package mapped onto this show&apos;s props and groups.</span>
           </button>
         </div>

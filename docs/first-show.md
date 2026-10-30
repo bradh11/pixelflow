@@ -35,7 +35,7 @@ see [Troubleshooting](troubleshooting.md).
 Both routes end at the same place. Finish with [Play to the lights](#b9-play-to-the-lights) and
 [Send to FPP](#b10-send-to-fpp-for-unattended-playback).
 
-![The welcome screen: Recent shows on the left (empty the first time), and on the right New show, Open…, Import from xLights…, Try the demo show, and Find my controllers.](images/welcome.png)
+![The welcome screen: Recent shows on the left (empty the first time), and on the right New show, Open…, Import xLights show…, Try the demo show, and Find controllers.](images/welcome.png)
 
 The pictures in this guide come from **Try the demo show**: a made-up house with four props and
 two controllers.
@@ -67,8 +67,9 @@ Linux) and choose **Show the setup checklist**.
 
 ### A1. Import the show folder
 
-1. On the welcome screen, choose **Import from xLights…**. If a show is already open, use ⌘K and
-   choose **Import from xLights…**.
+1. On the welcome screen, choose **Import xLights show…**. If a show is already open, open the
+   show menu (the show's name in the top bar) and choose **Import xLights show…** there, or find
+   it with ⌘K.
 2. Pick your xLights show folder. It is the folder that holds `xlights_rgbeffects.xml`.
 3. Wait for the **Imported** window.
 
@@ -112,7 +113,7 @@ of guessing later.
 ### A5. Import a sequence
 
 1. Open **Sequence**.
-2. Choose **Import from xLights** in the toolbar (on a narrow window, only its icon shows).
+2. Choose **Import xLights sequence…** in the toolbar (on a narrow window, only its icon shows).
    Pick an xLights sequence (`.xsq`) or a vendor's package (`.zip`).
    To import from a folder a package was unzipped to, press ⌘K and choose **Import xLights
    sequence from a folder…**.
@@ -181,7 +182,7 @@ You can scan for it or add it by address.
 **By scanning:**
 
 1. Open **Controllers**.
-2. Choose **Scan network**. It takes a few seconds.
+2. Choose **Find controllers**. It takes a few seconds.
 3. Choose **Open** on your controller's row.
    - For a Falcon or WLED controller, a window shows its ports and strings. Choose **Add to
      show**. (A Falcon is read-only: PixelFlow reads its setup but can't send one, so **Send
@@ -190,7 +191,7 @@ You can scan for it or add it by address.
      sends to. Choose **Set up my show from this FPP**, review what it will add, and choose the
      button that adds the controllers.
 
-![The Controllers screen after Scan network: two FPPs (one of them already In show, with Compare and Send setup…), a Falcon, and a WLED, each with an Open button. Below the list, a warning that a Falcon the FPP lists isn't responding.](images/controllers-scan.png)
+![The Controllers screen after Find controllers: two FPPs (one of them already In show, with Compare and Send setup…), a Falcon, and a WLED, each with an Open button. Below the list, a warning that a Falcon the FPP lists isn't responding.](images/controllers-scan.png)
 
 ![An FPP's page: Now playing, with Stop after this and Stop now; On this FPP, with tabs for its Sequences, Music, and Playlists; Health; Outputs → your show, with Set up my show from this FPP; and its schedule.](images/fpp-page.png)
 
@@ -217,7 +218,7 @@ your show are marked **In show**.
    string**, **Matrix**, or **Mega tree**. It lands in the middle of the canvas. Or pick a tool on
    the toolbar and drag on the canvas to draw the prop where it belongs.
 
-   ![The Add prop menu open below the Add prop button: Arch, Line / string, Poly line, Matrix, Mega tree, Star, Circle, Wreath, Candy canes, Icicles, Window frame, Spinner, Sphere, Cube, Custom grid, and DMX flood or bar.](images/layout-add-prop.png)
+   ![The Add prop menu open below the Add prop button: Arch, Line / string, Poly line (bends), Matrix, Mega tree, Star, Circle, Wreath, Candy canes, Icicles, Window frame, Spinner, Sphere, Cube, Custom grid, and DMX flood or bar.](images/layout-add-prop.png)
 
 3. Select a prop to see its **Properties** panel. Set its pixel count, name, and position there.
 4. **Photo behind the props:** choose **Photo** on the toolbar (the picture button), then

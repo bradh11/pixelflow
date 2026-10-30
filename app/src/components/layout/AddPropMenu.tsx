@@ -63,7 +63,7 @@ export function AddPropMenu({ preview }: { preview: PreviewProp[] }) {
         <div
           role="menu"
           aria-label="Add prop"
-          className="absolute top-full right-0 z-40 mt-1 flex w-64 flex-col rounded-lg border border-neutral-200 bg-white p-1 text-sm text-neutral-800 shadow-xl dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100"
+          className="absolute top-full right-0 z-40 mt-1 flex w-[22rem] flex-col rounded-lg border border-neutral-200 bg-white p-1 text-sm text-neutral-800 shadow-xl dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100"
         >
           <div className="grid grid-cols-2 gap-0.5">
             {PROP_KINDS.map(({ kind, label }) => {

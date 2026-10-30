@@ -50,12 +50,14 @@ describe("test screen", () => {
     expect(useSetup.getState().tested).toContain(key);
   });
 
-  it("with no controllers, buttons go to find them or wire them", async () => {
-    await useApp.getState().connect(new MemoryBackend({ ...demoShow(), controllers: [] }));
+  it("with no controllers, buttons find them or go to wire them", async () => {
+    const backend = new MemoryBackend({ ...demoShow(), controllers: [] });
+    await useApp.getState().connect(backend);
     const user = userEvent.setup();
     render(<TestScreen />);
     await user.click(screen.getByRole("button", { name: "Find controllers" }));
     expect(useApp.getState().screen).toBe("devices");
+    expect(backend.calls).toContain("discoverDevices::network");
     await user.click(screen.getByRole("button", { name: "Go to Wiring" }));
     expect(useApp.getState().screen).toBe("wiring");
   });

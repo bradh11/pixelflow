@@ -212,7 +212,8 @@ export function WiringScreen() {
   return (
     <div ref={boxRef} className="mx-auto max-w-[120rem]">
       <ScreenHeader title="Wiring">
-        {!adding && !session && (
+        {/* With no controllers, the empty list has this button: one of them on the screen at a time. */}
+        {!adding && !session && data.show.controllers.length > 0 && (
           <Button variant="primary" onClick={() => setAdding(true)}>
             <Plus size={16} /> Add controller
           </Button>
@@ -252,9 +253,9 @@ export function WiringScreen() {
                 <p>Add your controller, then drag props onto its ports.</p>
                 <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
                   <Button variant="primary" onClick={() => setAdding(true)}>
-                    <Plus size={16} aria-hidden /> Add a controller
+                    <Plus size={16} aria-hidden /> Add controller
                   </Button>
-                  <GoToScreen screen="devices">Or find the controllers on your network</GoToScreen>
+                  <GoToScreen screen="devices">Or find controllers on your network</GoToScreen>
                 </div>
               </EmptyState>
             ) : (

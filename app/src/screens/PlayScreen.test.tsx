@@ -337,7 +337,7 @@ describe("play, with the preview in its own window", () => {
     // What the window shows is said in the main window's note.
     await waitFor(async () => expect((await backend.previewLink("preview")).theirs).toMatchObject({ source: "sequence", transport: true }));
 
-    await user.click(within(note).getByRole("button", { name: "Bring it back" }));
+    await user.click(within(note).getByRole("button", { name: "Bring the preview back" }));
     expect(backend.calls).toContain("closePreviewWindow");
     expect(await screen.findByRole("img", { name: "Preview of the show at the playhead" })).toBeInTheDocument();
     expect(usePreviewWindow.getState().poppedOut).toBe(false);

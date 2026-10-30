@@ -25,7 +25,7 @@ async function openPage(setup?: (backend: MemoryBackend) => void) {
   const user = userEvent.setup();
   render(<App />);
   act(() => useApp.getState().setScreen("devices"));
-  await user.click(screen.getByRole("button", { name: "Scan network" }));
+  await user.click(screen.getByRole("button", { name: "Find controllers" }));
   await user.click(await screen.findByRole("button", { name: "Open FPP" }));
   const library = screen.getByRole("region", { name: "On this FPP" });
   await within(library).findByRole("row", { name: /Chimes Medley 2020/ });

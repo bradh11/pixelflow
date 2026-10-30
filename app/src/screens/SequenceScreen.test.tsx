@@ -107,8 +107,8 @@ describe("sequence screen", () => {
     expect(useSequencer.getState()).toMatchObject({ dirty: false, canUndo: false });
     expect(screen.getByRole("button", { name: "Undo (sequence)" })).toBeDisabled();
     // Started empty, it needs rows: add every prop at once, first in the picker.
-    await user.click(screen.getByRole("button", { name: "Add a row" }));
-    const picker = screen.getByRole("dialog", { name: "Add a row" });
+    await user.click(screen.getByRole("button", { name: "Add row" }));
+    const picker = screen.getByRole("dialog", { name: "Add row" });
     expect(within(picker).getAllByRole("button")[0]).toHaveAccessibleName("Add every prop (4)");
     await user.click(within(picker).getByRole("button", { name: "Add every prop (4)" }));
     await waitFor(() => expect(useSequencer.getState().doc?.rows).toHaveLength(4));
@@ -984,10 +984,10 @@ describe("sequence screen", () => {
     const { user } = await openScreen();
     const add = screen.getByRole("button", { name: "Add row" });
     await user.click(add);
-    const menu = screen.getByRole("dialog", { name: "Add a row" });
+    const menu = screen.getByRole("dialog", { name: "Add row" });
     expect(within(menu).getAllByRole("button").find((b) => !(b as HTMLButtonElement).disabled)).toHaveFocus();
     await user.keyboard("{Escape}");
-    expect(screen.queryByRole("dialog", { name: "Add a row" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Add row" })).not.toBeInTheDocument();
     expect(add).toHaveFocus();
   });
 

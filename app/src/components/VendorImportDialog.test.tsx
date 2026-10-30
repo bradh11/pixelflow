@@ -59,7 +59,7 @@ describe("mapping a vendor's sequence onto the show", () => {
     const { user } = await startApp();
     const dialog = await openMapping();
     // Whole House to two props, found by searching.
-    await user.click(within(row(dialog, "Whole House GRP")).getByRole("button", { name: "Map Whole House GRP" }));
+    await user.click(within(row(dialog, "Whole House GRP")).getByRole("button", { name: "Choose a prop or group for Whole House GRP" }));
     const search = within(dialog).getByRole("textbox", { name: "Find a prop or group for Whole House GRP" });
     await user.type(search, "star");
     const options = within(dialog).getByRole("listbox", { name: "Props for Whole House GRP" });
@@ -70,6 +70,8 @@ describe("mapping a vendor's sequence onto the show", () => {
     const whole = row(dialog, "Whole House GRP");
     expect(within(whole).getByText("Porch Star")).toBeInTheDocument();
     expect(within(whole).getByText("Mega Tree")).toBeInTheDocument();
+    // Mapped, the button adds more: its name says so, as its text does.
+    expect(within(whole).getByRole("button", { name: "Add a prop or group for Whole House GRP" })).toHaveTextContent("Add");
     // Taking a hint; removing one.
     await user.click(within(row(dialog, "Arch 2")).getByRole("button", { name: "Use Garage Arch?" }));
     expect(within(row(dialog, "Arch 2")).getByText("Garage Arch")).toBeInTheDocument();

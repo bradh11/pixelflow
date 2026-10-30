@@ -51,7 +51,7 @@ describe("submodels in sequences", () => {
   it("the add-row menu lists each prop's submodels under it, and their rows are named Prop / Submodel", async () => {
     const { show, seq, user } = await openScreen();
     await user.click(screen.getByRole("button", { name: "Add row" }));
-    const menu = screen.getByRole("dialog", { name: "Add a row" });
+    const menu = screen.getByRole("dialog", { name: "Add row" });
     const names = within(menu)
       .getAllByRole("button")
       .map((b) => b.getAttribute("aria-label") ?? b.textContent?.trim());
@@ -70,7 +70,7 @@ describe("submodels in sequences", () => {
     expect(screen.getByRole("listitem", { name: "Garage Arch / Left half" })).toBeInTheDocument();
     // It now says so in the menu.
     await user.click(screen.getByRole("button", { name: "Add row" }));
-    expect(within(screen.getByRole("dialog", { name: "Add a row" })).getByRole("button", { name: "Garage Arch / Left half" })).toHaveTextContent("(has a row)");
+    expect(within(screen.getByRole("dialog", { name: "Add row" })).getByRole("button", { name: "Garage Arch / Left half" })).toHaveTextContent("(has a row)");
   });
 
   it("a Faces effect picks one of the row's faces and a timing track", async () => {

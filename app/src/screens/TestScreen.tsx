@@ -291,7 +291,13 @@ export function TestScreen() {
         <EmptyState title="No controllers to test">
           <p>Add a controller and wire props to it first.</p>
           <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
-            <Button variant="primary" onClick={() => useApp.getState().setScreen("devices")}>
+            <Button
+              variant="primary"
+              onClick={() => {
+                useApp.getState().setScreen("devices");
+                void useApp.getState().scan();
+              }}
+            >
               Find controllers
             </Button>
             <Button onClick={() => useApp.getState().setScreen("wiring")}>Go to Wiring</Button>

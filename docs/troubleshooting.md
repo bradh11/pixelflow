@@ -183,12 +183,12 @@ PixelFlow looks for controllers on your network. It cannot find ones it can't re
    wording on your version of macOS. On Windows, allow PixelFlow when the firewall asks.
 5. **A password.** A controller that asks for a password can't be read. PixelFlow lists it as
    "asks for a password, so PixelFlow can't read it". For an FPP, turn off its UI and API password
-   in FPP's settings, then scan again.
+   in FPP's settings, then choose **Find controllers again**.
 6. **An FPP lists a controller that doesn't answer.** A message like "*name* (address) isn't
    responding. *FPP* lists it" means the FPP sends to it but it isn't answering. Check its power
-   and network cable, then choose **Scan again**.
+   and network cable, then choose **Find controllers again**.
 
-   ![The Controllers screen after a scan: the controllers found, each with Open, and under them the warning "Falcon_F16V5_Garage (192.0.2.21) isn't responding. FPP lists it — check that it's powered on and connected, then scan again."](images/controllers-scan.png)
+   ![The Controllers screen after a scan: the controllers found, each with Open, and under them the warning "Falcon_F16V5_Garage (192.0.2.21) isn't responding. FPP lists it — check that it's powered on and connected, then find controllers again."](images/controllers-scan.png)
 7. **Use the host name.** A host name such as `fpp.local` can work where scanning doesn't. Type
    it in the address box.
 8. **IPv6.** PixelFlow sends to controllers over IPv4 only. An address that is IPv6 produces an
@@ -344,13 +344,13 @@ screen. Things to try, in order:
 1. **Use the 2D view** while you edit. Press V on **Layout**, or choose **2D** on the sequence
    preview. The 3D view draws more.
 2. **Turn Glow down** to none, using the **Glow** control beside the **2D** and **3D** buttons. It is a preview-only effect, so turning it off can't change the lights.
-3. **Close the pop-out preview** if you don't need it: close its window, or choose **Bring it
-   back** where the preview was.
+3. **Close the pop-out preview** if you don't need it: close its window, or choose **Bring the
+   preview back** where the preview was.
 4. **Turn off Show on my lights** while you edit. Playing then sends only to the on-screen preview.
 5. **Make the preview smaller.** Drag the divider, or choose **Bigger preview** again to give
    the timeline its room back.
-6. **Show only the row you are working on.** Tick **Row only** above the sequence preview
-   (**Selected row only** when the preview is above the timeline).
+6. **Show only the row you are working on.** Tick **Selected row only** above the sequence
+   preview.
 7. **Close other apps,** especially ones that use a lot of the graphics chip.
 8. **A port that is too full** is not an app problem. On **Wiring**, a message such as "this port
    refreshes about 704 pixels in time" is about the controller's limit, not your computer.

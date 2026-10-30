@@ -93,14 +93,14 @@ Fill this in first.
 
 | # | Check | How | Pass | Fail | Notes |
 |---|---|---|---|---|---|
-| 1.1 | An xLights show folder imports | Welcome, **Import from xLights…**, pick the folder with `xlights_rgbeffects.xml`. The "Imported" window opens. | [ ] | [ ] | |
+| 1.1 | An xLights show folder imports | Welcome, **Import xLights show…**, pick the folder with `xlights_rgbeffects.xml`. The "Imported" window opens. | [ ] | [ ] | |
 | 1.2 | Counts match xLights | Compare the props, pixels, controllers, and groups in the window with xLights. | [ ] | [ ] | |
 | 1.3 | Import notes make sense | Read "These weren't imported exactly:". Each note names something you can find in the show. | [ ] | [ ] | |
 | 1.4 | The show saves and reopens | **Save show…**, close it, then reopen it from the welcome screen. Nothing is missing. | [ ] | [ ] | |
-| 1.5 | A controller is added by scan | **Controllers**, **Scan network**, **Open**, then add it to the show. | [ ] | [ ] | |
+| 1.5 | A controller is added by scan | **Controllers**, **Find controllers**, **Open**, then add it to the show. | [ ] | [ ] | |
 | 1.6 | A controller is added by address | **Controllers**, type its address, **Check address**. | [ ] | [ ] | |
 | 1.7 | An FPP sets up the show | Open the FPP, **Set up my show from this FPP**, and add the controllers it lists. | [ ] | [ ] | |
-| 1.8 | A sequence imports | **Sequence**, **Import from xLights**, pick an `.xsq`. The report says how much of the sequence comes across the same, looks close, and looks different. | [ ] | [ ] | |
+| 1.8 | A sequence imports | **Sequence**, **Import xLights sequence…**, pick an `.xsq`. The report says how much of the sequence comes across the same, looks close, and looks different. | [ ] | [ ] | |
 | 1.9 | A vendor sequence maps | Import a vendor `.zip`. In the "Map … onto your props" window, **Auto-map**, fix **Not mapped** rows, **Import** the effects. | [ ] | [ ] | |
 
 ## 2. Wiring and mapping

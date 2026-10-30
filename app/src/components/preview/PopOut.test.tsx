@@ -54,7 +54,7 @@ describe("the preview in its own window, from the Sequence screen", () => {
     expect(within(preview()).queryByRole("button", { name: "Pop out the preview" })).not.toBeInTheDocument();
     expect(localStorage.getItem("pixelflow.previewPoppedOut")).toBe("true");
 
-    await user.click(within(preview()).getByRole("button", { name: "Bring it back" }));
+    await user.click(within(preview()).getByRole("button", { name: "Bring the preview back" }));
     expect(backend.calls).toContain("closePreviewWindow");
     expect(picture()).toBeInTheDocument();
     expect(screen.getByRole("separator", { name: "Preview size" })).toBeInTheDocument();

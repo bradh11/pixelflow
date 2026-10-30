@@ -275,7 +275,13 @@ function ItemRow({
                 Use {offer.targets.join(", ")}?
               </Button>
             )}
-            <Button variant="ghost" className="px-1.5 py-0.5 text-xs" aria-label={`Map ${item.label}`} aria-expanded={picking} onClick={() => onPick(!picking)}>
+            <Button
+              variant="ghost"
+              className="px-1.5 py-0.5 text-xs"
+              aria-label={`${mapped ? "Add" : "Choose"} a prop or group for ${item.label}`}
+              aria-expanded={picking}
+              onClick={() => onPick(!picking)}
+            >
               <Plus size={12} aria-hidden /> {mapped ? "Add" : "Choose"}
             </Button>
           </div>

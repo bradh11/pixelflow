@@ -66,7 +66,7 @@ export function CommandPalette() {
     { id: "clear-recent", label: "Clear recent shows", run: state.clearRecent },
     { id: "demo", label: "Try the demo show", run: state.openSample },
     { id: "camera-map", label: "Map pixels with a camera…", run: () => state.setScreen("cameraMap") },
-    { id: "import-xlights", label: "Import from xLights…", run: state.importXlights },
+    { id: "import-xlights", label: "Import xLights show…", run: state.importXlights },
     { id: "import-xlights-sequence", label: "Import xLights sequence…", run: state.importXlightsSequence },
     { id: "import-xlights-sequence-folder", label: "Import xLights sequence from a folder…", run: state.importXlightsSequenceFolder },
     { id: "save", label: "Save", shortcut: hintFor("save"), run: () => saveFocused(false) },
@@ -108,7 +108,7 @@ export function CommandPalette() {
     ...(sequenceHasMusic ? [{ id: "detect-beats", label: "Detect beats (find the beats, bars, sections, accents, moments, and drums)", run: () => useSequencer.getState().detectBeats() }] : []),
     {
       id: "scan",
-      label: "Scan the network for controllers",
+      label: "Find controllers (scan the network)",
       run: () => {
         state.setScreen("devices");
         return state.scan();

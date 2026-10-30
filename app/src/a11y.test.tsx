@@ -208,7 +208,7 @@ describe("every control has a name, and icon-only buttons have tooltips", { time
     await user.keyboard("{Escape}{Escape}");
 
     go("devices");
-    await user.click(screen.getByRole("button", { name: "Scan network" }));
+    await user.click(screen.getByRole("button", { name: "Find controllers" }));
     await screen.findAllByRole("row");
     found.push(...problems("devices, after a scan"));
     await user.click(screen.getByRole("button", { name: "Open Porch WLED" }));
@@ -247,7 +247,9 @@ describe("every control has a name, and icon-only buttons have tooltips", { time
     await user.click(screen.getByRole("button", { name: "Pop out the preview" }));
     await screen.findByText("Preview is in its own window");
     found.push(...problems("play, with the preview in its own window"));
-    await user.click(screen.getByRole("button", { name: "Bring it back" }));
+    // The note in the preview's place and the bar's button both bring it back.
+    expect(screen.getAllByRole("button", { name: "Bring the preview back" })).toHaveLength(2);
+    await user.click(within(screen.getByRole("region", { name: "Preview" })).getByRole("button", { name: "Bring the preview back" }));
     await user.click(screen.getByRole("button", { name: "Full screen" }));
     found.push(...problems("play, full screen"));
     await user.keyboard("{Escape}");
@@ -321,7 +323,7 @@ describe("every control has a name, and icon-only buttons have tooltips", { time
     expect(problems("sequence, preview beside")).toEqual([]);
   });
 
-  it("in the sequence dialogs, the Start page, and the Add a row picker", async () => {
+  it("in the sequence dialogs, the Start page, and the Add row picker", async () => {
     const { user } = await openApp();
     go("sequence");
     const found: string[] = [];
@@ -384,7 +386,7 @@ describe("every control has a name, and icon-only buttons have tooltips", { time
     await user.click(screen.getByRole("button", { name: "Close preview" }));
     await user.click(screen.getByRole("button", { name: "Close assistant" }));
     go("devices");
-    await user.click(screen.getByRole("button", { name: "Scan network" }));
+    await user.click(screen.getByRole("button", { name: "Find controllers" }));
     await screen.findAllByRole("row");
     await user.click(screen.getAllByRole("button", { name: /^Open FPP/ })[0]);
     await screen.findByRole("button", { name: "Play Chimes Medley 2020" });

@@ -60,6 +60,26 @@ pub struct ControllerPlan {
     pub channel_count: usize,
     pub spans: Vec<GatherSpan>,
     pub wire: Wire,
+    /// Controller channels (0-based, ascending) that black leaves as they were: the channels
+    /// that move a moving head or a servo, so stopping never swings one.
+    pub holds: Vec<usize>,
+}
+
+impl ControllerPlan {
+    /// Black for this controller in `buffer` (its channels as last sent): every channel 0 but
+    /// the ones it holds.
+    pub fn blacken(&self, buffer: &mut [u8]) {
+        let mut from = 0;
+        for &held in &self.holds {
+            if held >= buffer.len() {
+                break;
+            }
+            buffer[from.min(held)..held].fill(0);
+            from = held + 1;
+        }
+        let len = buffer.len();
+        buffer[from.min(len)..].fill(0);
+    }
 }
 
 /// The output plan for a whole show.
@@ -167,6 +187,25 @@ fn plan_with(
                     )
                 }
             };
+            let mut holds: Vec<usize> = output
+                .spans
+                .iter()
+                .filter_map(|span| {
+                    let fixture = map.fixture(span.prop)?;
+                    (fixture.dmx_offset == span.frame_offset).then_some((span, fixture))
+                })
+                .flat_map(|(span, fixture)| {
+                    fixture
+                        .channels
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, c)| c.role.moves())
+                        .map(move |(i, _)| span.controller_channel + i)
+                })
+                .filter(|&channel| channel < output.channel_count)
+                .collect();
+            holds.sort_unstable();
+            holds.dedup();
             ControllerPlan {
                 id: controller.id,
                 name: controller.name.clone(),
@@ -174,6 +213,7 @@ fn plan_with(
                 channel_count: output.channel_count,
                 spans,
                 wire,
+                holds,
             }
         })
         .collect();
@@ -258,6 +298,7 @@ pub fn build_passthrough_plan(routes: &[PassthroughRoute], frame_len: usize, fra
                     lut: 0,
                 }],
                 wire,
+                holds: Vec::new(),
             }
         })
         .collect();

@@ -43,6 +43,7 @@ mod tests {
                 data_type: 0x0B,
                 offset_base: 0,
             },
+            holds: Vec::new(),
         }
     }
 

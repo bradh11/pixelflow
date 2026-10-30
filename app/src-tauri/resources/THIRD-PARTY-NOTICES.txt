@@ -410,7 +410,7 @@ own; the standard text of their licence is in part 3.
   ctor 1.0.13 (Rust)
     licence: Apache-2.0 OR MIT
     source:  https://github.com/mmastrac/linktime
-  ctutils 0.4.3 (Rust)
+  ctutils 0.4.7 (Rust)
     licence: Apache-2.0 OR MIT
     source:  https://github.com/RustCrypto/utils
   dasp_sample 0.11.0 * (Rust)
@@ -1099,7 +1099,7 @@ own; the standard text of their licence is in part 3.
   rustls-pki-types 1.15.1 (Rust)
     licence: MIT OR Apache-2.0
     source:  https://github.com/rustls/pki-types
-  rustls-webpki 0.103.15 (Rust)
+  rustls-webpki 0.103.16 (Rust)
     licence: ISC
     source:  https://github.com/rustls/webpki
   safe_arch 1.2.0 (Rust)
@@ -1453,7 +1453,7 @@ own; the standard text of their licence is in part 3.
   webkit2gtk-sys 2.0.2 (Rust)
     licence: MIT
     source:  https://github.com/tauri-apps/webkit2gtk-rs
-  webpki-roots 1.0.9 (Rust)
+  webpki-roots 1.0.11 (Rust)
     licence: CDLA-Permissive-2.0
     source:  https://github.com/rustls/webpki-roots
   webview2-com 0.39.1 * (Rust)
@@ -1591,13 +1591,13 @@ own; the standard text of their licence is in part 3.
   zmij 1.0.23 (Rust)
     licence: MIT
     source:  https://github.com/dtolnay/zmij
-  zstd 0.14.0 (Rust)
+  zstd 0.14.3 (Rust)
     licence: BSD-3-Clause
     source:  https://github.com/gyscos/zstd-rs
-  zstd-safe 8.0.0 (Rust)
+  zstd-safe 8.2.0 (Rust)
     licence: BSD-3-Clause
     source:  https://github.com/gyscos/zstd-rs
-  zstd-sys 2.1.0+zstd.1.5.7 (Rust)
+  zstd-sys 2.1.2+zstd.1.5.7 (Rust)
     licence: BSD-3-Clause
     source:  https://github.com/gyscos/zstd-rs
   zune-core 0.5.3 (Rust)
@@ -5122,7 +5122,7 @@ SOFTWARE.
 The text below is from:
   cmov 0.5.4 (LICENSE-APACHE)
   cpal 0.17.3 (LICENSE)
-  ctutils 0.4.3 (LICENSE-APACHE)
+  ctutils 0.4.7 (LICENSE-APACHE)
   embed_plist 1.2.2 (LICENSE-APACHE)
   encoding_rs 0.8.42 (LICENSE-APACHE)
   serialize-to-javascript 0.1.2 (LICENSE-APACHE)
@@ -7371,7 +7371,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ================================================================================
 The text below is from:
-  ctutils 0.4.3 (LICENSE-MIT)
+  ctutils 0.4.7 (LICENSE-MIT)
 --------------------------------------------------------------------------------
 Copyright (c) 2025-2026 The RustCrypto Project Developers
 
@@ -16148,7 +16148,7 @@ DEALINGS IN THE SOFTWARE.
 
 ================================================================================
 The text below is from:
-  rustls-webpki 0.103.15 (LICENSE)
+  rustls-webpki 0.103.16 (LICENSE)
 --------------------------------------------------------------------------------
 Except as otherwise noted, this project is licensed under the following
 (ISC-style) terms:
@@ -19171,7 +19171,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ================================================================================
 The text below is from:
-  webpki-roots 1.0.9 (LICENSE)
+  webpki-roots 1.0.11 (LICENSE)
 --------------------------------------------------------------------------------
 # Community Data License Agreement - Permissive - Version 2.0
 
@@ -20320,9 +20320,9 @@ freely, subject to the following restrictions:
 
 ================================================================================
 The text below is from:
-  zstd 0.14.0 (LICENSE)
-  zstd-safe 8.0.0 (LICENSE)
-  zstd-sys 2.1.0+zstd.1.5.7 (LICENSE)
+  zstd 0.14.3 (LICENSE)
+  zstd-safe 8.2.0 (LICENSE)
+  zstd-sys 2.1.2+zstd.1.5.7 (LICENSE)
 --------------------------------------------------------------------------------
 BSD 3-Clause License
 
@@ -20355,7 +20355,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ================================================================================
 The text below is from:
-  zstd-sys 2.1.0+zstd.1.5.7 (LICENSE.BSD-3-Clause)
+  zstd-sys 2.1.2+zstd.1.5.7 (LICENSE.BSD-3-Clause)
 --------------------------------------------------------------------------------
 The auto-generated bindings are under the 3-clause BSD license:
 
@@ -20392,7 +20392,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ================================================================================
 The text below is from:
-  zstd-sys 2.1.0+zstd.1.5.7 (zstd/COPYING)
+  zstd-sys 2.1.2+zstd.1.5.7 (zstd/COPYING)
       Note: The zstd library is offered under either the BSD licence
       (zstd/LICENSE, above or below) or GPL-2.0 (this file), at the recipient's
       choice.
@@ -20739,7 +20739,7 @@ Public License instead of this License.
 
 ================================================================================
 The text below is from:
-  zstd-sys 2.1.0+zstd.1.5.7 (zstd/LICENSE)
+  zstd-sys 2.1.2+zstd.1.5.7 (zstd/LICENSE)
       Note: The zstd library is offered under either this BSD licence or GPL-2.0
       (zstd/COPYING), at the recipient's choice.
 --------------------------------------------------------------------------------

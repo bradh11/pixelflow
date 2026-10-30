@@ -206,7 +206,7 @@ fn main() -> anyhow::Result<()> {
             photo: false,
             pixel_size: 1.0,
             glow,
-            ffmpeg: None,
+            encoder: pf_video::Encoder::OpenH264FromSource,
         };
         let out = match &keep {
             Some(folder) => folder.join(format!("speed-{count}-glow{:.0}.mp4", glow * 100.0)),

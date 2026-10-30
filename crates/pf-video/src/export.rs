@@ -3,13 +3,14 @@
 //! cancelled).
 
 use crate::VideoError;
-use crate::aac;
 use crate::ffmpeg::{self, Ffmpeg};
 use crate::h264::H264;
 use crate::mp4::{self, VideoTrack};
 use crate::raster::{Canvas, Look, Photo, Scene};
 use crate::timing::FrameClock;
 use crate::yuv::Yuv;
+use crate::{aac, cisco};
+use openh264::OpenH264API;
 use pf_engine::{DraftRenderer, SequenceExport, preview_props_of};
 use pf_model::Background;
 use serde::Serialize;
@@ -41,8 +42,48 @@ pub struct VideoOptions {
     pub pixel_size: f32,
     /// How much each lit dot glows, 0 (crisp dots) to 1.
     pub glow: f32,
-    /// Encode with this ffmpeg instead of the built-in encoders.
-    pub ffmpeg: Option<Ffmpeg>,
+    pub encoder: Encoder,
+}
+
+/// What encodes the picture (and, with ffmpeg, the sound).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Encoder {
+    /// Cisco's OpenH264 library at this path, checked against its pinned SHA-256 before it's
+    /// loaded (see [`cisco::load`]); the sound with the built-in AAC encoder.
+    OpenH264(PathBuf),
+    /// OpenH264 compiled into this program from source, for tests and developer tools only
+    /// (the `encoder-from-source` feature, which the desktop app never turns on).
+    #[cfg(feature = "encoder-from-source")]
+    OpenH264FromSource,
+    /// The user's own ffmpeg, for the picture and the sound.
+    Ffmpeg(Ffmpeg),
+}
+
+impl Encoder {
+    /// OpenH264 compiled into this program, when it has one (tests and developer tools).
+    pub fn compiled_in() -> Option<Self> {
+        #[cfg(feature = "encoder-from-source")]
+        return Some(Self::OpenH264FromSource);
+        #[cfg(not(feature = "encoder-from-source"))]
+        None
+    }
+
+    fn ffmpeg(&self) -> Option<&Ffmpeg> {
+        match self {
+            Self::Ffmpeg(ffmpeg) => Some(ffmpeg),
+            _ => None,
+        }
+    }
+
+    /// OpenH264's library, ready to encode with (Cisco's checked first); none for ffmpeg.
+    fn openh264(&self) -> Result<Option<OpenH264API>, VideoError> {
+        Ok(match self {
+            Self::OpenH264(library) => Some(cisco::load(library)?),
+            #[cfg(feature = "encoder-from-source")]
+            Self::OpenH264FromSource => Some(OpenH264API::from_source()),
+            Self::Ffmpeg(_) => None,
+        })
+    }
 }
 
 /// The steps of an export.
@@ -244,6 +285,9 @@ pub fn export_video(
     };
     let props = preview_props_of(job.show());
     let scene = Scene::new(&props, photo.as_ref(), &look).ok_or(VideoError::NothingToShow)?;
+    // The encoder's library, loaded before anything is drawn.
+    let mut openh264 = options.encoder.openh264()?;
+    let ffmpeg = options.encoder.ffmpeg();
     if !progress(Progress {
         stage: Stage::Rendering,
         fraction: Some(0.0),
@@ -269,7 +313,7 @@ pub fn export_video(
 
     let (sink, sound) = std::thread::scope(|scope| {
         // The sound, encoded alongside the frames (ffmpeg reads the music itself).
-        let sound = match (music, &options.ffmpeg) {
+        let sound = match (music, ffmpeg) {
             (Some(music), None) => Some(scope.spawn(|| {
                 let rate = pf_audio::StereoFrames::open(music)
                     .map_err(|e| VideoError::Music(e.to_string()))?
@@ -282,9 +326,16 @@ pub fn export_video(
             _ => None,
         };
         let mut frames = || -> Result<Sink, VideoError> {
-            let sink = match &options.ffmpeg {
+            let sink = match ffmpeg {
                 None => Sink::BuiltIn {
-                    encoder: Box::new(H264::new(scene.width(), scene.height(), clock.fps())?),
+                    encoder: Box::new(H264::new(
+                        openh264
+                            .take()
+                            .ok_or_else(|| VideoError::Encode("The video encoder couldn't start.".into()))?,
+                        scene.width(),
+                        scene.height(),
+                        clock.fps(),
+                    )?),
                     frames: BufWriter::with_capacity(
                         1 << 20,
                         File::create(&frames_tmp).map_err(write_error)?,
@@ -414,7 +465,7 @@ pub fn export_video(
                 fraction: None,
             });
             encoding.finish()?;
-            let codec = match options.ffmpeg.as_ref().map(|f| f.codec) {
+            let codec = match ffmpeg.map(|f| f.codec) {
                 Some(ffmpeg::H264Codec::VideoToolbox) => "H.264 (ffmpeg, VideoToolbox)",
                 _ => "H.264 (ffmpeg, x264)",
             };
@@ -591,7 +642,7 @@ mod tests {
             photo: false,
             pixel_size: 1.0,
             glow: 0.0,
-            ffmpeg: None,
+            encoder: Encoder::OpenH264FromSource,
         }
     }
 
@@ -784,6 +835,44 @@ mod tests {
         let job = engine.sequence_export().unwrap();
         let err = export_video(&job, &options(), &dir.path().join("x.mp4"), |_| true).unwrap_err();
         assert!(matches!(err, VideoError::NothingToShow));
+    }
+
+    #[test]
+    fn a_library_that_isnt_ciscos_is_refused_before_anything_is_drawn() {
+        let dir = tempfile::tempdir().unwrap();
+        let job = job(dir.path(), None);
+        let library = dir.path().join("libopenh264.dylib");
+        std::fs::write(&library, b"not Cisco's").unwrap();
+        let out = dir.path().join("out.mp4");
+        let options = VideoOptions {
+            encoder: Encoder::OpenH264(library),
+            ..options()
+        };
+        let mut reports = 0;
+        let err = export_video(&job, &options, &out, |_| {
+            reports += 1;
+            true
+        })
+        .unwrap_err();
+        assert!(
+            matches!(
+                err,
+                VideoError::Codec(cisco::CodecError::Changed | cisco::CodecError::Unsupported)
+            ),
+            "{err}"
+        );
+        assert_eq!(reports, 0, "nothing was drawn");
+        let written = std::fs::read_dir(dir.path())
+            .unwrap()
+            .filter(|e| {
+                e.as_ref()
+                    .unwrap()
+                    .file_name()
+                    .to_string_lossy()
+                    .contains("out.mp4")
+            })
+            .count();
+        assert_eq!(written, 0, "nothing was written");
     }
 
     #[test]

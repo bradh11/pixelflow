@@ -473,6 +473,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "bzip2-rs"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "beeb59e7e4c811ab37cc73680c798c7a5da77fc9989c62b09138e31ee740f735"
+dependencies = [
+ "crc32fast",
+ "tinyvec",
+]
+
+[[package]]
 name = "cairo-rs"
 version = "0.18.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2471,7 +2481,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6e9ec52138abedcc58dc17a7c6c0c00a2bdb4f3427c7f63fa97fd0d859155caf"
 dependencies = [
  "gtk-sys",
- "libloading",
+ "libloading 0.7.4",
  "once_cell",
 ]
 
@@ -2498,6 +2508,16 @@ checksum = "b67380fd3b2fbe7527a606e18729d21c6f3951633d0500574c4dc22d2d638b9f"
 dependencies = [
  "cfg-if",
  "winapi",
+]
+
+[[package]]
+name = "libloading"
+version = "0.8.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d7c4b02199fee7c5d21a5ae7d8cfa79a6ef5bb2fc834d6e9058e89c825efdc55"
+dependencies = [
+ "cfg-if",
+ "windows-link",
 ]
 
 [[package]]
@@ -3200,7 +3220,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6ada29a4cadc13d4d326737af87c13e224210d7d99fe47594e9f3f9b0102fd70"
 dependencies = [
  "cc",
+ "libloading 0.8.9",
  "nasm-rs",
+ "sha2 0.10.9",
  "walkdir",
 ]
 
@@ -3524,6 +3546,7 @@ dependencies = [
 name = "pf-video"
 version = "0.1.0"
 dependencies = [
+ "bzip2-rs",
  "image",
  "openh264",
  "oxideav-aac",
@@ -3533,7 +3556,9 @@ dependencies = [
  "pf-render",
  "pf-sequence",
  "serde",
+ "sha2 0.10.9",
  "thiserror 2.0.21",
+ "ureq",
 ]
 
 [[package]]

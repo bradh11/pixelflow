@@ -341,7 +341,7 @@ export function TestScreen() {
                 </Select>
               </Field>
               </div>
-              <div className="min-w-56 flex-[1_1_14rem]">
+              <div className="min-w-[12.5rem] flex-[1_1_12.5rem]">
               <Field label="Pattern">
                 <Select
                   value={shownKind}

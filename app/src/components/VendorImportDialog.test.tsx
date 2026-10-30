@@ -51,6 +51,7 @@ describe("mapping a vendor's sequence onto the show", () => {
     // Busy and unmapped stands out; a flood with a few effects doesn't.
     expect(row(dialog, "Whole House GRP").className).toContain("border-l-amber-500");
     expect(row(dialog, "Flood Left").className).not.toContain("border-l-amber-500");
+    expect(within(row(dialog, "Flood Left")).getByText("flood · 1 light")).toBeInTheDocument();
     // Their submodels and strands are folded under their model.
     expect(within(dialog).queryByRole("listitem", { name: "Star Topper" })).not.toBeInTheDocument();
   });

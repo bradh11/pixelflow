@@ -140,8 +140,12 @@ export function DevicesScreen() {
     if (!host) return;
     setNotice(null);
     if (await scan([host])) {
-      const found = useApp.getState().discovery?.devices.some((d) => d.address === host && d.responding);
-      setNotice(found ? null : `No controller answered at ${host}. Check the address and that it's powered on.`);
+      const found = useApp.getState().discovery?.devices.find((d) => d.address === host && d.responding);
+      setNotice(
+        found
+          ? `Found ${found.name} at ${host}. Choose Open on its row to add it to your show.`
+          : `No controller answered at ${host}. Check the address and that it's powered on.`,
+      );
       if (found) setAddress("");
     }
   };

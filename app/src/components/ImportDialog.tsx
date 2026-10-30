@@ -29,7 +29,9 @@ function importedSummary(before: Show, after: Show, address: string): string {
   if (!controller) return "Added the controller. Undo with ⌘Z.";
   const added = after.props.filter((p) => !oldProps.has(p.id)).length;
   const yours = controller.ports.flatMap((p) => p.slots).filter((s) => oldProps.has(s.prop)).length;
-  return `Added ${controller.name}: ${plural(added, "prop")}${yours ? ` and ${yours} of yours` : ""} on ${plural(controller.ports.length, "port")}. Undo with ⌘Z.`;
+  const ports = plural(controller.ports.length, "port");
+  const wired = [added ? plural(added, "prop") : "", yours ? (added ? `${yours} of yours` : `${plural(yours, "prop")} of yours`) : ""].filter(Boolean);
+  return wired.length ? `Added ${controller.name}: ${wired.join(" and ")} on ${ports}. Undo with ⌘Z.` : `Added ${controller.name} with ${ports}. Undo with ⌘Z.`;
 }
 
 /** A table cell's spacing; numbers are right-aligned. */
@@ -213,7 +215,9 @@ export function ImportDialog({
                 <p className="text-neutral-500">
                   {reused === 0
                     ? `PixelFlow will add the controller with ${plural(details.plan.controller.ports.length, "port")} and one new prop per string. Shape and place the props on the Layout screen afterwards.`
-                    : `PixelFlow will add the controller with ${plural(details.plan.controller.ports.length, "port")}, wire ${plural(reused, "prop")} you already have, and add ${plural(details.plan.props.length - reused, "new prop")}.`}
+                    : details.plan.props.length === reused
+                      ? `PixelFlow will add the controller with ${plural(details.plan.controller.ports.length, "port")} and wire ${plural(reused, "prop")} you already have.`
+                      : `PixelFlow will add the controller with ${plural(details.plan.controller.ports.length, "port")}, wire ${plural(reused, "prop")} you already have, and add ${plural(details.plan.props.length - reused, "new prop")}.`}
                   {mapping && reused === 0 && " To use props you already have (from an xLights import, say), pick them under In your show."}
                 </p>
               )}

@@ -165,6 +165,14 @@ describe("devices", () => {
     expect(await screen.findByRole("status")).toHaveTextContent("No controller answered at 10.9.9.9.");
   });
 
+  it("checks a typed address and says what answered, and what to do next", async () => {
+    const { user } = await openDevices();
+    await user.type(screen.getByLabelText("Controller address"), "192.0.2.20");
+    await user.click(screen.getByRole("button", { name: /check address/i }));
+    expect(await screen.findByRole("status")).toHaveTextContent("Found Falcon_F16V5_A1B2 at 192.0.2.20. Choose Open on its row to add it to your show.");
+    expect(screen.getByLabelText("Controller address")).toHaveValue("");
+  });
+
   it("offers Compare first for a controller that's already in the show, and adding a copy second", async () => {
     const { user } = await openDevices();
     await user.click(screen.getByRole("button", { name: "Find controllers" }));
@@ -218,6 +226,27 @@ describe("devices", () => {
     expect(within(dialog).queryByText("pixel count differs (50 vs 60)")).not.toBeInTheDocument();
     await user.click(within(dialog).getByRole("button", { name: "Add to show" }));
     expect(screen.getByRole("status")).toHaveTextContent("Added Falcon_F16V5_A1B2: 1 prop and 1 of yours on 2 ports.");
+  });
+
+  it("says plainly when every string goes to a prop already in the show", async () => {
+    const { user } = await openDevices();
+    const line = (name: string, nodes: number): Prop => ({
+      ...newProp("line", emptyShow("t")),
+      name,
+      shape: { source: "generator", type: "line", nodes, length: nodes * 0.05 },
+    });
+    await useApp.getState().run((b) =>
+      b.applyEdits([
+        { type: "addProp", prop: line("Falcon Mega Tree", 800) },
+        { type: "addProp", prop: line("Falcon Arch", 50) },
+      ]),
+    );
+    await user.click(screen.getByRole("button", { name: "Find controllers" }));
+    await user.click(await screen.findByRole("button", { name: "Open Falcon_F16V5_A1B2" }));
+    const dialog = await screen.findByRole("dialog", { name: "Import Falcon_F16V5_A1B2" });
+    expect(await within(dialog).findByText(/PixelFlow will add the controller with 2 ports and wire 2 props you already have\./)).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Add to show" }));
+    expect(screen.getByRole("status")).toHaveTextContent("Added Falcon_F16V5_A1B2: 2 props of yours on 2 ports.");
   });
 
   it("spaces the import table's columns, with numbers on the right", async () => {

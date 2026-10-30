@@ -28,6 +28,8 @@ describe("xLights import", () => {
     const report = await screen.findByRole("dialog", { name: "Imported Home 2024" });
     expect(within(report).getByText(/4 props · 1,462 pixels · 2 controllers · 3 props wired · 1 group/)).toBeInTheDocument();
     expect(within(report).getByText(/Window Matrix: shown as a grid/)).toBeInTheDocument();
+    // The show's sequences don't come with it: the report says where they do come from.
+    expect(within(report).getByText(/Your sequences come next, one at a time: on Sequence, choose Import xLights sequence…/)).toBeInTheDocument();
     await user.click(within(report).getByRole("button", { name: "Later" }));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(useApp.getState().snapshot!.show.name).toBe("Home 2024");

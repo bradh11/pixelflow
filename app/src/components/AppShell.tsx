@@ -13,7 +13,7 @@ import { useAssistant } from "../state/assistant";
 import { AssistantPanel } from "./assistant/AssistantPanel";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { errorMessage } from "../api/backend";
-import { fileName, plural, shownPath, thousands } from "../lib/format";
+import { fileName, plural, shownPath } from "../lib/format";
 import { useShallow } from "zustand/react/shallow";
 import { useApp } from "../state/store";
 import { DevicesScreen } from "../screens/DevicesScreen";
@@ -257,7 +257,7 @@ function StatusBar() {
   return (
     <footer className="relative flex h-8 shrink-0 items-center gap-4 border-t border-neutral-200 px-3 text-xs text-neutral-500 dark:border-neutral-800">
       <span>
-        {plural(summary.props, "prop")} · {thousands(summary.pixels)} pixels · {plural(summary.controllers, "controller")}
+        {plural(summary.props, "prop")} · {plural(summary.pixels, "pixel")} · {plural(summary.controllers, "controller")}
         {/* DDP controllers have no universes, so "0 universes" would only confuse. */}
         {summary.universes > 0 && ` · ${plural(summary.universes, "universe")}`}
       </span>

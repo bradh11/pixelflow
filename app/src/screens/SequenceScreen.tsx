@@ -967,7 +967,10 @@ function NewSequenceDialog({ onClose }: { onClose: () => void }) {
               {rowCount > MAX_ROWS
                 ? `A row for the first ${MAX_ROWS.toLocaleString("en-US")} props and groups (of ${rowCount.toLocaleString("en-US")})`
                 : `A row for every prop and group (${rowCount.toLocaleString("en-US")})`}
-              <span className="block text-xs text-neutral-500">In layout order, groups first, as xLights does. Remove the ones you don&apos;t need.
+              <span className="block text-xs text-neutral-500">
+                {rowCount === 0
+                  ? "This show has no props yet: draw them on Layout, then add a row for each with Add row."
+                  : "In layout order, groups first, as xLights does. Remove the ones you don't need."}
                 {rowCount > MAX_ROWS && ` A sequence holds at most ${MAX_ROWS.toLocaleString("en-US")} rows; add the rest by hand where you need them.`}</span>
             </span>
           </label>

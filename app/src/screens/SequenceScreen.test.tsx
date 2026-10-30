@@ -118,6 +118,14 @@ describe("sequence screen", () => {
     expect(screen.getByRole("group", { name: "Timing track Beats" })).toBeInTheDocument();
   });
 
+  it("says where a new sequence's rows come from when the show has no props yet", async () => {
+    const { user, backend } = await openScreen(false);
+    await act(() => useApp.getState().apply(backend.show.props.map((p) => ({ type: "removeProp" as const, id: p.id }))));
+    await user.click(screen.getByText("Start from a song.").closest("button")!);
+    const dialog = screen.getByRole("dialog", { name: "New sequence" });
+    expect(within(dialog).getByText("This show has no props yet: draw them on Layout, then add a row for each with Add row.")).toBeInTheDocument();
+  });
+
   it("starts a new sequence with a row for every group and prop, in layout order, as xLights does", async () => {
     const { user, seq, backend } = await openScreen(false);
     const props = backend.show.props;

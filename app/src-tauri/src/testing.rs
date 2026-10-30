@@ -2,7 +2,7 @@
 //! reaching the network, a sound device, or a folder outside the test's own.
 
 use crate::devices::DeviceAccess;
-use crate::{AppState, context, pickers, preview_window, recent, sync, vendor, vocals, with_commands};
+use crate::{AppState, context, h264, pickers, preview_window, recent, sync, vendor, vocals, with_commands};
 use pf_engine::{Edit, Engine};
 use serde_json::{Value, json};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -28,13 +28,17 @@ pub(crate) fn app_in(
 }
 
 /// The app, with its data in `dir`, before its window is made (running it makes the
-/// window from the app's configuration).
+/// window from the app's configuration). Videos export with OpenH264 compiled into the tests:
+/// nothing is downloaded.
 pub(crate) fn app_without_window(dir: &std::path::Path) -> App<MockRuntime> {
-    builder(dir).build(context()).unwrap()
+    builder(dir)
+        .manage(h264::H264State::compiled_in())
+        .build(context())
+        .unwrap()
 }
 
 /// The app with its data in `dir`, before it's built: tests that need more state than every
-/// command's (the assistant's, Find lyrics') manage it first.
+/// command's (the assistant's, Find lyrics', the video encoder's) manage it first.
 pub(crate) fn builder(dir: &std::path::Path) -> tauri::Builder<MockRuntime> {
     // Nothing reaches the network or a sound device: packets are recorded and music is timed
     // by a silent stopwatch.

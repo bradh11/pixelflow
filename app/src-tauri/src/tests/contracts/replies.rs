@@ -1152,6 +1152,19 @@ fn event_payloads() {
         &wire(&downloaded),
     );
 
+    // Cisco's video encoder's download (built: it only runs against Cisco's server).
+    let downloaded = h264::H264Progress {
+        received: 262_144,
+        total: 482_124,
+    };
+    record(
+        &mut fixtures,
+        "Cisco's video encoder part way down (built)",
+        h264::H264_DOWNLOAD_PROGRESS_EVENT,
+        "video.H264Progress",
+        &wire(&downloaded),
+    );
+
     // Find lyrics and the assistant send theirs in the assistant's scenario.
     sent.extend(assistant_replies::event_payloads(&shell, &mut fixtures));
     assert_eq!(
@@ -1204,6 +1217,42 @@ fn video_replies() {
             &format!("a video export's choices, {name} (built)"),
             "video.VideoChoices",
             &wire(&choices),
+        );
+    }
+    // Cisco's encoder in each state (built: which states the shell can reach depends on this
+    // computer's system and on Cisco's server; the licence is shortened here).
+    let mac = pf_video::cisco::BINARIES[0];
+    let encoder = |state, downloading, problem: Option<&str>| h264::H264Encoder {
+        state,
+        downloading,
+        version: pf_video::cisco::VERSION,
+        host: pf_video::cisco::HOST,
+        url: problem.is_none().then_some(mac.url),
+        bytes: if problem.is_none() { mac.download_bytes } else { 0 },
+        attribution: pf_video::cisco::ATTRIBUTION,
+        licence: "About The Cisco-Provided Binary of OpenH264 Video Codec …",
+        licence_url: pf_video::cisco::LICENCE_URL,
+        problem: problem.map(str::to_string),
+    };
+    use pf_video::cisco::State;
+    for (name, view) in [
+        ("not downloaded", encoder(State::Missing, false, None)),
+        ("downloading", encoder(State::Missing, true, None)),
+        ("downloaded and on", encoder(State::Ready, false, None)),
+        ("turned off", encoder(State::Off, false, None)),
+        (
+            "on a system Cisco makes it for none",
+            encoder(
+                State::Unsupported,
+                false,
+                Some(&pf_video::CodecError::Unsupported.to_string()),
+            ),
+        ),
+    ] {
+        fixtures.reply(
+            &format!("Cisco's video encoder, {name} (built)"),
+            "video.H264Encoder",
+            &wire(&view),
         );
     }
     fixtures.finish();

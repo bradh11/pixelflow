@@ -1424,6 +1424,15 @@
       "command": "pick_path",
       "args": { "kind": "videoExport", "name": "Carol.mp4" }
     },
+    { "api": "sequencer.h264Encoder", "command": "h264_encoder", "args": {} },
+    { "api": "sequencer.downloadH264Encoder", "command": "download_h264_encoder", "args": {} },
+    { "api": "sequencer.cancelH264Download", "command": "cancel_h264_download", "args": {} },
+    {
+      "api": "sequencer.setH264EncoderEnabled",
+      "command": "set_h264_encoder_enabled",
+      "args": { "on": false }
+    },
+    { "api": "sequencer.removeH264Encoder", "command": "remove_h264_encoder", "args": {} },
     { "api": "assistant.keyStorage", "command": "ai_key_storage", "args": {} },
     {
       "api": "assistant.setApiKey",
@@ -1508,6 +1517,7 @@
     { "api": "sequencer.findLyrics", "event": "lyrics-progress" },
     { "api": "sequencer.onPicturesArrived", "event": "pictures-arrived" },
     { "api": "sequencer.exportVideo", "event": "video-export-progress" },
+    { "api": "sequencer.downloadH264Encoder", "event": "h264-download-progress" },
     { "api": "assistant.send", "event": "assistant-event" },
     { "api": "assistant.downloadAlignModels", "event": "align-models-progress" }
   ]

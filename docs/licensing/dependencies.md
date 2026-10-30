@@ -144,7 +144,7 @@ Code and data taken from xLights and other projects' **source** are a different 
 | Scope | Third-party packages | Shipped | Build-time only | Tests only | Not used on desktop targets |
 | --- | --- | --- | --- | --- | --- |
 | (a) Engine workspace (`Cargo.toml`) | 431 | 304 | 41 | 35 | 51 |
-| (b) Desktop app (`app/src-tauri/Cargo.toml`) | 642 | 460 | 97 | 1 | 84 |
+| (b) Desktop app (`app/src-tauri/Cargo.toml`) | 642 | 461 | 96 | 1 | 84 |
 | (c) App UI, production (`app/package.json`) | 34 | 34 | 0 | 0 | 0 |
 
 "Shipped" means linked into a binary for macOS, Windows, or Linux. "Build-time only" covers build scripts and procedural macros, which run while compiling and are not in the binary. "Not used on desktop targets" are packages the lockfile lists for other platforms (Android, iOS, WebAssembly).
@@ -155,7 +155,7 @@ All 25 of PixelFlow's own packages state `GPL-3.0-only`: the GNU General Public 
 
 ## Shipped packages against PixelFlow's licence (`GPL-3.0-only`)
 
-Of the 510 packages shipped (engine, app, and UI together), 492 offer a licence the Free Software Foundation's licence list names as compatible with the GNU GPL, version 3. Where a package offers a choice, one compatible option is enough.
+Of the 511 packages shipped (engine, app, and UI together), 493 offer a licence the Free Software Foundation's licence list names as compatible with the GNU GPL, version 3. Where a package offers a choice, one compatible option is enough.
 
 **Shipped under a permissive licence that list does not name (read, and nothing in it limits distribution under the GPL; not confirmed by anyone with authority)** (18):
 
@@ -211,7 +211,7 @@ Of the 510 packages shipped (engine, app, and UI together), 492 offer a licence 
 
 | Licence (as the package states it) | Packages | Flag |
 | --- | --- | --- |
-| `Apache-2.0 OR MIT` | 277 |  |
+| `Apache-2.0 OR MIT` | 278 |  |
 | `MIT` | 82 |  |
 | `Apache-2.0 OR MIT OR Zlib` | 20 |  |
 | `MPL-2.0` | 18 | copyleft |
@@ -773,7 +773,7 @@ Across both Cargo workspaces (every use, not only shipped) and the app UI's prod
 | `rustc_version` | 0.4.1 | `MIT OR Apache-2.0` |  | build |
 | `rustfft` | 6.4.1 | `MIT OR Apache-2.0` | shipped (all) | shipped (all) |
 | `rustix` | 1.1.5 | `Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT` | shipped (macOS, Linux) | shipped (macOS, Linux) |
-| `rustls` | 0.23.45 | `Apache-2.0 OR ISC OR MIT` | shipped (all) | shipped (all) |
+| `rustls` | 0.23.46 | `Apache-2.0 OR ISC OR MIT` | shipped (all) | shipped (all) |
 | `rustls-pki-types` | 1.15.1 | `MIT OR Apache-2.0` | shipped (all) | shipped (all) |
 | `rustls-webpki` | 0.103.16 | `ISC` | shipped (all) | shipped (all) |
 | `rustversion` | 1.0.23 | `MIT OR Apache-2.0` | build | build |
@@ -876,7 +876,7 @@ Across both Cargo workspaces (every use, not only shipped) and the app UI's prod
 | `time-macros` | 0.2.32 | `MIT OR Apache-2.0` |  | build |
 | `tinystr` | 0.8.4 | `Unicode-3.0` |  | shipped (all) |
 | `tinyvec` | 1.13.3 | `Zlib OR Apache-2.0 OR MIT` | shipped (all) | shipped (all) |
-| `tokio` | 1.53.2 | `MIT` | not on desktop | shipped (all) |
+| `tokio` | 1.54.1 | `MIT` | not on desktop | shipped (all) |
 | `tokio-util` | 0.7.19 | `MIT` |  | not on desktop |
 | `toml` | 0.8.2 | `MIT OR Apache-2.0` |  | build |
 | `toml` | 1.1.6+spec-1.1.0 | `MIT OR Apache-2.0` |  | shipped (all) |
@@ -972,7 +972,7 @@ Across both Cargo workspaces (every use, not only shipped) and the app UI's prod
 | `windows-strings` | 0.5.1 | `MIT OR Apache-2.0` | shipped (Windows) | shipped (Windows) |
 | `windows-sys` | 0.45.0 | `MIT OR Apache-2.0` | not on desktop | not on desktop |
 | `windows-sys` | 0.52.0 | `MIT OR Apache-2.0` | shipped (Windows) | shipped (Windows) |
-| `windows-sys` | 0.59.0 | `MIT OR Apache-2.0` |  | build |
+| `windows-sys` | 0.59.0 | `MIT OR Apache-2.0` |  | shipped (Windows) |
 | `windows-sys` | 0.60.2 | `MIT OR Apache-2.0` |  | shipped (Windows) |
 | `windows-sys` | 0.61.2 | `MIT OR Apache-2.0` | shipped (Windows) | shipped (Windows) |
 | `windows-targets` | 0.42.2 | `MIT OR Apache-2.0` | not on desktop | not on desktop |

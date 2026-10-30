@@ -272,7 +272,40 @@ export type DmxRole =
   | "tiltFine"
   | "colorWheel"
   | "gobo"
-  | "other";
+  | "other"
+  | "cyan"
+  | "magenta"
+  | "yellow"
+  | "servo"
+  | "servoFine"
+  | "speed";
+
+/** How a motor (a head's pan or tilt, or a servo) turns with its value (see crates/pf-model/src/motion.rs). */
+export interface DmxMotor {
+  /** Degrees it turns as its value goes from 0 to its highest. */
+  rangeDeg: number;
+  /** Where Home is, in degrees from the value-0 end. */
+  homeDeg: number;
+  /** The farthest it may turn from Home one way (0 or less); missing, the end of its travel. */
+  minDeg?: number;
+  /** The farthest it may turn from Home the other way (0 or more); missing, the end of its travel. */
+  maxDeg?: number;
+  /** It turns the other way as its value rises. */
+  reverse?: boolean;
+}
+
+/** A slot of a colour wheel or gobo wheel: the value that selects it, and its colour (`#rrggbb`) or name. */
+export interface DmxSlot {
+  value: number;
+  color?: string;
+  name?: string;
+}
+
+/** A moving head's beam as the previews draw it: how wide (degrees) and how long (layout units). */
+export interface DmxBeam {
+  angleDeg: number;
+  length: number;
+}
 
 /** One channel of a DMX fixture, in the order the fixture takes them. */
 export interface DmxChannel {
@@ -282,6 +315,10 @@ export interface DmxChannel {
   cell?: number;
   /** The value it holds when nothing sets it (0 when missing); colour and dimmer channels follow the colour. */
   value?: number;
+  /** How a pan, tilt or servo channel turns (missing: the usual for its role). */
+  motor?: DmxMotor;
+  /** A colour wheel's colours, or a gobo wheel's gobos. */
+  slots?: DmxSlot[];
 }
 
 /** What makes a prop a DMX fixture: its start address (1-512) and its channels. */
@@ -290,6 +327,8 @@ export interface DmxFixture {
   channels: DmxChannel[];
   /** The library layout it was made from (see `DMX_LAYOUTS`), when it was. */
   layout?: string;
+  /** A moving head's beam (missing: the usual, for a head). */
+  beam?: DmxBeam;
 }
 
 export interface Prop {

@@ -10,6 +10,7 @@ mod ids;
 mod io;
 mod issue;
 mod limits;
+mod motion;
 mod network_paths;
 mod paths;
 mod primitives;
@@ -26,8 +27,8 @@ pub use controller::{
     SacnConfig, SequenceChannels, UniverseSize,
 };
 pub use dmx::{
-    DMX_LAYOUTS, DmxChannel, DmxFixture, DmxLayout, DmxRole, MAX_DMX_CELLS, MAX_DMX_CHANNEL_NAME,
-    MAX_DMX_CHANNELS, dmx_layout, emitted_colors, write_channels,
+    DMX_LAYOUTS, DmxAxis, DmxChannel, DmxFixture, DmxKind, DmxLayout, DmxRole, MAX_DMX_CELLS,
+    MAX_DMX_CHANNEL_NAME, MAX_DMX_CHANNELS, axes, dmx_layout, emitted_colors, rest_motors_at, write_channels,
 };
 pub use ids::{ControllerId, GroupId, PropId, RegionId, SequenceId};
 pub use io::{ModelError, check_show, show_file_from_json, show_file_to_json, show_from_json, show_to_json};
@@ -36,6 +37,10 @@ pub use limits::{
     MAX_ICICLE_DROP_LIGHTS, MAX_ICICLE_DROPS, MAX_NULL_PIXELS, MAX_POLY_VERTICES, MAX_PROP_NODES,
     MAX_REGION_ENTRIES, MAX_REGIONS_PER_PROP, MAX_SEQUENCE_OFFSET_MS, MAX_SHAPE_LAYERS, MAX_SHOW_PIXELS,
     MAX_SPINNER_ARMS, MAX_SPINNER_HOLLOW, MAX_SPIRAL_TURNS, MAX_STAR_POINTS, shape_problem,
+};
+pub use motion::{
+    Basis, DmxBeam, DmxMotor, DmxSlot, MAX_DMX_SLOTS, MAX_MOTOR_RANGE, UPRIGHT, arm_direction,
+    beam_direction, cos_deg, sin_deg,
 };
 pub use network_paths::{
     is_network_path_text, is_refused_network_path, network_path_refusal, network_path_refusal_of,

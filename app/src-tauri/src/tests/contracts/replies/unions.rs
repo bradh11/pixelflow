@@ -88,7 +88,7 @@ fn union_members() {
     all(
         "types.DmxRole",
         every!(pf_model::DmxRole: Dimmer, Red, Green, Blue, White, Amber, Uv, Strobe, Fixed, Pan, PanFine, Tilt,
-            TiltFine, ColorWheel, Gobo, Other),
+            TiltFine, ColorWheel, Gobo, Other, Cyan, Magenta, Yellow, Servo, ServoFine, Speed),
     );
     all(
         "types.ControllerKind",
@@ -357,7 +357,7 @@ fn union_members() {
     fixtures.all_of(
         "types.ShapeSource",
         Some("source"),
-        &Value::Array(sources[sources.len() - 2..].to_vec()),
+        &Value::Array(sources[sources.len() - 3..].to_vec()),
     );
     let kinds = |region: &pf_model::Region| match region.kind {
         pf_model::RegionKind::Nodes { .. } => 0,

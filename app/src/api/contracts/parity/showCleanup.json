@@ -8,7 +8,7 @@
     "sequenceIssuesNow": null,
     "sequenceNow": null,
     "show": { "canRedo": false, "canUndo": false, "dirty": false, "path": null, "revision": 0 },
-    "showNow": { "background": null, "controllers": [], "groups": [], "name": "Untitled Show", "props": [], "schemaVersion": 14, "sequences": [], "settings": { "frameRate": 40 } },
+    "showNow": { "background": null, "controllers": [], "groups": [], "name": "Untitled Show", "props": [], "schemaVersion": 15, "sequences": [], "settings": { "frameRate": 40 } },
     "summaryNow": { "controllers": 0, "pixels": 0, "props": 0, "universes": 0 }
   },
   "steps": [
@@ -121,7 +121,7 @@
           },
           { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000002", "name": "Gutter", "regions": [], "shape": { "length": 3.0, "nodes": 20, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 2.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } }
         ],
-        "schemaVersion": 14,
+        "schemaVersion": 15,
         "sequences": [],
         "settings": { "frameRate": 40 }
       },
@@ -184,7 +184,7 @@
           },
           { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000002", "name": "Gutter", "regions": [], "shape": { "length": 3.0, "nodes": 20, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 2.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } }
         ],
-        "schemaVersion": 14,
+        "schemaVersion": 15,
         "sequences": [],
         "settings": { "frameRate": 40 }
       }
@@ -230,7 +230,7 @@
         "groups": [{ "gridSize": 400, "id": "22222222-0000-4000-8000-000000000001", "layout": "minimalGrid", "members": ["11111111-0000-4000-8000-000000000002"], "name": "Everything" }],
         "name": "Untitled Show",
         "props": [{ "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000002", "name": "Gutter", "regions": [], "shape": { "length": 3.0, "nodes": 20, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 2.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } }],
-        "schemaVersion": 14,
+        "schemaVersion": 15,
         "sequences": [],
         "settings": { "frameRate": 40 }
       },
@@ -295,7 +295,7 @@
           },
           { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000002", "name": "Gutter", "regions": [], "shape": { "length": 3.0, "nodes": 20, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 2.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } }
         ],
-        "schemaVersion": 14,
+        "schemaVersion": 15,
         "sequences": [],
         "settings": { "frameRate": 40 }
       },
@@ -351,7 +351,7 @@
           },
           { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000002", "name": "Gutter", "regions": [], "shape": { "length": 3.0, "nodes": 20, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 2.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } }
         ],
-        "schemaVersion": 14,
+        "schemaVersion": 15,
         "sequences": [],
         "settings": { "frameRate": 40 }
       }
@@ -395,7 +395,7 @@
             "transform": { "position": { "x": 1.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } }
           }
         ],
-        "schemaVersion": 14,
+        "schemaVersion": 15,
         "sequences": [],
         "settings": { "frameRate": 40 }
       },
@@ -425,7 +425,7 @@
             "transform": { "position": { "x": 1.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } }
           }
         ],
-        "schemaVersion": 14,
+        "schemaVersion": 15,
         "sequences": [],
         "settings": { "frameRate": 40 }
       },
@@ -453,7 +453,7 @@
             "transform": { "position": { "x": 1.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } }
           }
         ],
-        "schemaVersion": 14,
+        "schemaVersion": 15,
         "sequences": [],
         "settings": { "frameRate": 40 }
       }
@@ -480,7 +480,7 @@
             "transform": { "position": { "x": 1.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } }
           }
         ],
-        "schemaVersion": 14,
+        "schemaVersion": 15,
         "sequences": [],
         "settings": { "frameRate": 40 }
       }
@@ -524,7 +524,7 @@
             "transform": { "position": { "x": 1.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } }
           }
         ],
-        "schemaVersion": 14,
+        "schemaVersion": 15,
         "sequences": [],
         "settings": { "frameRate": 40 }
       },
@@ -598,7 +598,7 @@
           },
           { "colorOrder": "RGB", "id": "11111111-0000-4000-8000-000000000002", "name": "Gutter", "regions": [], "shape": { "length": 3.0, "nodes": 20, "source": "generator", "type": "line" }, "tags": [], "transform": { "position": { "x": 2.0, "y": 0.0, "z": 0.0 }, "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 }, "scale": { "x": 1.0, "y": 1.0, "z": 1.0 } } }
         ],
-        "schemaVersion": 14,
+        "schemaVersion": 15,
         "sequences": [],
         "settings": { "frameRate": 40 }
       },

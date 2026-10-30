@@ -66,6 +66,7 @@ pub(crate) fn fixture(model: &XmlModel, address: u16) -> (DmxFixture, bool) {
             address,
             channels,
             layout: None,
+            beam: None,
         },
         colored,
     )

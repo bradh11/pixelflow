@@ -4,7 +4,11 @@
 // works it out (`emitted_colors`), for the browser stand-in and the Test screen.
 
 import layouts from "../api/dmxLayouts.json";
-import type { DmxChannel, DmxFixture, DmxRole, Prop, Show } from "../api/types";
+import type { DmxChannel, DmxFixture, DmxRole, DmxSlot, Prop, Show } from "../api/types";
+import { axes, motorProblem, restMotorsAt } from "./motion";
+
+/** What kind of fixture a library layout is for. */
+export type DmxKind = "flood" | "head" | "servo";
 
 /** A channel layout from the library: channels for the whole fixture, the same for each cell, then more. */
 export interface DmxLayout {
@@ -13,11 +17,12 @@ export interface DmxLayout {
   head: DmxRole[];
   cell: DmxRole[];
   tail: DmxRole[];
-  /** Made for several cells (a bar). */
+  /** Made for several cells (a bar, or several servos). */
   multiCell: boolean;
+  kind: DmxKind;
 }
 
-/** The library of flood, par and bar layouts, named by their channels. */
+/** The library of flood, par, bar, moving-head and servo layouts, named by their channels. */
 export const DMX_LAYOUTS: DmxLayout[] = layouts as DmxLayout[];
 
 /** The name people see for each role. */
@@ -38,36 +43,81 @@ export const DMX_ROLE_LABELS: Record<DmxRole, string> = {
   colorWheel: "Color wheel",
   gobo: "Gobo",
   other: "Other",
+  cyan: "Cyan",
+  magenta: "Magenta",
+  yellow: "Yellow",
+  servo: "Servo",
+  servoFine: "Servo fine",
+  speed: "Speed",
 };
+
+const PER_CELL: DmxRole[] = ["red", "green", "blue", "white", "amber", "cyan", "magenta", "yellow"];
 
 /** Roles whose value comes from the colour drawn on the fixture. */
 export function fromColor(role: DmxRole): boolean {
-  return ["dimmer", "red", "green", "blue", "white", "amber"].includes(role);
+  return role === "dimmer" || PER_CELL.includes(role);
 }
 
 /** Roles that belong to one cell of the fixture. */
 export function perCell(role: DmxRole): boolean {
-  return ["red", "green", "blue", "white", "amber"].includes(role);
+  return PER_CELL.includes(role);
 }
 
-/** A layout's channels for a fixture of `cells` cells (named with the cell's number when there are several). */
+/** A colour wheel with its colours listed: it follows the colour drawn. */
+export function isColorWheel(channel: DmxChannel): boolean {
+  return channel.role === "colorWheel" && (channel.slots ?? []).some((s) => s.color !== undefined);
+}
+
+/** Whether a channel's value comes from the colour drawn (a colour or dimmer channel, or a colour wheel with its colours). */
+export function channelFromColor(channel: DmxChannel): boolean {
+  return fromColor(channel.role) || isColorWheel(channel);
+}
+
+/** A layout's channels for a fixture of `cells` cells (named with the cell's number when there are several), motors at Home. */
 export function layoutChannels(layout: DmxLayout, cells: number): DmxChannel[] {
   const n = Math.max(1, Math.floor(cells));
-  const out: DmxChannel[] = layout.head.map((role) => ({ name: DMX_ROLE_LABELS[role], role }));
+  const channel = (role: DmxRole, name: string): DmxChannel => {
+    const c: DmxChannel = { name, role };
+    if (role === "pan" || role === "tilt" || role === "servo") {
+      const range = role === "pan" ? 540 : role === "tilt" ? 270 : 180;
+      c.motor = { rangeDeg: range, homeDeg: range / 2 };
+    }
+    return c;
+  };
+  const out: DmxChannel[] = layout.head.map((role) => channel(role, DMX_ROLE_LABELS[role]));
   for (let cell = 0; cell < n; cell++) {
     for (const role of layout.cell) {
-      const channel: DmxChannel = { name: n > 1 ? `${DMX_ROLE_LABELS[role]} ${cell + 1}` : DMX_ROLE_LABELS[role], role };
-      if (perCell(role) && cell > 0) channel.cell = cell;
-      out.push(channel);
+      const c = channel(role, n > 1 ? `${DMX_ROLE_LABELS[role]} ${cell + 1}` : DMX_ROLE_LABELS[role]);
+      if (perCell(role) && cell > 0) c.cell = cell;
+      out.push(c);
     }
   }
-  out.push(...layout.tail.map((role) => ({ name: DMX_ROLE_LABELS[role], role })));
-  return out;
+  out.push(...layout.tail.map((role) => channel(role, DMX_ROLE_LABELS[role])));
+  // Held values of 0 aren't written, as the engine leaves them out.
+  return restMotorsAt(out, 0).map((c) => {
+    if (c.value === 0) delete c.value;
+    return c;
+  });
 }
+
+/** Whether a fixture is a moving head: it has a pan or a tilt channel. */
+export function isHead(fixture: DmxFixture): boolean {
+  return fixture.channels.some((c) => c.role === "pan" || c.role === "tilt");
+}
+
+/** Whether a fixture is servos: it has a servo channel and no pan or tilt. */
+export function isServos(fixture: DmxFixture): boolean {
+  return !isHead(fixture) && fixture.channels.some((c) => c.role === "servo");
+}
+
+/** The beam a head is drawn with when it doesn't say. */
+export const DEFAULT_BEAM = { angleDeg: 15, length: 6 } as const;
 
 /** A fixture at `address` laid out as `layout` with `cells` cells. */
 export function fixtureFromLayout(layout: DmxLayout, cells: number, address: number): DmxFixture {
-  return { address, channels: layoutChannels(layout, cells), layout: layout.id };
+  const fixture: DmxFixture = { address, channels: layoutChannels(layout, cells), layout: layout.id };
+  if (isHead(fixture)) fixture.beam = { ...DEFAULT_BEAM };
+  return fixture;
 }
 
 /** The last address a fixture uses. */
@@ -86,6 +136,14 @@ export function fixtureProblem(fixture: DmxFixture, cells: number): string | nul
   if (cells < 1 || cells > 64) return "A DMX fixture has 1 to 64 cells (light positions).";
   const stray = fixture.channels.find((c) => perCell(c.role) && (c.cell ?? 0) >= cells);
   if (stray) return `The channel '${stray.name}' is for cell ${(stray.cell ?? 0) + 1}, but the fixture has ${cells}.`;
+  for (const c of fixture.channels) {
+    const problem = c.motor ? motorProblem(c.motor) : null;
+    if (problem) return `The channel '${c.name}': ${problem}`;
+    if ((c.slots?.length ?? 0) > 64) return `The channel '${c.name}' lists ${c.slots!.length} slots; a wheel has at most 64.`;
+  }
+  const beam = fixture.beam;
+  if (beam && !(beam.angleDeg >= 1 && beam.angleDeg <= 120)) return "A beam is 1° to 120° wide.";
+  if (beam && !(beam.length >= 0.5 && beam.length <= 100)) return "A beam is drawn 0.5 to 100 long.";
   return null;
 }
 
@@ -103,22 +161,29 @@ export function nextFreeAddress(show: Show, channels: number): number {
 
 /** The library layout a fixture's channels are exactly, for `cells` cells (null: custom). */
 export function layoutOf(fixture: DmxFixture, cells: number): DmxLayout | null {
-  const same = (layout: DmxLayout) => JSON.stringify(layoutChannels(layout, cells)) === JSON.stringify(fixture.channels);
+  // Only what says which channel is which: a motor's settings or a held value don't make it another layout.
+  const shape = (channels: DmxChannel[]) => JSON.stringify(channels.map((c) => [c.name, c.role, c.cell ?? 0]));
+  const same = (layout: DmxLayout) => shape(layoutChannels(layout, cells)) === shape(fixture.channels);
   return DMX_LAYOUTS.find((l) => l.id === fixture.layout && same(l)) ?? DMX_LAYOUTS.find(same) ?? null;
 }
 
-/** A new DMX flood for `show`: one cell, a dimmer then red, green and blue, at the first free address. */
-export function newFixture(show: Show): Prop {
-  const layout = DMX_LAYOUTS.find((l) => l.id === "dimmer-rgb") ?? DMX_LAYOUTS[0];
+/** A name not yet used in `show`: `base 1`, `base 2`, … */
+function freeName(show: Show, base: string): string {
   const names = new Set(show.props.map((p) => p.name));
   let n = 1;
-  while (names.has(`Flood ${n}`)) n++;
-  const fixture = fixtureFromLayout(layout, 1, 1);
+  while (names.has(`${base} ${n}`)) n++;
+  return `${base} ${n}`;
+}
+
+/** A new fixture for `show` laid out as the library's `layoutId`, with `cells` cells, at the first free address. */
+function newFromLayout(show: Show, layoutId: string, cells: number, base: string): Prop {
+  const layout = DMX_LAYOUTS.find((l) => l.id === layoutId) ?? DMX_LAYOUTS[0];
+  const fixture = fixtureFromLayout(layout, cells, 1);
   fixture.address = nextFreeAddress(show, fixture.channels.length);
   return {
     id: crypto.randomUUID(),
-    name: `Flood ${n}`,
-    shape: { source: "generator", type: "line", nodes: 1, length: 0.5 },
+    name: freeName(show, base),
+    shape: { source: "generator", type: "line", nodes: cells, length: Math.max(0.5, cells * 0.25) },
     transform: { position: { x: 0, y: 0, z: 0 }, rotationDeg: { x: 0, y: 0, z: 0 }, scale: { x: 1, y: 1, z: 1 } },
     colorOrder: "RGB",
     regions: [],
@@ -127,12 +192,44 @@ export function newFixture(show: Show): Prop {
   };
 }
 
+/** A new DMX flood for `show`: one cell, a dimmer then red, green and blue, at the first free address. */
+export function newFixture(show: Show): Prop {
+  return newFromLayout(show, "dimmer-rgb", 1, "Flood");
+}
+
+/** A new moving head for `show`: a common 16-bit head with a dimmer and red, green, blue and white, at Home. */
+export function newMovingHead(show: Show): Prop {
+  return newFromLayout(show, "head-rgbw-16", 1, "Moving Head");
+}
+
+/** A new servo for `show`: one 16-bit servo, at Home. */
+export function newServo(show: Show): Prop {
+  return newFromLayout(show, "servo-16", 1, "Servo");
+}
+
 /** Whether `prop` is a DMX fixture. */
 export function isFixture(prop: Prop): boolean {
   return prop.dmx !== undefined;
 }
 
 const half = (a: number) => Math.ceil(a / 2);
+
+/** The slot with a colour that `distance` puts nearest (the first of equals), if any has one. */
+function nearestSlot(slots: DmxSlot[] | undefined, distance: (s: DmxSlot) => number): DmxSlot | undefined {
+  let best: DmxSlot | undefined;
+  let bestAt = Infinity;
+  for (const s of slots ?? []) {
+    if (s.color === undefined) continue;
+    const d = distance(s);
+    if (d < bestAt) [best, bestAt] = [s, d];
+  }
+  return best;
+}
+
+const hexRgb = (hex: string): [number, number, number] => {
+  const n = parseInt(hex.replace("#", ""), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+};
 
 /** What a fixture's channels hold for the colour drawn on its cells (`cells`: three bytes a cell), as the engine works it out. */
 export function channelsForColors(channels: DmxChannel[], cells: ArrayLike<number>): number[] {
@@ -143,11 +240,24 @@ export function channelsForColors(channels: DmxChannel[], cells: ArrayLike<numbe
   let peak = 0;
   for (let c = 0; c < count; c++) peak = Math.max(peak, ...rgb(c));
   const [num, den] = dimmed && peak > 0 ? [255, peak] : [1, 1];
-  const scale = (v: number) => Math.min(255, Math.floor((v * num + Math.floor(den / 2)) / den));
+  const scaleBy = (v: number, n: number, d: number) => Math.min(255, Math.floor((v * n + Math.floor(d / 2)) / d));
+  const scale = (v: number) => scaleBy(v, num, den);
   return channels.map((channel) => {
     if (channel.role === "dimmer") return peak;
-    if (!perCell(channel.role)) return channel.value ?? 0;
     const cell = channel.cell ?? 0;
+    if (channel.role === "cyan") return 255 - scale(rgb(cell)[0]);
+    if (channel.role === "magenta") return 255 - scale(rgb(cell)[1]);
+    if (channel.role === "yellow") return 255 - scale(rgb(cell)[2]);
+    if (isColorWheel(channel)) {
+      if (peak === 0) return channel.value ?? 0;
+      const drawn = rgb(0).map((v) => scaleBy(v, 255, peak));
+      const slot = nearestSlot(channel.slots, (s) => {
+        const c = hexRgb(s.color!);
+        return (c[0] - drawn[0]) ** 2 + (c[1] - drawn[1]) ** 2 + (c[2] - drawn[2]) ** 2;
+      });
+      return slot?.value ?? channel.value ?? 0;
+    }
+    if (!perCell(channel.role)) return channel.value ?? 0;
     let [r, g, b] = rgb(cell).map(scale);
     const inCell = (role: DmxRole) => channels.some((c) => c.role === role && (c.cell ?? 0) === cell);
     const hasRgb = inCell("red") || inCell("green") || inCell("blue");
@@ -174,9 +284,13 @@ export function emittedColors(channels: DmxChannel[], dmx: ArrayLike<number>, ce
   const value = (i: number) => (i < dmx.length ? dmx[i] : 0);
   const dimmerAt = channels.findIndex((c) => c.role === "dimmer");
   const level = dimmerAt >= 0 ? value(dimmerAt) : 255;
+  // Servos with no dimmer make no light of their own.
+  const dark = dimmerAt < 0 && channels.some((c) => c.role === "servo");
   const out: [number, number, number][] = [];
   for (let cell = 0; cell < cells; cell++) {
     let [r, g, b, lit] = [0, 0, 0, false];
+    let cmy = false;
+    const taken = [0, 0, 0];
     channels.forEach((c, i) => {
       const v = value(i);
       const mine = (c.cell ?? 0) === cell;
@@ -185,11 +299,27 @@ export function emittedColors(channels: DmxChannel[], dmx: ArrayLike<number>, ce
       else if (c.role === "blue" && mine) [b, lit] = [b + v, true];
       else if (c.role === "white" && mine) [r, g, b, lit] = [r + v, g + v, b + v, true];
       else if (c.role === "amber" && mine) [r, g, lit] = [r + v, g + half(v), true];
+      else if (c.role === "cyan" && mine) [cmy, taken[0]] = [true, v];
+      else if (c.role === "magenta" && mine) [cmy, taken[1]] = [true, v];
+      else if (c.role === "yellow" && mine) [cmy, taken[2]] = [true, v];
       else if (c.role === "uv") [r, b, lit] = [r + Math.floor(v / 4), b + Math.floor(v / 2), true];
+      else if (isColorWheel(c)) {
+        const slot = nearestSlot(c.slots, (s) => Math.abs(s.value - v));
+        if (slot?.color) {
+          const [sr, sg, sb] = hexRgb(slot.color);
+          [r, g, b, lit] = [r + sr, g + sg, b + sb, true];
+        }
+      }
     });
-    if (!lit) [r, g, b] = [255, 255, 255];
+    if (cmy) [r, g, b, lit] = [r + 255 - taken[0], g + 255 - taken[1], b + 255 - taken[2], true];
+    if (!lit) [r, g, b] = dark ? [0, 0, 0] : [255, 255, 255];
     const out1 = (v: number) => Math.floor((Math.min(v, 255) * level + 127) / 255);
     out.push([out1(r), out1(g), out1(b)]);
   }
   return out;
+}
+
+/** A fixture's motors (see `axes` in motion.ts). */
+export function fixtureAxes(fixture: DmxFixture) {
+  return axes(fixture.channels);
 }

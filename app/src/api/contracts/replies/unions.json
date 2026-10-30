@@ -134,7 +134,13 @@
       "tiltFine",
       "colorWheel",
       "gobo",
-      "other"
+      "other",
+      "cyan",
+      "magenta",
+      "yellow",
+      "servo",
+      "servoFine",
+      "speed"
     ]
   },
   {
@@ -726,7 +732,8 @@
         "type": "cube",
         "width": 2
       },
-      { "length": 3.0, "nodes": 2, "source": "generator", "type": "line" }
+      { "length": 3.0, "nodes": 2, "source": "generator", "type": "line" },
+      { "length": 3.0, "nodes": 1, "source": "generator", "type": "line" }
     ]
   },
   {
@@ -740,7 +747,8 @@
         "provenance": "cameraMap",
         "source": "measured"
       },
-      { "length": 3.0, "nodes": 2, "source": "generator", "type": "line" }
+      { "length": 3.0, "nodes": 2, "source": "generator", "type": "line" },
+      { "length": 3.0, "nodes": 1, "source": "generator", "type": "line" }
     ]
   },
   {

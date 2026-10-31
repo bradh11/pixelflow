@@ -588,3 +588,43 @@ describe("packing colors", () => {
     expect(bytes(packColor("rgb(1, 2, 3)"))).toEqual([1, 2, 3, 255]);
   });
 });
+
+describe("a moving head's beam in the flat previews", () => {
+  // A head at the middle of the view pointing straight up, its pan at frame byte 3 and tilt at 4.
+  const head: PreviewProp = {
+    ...prop("head", [0, 0]),
+    motion: {
+      basis: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+      beam: {
+        pan: { at: 3, rest: [128, 0], motor: { rangeDeg: 540, homeDeg: 270 } },
+        tilt: { at: 4, rest: [128, 0], motor: { rangeDeg: 270, homeDeg: 135 } },
+        angleDeg: 20,
+        length: 4,
+      },
+    },
+  };
+  const AIMING = { ...COLORS, aim: "rgba(167, 139, 250, 0.85)" };
+  const PICKED: ReadonlySet<string> = new Set(["head"]);
+
+  it("shows nothing of a beam while nothing plays, only a selected head's dashed aim on the Layout screen", () => {
+    const resting = stamped([head], null, { colors: AIMING });
+    expect(solid(resting.image, 50, 30)).toBe(0);
+    const picked = stamped([head], null, { colors: AIMING, selected: PICKED });
+    // Its edges, dashed, in the aim color: some of an edge is drawn and some isn't.
+    const left = Array.from({ length: 30 }, (_, k) => solid(picked.image, Math.round(50.5 - (k + 1) * 0.176), 49 - k));
+    expect(left.some((a) => a > 0)).toBe(true);
+    expect(left.some((a) => a === 0)).toBe(true);
+    expect(solid(picked.image, 50, 30)).toBe(0);
+    // Without an aim color (the other previews), nothing.
+    expect(solid(stamped([head], null, { selected: PICKED }).image, 50, 30)).toBe(0);
+  });
+
+  it("draws the beam as bright as the head shows, in its hue, and none while it's dark", () => {
+    const full = stamped([head], new Uint8Array([0, 0, 255, 128, 128]));
+    const dim = stamped([head], new Uint8Array([0, 0, 85, 128, 128]));
+    expect(at(full.image, 50, 30).slice(0, 3)).toEqual([0, 0, 255]);
+    expect(at(dim.image, 50, 30).slice(0, 3)).toEqual([0, 0, 255]);
+    expect(solid(dim.image, 50, 30)).toBeLessThan(solid(full.image, 50, 30) / 2);
+    expect(solid(stamped([head], new Uint8Array([0, 0, 0, 128, 128])).image, 50, 30)).toBe(0);
+  });
+});

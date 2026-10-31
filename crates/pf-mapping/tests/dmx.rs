@@ -330,3 +330,23 @@ fn the_colour_drawn_on_a_fixture_becomes_its_channels() {
     assert_eq!(&frame[3..], &[0, 255, 0, 255, 0, 0, 33]);
     assert_eq!(&frame[..3], &[0, 0, 0], "no dimmer, no light");
 }
+
+#[test]
+fn a_fixture_whose_shutter_is_shut_shows_nothing_and_its_channels_stay() {
+    let mut show = Show::new("Shutter");
+    show.props = vec![flood("A", "dimmer-rgbw-strobe-mode", 1)];
+    let (map, _) = map_show(&show);
+    let fixture = &map.fixtures[0];
+    let mut frame = vec![0u8; map.frame_len];
+    frame[..3].copy_from_slice(&[200, 100, 0]);
+    // Its strobe at 255: the fastest strobe, a flash every other 25 ms frame.
+    let mut overrides = vec![None; 7];
+    overrides[5] = Some(255);
+    fixture.write(&mut frame, &overrides);
+    let lit = frame.clone();
+    fixture.show_shutter(&mut frame, pf_model::Moment::new(0, 25));
+    assert_eq!(frame, lit, "a flash");
+    fixture.show_shutter(&mut frame, pf_model::Moment::new(25, 25));
+    assert_eq!(&frame[..3], &[0, 0, 0], "between flashes");
+    assert_eq!(&frame[3..], &lit[3..], "the channels as they were");
+}

@@ -5,7 +5,7 @@
 //!
 //! - **Floods** (`DmxGeneral`, `DmxFloodlight`, `DmxFloodArea`): red, green, blue and white
 //!   (`DmxRedChannel` and the like) and a shutter (`DmxShutterChannel`, held open at
-//!   `DmxShutterOpen`). One cell.
+//!   `DmxShutterOpen`: closed below that value, open from it up). One cell.
 //! - **Moving heads** (`DmxMovingHeadAdv`, `DmxMovingHead`, `DmxMovingHead3D`): the same colour
 //!   and shutter channels, or a colour wheel (`DmxColorType` 1: `DmxColorWheelChannel`, its
 //!   colours `DmxColorWheelColor<n>` and the values selecting them `DmxColorWheelDMX<n>`) or CMY
@@ -25,7 +25,9 @@
 //! models stay as they were (a row of channel dots, not wired).
 
 use crate::model::XmlModel;
-use pf_model::{DmxBeam, DmxChannel, DmxFixture, DmxMotor, DmxRole, DmxSlot, Rgb};
+use pf_model::{
+    DmxBeam, DmxChannel, DmxFixture, DmxMotor, DmxRole, DmxShutter, DmxShutterRange, DmxSlot, Rgb,
+};
 use std::collections::BTreeMap;
 
 /// What kind of xLights DMX model PixelFlow imports a model as.
@@ -262,15 +264,21 @@ fn colors(set: &mut impl FnMut(Option<usize>, DmxChannel) -> bool, model: &XmlMo
     any
 }
 
-/// Sets the shutter channel the file names, held open.
+/// Sets the shutter channel the file names, held open: closed below the value that opens it, open
+/// from it up (open at every value when that is 0).
 fn shutter(set: &mut impl FnMut(Option<usize>, DmxChannel) -> bool, model: &XmlModel, count: usize) {
     let open = number(model.attr("DmxShutterOpen"))
         .unwrap_or(0.0)
-        .clamp(0.0, 255.0);
-    set(
-        channel_in(model.attr("DmxShutterChannel"), count),
-        DmxChannel::new(DmxRole::Strobe).holding(open.round() as u8),
-    );
+        .clamp(0.0, 255.0)
+        .round() as u8;
+    let mut channel = DmxChannel::new(DmxRole::Strobe).holding(open);
+    let range = |from, does| DmxShutterRange { from, does };
+    channel.shutter = if open > 0 {
+        vec![range(0, DmxShutter::Closed), range(open, DmxShutter::Open)]
+    } else {
+        vec![range(0, DmxShutter::Open)]
+    };
+    set(channel_in(model.attr("DmxShutterChannel"), count), channel);
 }
 
 /// A head's pan or tilt motor from its element's attributes (`range`: when it doesn't say).
@@ -407,7 +415,21 @@ mod tests {
             roles(&found.fixture),
             vec![Other, Red, Green, Blue, Other, Strobe]
         );
-        assert_eq!(found.fixture.channels[5].value, 200);
+        let shutter = &found.fixture.channels[5];
+        assert_eq!(shutter.value, 200);
+        let at = pf_model::Moment::new(0, 25);
+        assert!(
+            pf_model::shutter_shows(shutter.shutter().unwrap(), 200, at),
+            "open at 200"
+        );
+        assert!(
+            pf_model::shutter_shows(shutter.shutter().unwrap(), 255, at),
+            "and above"
+        );
+        assert!(
+            !pf_model::shutter_shows(shutter.shutter().unwrap(), 199, at),
+            "closed below"
+        );
         assert_eq!(found.fixture.beam, None);
     }
 

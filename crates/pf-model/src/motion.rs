@@ -210,6 +210,40 @@ impl DmxBeam {
     }
 }
 
+/// How a zoom channel widens a head's beam: its width at value 0 and at 255, in degrees, and in
+/// between in proportion.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct DmxZoom {
+    pub from_deg: f32,
+    pub to_deg: f32,
+}
+
+impl Default for DmxZoom {
+    /// Narrow at 0 and wide at 255, as most zooming heads are.
+    fn default() -> Self {
+        Self {
+            from_deg: 5.0,
+            to_deg: 45.0,
+        }
+    }
+}
+
+impl DmxZoom {
+    /// How wide the beam is at `value`, in degrees.
+    pub fn angle(&self, value: u8) -> f64 {
+        let (from, to) = (f64::from(self.from_deg), f64::from(self.to_deg));
+        from + (to - from) * f64::from(value) / 255.0
+    }
+
+    /// Why these settings can't be used, in plain words.
+    pub fn problem(&self) -> Option<String> {
+        let ok = |a: f32| a.is_finite() && (1.0..=120.0).contains(&a);
+        (!(ok(self.from_deg) && ok(self.to_deg))).then(|| "A zoom widens a beam to 1° to 120°.".into())
+    }
+}
+
 /// The sine of `degrees`, by PixelFlow's own steps (the window's `sinDeg` takes the same ones):
 /// brought to within 45° of a quarter turn, then a fixed series. Within 2e-9 of the true sine.
 pub fn sin_deg(degrees: f64) -> f64 {
@@ -380,6 +414,37 @@ mod tests {
         assert!(close(beam_direction(90.0, 90.0, &hung), [-1.0, 0.0, 0.0]));
         assert!(close(arm_direction(90.0, &UPRIGHT), [1.0, 0.0, 0.0]));
         assert!(close(arm_direction(0.0, &UPRIGHT), [0.0, 1.0, 0.0]));
+    }
+
+    #[test]
+    fn a_zoom_widens_the_beam_in_proportion_to_its_value() {
+        let zoom = DmxZoom::default();
+        assert_eq!(zoom.angle(0), 5.0);
+        assert_eq!(zoom.angle(255), 45.0);
+        assert!((zoom.angle(128) - 25.08).abs() < 0.01);
+        // A zoom may narrow as its value rises.
+        let narrowing = DmxZoom {
+            from_deg: 60.0,
+            to_deg: 10.0,
+        };
+        assert_eq!(narrowing.angle(255), 10.0);
+        assert_eq!(zoom.problem(), None);
+        assert!(
+            DmxZoom {
+                from_deg: 0.0,
+                to_deg: 10.0
+            }
+            .problem()
+            .is_some()
+        );
+        assert!(
+            DmxZoom {
+                from_deg: 5.0,
+                to_deg: f32::NAN
+            }
+            .problem()
+            .is_some()
+        );
     }
 
     #[test]

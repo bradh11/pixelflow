@@ -140,8 +140,15 @@
       "yellow",
       "servo",
       "servoFine",
-      "speed"
+      "speed",
+      "zoom"
     ]
+  },
+  {
+    "allOf": "types.DmxShutter",
+    "name": "every types.DmxShutter",
+    "ts": "(types.DmxShutter)[]",
+    "value": ["closed", "open", "strobe"]
   },
   {
     "allOf": "types.ControllerKind",

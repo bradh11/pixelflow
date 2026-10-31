@@ -98,10 +98,15 @@ import {
   pixelsPerUnit,
 } from "../../lib/layout3d";
 import { DOT_RADIUS, FAINT, FILL, FINE_FROM, SMALLEST } from "../../lib/pixelBatches";
-import { ARM_COLOR, BEAM_FADE, BEAM_STRENGTH, UNLIT_BEAM, spread } from "../../lib/beams";
+import { ARM_COLOR, BEAM_PEAK as BEAM_STRENGTH, spread } from "../../lib/beams";
 import { FLOOD_RADIUS, FLOOD_STRENGTH, SMALLEST_WASH, UNLIT_WASH } from "../../lib/floodWash";
 import { GLOW_STEPS, GLOW_STRENGTH, GLOW_WIDTH, glowStep } from "../../lib/pixelGlow";
 import type { Scene3d } from "./scene";
+
+// Until the 3D view draws beams as the flat previews do: how much of its strength a beam has
+// lost at its end, and how solid it is where it rests.
+const BEAM_FADE = 0.6;
+const UNLIT_BEAM = 0.18;
 
 const SKY_TOP = new Color("#04060f");
 const SKY_HORIZON = new Color("#141b33");

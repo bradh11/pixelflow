@@ -29,7 +29,7 @@ import type { PreviewProp } from "../api/types";
 import type { Size, View } from "./layoutMath";
 import { DOT_RADIUS, type HaloPlan, type PixelBox, coreDim, drawHalos, planHalos } from "./pixelGlow";
 import { FLOOD_STRENGTH, UNLIT_WASH, washAt, washRadius } from "./floodWash";
-import { ARM_COLOR, BEAM_STRENGTH, UNLIT_BEAM, armAt, armBox, armShape, beamAt, beamBox, beamShape, headDirection, servoDirection } from "./beams";
+import { ARM_COLOR, aimAt, aimOutline, armAt, armBox, armShape, beamAt, beamBox, beamLight, beamShape, beamWidth, headDirection, servoDirection } from "./beams";
 
 export { DOT_RADIUS };
 
@@ -41,6 +41,8 @@ export interface PixelColors {
   selected: string;
   /** Playing, but this pixel is off (black). Left out, pixels that are off aren't drawn. */
   dark?: string;
+  /** Not playing: the outline of where a selected moving head points. Left out, none is drawn. */
+  aim?: string;
 }
 
 /** How much of the way to its neighbor a dot may reach: the rest is the gap between them. */
@@ -586,6 +588,7 @@ export function stampPixels(
   const darkB = (((dark >> 16) & 255) * darkAlpha) / 255;
   const unlit = packColor(colors.unlit);
   const picked = packColor(colors.selected);
+  const aim = colors.aim === undefined ? 0 : packColor(colors.aim);
   const dimOf = (dot: number) => (halos ? coreDim(halos.step, (halos.radius * 2 * ratio) / dot) : 1);
 
   // How each prop is drawn: its dots as big as its pixels' room along the wire allows, but no
@@ -725,9 +728,10 @@ export function stampPixels(
   };
 
   /**
-   * Stamps a moving head's beam from its first cell, in its color (lit) or the unlit color faintly
-   * where it rests (not playing), and a servo's arm at each of its cells, over what's there (see
-   * beams.ts).
+   * Stamps a moving head's beam from its first cell while something plays, in its color and as
+   * bright as it is (nothing while it's dark), or, not playing, the outline of where a selected
+   * head points when `colors.aim` says how; and a servo's arm at each of its cells, over what's
+   * there (see beams.ts).
    */
   const stampMotion = (p: PreviewProp) => {
     const motion = p.motion!;
@@ -742,24 +746,38 @@ export function stampPixels(
       if (x1 > box.x1) box.x1 = x1;
       if (y1 > box.y1) box.y1 = y1;
     };
-    if (motion.beam && cells > 0) {
-      let rgb = unlit & 0xffffff;
-      let strength = UNLIT_BEAM;
-      const o = p.frameOffset;
-      if (frame) {
-        if (!(o + 2 < frame.length && (frame[o] | frame[o + 1] | frame[o + 2]) !== 0)) return;
-        rgb = (frame[o + 2] << 16) | (frame[o + 1] << 8) | frame[o];
-        strength = BEAM_STRENGTH;
-      }
-      const shape = beamShape(placeX(0), placeY(0), headDirection(motion, frame), motion.beam.length, motion.beam.angleDeg, zoom, ratio);
-      const [x0, x1, y0, y1] = beamBox(shape, width, height);
-      for (let py = y0; py < y1; py++) {
-        for (let px = x0; px < x1; px++) {
-          const alpha = Math.floor(strength * beamAt(shape, px, py) * 255 + 0.5);
-          if (alpha > 0) blend(pixels, py * width + px, rgb, alpha);
+    const o = p.frameOffset;
+    const light = frame && o + 2 < frame.length ? beamLight(frame[o], frame[o + 1], frame[o + 2]) : null;
+    const aiming = !frame && aim !== 0 && selected.has(p.prop);
+    if (motion.beam && cells > 0 && (light || aiming)) {
+      const shape = beamShape(placeX(0), placeY(0), pts[1], headDirection(motion, frame), motion.beam.length, beamWidth(motion, frame), zoom, ratio);
+      if (light) {
+        const [x0, x1, y0, y1] = beamBox(shape, width, height);
+        for (let py = y0; py < y1; py++) {
+          for (let px = x0; px < x1; px++) {
+            const alpha = Math.floor(light.level * beamAt(shape, px, py) * 255 + 0.5);
+            if (alpha > 0) blend(pixels, py * width + px, light.rgb, alpha);
+          }
         }
+        stretch(x0, x1, y0, y1);
+      } else {
+        const path = aimOutline(shape);
+        const solid = aim >>> 24;
+        let [x0, x1, y0, y1] = [width, 0, height, 0];
+        for (const [ax, ay, bx, by] of path) {
+          x0 = Math.min(x0, Math.max(0, Math.floor(Math.min(ax, bx) - ratio - 1)));
+          x1 = Math.max(x1, Math.min(width, Math.ceil(Math.max(ax, bx) + ratio + 1)));
+          y0 = Math.min(y0, Math.max(0, Math.floor(Math.min(ay, by) - ratio - 1)));
+          y1 = Math.max(y1, Math.min(height, Math.ceil(Math.max(ay, by) + ratio + 1)));
+        }
+        for (let py = y0; py < y1; py++) {
+          for (let px = x0; px < x1; px++) {
+            const alpha = Math.floor(aimAt(path, px, py, ratio) * solid + 0.5);
+            if (alpha > 0) blend(pixels, py * width + px, aim & 0xffffff, alpha);
+          }
+        }
+        stretch(x0, x1, y0, y1);
       }
-      stretch(x0, x1, y0, y1);
     }
     const servos = motion.servos ?? [];
     const armRgb = frame ? (ARM_COLOR[2] << 16) | (ARM_COLOR[1] << 8) | ARM_COLOR[0] : (selected.has(p.prop) ? picked : unlit) & 0xffffff;

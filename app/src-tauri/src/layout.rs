@@ -397,6 +397,12 @@ mod tests {
                     tilt: None,
                     angle_deg: 15.0,
                     length: 6.0,
+                    zoom: Some(pf_engine::PreviewZoom {
+                        at: 9,
+                        rest: 40,
+                        from_deg: 5.0,
+                        to_deg: 45.0,
+                    }),
                 }),
                 servos: Vec::new(),
             }),
@@ -413,7 +419,8 @@ mod tests {
                 "beam": {
                     "pan": { "at": 7, "fineAt": 8, "rest": [128, 0], "motor": { "rangeDeg": 540.0, "homeDeg": 270.0 } },
                     "angleDeg": 15.0,
-                    "length": 6.0
+                    "length": 6.0,
+                    "zoom": { "at": 9, "rest": 40, "fromDeg": 5.0, "toDeg": 45.0 }
                 }
             }]])
         );

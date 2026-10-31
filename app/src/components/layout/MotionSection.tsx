@@ -1,8 +1,8 @@
 import { Plus, X } from "lucide-react";
-import type { DmxChannel, DmxFixture, DmxMotor, DmxSlot, Prop } from "../../api/types";
-import { DEFAULT_BEAM, isHead } from "../../lib/dmx";
+import type { DmxChannel, DmxFixture, DmxMotor, DmxShutter, DmxShutterRange, DmxSlot, Prop } from "../../api/types";
+import { DEFAULT_BEAM, DEFAULT_ZOOM, USUAL_SHUTTER, isHead } from "../../lib/dmx";
 import { type Axis, axes, axisValues, limits, travel } from "../../lib/motion";
-import { Input, More } from "../ui";
+import { Input, More, Select } from "../ui";
 import { NumberField } from "./PropertiesPanel";
 
 const tidy = (v: number) => Math.round(v * 100) / 100;
@@ -64,6 +64,10 @@ export function MotionSection({ prop, fixture, update }: { prop: Prop; fixture: 
   const hung = Math.abs(((prop.transform.rotationDeg.z % 360) + 360) % 360 - 180) < 0.5;
   const beam = fixture.beam ?? DEFAULT_BEAM;
   const servos = found.filter((a) => a.role === "servo");
+  const zoomAt = fixture.channels.findIndex((c) => c.role === "zoom");
+  const zoom = zoomAt < 0 ? null : (fixture.channels[zoomAt].zoom ?? DEFAULT_ZOOM);
+  const setZoom = (patch: Partial<typeof DEFAULT_ZOOM>) =>
+    update((p) => (p.dmx ? { ...p, dmx: { ...p.dmx, channels: p.dmx.channels.map((c, k) => (k === zoomAt ? { ...c, zoom: { ...(zoom ?? DEFAULT_ZOOM), ...patch } } : c)) } } : p));
   return (
     <More id={`dmx-motion-${prop.id}`} label={head ? "Pan and tilt" : `Servos (${servos.length})`}>
       {found.map((axis) => (
@@ -91,14 +95,35 @@ export function MotionSection({ prop, fixture, update }: { prop: Prop; fixture: 
             Hung upside down
           </label>
           <div className="grid grid-cols-2 gap-2">
-            <NumberField
-              label="Beam width (°)"
-              hint="How wide its beam spreads (the fixture's beam angle)"
-              value={beam.angleDeg}
-              min={1}
-              max={120}
-              onCommit={(angleDeg) => update((p) => (p.dmx ? { ...p, dmx: { ...p.dmx, beam: { ...beam, angleDeg } } } : p))}
-            />
+            {zoom ? (
+              <>
+                <NumberField
+                  label="Zoom at 0 (°)"
+                  hint="How wide its beam spreads with its zoom channel at 0 (the fixture's manual says)"
+                  value={zoom.fromDeg}
+                  min={1}
+                  max={120}
+                  onCommit={(fromDeg) => setZoom({ fromDeg })}
+                />
+                <NumberField
+                  label="Zoom at 255 (°)"
+                  hint="How wide its beam spreads with its zoom channel at 255"
+                  value={zoom.toDeg}
+                  min={1}
+                  max={120}
+                  onCommit={(toDeg) => setZoom({ toDeg })}
+                />
+              </>
+            ) : (
+              <NumberField
+                label="Beam width (°)"
+                hint="How wide its beam spreads (the fixture's beam angle)"
+                value={beam.angleDeg}
+                min={1}
+                max={120}
+                onCommit={(angleDeg) => update((p) => (p.dmx ? { ...p, dmx: { ...p.dmx, beam: { ...beam, angleDeg } } } : p))}
+              />
+            )}
             <NumberField
               label="Beam drawn"
               hint="How far the previews draw its beam, in layout units"
@@ -118,6 +143,82 @@ export function MotionSection({ prop, fixture, update }: { prop: Prop; fixture: 
 }
 
 const HEX = /^#[0-9a-f]{6}$/i;
+
+const SHUTTER_LABELS: Record<DmxShutter, string> = { closed: "Closed", open: "Open", strobe: "Strobe, slow to fast" };
+
+/**
+ * What a strobe channel's values do: ranges from a value up to the next, each closed, open or a
+ * strobe from slow to fast, so the previews show the light as the fixture would. Without its own,
+ * the usual: open low, then a strobe.
+ */
+export function ShutterRanges({ prop, index, channel, onChange }: { prop: Prop; index: number; channel: DmxChannel; onChange: (ranges: DmxShutterRange[]) => void }) {
+  const own = (channel.shutter?.length ?? 0) > 0;
+  const ranges = own ? channel.shutter! : USUAL_SHUTTER;
+  const set = (i: number, patch: Partial<DmxShutterRange>) => {
+    const next = ranges.map((r, k) => (k === i ? { ...r, ...patch } : r));
+    onChange([...next].sort((a, b) => a.from - b.from));
+  };
+  const name = channel.name || "Strobe";
+  return (
+    <More id={`dmx-shutter-${prop.id}-${index}`} label={`${name}: what its values do`}>
+      <ol className="flex flex-col gap-1" aria-label={`${name} ranges`}>
+        {ranges.map((range, i) => (
+          <li key={`${i}-${range.from}`} className="flex items-center gap-1 text-xs">
+            <span className="text-neutral-500">From</span>
+            <Input
+              aria-label={`Range ${i + 1} from`}
+              title="The first value of this range (0-255); it runs up to where the next starts"
+              className="w-12 tabular-nums"
+              defaultValue={String(range.from)}
+              onBlur={(e) => {
+                const n = Number(e.target.value);
+                if (Number.isInteger(n) && n >= 0 && n <= 255 && n !== range.from && !ranges.some((r) => r.from === n)) set(i, { from: n });
+              }}
+            />
+            <Select aria-label={`Range ${i + 1} does`} className="min-w-0 flex-1" value={range.does} onChange={(e) => set(i, { does: e.target.value as DmxShutter })}>
+              {(Object.keys(SHUTTER_LABELS) as DmxShutter[]).map((d) => (
+                <option key={d} value={d}>
+                  {SHUTTER_LABELS[d]}
+                </option>
+              ))}
+            </Select>
+            <button
+              type="button"
+              aria-label={`Remove range ${i + 1}`}
+              className="rounded p-0.5 text-neutral-500 hover:bg-neutral-100 disabled:opacity-40 dark:hover:bg-neutral-800"
+              disabled={ranges.length <= 1}
+              onClick={() => onChange(ranges.filter((_, k) => k !== i))}
+            >
+              <X size={12} />
+            </button>
+          </li>
+        ))}
+      </ol>
+      <div className="mt-1 flex gap-3">
+        {ranges.length < 32 && ranges[ranges.length - 1].from < 255 && (
+          <button
+            type="button"
+            className="flex items-center gap-1 text-xs text-violet-700 dark:text-violet-300"
+            onClick={() => {
+              const last = ranges[ranges.length - 1].from;
+              onChange([...ranges, { from: Math.min(255, last + Math.max(1, Math.floor((256 - last) / 2))), does: "open" }]);
+            }}
+          >
+            <Plus size={12} aria-hidden /> Add a range
+          </button>
+        )}
+        {own && (
+          <button type="button" className="text-xs text-violet-700 dark:text-violet-300" onClick={() => onChange([])}>
+            Use the usual
+          </button>
+        )}
+      </div>
+      <p className="mt-1 text-xs text-neutral-500">
+        {own ? "From the fixture's manual: each range runs up to where the next starts." : "The usual: open from 0 to 9, then a strobe from slow (10) to fast (255). Change a range to set the fixture's own from its manual."} The previews show a closed shutter dark and a strobe flashing.
+      </p>
+    </More>
+  );
+}
 
 /** A colour wheel's colours, each with the value that selects it, so colours drawn on the head turn the wheel. */
 export function WheelSlots({ prop, index, channel, onChange }: { prop: Prop; index: number; channel: DmxChannel; onChange: (slots: DmxSlot[]) => void }) {

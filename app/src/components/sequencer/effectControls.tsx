@@ -42,11 +42,19 @@ export const BLENDS: { value: Blend; label: string; help: string; more?: true }[
 ];
 
 /** Whether an effect's palette colors show in it: every effect's do but Off's, Fire's, a
- * Shader's (its colors are its shader's own inputs), and a Picture's that isn't tinted (it has
- * its own colors). */
+ * Shader's (its colors are its shader's own inputs), a Picture's that isn't tinted (it has
+ * its own colors), a Servo's (servos make no light), and a Moving Head's that leaves the color to
+ * the layers below. */
 export function usesColors(effect: Effect): boolean {
   const p = effect.params;
-  return p.kind !== "off" && p.kind !== "fire" && p.kind !== "shader" && !(p.kind === "picture" && !p.tint);
+  return (
+    p.kind !== "off" &&
+    p.kind !== "fire" &&
+    p.kind !== "shader" &&
+    p.kind !== "servo" &&
+    !(p.kind === "picture" && !p.tint) &&
+    !(p.kind === "movingHead" && p.color === "drawn")
+  );
 }
 
 /** The blends as options for a list, the less common ones grouped apart. */

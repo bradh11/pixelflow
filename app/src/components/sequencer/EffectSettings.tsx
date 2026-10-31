@@ -30,7 +30,8 @@ import {
 } from "./effectControls";
 import { MultiEffectSettings } from "./MultiEffectSettings";
 import { ShaderFileSetting, ShaderInputsSetting } from "./ShaderSettings";
-import { DmxChannelsSetting, fixtureChannels } from "./DmxSettings";
+import { DmxChannelsSetting, fixtureChannels, rowFixtures } from "./DmxSettings";
+import { MovingHeadSettings, ServoSettings } from "./MovingHeadSettings";
 import { FontSetting } from "./FontSetting";
 import { More } from "../ui";
 import { BUFFER_TRANSFORMS, renderStyleOptions } from "../../lib/renderStyles";
@@ -155,7 +156,19 @@ function Settings({ doc }: { doc: Sequence }) {
       </div>
       {info?.description && <p className="mt-1 text-xs text-neutral-500">{info.description}</p>}
 
-      {settings.length > 0 && (
+      {effect.params.kind === "movingHead" ? (
+        <MovingHeadSettings
+          key={id}
+          effect={effect}
+          settings={settings}
+          fixtures={rowFixtures(show, target)}
+          onParam={setParam}
+          animate={animate}
+          onPoint={(pan, tilt, gesture) => change((e) => (e.params.kind === "movingHead" ? { ...e, params: { ...e.params, pan, tilt } } : null), gesture)}
+        />
+      ) : effect.params.kind === "servo" ? (
+        <ServoSettings key={id} effect={effect} settings={settings} fixtures={rowFixtures(show, target)} onParam={setParam} animate={animate} />
+      ) : settings.length > 0 && (
         <Section title="Settings">
           <KindSettings
             settings={settings}
@@ -223,7 +236,7 @@ function Settings({ doc }: { doc: Sequence }) {
           <ColorList
             key={id}
             colors={effect.palette.colors}
-            usesOne={effect.params.kind === "fade"}
+            usesOne={effect.params.kind === "fade" || (effect.params.kind === "movingHead" && (effect.params.color ?? "first") === "first")}
             onChange={(next, gesture) => change((e) => ({ ...e, palette: { colors: next(e.palette.colors) } }), gesture)}
           />
         </Section>

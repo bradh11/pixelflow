@@ -353,3 +353,23 @@ fn a_head_on_a_pixel_controllers_dmx_output_is_held_at_its_own_channels() {
     assert_eq!(&buffer[300..304], &[9, 9, 9, 9], "the head's pan and tilt stay");
     assert!(buffer[304..].iter().all(|&b| b == 0), "its light goes out");
 }
+
+#[test]
+fn a_sequence_played_straight_through_leaves_a_head_where_it_points_at_a_stop() {
+    let (show, _, _) = head_show("192.0.2.30", Protocol::Sacn(SacnConfig::default()));
+    let (map, _) = pf_mapping::map_show(&show);
+    let node = &show.controllers[0];
+    let route = pf_output::PassthroughRoute {
+        id: node.id,
+        name: node.name.clone(),
+        address: node.address.clone(),
+        protocol: node.protocol,
+        start: 1000,
+        count: 512,
+        ddp_offset_base: 0,
+    };
+    let mut plan = pf_output::build_passthrough_plan(&[route], 2000, 40);
+    assert!(plan.controllers[0].holds.is_empty());
+    pf_output::hold_motors(&mut plan, &map);
+    assert_eq!(plan.controllers[0].holds, vec![19, 20, 21, 22]);
+}

@@ -2692,8 +2692,8 @@ effect_params! {
     pub struct TextParams {
         /// What it says (a new line starts with \n).
         text: String = "Hello".to_string() => "text", "Text", text;
-        /// "" for PixelFlow's own pixel font, or a font family on the computer by name ("Arial
-        /// Narrow"). A computer without that family shows the pixel font.
+        /// Blank for PixelFlow's own pixel font, or a font on the computer by family name ("Arial
+        /// Narrow"). A computer without that font shows the pixel font.
         font: String = String::new() => "font", "Font", font;
         /// How big the letters are, in pixels: the pixel font's are this tall (8 is its own size);
         /// a computer font is drawn at this size, as a font size in points draws on a Mac.

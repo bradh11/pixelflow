@@ -2384,7 +2384,7 @@
       },
       {
         "default": "",
-        "description": "\"\" for PixelFlow's own pixel font, or a font family on the computer by name (\"Arial Narrow\"). A computer without that family shows the pixel font.",
+        "description": "Blank for PixelFlow's own pixel font, or a font on the computer by family name (\"Arial Narrow\"). A computer without that font shows the pixel font.",
         "key": "font",
         "label": "Font",
         "type": "font"

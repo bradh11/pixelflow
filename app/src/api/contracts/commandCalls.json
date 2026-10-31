@@ -1339,6 +1339,7 @@
     { "api": "sequencer.pickPicture", "command": "pick_picture", "args": {} },
     { "api": "sequencer.readPicture", "command": "read_picture", "args": { "file": "images/star.gif" } },
     { "api": "sequencer.listPictures", "command": "list_pictures", "args": {} },
+    { "api": "sequencer.listFonts", "command": "list_fonts", "args": {} },
     { "api": "sequencer.listShaders", "command": "list_shaders", "args": {} },
     { "api": "sequencer.shaderInfo", "command": "shader_info", "args": { "file": "shaders/rings.fs" } },
     { "api": "sequencer.pickShader", "command": "pick_shader", "args": {} },

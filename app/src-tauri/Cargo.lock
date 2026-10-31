@@ -3645,6 +3645,7 @@ dependencies = [
  "pf-camera-map",
  "pf-devices",
  "pf-engine",
+ "pf-fonts",
  "pf-fseq",
  "pf-geometry",
  "pf-model",

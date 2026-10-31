@@ -127,6 +127,15 @@ pub(crate) async fn effect_catalog() -> Reply<Vec<EffectInfo>> {
     Ok(pf_sequence::effect_catalog())
 }
 
+/// The font families on this computer, sorted by name, for a Text effect's font. The computer's
+/// font folders are looked through the first time, which takes a moment, so off the main thread.
+#[tauri::command]
+pub(crate) async fn list_fonts() -> Reply<Vec<String>> {
+    tauri::async_runtime::spawn_blocking(pf_fonts::families)
+        .await
+        .map_err(|_| "This computer's fonts couldn't be listed.".to_string())
+}
+
 #[tauri::command]
 pub(crate) async fn undo_sequence(state: State<'_, AppState>) -> Reply<SequenceEditResult> {
     state.engine().undo_sequence().map_err(message)

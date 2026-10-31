@@ -152,6 +152,7 @@
     }
   },
   { "name": "the show's pictures", "ts": "string[]", "value": ["images/star.gif"] },
+  { "name": "the computer's fonts", "ts": "string[]", "value": ["PixelFlow Contract Sans"] },
   {
     "name": "the shaders an effect can use",
     "ts": "sequencer.ShaderInfo[]",

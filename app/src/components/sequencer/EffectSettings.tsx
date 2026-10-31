@@ -31,6 +31,7 @@ import {
 import { MultiEffectSettings } from "./MultiEffectSettings";
 import { ShaderFileSetting, ShaderInputsSetting } from "./ShaderSettings";
 import { DmxChannelsSetting, fixtureChannels } from "./DmxSettings";
+import { FontSetting } from "./FontSetting";
 import { More } from "../ui";
 import { BUFFER_TRANSFORMS, renderStyleOptions } from "../../lib/renderStyles";
 import type { BufferTransform, RenderStyle } from "../../api/sequence";
@@ -126,7 +127,12 @@ function Settings({ doc }: { doc: Sequence }) {
   // xLights' own offset and zoom for a shader are kept from an import but not applied, so there
   // is nothing to set: they show only on an effect that came with one, to say so.
   const params = effect.params as Record<string, unknown>;
-  const settings = (info?.settings ?? []).filter((s) => !(effect.params.kind === "shader" && KEPT_FROM_XLIGHTS.includes(s.key) && (params[s.key] ?? 0) === 0));
+  // A Text effect's bold and italic sit beside its font.
+  const settings = (info?.settings ?? []).filter(
+    (s) =>
+      !(effect.params.kind === "shader" && KEPT_FROM_XLIGHTS.includes(s.key) && (params[s.key] ?? 0) === 0) &&
+      !(effect.params.kind === "text" && (s.key === "bold" || s.key === "italic")),
+  );
 
   return (
     <Panel>
@@ -171,6 +177,20 @@ function Settings({ doc }: { doc: Sequence }) {
                   channels={fixtureChannels(show, target)}
                   onChange={setDmxChannel}
                   animate={animate}
+                />
+              ) : effect.params.kind === "text" && setting.type === "font" ? (
+                <FontSetting
+                  key={`${id}:${setting.key}`}
+                  label={setting.label}
+                  description={setting.description}
+                  value={effect.params.font ?? setting.default}
+                  onChange={(font) => void setParam("font", font)}
+                  styles={{
+                    bold: effect.params.bold ?? false,
+                    italic: effect.params.italic ?? false,
+                    onBold: (on) => void setParam("bold", on),
+                    onItalic: (on) => void setParam("italic", on),
+                  }}
                 />
               ) : effect.params.kind === "shader" && setting.type === "shaderInputs" ? (
                 <ShaderInputsSetting

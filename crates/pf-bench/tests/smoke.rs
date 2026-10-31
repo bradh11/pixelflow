@@ -187,7 +187,11 @@ fn every_kind_of_effect_is_costed_alone_and_as_part_of_both_sequences() {
     let costs = breakdown(&workload, 1, 1, &|_| {});
     assert_eq!(costs.kinds.len(), KINDS.len());
     assert_eq!(costs.pixels, 600);
-    assert_eq!(costs.extras.len(), 5);
+    // Five, and Text in a computer font when this computer has one to cost it in.
+    assert_eq!(
+        costs.extras.len(),
+        5 + usize::from(pf_bench::effects::text_font().is_some())
+    );
     assert_eq!(costs.sequences.len(), 2);
     for sequence in &costs.sequences {
         assert!(!sequence.kinds.is_empty());

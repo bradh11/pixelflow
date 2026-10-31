@@ -167,6 +167,14 @@ fn with_each(seq: &Sequence, change: impl Fn(&mut Effect)) -> Sequence {
     out
 }
 
+/// The font "Text in a computer font" is costed in: the first of a few common ones this computer
+/// has, or `None` (and no such line) when it has none of them.
+pub fn text_font() -> Option<String> {
+    ["Arial", "Helvetica", "DejaVu Sans", "Liberation Sans"]
+        .into_iter()
+        .find_map(pf_fonts::installed)
+}
+
 /// What the effects cost on the workload's show: each kind alone for `alone_seconds`, and each
 /// kind's share of both synthetic sequences over their first `seconds` seconds. `progress` hears
 /// what is being drawn.
@@ -252,11 +260,9 @@ pub fn breakdown(
             Maker::speed_curve(e)
         }),
     ];
-    // Text in a font on this computer, where it has one of these (the pixel font's own cost is
-    // the Text kind's, above).
-    let family = ["Arial", "Helvetica", "DejaVu Sans", "Liberation Sans"]
-        .into_iter()
-        .find_map(pf_fonts::installed);
+    // Text in a font on this computer, where it has one (the pixel font's own cost is the Text
+    // kind's, above).
+    let family = text_font();
     let in_font = |e: &mut Effect| {
         if let (Some(family), EffectParams::Text(p)) = (&family, &mut e.params) {
             p.font = family.clone();

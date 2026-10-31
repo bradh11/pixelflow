@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- PixelFlow's made-up fidelity corpus (crates/pf-fidelity/src/madeup.rs writes this file).
      Moving heads and servos: the DMX effect pointing two heads and turning two servos,
-     over colors drawn on the heads by ordinary effects. 20 seconds of 50 ms frames.
+     over colors drawn on the heads by ordinary effects, then xLights' Moving Head and
+     Servo effects. 40 seconds of 50 ms frames.
      Render it in xLights on this show folder and save the .fseq beside it: see ../README.md. -->
 <xsequence BaseChannel="0" ChanCtrlBasic="0" ChanCtrlColor="0" FixedPointTiming="1" ModelBlending="true">
   <head>
@@ -10,7 +11,7 @@
     <song>Moving heads and servos</song>
     <sequenceTiming>50 ms</sequenceTiming>
     <sequenceType>Animation</sequenceType>
-    <sequenceDuration>20.000</sequenceDuration>
+    <sequenceDuration>40.000</sequenceDuration>
   </head>
   <ColorPalettes>
     <ColorPalette>C_BUTTON_Palette1=#FFFFFF,C_CHECKBOX_Palette1=1</ColorPalette>
@@ -24,12 +25,20 @@
     <Effect>E_CHECKBOX_On_Shimmer=0,E_TEXTCTRL_Eff_On_End=100,E_TEXTCTRL_Eff_On_Start=100,E_TEXTCTRL_On_Cycles=1.0</Effect>
     <Effect>E_CHECKBOX_ColorWash_CircularPalette=0,E_CHECKBOX_ColorWash_HFade=0,E_CHECKBOX_ColorWash_Shimmer=0,E_CHECKBOX_ColorWash_VFade=0,E_TEXTCTRL_ColorWash_Cycles=2.0</Effect>
     <Effect>E_SLIDER_DMX2=128,E_SLIDER_DMX1=255,E_VALUECURVE_DMX1=Active=TRUE|Id=ID_VALUECURVE_DMX1|Type=Ramp|Min=0.00|Max=255.00|P1=255.00|P2=0.00|RV=TRUE|</Effect>
+    <Effect>B_CHOICE_BufferStyle=Per Model Default,E_TEXTCTRL_MH1_Settings=Pan: 45.0;Tilt: 20.0;Heads: 1&amp;comma;2;Color: 0.000000&amp;comma;1.000000&amp;comma;1.000000,E_TEXTCTRL_MH2_Settings=Pan: 45.0;Tilt: 20.0;Heads: 1&amp;comma;2;Color: 0.000000&amp;comma;1.000000&amp;comma;1.000000</Effect>
+    <Effect>B_CHOICE_BufferStyle=Per Model Default,E_TEXTCTRL_MH1_Settings=Pan: 0.0;Tilt: 30.0;PanOffset: 30.0;TiltOffset: 10.0;Heads: 1&amp;comma;2;Color: 0.333333&amp;comma;1.000000&amp;comma;1.000000,E_TEXTCTRL_MH2_Settings=Pan: 0.0;Tilt: 30.0;PanOffset: 30.0;TiltOffset: 10.0;Heads: 1&amp;comma;2;Color: 0.333333&amp;comma;1.000000&amp;comma;1.000000</Effect>
+    <Effect>B_CHOICE_BufferStyle=Per Model Default,E_TEXTCTRL_MH1_Settings=Pan: 0.0;Tilt: 30.0;Pattern: Circle;PatternWidth: 90;PatternHeight: 45;Cycles: 2;Heads: 1&amp;comma;2;Color: 0.666667&amp;comma;1.000000&amp;comma;1.000000;Dimmer: 0.0&amp;comma;0.0&amp;comma;0.5&amp;comma;1.0&amp;comma;1.0&amp;comma;0.0;Shutter: On,E_TEXTCTRL_MH2_Settings=Pan: 0.0;Tilt: 30.0;Pattern: Circle;PatternWidth: 90;PatternHeight: 45;Cycles: 2;Heads: 1&amp;comma;2;Color: 0.666667&amp;comma;1.000000&amp;comma;1.000000;Dimmer: 0.0&amp;comma;0.0&amp;comma;0.5&amp;comma;1.0&amp;comma;1.0&amp;comma;0.0;Shutter: On</Effect>
+    <Effect>B_CHOICE_BufferStyle=Per Model Default,E_TEXTCTRL_MH1_Settings=Pan VC: Active=TRUE|Id=ID_VALUECURVE_MHPan|Type=Ramp|Min=-180|Max=180|P1=-90.00|P2=90.00|RV=TRUE|;Tilt: 45.0;Heads: 1&amp;comma;2;Color: 0.000000&amp;comma;0.000000&amp;comma;1.000000&amp;comma;0.000000&amp;comma;1.000000&amp;comma;1.000000,E_TEXTCTRL_MH2_Settings=Pan VC: Active=TRUE|Id=ID_VALUECURVE_MHPan|Type=Ramp|Min=-180|Max=180|P1=-90.00|P2=90.00|RV=TRUE|;Tilt: 45.0;Heads: 1&amp;comma;2;Color: 0.000000&amp;comma;0.000000&amp;comma;1.000000&amp;comma;0.000000&amp;comma;1.000000&amp;comma;1.000000</Effect>
     <Effect>E_SLIDER_DMX2=0,E_SLIDER_DMX3=64,E_SLIDER_DMX4=0,E_SLIDER_DMX1=0,E_VALUECURVE_DMX1=Active=TRUE|Id=ID_VALUECURVE_DMX1|Type=Ramp|Min=0.00|Max=255.00|P1=0.00|P2=255.00|RV=TRUE|</Effect>
     <Effect>E_SLIDER_DMX1=255,E_SLIDER_DMX2=255,E_SLIDER_DMX4=0,E_SLIDER_DMX3=0,E_VALUECURVE_DMX3=Active=TRUE|Id=ID_VALUECURVE_DMX3|Type=Ramp|Min=0.00|Max=255.00|P1=0.00|P2=255.00|RV=TRUE|</Effect>
+    <Effect>E_CHOICE_Channel=Servo1,E_TEXTCTRL_EndValue=90,E_TEXTCTRL_Servo=10</Effect>
+    <Effect>E_CHOICE_Channel=Servo1,E_TEXTCTRL_EndValue=75,E_TEXTCTRL_Servo=75</Effect>
+    <Effect>E_CHOICE_Channel=Servo2,E_VALUECURVE_Servo=Active=TRUE|Id=ID_VALUECURVE_Servo|Type=Ramp|Min=0|Max=1000|P1=0.00|P2=1000.00|RV=TRUE|</Effect>
   </EffectDB>
   <DisplayElements>
     <Element collapsed="0" type="model" name="Spot Left" visible="1"/>
     <Element collapsed="0" type="model" name="Spot Right" visible="1"/>
+    <Element collapsed="0" type="model" name="Heads" visible="1"/>
     <Element collapsed="0" type="model" name="Arm" visible="1"/>
   </DisplayElements>
   <ElementEffects>
@@ -51,10 +60,23 @@
         <Effect ref="3" name="Color Wash" palette="3" startTime="0" endTime="20000"/>
       </EffectLayer>
     </Element>
+    <Element type="model" name="Heads">
+      <EffectLayer>
+        <Effect ref="5" name="Moving Head" palette="0" startTime="20000" endTime="25000"/>
+        <Effect ref="6" name="Moving Head" palette="0" startTime="25000" endTime="30000"/>
+        <Effect ref="7" name="Moving Head" palette="0" startTime="30000" endTime="35000"/>
+        <Effect ref="8" name="Moving Head" palette="0" startTime="35000" endTime="40000"/>
+      </EffectLayer>
+    </Element>
     <Element type="model" name="Arm">
       <EffectLayer>
-        <Effect ref="5" name="DMX" palette="0" startTime="0" endTime="10000"/>
-        <Effect ref="6" name="DMX" palette="0" startTime="10000" endTime="20000"/>
+        <Effect ref="9" name="DMX" palette="0" startTime="0" endTime="10000"/>
+        <Effect ref="10" name="DMX" palette="0" startTime="10000" endTime="20000"/>
+        <Effect ref="11" name="Servo" palette="0" startTime="20000" endTime="30000"/>
+        <Effect ref="12" name="Servo" palette="0" startTime="30000" endTime="40000"/>
+      </EffectLayer>
+      <EffectLayer>
+        <Effect ref="13" name="Servo" palette="0" startTime="20000" endTime="40000"/>
       </EffectLayer>
     </Element>
   </ElementEffects>

@@ -1,15 +1,18 @@
 // A rough, browser-only drawing of an authored sequence for the in-memory stand-in (tests and the
 // `?demo` page). The real renderer is pf-render in the engine; this only has to look plausible:
 // each effect kind gets a simple look of its own, layers mix bottom to top, later rows cover
-// earlier ones, and fades dim.
+// earlier ones, and fades dim. The DMX, Moving Head and Servo effects set fixtures' channels by
+// the engine's own steps (the last two in lib/headEffects.ts).
 
 import { frontView } from "../lib/geometry";
-import { channelsPerPixel, nodeCount } from "../lib/shows";
-import { facePartColor, faceParts, facesOf, phonemeAt, targetNodes } from "../lib/submodels";
+import { channelsPerPixel, memberProp, nodeCount } from "../lib/shows";
+import { facePartColor, faceParts, facesOf, phonemeAt, targetNodes, targetProp } from "../lib/submodels";
 import { curveValue, effectAt } from "../lib/curves";
 import { channelsForColors, emittedColors, shutterOpen } from "../lib/dmx";
+import { type FixtureValues, fadeLevel, pointHeads, turnServos } from "../lib/headEffects";
+import { axes } from "../lib/motion";
 import { mapFixtures } from "./memoryMapping";
-import type { DancerCharacter, Effect, Sequence, Sweep, TimingTrack } from "./sequence";
+import type { DancerCharacter, Effect, Sequence, SequenceTarget, Sweep, TimingTrack } from "./sequence";
 import type { FaceDefinition, FixtureLayout, Prop, Show } from "./types";
 
 type Rgb = [number, number, number];
@@ -557,14 +560,6 @@ function faceColors(effect: Effect, doc: Sequence, prop: Prop, ms: number): Map<
   return lit;
 }
 
-/** How much an effect's fades leave of it at `ms` (0–1). */
-function fadeLevel(effect: Effect, ms: number): number {
-  let level = 1;
-  if (effect.fadeInMs > 0) level = Math.min(level, (ms - effect.startMs) / effect.fadeInMs);
-  if (effect.fadeOutMs > 0) level = Math.min(level, (effect.endMs - ms) / effect.fadeOutMs);
-  return Math.max(0, Math.min(1, level));
-}
-
 /** The sequence at `ms` as show frame bytes (prop order, like the engine's layout). */
 export function renderSequenceFrame(doc: Sequence, show: Show, ms: number): Uint8Array {
   const layout = new Map<string, { prop: Prop; offset: number; nodes: number; cpp: number; points: number[] }>();
@@ -580,15 +575,14 @@ export function renderSequenceFrame(doc: Sequence, show: Show, ms: number): Uint
   const dmxLength = fixtures.reduce((n, f) => n + f.channels.length, 0);
   const frame = new Uint8Array(length + dmxLength);
   if (ms < 0 || ms >= doc.durationMs) return frame;
-  /** The DMX effects playing, in the order they apply: rows first to last, each row's layers bottom up. */
-  const dmxPlaying: { effect: Effect; props: Set<string> }[] = [];
+  /** The channel effects playing, in the order they apply: rows first to last, each row's layers bottom up. */
+  const dmxPlaying: { effect: Effect; fixtures: FixtureLayout[] }[] = [];
   for (const row of doc.rows) {
     const active = row.layers.map((layer) => {
       const effect = layer.effects.find((e) => e.startMs <= ms && ms < e.endMs);
-      // A DMX effect draws no color: it sets fixtures' channels once the frame is drawn.
-      if (effect?.params.kind === "dmx") {
-        const props = new Set(targetNodes(show, row.target, (prop) => layout.get(prop.id)?.nodes ?? 0, (prop) => layout.get(prop.id)?.points ?? []).map((l) => l.prop));
-        dmxPlaying.push({ effect, props });
+      // A DMX, Moving Head or Servo effect draws no color: it sets fixtures' channels once the frame is drawn.
+      if (effect && SETS_CHANNELS.has(effect.params.kind)) {
+        dmxPlaying.push({ effect, fixtures: fixturesOf(show, row.target, fixtures) });
         return null;
       }
       // Settings that change over the effect, at this moment.
@@ -653,25 +647,61 @@ export function renderSequenceFrame(doc: Sequence, show: Show, ms: number): Uint
   return frame;
 }
 
+/** The effect kinds that set fixtures' channels rather than draw. */
+const SETS_CHANNELS = new Set<Effect["params"]["kind"]>(["dmx", "movingHead", "servo"]);
+
 /**
- * Each fixture's channels from the color drawn on its cells, then the channels the DMX effects
- * playing set (a later one over an earlier), and the color those channels make back on its cells
- * (none while its shutter is shut at `ms`, a frame shown for `frameMs`), as the engine does.
+ * The fixtures a row on `target` plays on, as the engine finds them: the prop's own (a
+ * submodel's prop's), or every one among a group's members in member order, each once.
  */
-function writeFixtures(frame: Uint8Array, fixtures: FixtureLayout[], playing: { effect: Effect; props: Set<string> }[], ms: number, frameMs: number) {
+function fixturesOf(show: Show, target: SequenceTarget, fixtures: FixtureLayout[]): FixtureLayout[] {
+  const prop = targetProp(target);
+  const group = "group" in target ? show.groups.find((g) => g.id === target.group) : undefined;
+  const ids = prop !== null ? [prop] : (group?.members ?? []).map(memberProp);
+  const out: FixtureLayout[] = [];
+  for (const id of ids) {
+    const f = fixtures.find((x) => x.prop === id);
+    if (f && !out.includes(f)) out.push(f);
+  }
+  return out;
+}
+
+/**
+ * Each fixture's channels from the color drawn on its cells, with the channels the channel
+ * effects playing set put over them (a later one over an earlier), and the color those channels
+ * make back on its cells (none while its shutter is shut at `ms`, a frame shown for `frameMs`),
+ * as the engine does.
+ */
+function writeFixtures(
+  frame: Uint8Array,
+  fixtures: FixtureLayout[],
+  playing: { effect: Effect; fixtures: FixtureLayout[] }[],
+  ms: number,
+  frameMs: number,
+) {
+  const set = new Map<FixtureLayout, FixtureValues>(
+    fixtures.map((f) => [f, { channels: f.channels, axes: axes(f.channels), cells: f.cells, values: f.channels.map(() => null) }]),
+  );
+  for (const { effect, fixtures: on } of playing) {
+    const targets = on.flatMap((f) => set.get(f) ?? []);
+    if (effect.params.kind === "movingHead") pointHeads(targets, effect, ms, frameMs);
+    else if (effect.params.kind === "servo") turnServos(targets, effect, ms);
+    else if (effect.params.kind === "dmx") {
+      const t = Math.min(1, Math.max(0, (ms - effect.startMs) / Math.max(1, effect.endMs - effect.startMs)));
+      for (const { values } of targets) {
+        const put = (key: string, value: number) => {
+          const n = Number(key);
+          if (Number.isInteger(n) && n >= 1 && n <= values.length) values[n - 1] = Math.min(255, Math.max(0, Math.round(value)));
+        };
+        for (const [key, value] of Object.entries(effect.params.channels ?? {})) put(key, value);
+        for (const [key, curve] of Object.entries(effect.curves ?? {})) if (key.startsWith("channels.")) put(key.slice(9), curveValue(curve, t));
+      }
+    }
+  }
   for (const f of fixtures) {
     const cells = frame.subarray(f.cellsOffset, f.cellsOffset + f.cells * 3);
-    const values = channelsForColors(f.channels, cells);
-    for (const { effect, props } of playing) {
-      if (!props.has(f.prop) || effect.params.kind !== "dmx") continue;
-      const t = Math.min(1, Math.max(0, (ms - effect.startMs) / Math.max(1, effect.endMs - effect.startMs)));
-      const set = (key: string, value: number) => {
-        const n = Number(key);
-        if (Number.isInteger(n) && n >= 1 && n <= values.length) values[n - 1] = Math.min(255, Math.max(0, Math.round(value)));
-      };
-      for (const [key, value] of Object.entries(effect.params.channels ?? {})) set(key, value);
-      for (const [key, curve] of Object.entries(effect.curves ?? {})) if (key.startsWith("channels.")) set(key.slice(9), curveValue(curve, t));
-    }
+    const overrides = set.get(f)?.values ?? [];
+    const values = channelsForColors(f.channels, cells).map((v, i) => overrides[i] ?? v);
     frame.set(values, f.dmxOffset);
     if (shutterOpen(f.channels, values, ms, frameMs)) emittedColors(f.channels, values, f.cells).forEach((rgb, i) => cells.set(rgb, i * 3));
     else cells.fill(0);

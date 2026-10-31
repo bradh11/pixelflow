@@ -8,6 +8,8 @@ Every effect below has a full guide (`get_guide` with `effects`) with what it dr
 
 {{grid-only}}
 
+Three effects act only on DMX fixtures, on their own rows or in any group that holds them: `dmx` sets channels by number, `movingHead` points moving heads, and `servo` turns servos. They draw no pixels, so their looks are written for the house, where a show's fixtures are.
+
 ## Light and color
 
 - `on` (string, arch, matrix, tree, house): a steady color, the floor under a look, a swell or a fade over a held chord. "Warm white hold".
@@ -19,7 +21,12 @@ Every effect below has a full guide (`get_guide` with `effects`) with what it dr
 - `twinkle` (string, arch, matrix, tree, house): starlight, sparse and slow for an intro or a bridge, thick for a glittering chorus. "Starlight".
 - `shimmer` (string, arch, matrix, tree, house): a whole prop blinking between colors on the beat; keep it slow on anything large (topic `safety`). "Blink on the beat, red then green".
 - `strobe` (string, arch, matrix, tree, house): scattered flashes, a still field of stars or a burst at the very biggest hit. "Still field of stars".
-- `dmx` (house): DMX floods' own channels set directly: a strobe burst, a dimmer swell, a mode; their color comes from the other effects. "Dimmer swell".
+- `dmx` (house): DMX fixtures' own channels set by number: a flood's strobe burst, a dimmer swell, a mode, a head's gobo; their color comes from the other effects. "Dimmer swell".
+
+## Beams and motors
+
+- `movingHead` (house): beams pointed and moved in degrees: sweeping the sky, circling, wandering like searchlights, opening into a fan, crossing; lit in the palette's colors, or by what is drawn on them. "Sky sweep".
+- `servo` (house): things that move: a waving arm, a nodding head, a slow turn to look, a ticking march down a row. "Friendly wave".
 
 ## Movement along and across
 

@@ -444,14 +444,16 @@ impl<'a> Builder<'a> {
         }
     }
 
-    /// One effect, on a row whose props have the faces `faces` (by name, in show order) and
-    /// whose own layout differs from xLights' as `layout` says; `lowest` on the row's bottom
+    /// One effect, on a row whose props have the faces `faces` (by name, in show order), whose
+    /// own layout differs from xLights' as `layout` says, and whose first fixture with servos
+    /// has servos turning within `servos` (see [`servo_limits`]); `lowest` on the row's bottom
     /// layer.
     fn effect(
         &mut self,
         x: &XsqEffect,
         faces: &[&str],
         layout: Option<&str>,
+        servos: &[(f64, f64)],
         lowest: bool,
     ) -> Option<Effect> {
         let name = x.name.trim();
@@ -594,6 +596,7 @@ impl<'a> Builder<'a> {
                 );
             }
         }
+        fit_servo(&mut translated.params, &mut translated.curves, servos);
         let verdict = self
             .tally
             .record(name, &translated.fidelity, shown_ms)
@@ -801,6 +804,55 @@ fn by_name(layers: &[XsqSubmodelLayer]) -> Vec<(&str, Vec<&XsqSubmodelLayer>)> {
         }
     }
     out
+}
+
+/// The limits of each servo (low and high, degrees from Home) of the first fixture with servos
+/// that a row on `target` plays on: its prop's, or the first among a group's members.
+fn servo_limits(show: &Show, target: Target) -> Vec<(f64, f64)> {
+    let props: Vec<pf_model::PropId> = match target {
+        Target::Prop(id) | Target::Region { prop: id, .. } => vec![id],
+        Target::Group(id) => show
+            .groups
+            .iter()
+            .find(|g| g.id == id)
+            .map(|g| g.members.iter().map(pf_model::GroupMember::prop).collect())
+            .unwrap_or_default(),
+    };
+    props
+        .into_iter()
+        .filter_map(|id| show.prop(id)?.dmx.as_ref())
+        .map(|dmx| {
+            dmx.axes()
+                .into_iter()
+                .filter(|a| a.role == pf_model::DmxRole::Servo)
+                .map(|a| a.motor.limits())
+                .collect::<Vec<_>>()
+        })
+        .find(|limits| !limits.is_empty())
+        .unwrap_or_default()
+}
+
+/// Fits an imported Servo effect, read for a servo turning 180 degrees between its limits with
+/// Home in the middle, to the servo it plays on (`servos`: each one's limits): its start, end and
+/// curve become the same shares of that servo's travel.
+fn fit_servo(
+    params: &mut EffectParams,
+    curves: &mut std::collections::BTreeMap<String, pf_sequence::Curve>,
+    servos: &[(f64, f64)],
+) {
+    let EffectParams::Servo(p) = params else {
+        return;
+    };
+    let which = (p.servo as usize).saturating_sub(1);
+    let Some(&(lo, hi)) = servos.get(which).or(servos.first()) else {
+        return;
+    };
+    let fit = |degrees: f32| ((hi + lo) / 2.0 + (hi - lo) / 180.0 * f64::from(degrees)) as f32;
+    p.position = fit(p.position);
+    if let Some(curve) = curves.get_mut("position") {
+        curve.from = fit(curve.from);
+        curve.to = fit(curve.to);
+    }
 }
 
 /// Builds a PixelFlow sequence from a parsed `.xsq` file for `show` (rows target its props and
@@ -1194,6 +1246,7 @@ fn build(
                 })
                 .unwrap_or_default();
             let layout = own_layout_note(show, target);
+            let servos = servo_limits(show, target);
             // xLights' first layer is drawn on top; PixelFlow draws its last layer on top.
             let mut layers: Vec<Layer> = Vec::with_capacity(x_layers.len().max(1));
             for (i, x_layer) in x_layers.iter().enumerate().rev() {
@@ -1205,7 +1258,7 @@ fn build(
                 let lowest = i + 1 == x_layers.len();
                 let effects = x_layer
                     .iter()
-                    .filter_map(|x| b.effect(x, &faces, layout, lowest))
+                    .filter_map(|x| b.effect(x, &faces, layout, &servos, lowest))
                     .collect();
                 layers.push(Layer { effects });
             }
@@ -1567,5 +1620,68 @@ pub(crate) fn find_music(
             }
         }
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pf_model::{DmxFixture, DmxMotor, DmxRole, Prop, dmx_layout};
+
+    #[test]
+    fn a_servo_effect_fits_the_travel_of_the_servo_it_plays_on() {
+        // Two servos: the first turns 45 degrees each way, the second 30 one way and 90 the other.
+        let mut show = Show::new("servos");
+        let mut prop = Prop::new(
+            "Arms",
+            ShapeSource::Generator(Generator::Line {
+                nodes: 2,
+                length: 1.0,
+            }),
+        );
+        let mut dmx = DmxFixture::from_layout(dmx_layout("servo-16").unwrap(), 2, 1);
+        let limits = [(-45.0, 45.0), (-30.0, 90.0)];
+        for (channel, (lo, hi)) in dmx
+            .channels
+            .iter_mut()
+            .filter(|c| c.role == DmxRole::Servo)
+            .zip(limits)
+        {
+            channel.motor = Some(DmxMotor {
+                min_deg: Some(lo),
+                max_deg: Some(hi),
+                ..DmxMotor::default_for(DmxRole::Servo)
+            });
+        }
+        prop.dmx = Some(dmx);
+        let id = prop.id;
+        show.props.push(prop);
+        let servos = servo_limits(&show, Target::Prop(id));
+        assert_eq!(servos, [(-45.0, 45.0), (-30.0, 90.0)]);
+        // 10% to 90% of the travel, read for a servo of 180: -72 to 72.
+        let fit = |which: u32| {
+            let mut params = EffectParams::Servo(pf_sequence::ServoParams {
+                position: -72.0,
+                servo: which,
+                ..Default::default()
+            });
+            let mut curves = std::collections::BTreeMap::new();
+            curves.insert("position".to_string(), pf_sequence::Curve::ramp(-72.0, 72.0));
+            fit_servo(&mut params, &mut curves, &servos);
+            let EffectParams::Servo(p) = params else {
+                unreachable!()
+            };
+            (p.position, curves["position"].from, curves["position"].to)
+        };
+        assert_eq!(fit(1), (-36.0, -36.0, 36.0));
+        assert_eq!(fit(2), (-18.0, -18.0, 78.0));
+        assert_eq!(fit(0), fit(1), "every servo: the first's travel");
+        // Nothing to fit to: as read.
+        let mut params = EffectParams::Servo(pf_sequence::ServoParams {
+            position: -72.0,
+            ..Default::default()
+        });
+        fit_servo(&mut params, &mut Default::default(), &[]);
+        assert!(matches!(params, EffectParams::Servo(p) if p.position == -72.0));
     }
 }

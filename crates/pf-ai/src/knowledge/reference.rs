@@ -216,6 +216,15 @@ pub fn effect(kind: EffectKind) -> String {
         out.push('\n');
     }
     let curves = curve_keys(kind);
+    // The effects that set DMX channels draw no pixels: what every effect does to its pixels
+    // does nothing to them.
+    if kind.sets_channels() {
+        if !curves.is_empty() {
+            out.push_str(&format!("Curves can drive: {}.\n", curves.join(", ")));
+        }
+        out.push_str("It draws no pixels, so sparkles, blur, color adjustments, blends, render styles, and turns or flips do nothing to it; its guide says what colors and fades do.\n");
+        return out;
+    }
     if !curves.is_empty() {
         out.push_str(&format!(
             "Curves can drive: {} (and, on any effect, {}).\n",
@@ -421,6 +430,16 @@ mod tests {
             "{bars}"
         );
         assert!(effect(EffectKind::Off).contains("no settings of its own"));
+        // What draws no pixels isn't offered what every effect does to its pixels.
+        let head = effect(EffectKind::MovingHead);
+        assert!(
+            head.contains("Curves can drive: pan, tilt,") && !head.contains("on any effect"),
+            "{head}"
+        );
+        assert!(
+            head.ends_with("It draws no pixels, so sparkles, blur, color adjustments, blends, render styles, and turns or flips do nothing to it; its guide says what colors and fades do.\n"),
+            "{head}"
+        );
         let chase = effect(EffectKind::Chase);
         assert!(
             chase.contains("`timingTrack` (Step on marks of, under More): a timing track"),

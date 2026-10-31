@@ -12,7 +12,7 @@ music: every sequence is an animation.
 | `show/washes.xsq` | Washes and shapes: effects that keep time, layers and blends, fades, value curves, a group drawn per prop, a submodel (24 s, 50 ms frames) |
 | `show/chance.xsq` | Chance: snow, fireworks, circles, shapes, fire, twinkles, sparkles (20 s, 25 ms frames) |
 | `show/marks.xsq` | Marks, words, and pictures: a timing track and shapes it sets off, text, a picture, a shader (20 s, 50 ms frames) |
-| `show/heads.xsq` | Moving heads and servos: the DMX effect pointing the heads and turning the servos, over colors drawn on the heads by an On and color washes (20 s, 50 ms frames) |
+| `show/heads.xsq` | Moving heads and servos: the DMX effect pointing the heads and turning the servos, over colors drawn on the heads by an On and color washes; then xLights' Moving Head effect on both heads (a position, a fan, a circle with a dimmer, a pan swept by a value curve) and its Servo effect on each servo (40 s, 50 ms frames) |
 | `show/words.xsq` | Words in the computer's fonts: Text in Arial, Times New Roman, Verdana, and Courier New, bold and italic, still and moving (16 s, 50 ms frames) |
 | `show/*.fseq` | **xLights' renders of the four** (the references). Not here until they are rendered: see below |
 | `manifest.json` | The four, for `pf-fidelity` |
@@ -46,7 +46,10 @@ whenever the corpus changes. It takes a few minutes and doesn't touch your own s
 4. Look at the matrix and the tree in `marks.xsq` once: the picture should be a rainbow with a
    white frame, and the shader a flowing rainbow. Yellow or nothing there means xLights didn't
    find a file; tell whoever asked for the render. In `heads.xsq`, the two heads should sweep
-   across while lit, and the servos turn. In `words.xsq` the words should be in Arial,
+   across while lit, and the servos turn; from 20 s on they point up and right in red, fan out in
+   green, circle in blue, and sweep across in white and red, while the servos turn again. If the
+   Moving Head or Servo effects do nothing there, tell whoever asked for the render: the corpus
+   writes them as PixelFlow understands their settings. In `words.xsq` the words should be in Arial,
    Times New Roman, Verdana, and Courier New, as the effects name them.
 
 5. Don't save any change to the layout or the controllers. Then switch xLights back to your own

@@ -376,16 +376,25 @@ fn summary(card: &Scorecard) -> String {
             little.share * 100.0
         )
     };
+    // DMX fixtures are compared by their channels, and said apart.
+    let fixtures = card.dmx.verdict.map_or_else(String::new, |verdict| {
+        format!(
+            "; {} of {} DMX fixtures compared: they {}",
+            card.dmx.judged,
+            card.dmx.of,
+            verdict.phrase(true)
+        )
+    });
     match look.score {
         Some(score) => format!(
-            "{} (look score {score:.0}, {} of {} effects judged, {} of {} pixels measured{said_little})",
+            "{} (look score {score:.0}, {} of {} effects judged, {} of {} pixels measured{said_little}){fixtures}",
             headline(look),
             look.judged,
             look.of,
             coverage.pixels_measured,
             coverage.pixels
         ),
-        None => format!("nothing could be judged{said_little}"),
+        None => format!("nothing could be judged{said_little}{fixtures}"),
     }
 }
 

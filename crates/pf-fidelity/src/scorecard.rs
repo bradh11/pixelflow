@@ -1,7 +1,9 @@
 //! The scorecard: how an imported sequence looks next to xLights' own render, per effect, per
-//! kind of effect, and over the whole sequence; what to improve first; and how the importer's
-//! labels held up. The pixel-for-pixel measures are its diagnostics.
+//! kind of effect, and over the whole sequence; how its DMX fixtures compare; what to improve
+//! first; and how the importer's labels held up. The pixel-for-pixel measures are its
+//! diagnostics.
 
+pub use crate::dmx::{FixtureScore, FixtureSummary};
 use crate::layout::SetAside;
 use crate::look::{Chance, Component, Components, Look, MATCHES};
 use crate::metrics::{Limits, Scores, Stats};
@@ -11,7 +13,7 @@ use serde::Serialize;
 use std::collections::BTreeMap;
 
 /// The scorecard format's version.
-pub const SCHEMA: u32 = 4;
+pub const SCHEMA: u32 = 5;
 
 /// What the importer carried over of an effect (its own bookkeeping; what it tells people is
 /// the [`Verdict`] it expects).
@@ -175,6 +177,8 @@ pub struct Method {
     /// Where two of PixelFlow's own renders are less alike than this in some part of an
     /// effect's look, the look has too little to go on to say much.
     pub little: f64,
+    /// Where the lines are drawn when DMX fixtures are compared.
+    pub fixtures: crate::dmx::Lines,
     /// Controller-side settings left out of the comparison (xLights' file is rendered before
     /// them).
     pub set_aside: SetAside,
@@ -1163,6 +1167,9 @@ pub struct Scorecard {
     /// `look` was before effects that draw on chance were held against PixelFlow's own renders
     /// from other seeds. The two differ by those effects alone.
     pub look_by_moment: LookSummary,
+    /// How the DMX fixtures (floods, moving heads, servos) compare with xLights', channel by
+    /// channel, as a whole: the look score doesn't see them, having no pixels to read.
+    pub dmx: FixtureSummary,
     /// Kinds of effect by what there is to gain in look, the most first.
     pub improve: Vec<Improve>,
     /// The importer's labels held against the looks measured.
@@ -1170,6 +1177,8 @@ pub struct Scorecard {
     pub kinds: Vec<KindScore>,
     pub effects: Vec<EffectScore>,
     pub props: Vec<PropScore>,
+    /// Each DMX fixture, in the layout's order.
+    pub fixtures: Vec<FixtureScore>,
     pub diagnostics: Diagnostics,
     pub notes: Vec<String>,
 }
@@ -1424,6 +1433,7 @@ impl Scorecard {
         overall: Option<Scores>,
         unattributed: Option<Scores>,
         props: Vec<PropScore>,
+        fixtures: Vec<FixtureScore>,
         mut effects: Vec<EffectScore>,
         notes: Vec<String>,
     ) -> Self {
@@ -1444,6 +1454,7 @@ impl Scorecard {
             schema: SCHEMA,
             look,
             look_by_moment,
+            dmx: FixtureSummary::of(&fixtures),
             improve: improve(&kinds),
             labels: LabelCheck::of(&effects),
             diagnostics: Diagnostics {
@@ -1459,6 +1470,7 @@ impl Scorecard {
             timing,
             coverage,
             props,
+            fixtures,
             kinds,
             effects,
             notes,
@@ -1489,6 +1501,8 @@ pub struct Headline {
     pub duration_ms: u64,
     pub look: LookSummary,
     pub look_by_moment: LookSummary,
+    /// Its DMX fixtures as a whole.
+    pub dmx: FixtureSummary,
     pub import: SequenceImportSummary,
     pub pixels: usize,
     pub pixels_measured: usize,
@@ -1530,6 +1544,8 @@ pub struct CorpusCard {
     pub look: LookSummary,
     /// The same with every effect held moment by moment against xLights' render alone.
     pub look_by_moment: LookSummary,
+    /// The DMX fixtures of all the sequences as a whole.
+    pub dmx: FixtureSummary,
     pub sequences: Vec<Headline>,
     pub failures: Vec<Failure>,
     /// The effects measured and not judged, for a look that says too little; the longest first.
@@ -1547,6 +1563,7 @@ impl CorpusCard {
             tool: tool.to_string(),
             look: LookSummary::default(),
             look_by_moment: LookSummary::default(),
+            dmx: FixtureSummary::default(),
             sequences: Vec::new(),
             failures: Vec::new(),
             says_little: Vec::new(),
@@ -1563,6 +1580,7 @@ impl CorpusCard {
         let audit = &card.diagnostics.label_audit;
         self.look.merge(&card.look);
         self.look_by_moment.merge(&card.look_by_moment);
+        self.dmx.merge(&card.dmx, label);
         self.labels.merge(&card.labels, label);
         for effect in &card.effects {
             if let Some(look) = &effect.says_little {
@@ -1588,6 +1606,7 @@ impl CorpusCard {
             duration_ms: card.sequence.duration_ms,
             look: card.look.clone(),
             look_by_moment: card.look_by_moment.clone(),
+            dmx: card.dmx.clone(),
             import: card.sequence.import,
             pixels: card.coverage.pixels,
             pixels_measured: card.coverage.pixels_measured,

@@ -1,20 +1,21 @@
 import { Plus, X } from "lucide-react";
 import { useState } from "react";
 import type { DmxValues, SequenceTarget } from "../../api/sequence";
-import type { DmxChannel, Show } from "../../api/types";
+import type { DmxChannel, DmxFixture, Show } from "../../api/types";
 import { DMX_ROLE_LABELS } from "../../lib/dmx";
 import { memberProp } from "../../lib/shows";
 import { targetProp } from "../../lib/submodels";
 import { type CurveControl, FIELD, NumberSetting } from "./effectControls";
 
+/** The DMX fixtures a row on `target` plays on: the prop's, or a group's members' in member order, each once. */
+export function rowFixtures(show: Show | undefined, target: SequenceTarget): DmxFixture[] {
+  const ids = "group" in target ? (show?.groups.find((g) => g.id === target.group)?.members ?? []).map(memberProp) : [targetProp(target)];
+  return [...new Set(ids)].flatMap((id) => show?.props.find((p) => p.id === id)?.dmx ?? []);
+}
+
 /** The channels of the first DMX fixture a row on `target` plays on (a group's first fixture), to name them by. */
 export function fixtureChannels(show: Show | undefined, target: SequenceTarget): DmxChannel[] {
-  const ids = "group" in target ? (show?.groups.find((g) => g.id === target.group)?.members ?? []).map(memberProp) : [targetProp(target)];
-  for (const id of ids) {
-    const prop = show?.props.find((p) => p.id === id);
-    if (prop?.dmx) return prop.dmx.channels;
-  }
-  return [];
+  return rowFixtures(show, target)[0]?.channels ?? [];
 }
 
 /** "3 · Blue": a channel by its number, with its name when the fixture has one there. */

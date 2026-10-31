@@ -17,13 +17,14 @@ use pf_sequence::{
     CirclesParams, ColorWashParams, Curve, CurveShape, Direction, DmxParams, DmxValues, EffectParams,
     FaceColorSource, FaceEyes, FacesParams, FanParams, FillDirection, FillParams, FireLocation, FireParams,
     FireStyle, FireworksColors, FireworksParams, GarlandShape, GarlandsDirection, GarlandsParams, Gradient,
-    LifeParams, LifeRules, LightningParams, LinesParams, MAX_CURVE_CYCLES, MIN_CURVE_CYCLES, MeteorDirection,
-    MeteorsParams, MorphParams, OffParams, OnParams, Palette, PictureFit, PictureMovement, PictureParams,
-    PictureResize, PictureTiming, PinwheelParams, PinwheelShading, PinwheelStyle, PlasmaColors, PlasmaParams,
-    Rgb, RippleParams, SettingRange, ShaderInputs, ShaderParams, ShaderValue, ShapeObject, ShapeParams,
-    ShimmerParams, ShockwaveParams, SnowflakeShape, SnowflakesMotion, SnowflakesParams, SpiralParams,
-    StrobeParams, TendrilMovement, TendrilParams, TextCountdown, TextMovement, TextOrientation, TextParams,
-    TwinkleParams, VuMeterParams, VuMeterShape, VuMeterType, WaveParams,
+    HeadColor, HeadPattern, LifeParams, LifeRules, LightningParams, LinesParams, MAX_CURVE_CYCLES,
+    MIN_CURVE_CYCLES, MeteorDirection, MeteorsParams, MorphParams, MovingHeadParams, OffParams, OnParams,
+    Palette, PictureFit, PictureMovement, PictureParams, PictureResize, PictureTiming, PinwheelParams,
+    PinwheelShading, PinwheelStyle, PlasmaColors, PlasmaParams, Rgb, RippleParams, ServoParams, SettingRange,
+    ShaderInputs, ShaderParams, ShaderValue, ShapeObject, ShapeParams, ShimmerParams, ShockwaveParams,
+    SnowflakeShape, SnowflakesMotion, SnowflakesParams, SpiralParams, StrobeParams, TendrilMovement,
+    TendrilParams, TextCountdown, TextMovement, TextOrientation, TextParams, TwinkleParams, VuMeterParams,
+    VuMeterShape, VuMeterType, WaveParams,
 };
 use std::collections::BTreeMap;
 
@@ -2140,6 +2141,325 @@ fn dmx_curves(
     }
 }
 
+// xLights' Moving Head and Servo effects, as public sample sequences store them (test sequences
+// that xLights renders, at github.com/derwin12/xlights-tests, `Effect_MovingHead.xsq` and
+// `Effect_Servo.xsq`) and as the xLights manual describes their controls. Every reading of a
+// field below is taken from those; what the data doesn't show is noted as an approximation, so
+// the import report says "Close", until renders in xLights of the corpus's own cases check it.
+
+/// One head's settings in an xLights Moving Head effect: `E_TEXTCTRL_MH<n>_Settings` holds
+/// fields `Label: value` joined by `;` (a value curve's `Values=` points may hold `;` too). The
+/// effect writes the same settings for each head it drives; the lowest head's speak for all.
+struct HeadFields {
+    fields: Vec<(String, String)>,
+    /// The heads' settings differ.
+    differ: bool,
+}
+
+impl HeadFields {
+    fn read(s: &Settings) -> Option<Self> {
+        let mut found: Vec<(u32, &str)> = s
+            .keys()
+            .filter_map(|key| {
+                let n = key.strip_prefix("E_TEXTCTRL_MH")?.strip_suffix("_Settings")?;
+                Some((n.parse().ok()?, s.get(key)?))
+            })
+            .collect();
+        found.sort_by_key(|(n, _)| *n);
+        let &(_, first) = found.first()?;
+        let mut fields: Vec<(String, String)> = Vec::new();
+        for piece in first.split(';') {
+            match piece.split_once(':') {
+                Some((label, value))
+                    if label.trim().starts_with(|c: char| c.is_ascii_alphabetic())
+                        && !label.contains(['=', '|']) =>
+                {
+                    fields.push((label.trim().to_string(), value.trim().to_string()));
+                }
+                _ => {
+                    if let Some(last) = fields.last_mut() {
+                        last.1.push(';');
+                        last.1.push_str(piece);
+                    }
+                }
+            }
+        }
+        Some(Self {
+            fields,
+            differ: found.iter().any(|(_, text)| *text != first),
+        })
+    }
+
+    fn text(&self, label: &str) -> Option<&str> {
+        self.fields
+            .iter()
+            .find(|(l, _)| l.eq_ignore_ascii_case(label))
+            .map(|(_, v)| v.as_str())
+    }
+
+    fn num(&self, label: &str) -> Option<f64> {
+        self.text(label)
+            .and_then(super::leading_number)
+            .filter(|v| v.is_finite())
+    }
+
+    /// Numbers listed in a field (`0.0,0.5,1.0`).
+    fn list(&self, label: &str) -> Vec<f64> {
+        self.text(label).map_or_else(Vec::new, |v| {
+            v.split(',')
+                .filter_map(super::leading_number)
+                .filter(|n| n.is_finite())
+                .collect()
+        })
+    }
+
+    /// A value curve on a field (`Pan VC`), in the field's units, `min` to `max` when it doesn't
+    /// say.
+    fn curve(&self, label: &str, min: f32, max: f32) -> Option<XlCurve> {
+        XlCurve::parse_in(self.text(&format!("{label} VC"))?, min, max)
+    }
+
+    /// The colors of a field of hue, saturation and value triples (each 0 to 1).
+    fn colors(&self, label: &str) -> Vec<Rgb> {
+        self.list(label)
+            .as_chunks::<3>()
+            .0
+            .iter()
+            .map(|&[h, s, v]| hsv_color(h, s, v))
+            .take(pf_sequence::MAX_PALETTE_COLORS)
+            .collect()
+    }
+}
+
+/// The color of a hue, saturation and value, each 0 to 1.
+fn hsv_color(h: f64, s: f64, v: f64) -> Rgb {
+    let (h, s, v) = (h.rem_euclid(1.0) * 6.0, s.clamp(0.0, 1.0), v.clamp(0.0, 1.0));
+    let sector = h.floor();
+    let f = h - sector;
+    let (p, q, t) = (v * (1.0 - s), v * (1.0 - s * f), v * (1.0 - s * (1.0 - f)));
+    let (r, g, b) = match sector as u8 {
+        0 => (v, t, p),
+        1 => (q, v, p),
+        2 => (p, v, t),
+        3 => (p, q, v),
+        4 => (t, p, v),
+        _ => (v, p, q),
+    };
+    let byte = |c: f64| (c * 255.0).round() as u8;
+    Rgb::new(byte(r), byte(g), byte(b))
+}
+
+/// The fields of a Moving Head effect PixelFlow reads.
+const HEAD_FIELDS: &[&str] = &[
+    "Pan",
+    "Tilt",
+    "Pan VC",
+    "Tilt VC",
+    "PanOffset",
+    "TiltOffset",
+    "Groupings",
+    "Cycles",
+    "Pattern",
+    "PatternWidth",
+    "PatternHeight",
+    "Path",
+    "PathScale",
+    "Color",
+    "Wheel",
+    "Dimmer",
+    "Shutter",
+    "AutoShutter",
+    "Heads",
+];
+
+/// The colors an xLights Moving Head effect lights its heads in (its color wheel's, or its
+/// colors'), when it sets any.
+fn moving_head_colors(s: &Settings) -> Option<Vec<Rgb>> {
+    let head = HeadFields::read(s)?;
+    let colors = head.colors("Color");
+    let colors = if colors.is_empty() {
+        head.colors("Wheel")
+    } else {
+        colors
+    };
+    (!colors.is_empty()).then_some(colors)
+}
+
+/// xLights' Moving Head effect: pan and tilt in degrees from Home, a fan between the heads
+/// (`PanOffset`, `TiltOffset`) in groups (`Groupings`), a pattern of a width and height gone
+/// round `Cycles` times, colors (one held, several washed through), a dimmer over the effect.
+fn moving_head(s: &Settings, duration_ms: u64, diff: &mut Diff) -> EffectParams {
+    let mut p = MovingHeadParams::default();
+    let Some(head) = HeadFields::read(s) else {
+        diff.add("no head's settings found, so it points the heads Home");
+        return EffectParams::MovingHead(p);
+    };
+    if head.differ {
+        diff.add("heads set apart in xLights all take the first head's settings");
+    }
+    let start = |label: &str, min: f32, max: f32| match head.curve(label, min, max) {
+        Some(curve) if curve.driven().is_some() => Some(curve.middle()),
+        Some(curve) => curve.values().first().map(|v| v.1),
+        None => head.num(label),
+    };
+    p.pan = start("Pan", -360.0, 360.0).unwrap_or(0.0) as f32;
+    p.tilt = start("Tilt", -180.0, 180.0).unwrap_or(0.0) as f32;
+    p.fan_pan = head.num("PanOffset").unwrap_or(0.0) as f32;
+    p.fan_tilt = head.num("TiltOffset").unwrap_or(0.0) as f32;
+    if p.fan_pan != 0.0 || p.fan_tilt != 0.0 {
+        diff.add("its fan spread evenly about the middle head");
+    }
+    let groups = head.num("Groupings").unwrap_or(1.0).round();
+    p.fans = groups.clamp(1.0, 16.0) as u32;
+    if p.fans > 1 {
+        diff.add("its groupings shown as fans side by side");
+    }
+    if let Some(pattern) = head.text("Pattern") {
+        p.width = head.num("PatternWidth").unwrap_or(90.0) as f32;
+        p.height = head.num("PatternHeight").unwrap_or(45.0) as f32;
+        p.speed = per_second(head.num("Cycles").unwrap_or(1.0), duration_ms);
+        diff.add("its pattern's size and pace read as PixelFlow's");
+        p.pattern = match pattern.to_ascii_lowercase().as_str() {
+            "circle" => HeadPattern::Circle,
+            "eight" => HeadPattern::Eight,
+            "line" | "line2" => {
+                diff.add(format!("its {pattern} pattern shown as a sweep"));
+                HeadPattern::Sweep
+            }
+            "lissajous" => {
+                diff.add("its Lissajous pattern shown as a figure eight");
+                HeadPattern::Eight
+            }
+            _ => {
+                diff.add(format!("its {pattern} pattern shown as a circle"));
+                HeadPattern::Circle
+            }
+        };
+    }
+    if head.text("Path").is_some() {
+        diff.add("its drawn path not followed: the heads hold their pan and tilt");
+    }
+    p.color = match moving_head_colors(s).map_or(0, |c| c.len()) {
+        0 => HeadColor::Drawn,
+        1 => HeadColor::First,
+        _ => {
+            diff.add("its colors washed through over the effect");
+            HeadColor::Wash
+        }
+    };
+    if head.text("AutoShutter").is_some() {
+        diff.add("its automatic shutter shown as an open shutter");
+    }
+    for (label, _) in &head.fields {
+        if !HEAD_FIELDS.iter().any(|f| f.eq_ignore_ascii_case(label)) {
+            diff.add(format!("xLights' {label} not carried over"));
+        }
+    }
+    EffectParams::MovingHead(p)
+}
+
+/// The value curves of a Moving Head effect (on its pan and tilt) and its dimmer's points over
+/// the effect (time and level pairs, each 0 to 1), as curves.
+fn moving_head_curves(
+    s: &Settings,
+    params: &EffectParams,
+    curves: &mut BTreeMap<String, Curve>,
+    tracks: &mut Vec<(String, String)>,
+    diff: &mut Diff,
+) {
+    let EffectParams::MovingHead(p) = params else {
+        return;
+    };
+    let Some(head) = HeadFields::read(s) else {
+        return;
+    };
+    for (label, key, min, max) in [("Pan", "pan", -360.0, 360.0), ("Tilt", "tilt", -180.0, 180.0)] {
+        let Some(curve) = head.curve(label, min, max) else {
+            continue;
+        };
+        let (_, made, track) = setting_curve(&curve, |v| (v as f32).clamp(min, max), diff);
+        if let Some(made) = made {
+            curves.insert(key.to_string(), made);
+        }
+        tracks.extend(track.map(|t| (key.to_string(), t)));
+    }
+    let points: Vec<[f32; 2]> = head
+        .list("Dimmer")
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|&[t, level]| [t.clamp(0.0, 1.0) as f32, level.clamp(0.0, 1.0) as f32])
+        .take(pf_sequence::MAX_CURVE_POINTS)
+        .collect();
+    if p.color != HeadColor::Drawn && !points.is_empty() {
+        diff.add("its dimmer's points joined by straight lines");
+        curves.insert("dimmer".into(), Curve::custom(0.0, 100.0, points));
+    }
+}
+
+/// An xLights Servo effect's start and end (`Servo`, `EndValue`), percent of the servo's travel,
+/// in degrees from the middle of a servo that turns 180 degrees between its limits; the import
+/// fits them to the servo it plays on (see `fit_servo` in `mod.rs`).
+fn servo_degrees(percent: f64) -> f32 {
+    ((percent.clamp(0.0, 100.0) - 50.0) * 1.8) as f32
+}
+
+/// xLights' Servo effect: one servo of the model (`Channel`, by its node's name, `Servo2`)
+/// turned from a start to an end over the effect, each a share of its travel.
+fn servo(r: &Reader, diff: &mut Diff) -> EffectParams {
+    let channel = r.choice("Channel", "");
+    let servo = channel
+        .trim()
+        .strip_prefix("Servo")
+        .and_then(|n| n.trim().parse::<u32>().ok())
+        .filter(|n| (1..=64).contains(n));
+    if servo.is_none() && !channel.trim().is_empty() {
+        diff.add(format!("its channel \"{channel}\" taken as every servo"));
+    }
+    diff.add("its start and end read as a share of the servo's travel between its limits");
+    let curve =
+        r.s.get("E_VALUECURVE_Servo")
+            .and_then(|t| XlCurve::parse_in(t, 0.0, 1000.0));
+    let start = match curve {
+        Some(c) if c.driven().is_some() => c.middle() / 10.0,
+        Some(c) => c.values().first().map_or(0.0, |v| v.1 / 10.0),
+        None => r.get("Servo", 0.0, 0.0, 100.0),
+    };
+    EffectParams::Servo(ServoParams {
+        position: servo_degrees(start),
+        servo: servo.unwrap_or(0),
+        ..ServoParams::default()
+    })
+}
+
+/// A Servo effect's move from its start to its end, or its value curve (in tenths of a
+/// percent), as a curve on its position.
+fn servo_curves(
+    s: &Settings,
+    params: &EffectParams,
+    curves: &mut BTreeMap<String, Curve>,
+    tracks: &mut Vec<(String, String)>,
+    diff: &mut Diff,
+) {
+    let EffectParams::Servo(p) = params else {
+        return;
+    };
+    if let Some(curve) = s
+        .get("E_VALUECURVE_Servo")
+        .and_then(|t| XlCurve::parse_in(t, 0.0, 1000.0))
+    {
+        let (_, made, track) = setting_curve(&curve, |v| servo_degrees(v / 10.0), diff);
+        curves.extend(made.map(|c| ("position".to_string(), c)));
+        tracks.extend(track.map(|t| ("position".to_string(), t)));
+        return;
+    }
+    let r = Reader { s };
+    let end = servo_degrees(r.get("EndValue", 0.0, 0.0, 100.0));
+    if r.num("EndValue").is_some() && end != p.position {
+        curves.insert("position".into(), Curve::ramp(p.position, end));
+    }
+}
+
 /// What an xLights Pictures effect changes over the effect besides its value curves: its size
 /// from the start scale to the end scale (shown pixel for pixel), and a "vector" move from its
 /// offsets to its end offsets. xLights repeats both as often as the effect's speed says.
@@ -2256,7 +2576,9 @@ fn effect_params(
             None => return Kind::Placeholder,
         },
         "dmx" => dmx(&r),
-        "adjust" | "warp" | "duplicate" | "servo" | "movinghead" => return Kind::Skip,
+        "movinghead" => moving_head(s, duration_ms, diff),
+        "servo" => servo(&r, diff),
+        "adjust" | "warp" | "duplicate" => return Kind::Skip,
         _ => return Kind::Placeholder,
     })
 }
@@ -2502,7 +2824,12 @@ pub fn translate(
     frame_ms: u32,
 ) -> Option<Translated> {
     let mut diff = Diff(Vec::new());
-    let colors = palette_colors(palette, &mut diff);
+    // A Moving Head effect's colors are its own (its color or wheel), not the palette's.
+    let colors = if effect_key(name) == "movinghead" {
+        moving_head_colors(s).unwrap_or_else(|| vec![Rgb::WHITE])
+    } else {
+        palette_colors(palette, &mut diff)
+    };
     let (mut sparkles, sparkle_color) = (palette.sparkles, palette.sparkle_color);
     let blend = blend(s, &mut diff);
     let (fade_in_ms, fade_out_ms) = fades(s, duration_ms, &mut diff);
@@ -2539,7 +2866,9 @@ pub fn translate(
         // A curve on one of a shader's own inputs isn't carried over (see `shader`), and must
         // not move the slider's value either. A DMX channel's is carried over on its own (see
         // `dmx_curves`).
-        if id.starts_with("SHADERXYZZY_") || (name.eq_ignore_ascii_case("dmx") && dmx_channel(&id).is_some())
+        if id.starts_with("SHADERXYZZY_")
+            || (name.eq_ignore_ascii_case("dmx") && dmx_channel(&id).is_some())
+            || (name.eq_ignore_ascii_case("servo") && id == "Servo")
         {
             continue;
         }
@@ -2577,6 +2906,8 @@ pub fn translate(
                 on_cycles(&start, &clamped, &mut curves, &mut diff);
                 picture_curves(&start, &clamped, &mut curves, &mut diff);
                 dmx_curves(&start, &clamped, &mut curves, &mut curve_tracks, &mut diff);
+                moving_head_curves(&start, &clamped, &mut curves, &mut curve_tracks, &mut diff);
+                servo_curves(&start, &clamped, &mut curves, &mut curve_tracks, &mut diff);
                 dim_flames(&clamped, &curves, blend, &mut diff);
                 for (id, curve) in &driven {
                     let at = |value: f64| {
@@ -5316,17 +5647,194 @@ mod tests {
         assert!(at(0) < 10.0 && at(999) > 245.0, "{curve:?}");
     }
 
+    /// An xLights Moving Head effect on heads 1 to 4 with `fields` (commas written `&comma;`,
+    /// as the file has them), translated as one second long.
+    fn head_effect(fields: &str) -> Translated {
+        let text: Vec<String> = (1..=4)
+            .map(|n| format!("E_TEXTCTRL_MH{n}_Settings={fields}"))
+            .collect();
+        let s = Settings::parse(&format!(
+            "B_CHOICE_BufferStyle=Per Model Default,{}",
+            text.join(",")
+        ));
+        translate("Moving Head", &s, &palette(&[Rgb::BLUE]), 1000, 25).unwrap()
+    }
+
+    fn head_params(t: &Translated) -> MovingHeadParams {
+        let EffectParams::MovingHead(p) = t.params else {
+            panic!("{:?}", t.params)
+        };
+        p
+    }
+
+    fn verdict_of(name: &str, t: &Translated) -> Verdict {
+        super::super::look::expected(name, &t.fidelity).0
+    }
+
+    fn at_end(curve: &Curve) -> f32 {
+        let at = pf_sequence::CurveTime {
+            start_ms: 0,
+            end_ms: 1000,
+            t_ms: 999,
+        };
+        curve.value_in(at, &Default::default())
+    }
+
+    const RED: &str = "Color: 0.000000&comma;1.000000&comma;1.000000";
+    const RED_GREEN: &str =
+        "Color: 0.000000&comma;1.000000&comma;1.000000&comma;0.333333&comma;1.000000&comma;1.000000";
+
     #[test]
-    fn moving_head_and_servo_effects_are_left_out_until_pixelflow_has_them() {
-        let s = Settings::parse("E_TEXTCTRL_MH1_Settings=Pan: 10.0;Tilt: 20.0,E_SLIDER_Servo=50");
-        for name in ["Moving Head", "Servo"] {
-            assert!(
-                translate(name, &s, &palette(&[Rgb::RED]), 1000, 25).is_none(),
+    fn a_moving_head_effect_points_the_heads_in_its_colors() {
+        // As xLights' test sequences store it: a position and one color.
+        let t = head_effect(&format!(
+            "Pan: 45.0;Tilt: 20.0;Heads: 1&comma;2&comma;3&comma;4;{RED}"
+        ));
+        let p = head_params(&t);
+        assert_eq!(
+            (p.pan, p.tilt, p.pattern, p.color),
+            (45.0, 20.0, HeadPattern::Still, HeadColor::First)
+        );
+        assert_eq!(t.palette.colors, [Rgb::RED], "its own color, not the palette's");
+        assert_eq!(t.fidelity, Fidelity::Exact);
+        assert_eq!(verdict_of("Moving Head", &t), Verdict::Matches);
+        // Two colors wash through; a wheel's colors light it the same way.
+        let t = head_effect(&format!("Pan: 0.0;Tilt: 10.0;Heads: 1;{RED_GREEN}"));
+        assert_eq!(head_params(&t).color, HeadColor::Wash);
+        assert_eq!(t.palette.colors, [Rgb::RED, Rgb::GREEN]);
+        assert_eq!(verdict_of("Moving Head", &t), Verdict::Close);
+        let wheel = RED_GREEN.replace("Color:", "Wheel:");
+        assert_eq!(
+            head_effect(&format!("Pan: 0.0;{wheel}")).palette.colors,
+            [Rgb::RED, Rgb::GREEN]
+        );
+        // No color of its own: the heads keep what is drawn on them.
+        assert_eq!(
+            head_params(&head_effect("Pan: 10.0;Tilt: 10.0")).color,
+            HeadColor::Drawn
+        );
+        // Nothing to read: Home, and a different look.
+        let t = translate(
+            "Moving Head",
+            &Settings::parse("E_SLIDER_Foo=1"),
+            &palette(&[]),
+            1000,
+            25,
+        )
+        .unwrap();
+        assert_eq!(
+            (head_params(&t).pan, verdict_of("Moving Head", &t)),
+            (0.0, Verdict::Different)
+        );
+    }
+
+    #[test]
+    fn a_moving_head_effect_fans_its_heads_and_follows_its_curves_and_dimmer() {
+        let t = head_effect(&format!(
+            "Pan: 0.0;Tilt: 0.0;PanOffset: 30.0;TiltOffset: 10.0;Groupings: 2;Heads: 1&comma;2;{RED}"
+        ));
+        let p = head_params(&t);
+        assert_eq!((p.fan_pan, p.fan_tilt, p.fans), (30.0, 10.0, 2));
+        assert_eq!(verdict_of("Moving Head", &t), Verdict::Close);
+        // Value curves on pan and tilt, in degrees.
+        let t = head_effect(&format!(
+            "Pan VC: Active=TRUE|Id=ID_VALUECURVE_MHPan|Type=Ramp|Min=-180|Max=180|P1=0.00|P2=100.00|RV=TRUE|;\
+             Tilt VC: Active=TRUE|Id=ID_VALUECURVE_MHTilt|Type=Ramp|Min=-90|Max=90|P1=-30.00|P2=60.00|RV=TRUE|;{RED}"
+        ));
+        let p = head_params(&t);
+        assert!(p.pan.abs() < 1e-3 && (p.tilt + 30.0).abs() < 1e-3, "{p:?}");
+        assert!((at_end(&t.curves["pan"]) - 100.0).abs() < 1.0);
+        assert!((at_end(&t.curves["tilt"]) - 60.0).abs() < 1.0);
+        // A dimmer that rises and falls over the effect.
+        let t = head_effect(&format!(
+            "Pan: 10.0;{RED};Dimmer: 0.0&comma;0.0&comma;0.5&comma;1.0&comma;1.0&comma;0.0;Shutter: On"
+        ));
+        let dimmer = &t.curves["dimmer"];
+        assert_eq!((dimmer.from, dimmer.to), (0.0, 100.0));
+        assert_eq!(dimmer.points, [[0.0, 0.0], [0.5, 1.0], [1.0, 0.0]]);
+    }
+
+    #[test]
+    fn a_moving_head_effect_s_patterns_and_paths() {
+        let pattern = |name: &str| {
+            head_effect(&format!(
+                "Pattern: {name};PatternWidth: 90;PatternHeight: 45;Cycles: 2;Heads: 1;{RED}"
+            ))
+        };
+        let t = pattern("Circle");
+        let p = head_params(&t);
+        assert_eq!(
+            (p.pattern, p.width, p.height, p.speed),
+            (HeadPattern::Circle, 90.0, 45.0, 2.0)
+        );
+        assert_eq!(verdict_of("Moving Head", &t), Verdict::Close);
+        for (name, shown, verdict) in [
+            ("Eight", HeadPattern::Eight, Verdict::Close),
+            ("Line", HeadPattern::Sweep, Verdict::Close),
+            ("Lissajous", HeadPattern::Eight, Verdict::Close),
+            ("Diamond", HeadPattern::Circle, Verdict::Different),
+            ("SquareChoppy", HeadPattern::Circle, Verdict::Different),
+            ("Leaf", HeadPattern::Circle, Verdict::Different),
+        ] {
+            let t = pattern(name);
+            assert_eq!(
+                (head_params(&t).pattern, verdict_of("Moving Head", &t)),
+                (shown, verdict),
                 "{name}"
             );
         }
-        let mut tally = Tally::default();
-        assert_eq!(tally.record("Moving Head", &Fidelity::Skipped, 1000), None);
-        assert!(tally.skipped_note().unwrap().ends_with("Moving Head (1)."));
+        // A drawn path isn't followed; a field PixelFlow doesn't read is noted.
+        let t = head_effect(&format!(
+            "Path: 0.3&comma;0.3@C0.5&comma;0.1&comma;0.7&comma;0.3&comma;0.7&comma;0.5@L0.3&comma;0.7@;PathScale: 1.0;Heads: 1;{RED}"
+        ));
+        assert_eq!(verdict_of("Moving Head", &t), Verdict::Different);
+        let t = head_effect(&format!("Pan: 5.0;Gobo: Star;{RED}"));
+        let Fidelity::Approximate(notes) = &t.fidelity else {
+            panic!("{:?}", t.fidelity)
+        };
+        assert_eq!(notes, &["xLights' Gobo not carried over"]);
+        // Heads set apart in xLights take the first head's settings.
+        let s = Settings::parse(&format!(
+            "E_TEXTCTRL_MH2_Settings=Pan: 50.0;{RED},E_TEXTCTRL_MH1_Settings=Pan: 10.0;{RED}"
+        ));
+        let t = translate("Moving Head", &s, &palette(&[]), 1000, 25).unwrap();
+        assert_eq!(head_params(&t).pan, 10.0);
+        assert_eq!(verdict_of("Moving Head", &t), Verdict::Close);
+    }
+
+    #[test]
+    fn a_servo_effect_turns_one_servo_from_its_start_to_its_end() {
+        let servo = |text: &str| {
+            let t = translate("Servo", &Settings::parse(text), &palette(&[]), 1000, 25).unwrap();
+            let EffectParams::Servo(p) = t.params else {
+                panic!("{:?}", t.params)
+            };
+            (p, t)
+        };
+        // From 10% to 90% of its travel: -72 to 72 degrees on a servo of 180.
+        let (p, t) = servo("E_CHOICE_Channel=Servo1,E_TEXTCTRL_EndValue=90,E_TEXTCTRL_Servo=10");
+        assert_eq!(
+            (p.position, p.servo, p.pattern),
+            (-72.0, 1, pf_sequence::ServoPattern::Still)
+        );
+        assert_eq!(
+            (t.curves["position"].from, t.curves["position"].to),
+            (-72.0, 72.0)
+        );
+        assert_eq!(verdict_of("Servo", &t), Verdict::Close);
+        // Held at its middle: Home, no curve.
+        let (p, t) =
+            servo("E_CHECKBOX_16bit=0,E_CHOICE_Channel=Servo2,E_TEXTCTRL_EndValue=50,E_TEXTCTRL_Servo=50");
+        assert_eq!((p.position, p.servo), (0.0, 2));
+        assert!(t.curves.is_empty());
+        // A value curve, in tenths of a percent: from 0% to 10%.
+        let (p, t) = servo(
+            "E_CHOICE_Channel=Servo1,E_VALUECURVE_Servo=Active=TRUE|Id=ID_VALUECURVE_Servo|Type=Ramp|Min=0|Max=1000|P1=0.00|P2=100.00|RV=TRUE|",
+        );
+        assert_eq!(p.position, -90.0);
+        let end = at_end(&t.curves["position"]);
+        assert!((end + 72.0).abs() < 0.5, "{end}");
+        // A channel by another name turns every servo.
+        assert_eq!(servo("E_CHOICE_Channel=Jaw,E_TEXTCTRL_Servo=50").0.servo, 0);
     }
 }

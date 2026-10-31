@@ -48,7 +48,9 @@ export type EffectKind =
   | "fill"
   | "fireworks"
   | "shader"
-  | "dmx";
+  | "dmx"
+  | "movingHead"
+  | "servo";
 
 export type Gradient = "none" | "horizontal" | "vertical";
 /** What the Shape effect draws. */
@@ -518,7 +520,63 @@ export type EffectParams =
       kind: "dmx";
       /** The DMX fixtures' channels it sets, by number from each fixture's first (1-512), to 0-255. */
       channels?: DmxValues;
+    }
+  | {
+      kind: "movingHead";
+      /** Where it points, in degrees from Home: pan (+ right, seen from the street) and tilt (+ toward the street). */
+      pan?: number;
+      tilt?: number;
+      /** How it moves about the pan and tilt. */
+      pattern?: HeadPattern;
+      /** How far the movement goes across and up and down, end to end, in degrees. */
+      width?: number;
+      height?: number;
+      /** Times round the movement each second. */
+      speed?: number;
+      /** Degrees between neighboring heads of a group, spread evenly about the middle. */
+      fanPan?: number;
+      fanTilt?: number;
+      /** Seconds each head runs behind the one before. */
+      delay?: number;
+      /** How many fans side by side a group's heads split into, moving alike. */
+      fans?: number;
+      /** The right half of each fan points and moves as a mirror image of the left. */
+      mirror?: boolean;
+      /** Where its light's color comes from. */
+      color?: HeadColor;
+      /** How bright its light is, 0-100. */
+      dimmer?: number;
+      /** Flashes a second (0: steady). */
+      strobe?: number;
+      /** Picks the paths Wander takes. */
+      seed?: number;
+    }
+  | {
+      kind: "servo";
+      /** Where it turns to, in degrees from Home. */
+      position?: number;
+      /** How it moves about the position. */
+      pattern?: ServoPattern;
+      /** How far the movement goes, end to end, in degrees. */
+      size?: number;
+      /** Times back and forth each second. */
+      speed?: number;
+      /** Places Steps jumps between. */
+      steps?: number;
+      /** Degrees between neighboring servos, spread evenly about the middle. */
+      fan?: number;
+      /** Seconds each servo runs behind the one before. */
+      delay?: number;
+      /** Only this servo of each fixture (0: every one). */
+      servo?: number;
     };
+
+/** How a Moving Head effect moves the heads about where it points them. */
+export type HeadPattern = "still" | "sweep" | "circle" | "eight" | "wave" | "wander";
+/** Where a Moving Head effect's light gets its color. */
+export type HeadColor = "first" | "wash" | "perHead" | "drawn";
+/** How a Servo effect moves the servos about their position. */
+export type ServoPattern = "still" | "sweep" | "wave" | "steps";
 
 /** DMX channels by number (as text: "1" is a fixture's first channel), each set to 0-255. */
 export type DmxValues = Record<string, number>;
@@ -1228,6 +1286,8 @@ export const EFFECT_KINDS: { kind: EffectKind; label: string }[] = [
   { kind: "fireworks", label: "Fireworks" },
   { kind: "shader", label: "Shader" },
   { kind: "dmx", label: "DMX" },
+  { kind: "movingHead", label: "Moving Head" },
+  { kind: "servo", label: "Servo" },
 ];
 
 /** A new effect of `kind` (engine-default settings, white) from `startMs` to `endMs`. */

@@ -1258,7 +1258,9 @@ impl Shader {
             EffectParams::Shader(p) => Shader::Glsl(Glsl::new(p, time, seed, canvas, cx)),
             // Sets fixtures' channels once the frame is drawn (see `dmx.rs`): no color, so
             // clear everywhere, as faces with none lit.
-            EffectParams::Dmx(_) => Shader::Faces(Faces::default()),
+            EffectParams::Dmx(_) | EffectParams::MovingHead(_) | EffectParams::Servo(_) => {
+                Shader::Faces(Faces::default())
+            }
         }
     }
 

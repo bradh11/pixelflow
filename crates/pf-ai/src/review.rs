@@ -408,8 +408,16 @@ fn draw(
     cancel: &Cancel,
 ) -> Result<Frames, String> {
     let step = STEP_MS.max(u64::from(doc.frame_ms));
+    // Servos make no light: they play by moving, so they aren't counted as dark props.
+    let servos: BTreeSet<PropId> = show
+        .props
+        .iter()
+        .filter(|p| role_of(p) == Role::Servo)
+        .map(|p| p.id)
+        .collect();
     let layout: Vec<(PropId, Pixels)> = pf_engine::preview_props_of(show)
         .into_iter()
+        .filter(|p| !servos.contains(&p.prop))
         .map(|p| {
             let n = p.points.len() / 2;
             (

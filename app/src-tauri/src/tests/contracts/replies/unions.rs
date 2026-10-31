@@ -113,7 +113,7 @@ fn union_members() {
         every!(pf_sequence::EffectKind: On, Off, ColorWash, Fade, Chase, Bars, Wave, Twinkle, Shimmer, Strobe, Spiral,
             Fire, Meteors, Ripple, Shape, Fan, Morph, Circles, Pinwheel, Snowflakes, Plasma, Butterfly, Garlands,
             Lines, Life, Tendril, Text, Faces, VuMeter, Impact, Wipe, Lightning, Pulse, Sing, ColorShift, Dancer,
-            Picture, Shockwave, Fill, Fireworks, Shader, Dmx),
+            Picture, Shockwave, Fill, Fireworks, Shader, Dmx, MovingHead, Servo),
     );
     all(
         "sequence.Blend",

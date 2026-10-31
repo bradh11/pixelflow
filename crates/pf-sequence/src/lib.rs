@@ -32,14 +32,15 @@ pub use effect::{
     DancerBackground, DancerCharacter, DancerMove, DancerParams, DancerSpeed, Direction, DmxParams, Effect,
     EffectKind, EffectParams, FaceColorSource, FaceEyes, FacesParams, FadeDirection, FadeParams, FanParams,
     FillDirection, FillParams, FireLocation, FireParams, FireStyle, FireworksColors, FireworksParams,
-    GarlandShape, GarlandsDirection, GarlandsParams, Gradient, HitColor, ImpactDecay, ImpactParams,
-    LifeParams, LifeRules, LightningParams, LinesParams, MeteorDirection, MeteorsParams, MorphParams,
-    OffParams, OnParams, Palette, PictureFit, PictureMovement, PictureParams, PictureResize, PictureTiming,
-    PictureTurn, PinwheelParams, PinwheelShading, PinwheelStyle, PlasmaColors, PlasmaParams, PulseParams,
-    PulseShape, PulseSource, RippleParams, ShaderParams, ShapeObject, ShapeParams, ShiftEase, ShimmerParams,
-    ShockwaveParams, SingMode, SingParams, SnowflakeShape, SnowflakesMotion, SnowflakesParams, SpiralParams,
-    StrobeParams, Sweep, TendrilMovement, TendrilParams, TextCountdown, TextMovement, TextOrientation,
-    TextParams, TwinkleParams, VuMeterParams, VuMeterShape, VuMeterType, WaveParams, WipeMode, WipeParams,
+    GarlandShape, GarlandsDirection, GarlandsParams, Gradient, HeadColor, HeadPattern, HitColor, ImpactDecay,
+    ImpactParams, LifeParams, LifeRules, LightningParams, LinesParams, MeteorDirection, MeteorsParams,
+    MorphParams, MovingHeadParams, OffParams, OnParams, Palette, PictureFit, PictureMovement, PictureParams,
+    PictureResize, PictureTiming, PictureTurn, PinwheelParams, PinwheelShading, PinwheelStyle, PlasmaColors,
+    PlasmaParams, PulseParams, PulseShape, PulseSource, RippleParams, ServoParams, ServoPattern,
+    ShaderParams, ShapeObject, ShapeParams, ShiftEase, ShimmerParams, ShockwaveParams, SingMode, SingParams,
+    SnowflakeShape, SnowflakesMotion, SnowflakesParams, SpiralParams, StrobeParams, Sweep, TendrilMovement,
+    TendrilParams, TextCountdown, TextMovement, TextOrientation, TextParams, TwinkleParams, VuMeterParams,
+    VuMeterShape, VuMeterType, WaveParams, WipeMode, WipeParams,
 };
 pub use ids::{EffectId, RowId, TimingTrackId};
 pub use io::{SequenceError, check_sequence, sequence_from_json, sequence_to_json};

@@ -467,6 +467,47 @@ const SHOTS = [
     },
   },
   {
+    name: "dmx-moving-head-effect",
+    file: "dmx-moving-head-effect.png",
+    usedBy: "dmx",
+    async run(ui) {
+      // Three heads on the lawn, grouped in order from left to right.
+      for (const [i, side] of ["Left", "Middle", "Right"].entries()) {
+        await addHead(ui, { name: `Spot ${side}`, x: -8 + i * 2, y: 0.3, address: 20 + i * 11 });
+      }
+      await groupProps(ui, ["Spot Left", "Spot Middle", "Spot Right"], "Lawn Spots");
+      await addEffectOn(ui, "Lawn Spots", "Moving Head effect", { preview: true });
+      // Leaning out toward the street and fanned apart, circling there, lit blue.
+      await ui.type("Tilt value", "50", { enter: true });
+      await ui.choose("Movement", "Circle");
+      await ui.type("Width value", "60", { enter: true });
+      await ui.type("Height value", "30", { enter: true });
+      await ui.type("Fan pan value", "35", { enter: true });
+      await ui.color("Color 1", "#3b6bff");
+      await ui.seek(8600);
+      await ui.scrollToTop("[aria-label='Effect settings']");
+      return ui.window();
+    },
+  },
+  {
+    name: "dmx-servo-effect",
+    file: "dmx-servo-effect.png",
+    usedBy: "dmx",
+    async run(ui) {
+      await addServo(ui, { servos: 2 });
+      // With the preview above the timeline, the settings have the whole side to themselves.
+      await addEffectOn(ui, "Gate Arms", "Servo effect", { preview: true });
+      // Both arms sweeping about 30° to the right, fanned 20° apart.
+      await ui.type("Position value", "30", { enter: true });
+      await ui.choose("Movement", "Sweep");
+      await ui.type("Size value", "60", { enter: true });
+      await ui.type("Fan value", "20", { enter: true });
+      await ui.click("More: which servo");
+      await ui.scrollToTop("[aria-label='Effect settings']");
+      return ui.settingsTop("Fades");
+    },
+  },
+  {
     name: "dmx-test-channels",
     file: "dmx-test-channels.png",
     usedBy: "dmx",
@@ -588,6 +629,57 @@ async function addHead(ui, { name = "Lawn Spot", x = -5, y = 0.4, address = 20 }
   await ui.type("Position X", String(x), { enter: true });
   await ui.type("Position Y", String(y), { enter: true });
   await ui.settle(400);
+}
+
+/** Makes a group called `name` of the props named, in that order, on the Layout screen's Groups tab. */
+async function groupProps(ui, props, name) {
+  await ui.screen("Layout");
+  // As picking them on the canvas one after another would.
+  await ui.js(
+    `const { useLayoutEditor } = await import("/src/state/layoutEditor.ts");
+     const { useApp } = await import("/src/state/store.ts");
+     const show = useApp.getState().snapshot.show;
+     useLayoutEditor.getState().select(arg.map((n) => show.props.find((p) => p.name === n).id));
+     return 1`,
+    props,
+  );
+  await ui.click("Groups", { sel: "[role=tab]" });
+  await ui.click("Group selected");
+  await ui.type("Group name", name, { enter: true });
+  await ui.settle(400);
+}
+
+/** Adds a fixture of 16-bit servos on the Layout screen, selected. */
+async function addServo(ui, { name = "Gate Arms", x = 6, y = 0.5, address = 40, servos = 1 } = {}) {
+  await ui.screen("Layout");
+  await ui.click("Add prop");
+  await ui.click("DMX servo");
+  await ui.settle(500);
+  await ui.type("Name", name, { enter: true });
+  await ui.type("Start address", String(address), { enter: true });
+  if (servos > 1) await ui.type("Servos", String(servos), { enter: true });
+  await ui.type("Position X", String(x), { enter: true });
+  await ui.type("Position Y", String(y), { enter: true });
+  await ui.settle(400);
+}
+
+/**
+ * Adds a row for the prop named `prop` on the Sequence screen and the effect `effect` (its name
+ * in the effects list) on it at 8 s, selected; with `preview`, the preview above the timeline.
+ */
+async function addEffectOn(ui, prop, effect, { preview = false } = {}) {
+  await ui.screen("Sequence");
+  // A narrow window has the preview above the timeline already, and no button for it.
+  if (preview) await ui.js(`find("Preview above the timeline")?.click(); return 1`);
+  await ui.settle(300);
+  await ui.click("Add row");
+  await ui.click(prop, { sel: "[role=option], [role=menuitem], li button, button" });
+  await ui.seek(8000);
+  await ui.activeRow(prop);
+  // Enter on an effect in the palette adds it at the playhead, on the row worked on.
+  await ui.js(`find(arg, { exact: true }).focus(); return 1`, effect);
+  await ui.key("Enter");
+  await ui.settle(800);
 }
 
 async function addFlood(ui, { name = "Lawn Flood", x = -9, y = 0.6, address = 1, layout = "7 channels" } = {}) {
@@ -730,6 +822,22 @@ class Ui {
     await this.settle(400);
   }
 
+  /** Sets the color picker labelled `label` to `hex`, as picking a color in it would. */
+  async color(label, hex) {
+    const ok = await this.js(
+      `const el = $$("input[type=color]").filter(visible).find((i) => i.getAttribute("aria-label") === arg.label);
+       if (!el) return false;
+       el.focus();
+       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(el, arg.hex);
+       el.dispatchEvent(new Event("input", { bubbles: true }));
+       el.blur();
+       return true`,
+      { label, hex },
+    );
+    if (!ok) throw new Error(`No color picker "${label}".`);
+    await this.settle(400);
+  }
+
   async key(key) {
     const codes = { Enter: 13, Escape: 27, Tab: 9 };
     for (const type of ["keyDown", "keyUp"]) {
@@ -840,13 +948,15 @@ class Ui {
     return { ...panel, height: end.y - panel.y - 4 };
   }
 
-  /** Makes the row of the prop named `prop` the one being worked on, as clicking its name would. */
+  /** Makes the row of the prop (or group) named `prop` the one being worked on, as clicking its name would. */
   async activeRow(prop) {
     const ok = await this.js(
       `const { useSequencer } = await import("/src/state/sequencer.ts");
        const { useApp } = await import("/src/state/store.ts");
-       const p = useApp.getState().snapshot.show.props.find((x) => x.name === arg);
-       const row = useSequencer.getState().doc.rows.find((r) => "prop" in r.target && r.target.prop === p?.id);
+       const show = useApp.getState().snapshot.show;
+       const p = show.props.find((x) => x.name === arg);
+       const g = show.groups.find((x) => x.name === arg);
+       const row = useSequencer.getState().doc.rows.find((r) => ("prop" in r.target && r.target.prop === p?.id) || ("group" in r.target && r.target.group === g?.id));
        if (!row) return false;
        useSequencer.getState().setActiveRow(row.id);
        return true`,

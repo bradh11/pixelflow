@@ -125,6 +125,18 @@ saves for a Shader effect, with how their values map, worked out from sequences 
 rendered frames. The eight shaders that come with PixelFlow (`crates/pf-shader/shaders/*.fs`)
 were written for it from scratch and are credited to the project's author.
 
+The Moving Head and Servo effects are PixelFlow's own design (`crates/pf-render/src/heads.rs`,
+the head and servo parts of `crates/pf-render/src/dmx.rs`, and `app/src/lib/headEffects.ts`):
+their settings, patterns, fan and timing were not taken from xLights' effects of those names,
+whose source wasn't read. The importer's translation of xLights' two effects (`moving_head` and
+`servo` in `crates/pf-xlights/src/sequence/effects.rs`) follows format only: the setting names and
+value layout seen in public sample sequences (the test sequences at
+`github.com/derwin12/xlights-tests`, `Effect_MovingHead.xsq` and `Effect_Servo.xsq`, read as data
+and not copied into the repository) and the xLights manual's description of the controls. That
+repository says its sequences are written by a script, so they show what xLights accepts rather
+than what its editor saves; the script itself wasn't read. The corpus's own cases of both effects
+are written by `madeup.rs`.
+
 **Third-party shader files are never bundled.** Shader files from shared collections are their
 authors' work under their own licences. None is in the repository, its tests, fixtures, or
 documents; the tests use shaders written in them. A show's own files are copied into that show's

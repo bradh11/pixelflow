@@ -11,6 +11,8 @@ import { demoDevices, demoFppFiles, demoFppSchedules, demoPlayers, demoShow } fr
 import { MemoryBackend } from "./api/memory";
 import { FakeAssistant } from "./api/memoryAssistant";
 import { MemorySequencer } from "./api/memorySequencer";
+import { newEffect, newRow } from "./api/sequence";
+import { newMovingHead, newServo } from "./lib/dmx";
 import { useAssistant } from "./state/assistant";
 import { useLayoutEditor } from "./state/layoutEditor";
 import { useSequencer } from "./state/sequencer";
@@ -183,6 +185,27 @@ describe("every control has a name, and icon-only buttons have tooltips", { time
     const panel = screen.getByRole("complementary", { name: "Effect settings" });
     expect(within(panel).getAllByRole("heading").length).toBeGreaterThan(0);
     expect(problems("sequence, an effect selected")).toEqual([]);
+  });
+
+  it("in a Moving Head and a Servo effect's settings, the pad and folded groups too", async () => {
+    await openApp();
+    const show = useApp.getState().snapshot!.show;
+    const [head, arm] = [newMovingHead(show), newServo(show)];
+    await act(() => useApp.getState().apply(() => [{ type: "addProp", prop: head }, { type: "addProp", prop: arm }]));
+    const effects = [newEffect("movingHead", 0, 2000), newEffect("servo", 0, 2000)];
+    const rows = [newRow({ prop: head.id }), newRow({ prop: arm.id })];
+    await act(() =>
+      useSequencer.getState().edit(rows.flatMap((row, i) => [{ type: "addRow" as const, row }, { type: "addEffect" as const, row: row.id, layer: 0, effect: effects[i] }])),
+    );
+    go("sequence");
+    const found: string[] = [];
+    for (const [i, effect] of effects.entries()) {
+      act(() => useSequencer.getState().select([effect.id], rows[i].id));
+      const panel = screen.getByRole("complementary", { name: "Effect settings" });
+      expect(within(panel).getByRole("heading", { name: i === 0 ? "Moving Head" : "Servo" })).toBeInTheDocument();
+      found.push(...problems(`${effect.params.kind} settings`));
+    }
+    expect(found).toEqual([]);
   });
 
   it("in the Wiring, Devices, Play and Sequence dialogs and menus", async () => {

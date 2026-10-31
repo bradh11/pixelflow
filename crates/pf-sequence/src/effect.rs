@@ -657,10 +657,12 @@ pub enum EffectKind {
     Fireworks,
     Shader,
     Dmx,
+    MovingHead,
+    Servo,
 }
 
 impl EffectKind {
-    pub const ALL: [EffectKind; 42] = [
+    pub const ALL: [EffectKind; 44] = [
         EffectKind::On,
         EffectKind::Off,
         EffectKind::ColorWash,
@@ -703,7 +705,15 @@ impl EffectKind {
         EffectKind::Fireworks,
         EffectKind::Shader,
         EffectKind::Dmx,
+        EffectKind::MovingHead,
+        EffectKind::Servo,
     ];
+
+    /// An effect that sets DMX fixtures' channels once the frame is drawn, and draws no color
+    /// (DMX, Moving Head, Servo).
+    pub fn sets_channels(self) -> bool {
+        matches!(self, EffectKind::Dmx | EffectKind::MovingHead | EffectKind::Servo)
+    }
 
     /// The name people see.
     pub fn label(self) -> &'static str {
@@ -750,6 +760,8 @@ impl EffectKind {
             EffectKind::Fireworks => "Fireworks",
             EffectKind::Shader => "Shader",
             EffectKind::Dmx => "DMX",
+            EffectKind::MovingHead => "Moving Head",
+            EffectKind::Servo => "Servo",
         }
     }
 
@@ -822,6 +834,12 @@ impl EffectKind {
             EffectKind::Dmx => {
                 "Sets a DMX fixture's channels directly (strobe, modes, anything color can't say), changing with curves."
             }
+            EffectKind::MovingHead => {
+                "Points moving heads: still, or sweeping, circling or wandering, fanned across a group, lit in the palette's colors."
+            }
+            EffectKind::Servo => {
+                "Turns servos to a position, or sweeps, waves or steps them, fanned across a group."
+            }
         }
     }
 
@@ -870,6 +888,8 @@ impl EffectKind {
             EffectKind::Fireworks => FireworksParams::SETTINGS,
             EffectKind::Shader => ShaderParams::SETTINGS,
             EffectKind::Dmx => DmxParams::SETTINGS,
+            EffectKind::MovingHead => MovingHeadParams::SETTINGS,
+            EffectKind::Servo => ServoParams::SETTINGS,
         }
     }
 }
@@ -922,6 +942,8 @@ pub enum EffectParams {
     Fireworks(FireworksParams),
     Shader(ShaderParams),
     Dmx(DmxParams),
+    MovingHead(MovingHeadParams),
+    Servo(ServoParams),
 }
 
 impl EffectParams {
@@ -969,6 +991,8 @@ impl EffectParams {
             EffectParams::Fireworks(_) => EffectKind::Fireworks,
             EffectParams::Shader(_) => EffectKind::Shader,
             EffectParams::Dmx(_) => EffectKind::Dmx,
+            EffectParams::MovingHead(_) => EffectKind::MovingHead,
+            EffectParams::Servo(_) => EffectKind::Servo,
         }
     }
 
@@ -1017,6 +1041,8 @@ impl EffectParams {
             EffectKind::Fireworks => EffectParams::Fireworks(FireworksParams::default()),
             EffectKind::Shader => EffectParams::Shader(ShaderParams::default()),
             EffectKind::Dmx => EffectParams::Dmx(DmxParams::default()),
+            EffectKind::MovingHead => EffectParams::MovingHead(MovingHeadParams::default()),
+            EffectKind::Servo => EffectParams::Servo(ServoParams::default()),
         }
     }
 
@@ -1066,6 +1092,8 @@ impl EffectParams {
             EffectParams::Fireworks(p) => p.sanitize(),
             EffectParams::Shader(p) => p.sanitize(),
             EffectParams::Dmx(p) => p.sanitize(),
+            EffectParams::MovingHead(p) => p.sanitize(),
+            EffectParams::Servo(p) => p.sanitize(),
         }
     }
 
@@ -1121,6 +1149,8 @@ impl EffectParams {
             EffectParams::Fireworks(p) => p.number(key),
             EffectParams::Shader(p) => p.number(key),
             EffectParams::Dmx(p) => p.number(key),
+            EffectParams::MovingHead(p) => p.number(key),
+            EffectParams::Servo(p) => p.number(key),
         }
     }
 
@@ -1170,6 +1200,8 @@ impl EffectParams {
             EffectParams::Fireworks(p) => p.set_number(key, value),
             EffectParams::Shader(p) => p.set_number(key, value),
             EffectParams::Dmx(p) => p.set_number(key, value),
+            EffectParams::MovingHead(p) => p.set_number(key, value),
+            EffectParams::Servo(p) => p.set_number(key, value),
         }
     }
 
@@ -1218,6 +1250,8 @@ impl EffectParams {
             EffectParams::Fireworks(p) => p.setting_problem(),
             EffectParams::Shader(p) => p.setting_problem(),
             EffectParams::Dmx(p) => p.setting_problem(),
+            EffectParams::MovingHead(p) => p.setting_problem(),
+            EffectParams::Servo(p) => p.setting_problem(),
         };
         found.map(|(spec, why)| format!("{} {why}", spec.label))
     }
@@ -3325,6 +3359,146 @@ effect_params! {
     pub struct DmxParams {
         /// The channels it sets, by number (1 is the fixture's first), each to 0-255.
         channels: DmxValues = DmxValues::default() => "channels", "Channels", dmx_channels;
+    }
+}
+
+/// How a Moving Head effect moves the heads about where it points them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum HeadPattern {
+    #[default]
+    Still,
+    /// Back and forth along a line, across by the width and up and down by the height.
+    Sweep,
+    Circle,
+    Eight,
+    /// Across and back, rising and falling as it goes.
+    Wave,
+    /// A smooth random path, each head its own.
+    Wander,
+}
+
+choices!(HeadPattern {
+    "still" => "Still",
+    "sweep" => "Sweep",
+    "circle" => "Circle",
+    "eight" => "Figure eight",
+    "wave" => "Wave",
+    "wander" => "Wander",
+});
+
+/// Where a Moving Head effect's light gets its color.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum HeadColor {
+    /// The first palette color.
+    #[default]
+    First,
+    /// Through the palette's colors over the effect.
+    Wash,
+    /// Each head the next palette color.
+    PerHead,
+    /// Whatever the layers below draw on the head: the effect only moves it.
+    Drawn,
+}
+
+choices!(HeadColor {
+    "first" => "First color",
+    "wash" => "Through the colors",
+    "perHead" => "A color per head",
+    "drawn" => "From the layers below",
+});
+
+effect_params! {
+    /// Points the moving heads it plays on, in degrees from Home, and moves them about there;
+    /// on a group, the heads fan out across it in member order. Lights them in the palette's
+    /// colors through their color channels or color wheel.
+    // Worked out in the same pass as the DMX effect (pf-render's dmx.rs): a later row or higher
+    // layer wins a channel both set. Each head's position at a moment comes from the settings
+    // and that moment alone, so scrubbing and playing agree. Limits clamp every position. Fades
+    // dim the light; they never move a head.
+    #[derive(Copy)]
+    pub struct MovingHeadParams {
+        /// Turning round, in degrees from Home (+ to the right, seen from the street).
+        pan: f32 = 0.0 => "pan", "Pan", number(-360.0, 360.0, 1.0, "°");
+        /// Leaning, in degrees from Home (straight up; + toward the street).
+        tilt: f32 = 0.0 => "tilt", "Tilt", number(-180.0, 180.0, 1.0, "°");
+        /// How it moves about the pan and tilt.
+        pattern: HeadPattern = HeadPattern::Still => "pattern", "Movement", choice;
+        /// How far the movement goes across (pan), end to end.
+        width: f32 = 90.0 => "width", "Width", number(0.0, 360.0, 1.0, "°");
+        /// How far the movement goes up and down (tilt), end to end.
+        height: f32 = 45.0 => "height", "Height", number(0.0, 180.0, 1.0, "°");
+        /// Times round the movement each second.
+        speed: f32 = 0.25 => "speed", "Speed", number(0.0, 10.0, 0.01, "per second");
+        /// Pan between neighboring heads of a group, spread evenly about the middle.
+        fan_pan: f32 = 0.0 => "fanPan", "Fan pan", number(-180.0, 180.0, 1.0, "°");
+        /// Tilt between neighboring heads of a group.
+        fan_tilt: f32 = 0.0 => "fanTilt", "Fan tilt", number(-90.0, 90.0, 1.0, "°");
+        /// Each head of a group runs this far behind the one before: 0 moves them together.
+        delay: f32 = 0.0 => "delay", "Delay per head", number(0.0, 5.0, 0.01, "s");
+        /// Splits a group's heads into this many fans side by side that move alike.
+        fans: u32 = 1 => "fans", "Fans", int(1, 16), more;
+        /// The right half of each fan points and moves as a mirror image of the left.
+        mirror: bool = false => "mirror", "Mirror", toggle, more;
+        /// Where its light's color comes from.
+        color: HeadColor = HeadColor::First => "color", "Color", choice;
+        /// How bright its light is.
+        dimmer: f32 = 100.0 => "dimmer", "Dimmer", number(0.0, 100.0, 1.0, "%");
+        /// Flashes it this many times a second through its strobe channel (0: the shutter open).
+        strobe: f32 = 0.0 => "strobe", "Strobe", number(0.0, 20.0, 0.1, "per second");
+        /// Picks the paths Wander takes.
+        seed: u32 = 1 => "seed", "Seed", int(0, 9999), more;
+    }
+}
+
+/// How a Servo effect moves the servos about their position.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum ServoPattern {
+    #[default]
+    Still,
+    /// Back and forth at a steady speed.
+    Sweep,
+    /// Back and forth, easing at each end.
+    Wave,
+    /// From one end to the other in even jumps, then back to the first.
+    Steps,
+}
+
+choices!(ServoPattern {
+    "still" => "Still",
+    "sweep" => "Sweep",
+    "wave" => "Wave",
+    "steps" => "Steps",
+});
+
+effect_params! {
+    /// Turns the servos it plays on to a position in degrees from Home, and moves them about it;
+    /// on a group, or a fixture of several servos, they fan out in order.
+    // Worked out in the same pass as the DMX effect (pf-render's dmx.rs), from the settings and
+    // the moment alone; limits clamp every position.
+    #[derive(Copy)]
+    pub struct ServoParams {
+        /// Where it turns to, in degrees from Home.
+        position: f32 = 0.0 => "position", "Position", number(-180.0, 180.0, 1.0, "°");
+        /// How it moves about the position.
+        pattern: ServoPattern = ServoPattern::Still => "pattern", "Movement", choice;
+        /// How far the movement goes, end to end.
+        size: f32 = 90.0 => "size", "Size", number(0.0, 360.0, 1.0, "°");
+        /// Times back and forth each second.
+        speed: f32 = 0.5 => "speed", "Speed", number(0.0, 10.0, 0.01, "per second");
+        /// Positions Steps jumps between.
+        steps: u32 = 4 => "steps", "Steps", int(2, 32), more;
+        /// Between neighboring servos, spread evenly about the middle.
+        fan: f32 = 0.0 => "fan", "Fan", number(-180.0, 180.0, 1.0, "°");
+        /// Each servo runs this far behind the one before: 0 moves them together.
+        delay: f32 = 0.0 => "delay", "Delay per servo", number(0.0, 5.0, 0.01, "s");
+        /// Only this servo of each fixture (0: every one).
+        servo: u32 = 0 => "servo", "Which servo", int(0, 64), more;
     }
 }
 

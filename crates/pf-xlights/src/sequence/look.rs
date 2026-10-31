@@ -246,6 +246,10 @@ pub const TABLE: &[Row] = &[
     // still where xLights changes it, read as a different look.
     noted("Shader", "offset or zoom isn't applied", Verdict::Different),
     noted("Shader", "stays at its slider's value", Verdict::Different),
+    // Judged: the heads still, or on a round path, where xLights moves them along another.
+    noted("Moving Head", "drawn path not followed", Verdict::Different),
+    noted("Moving Head", "pattern shown as a circle", Verdict::Different),
+    noted("Moving Head", "no head's settings found", Verdict::Different),
 ];
 
 /// How an effect imported as `fidelity` from the xLights effect `effect` is expected to look,

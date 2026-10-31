@@ -62,6 +62,9 @@ saying what to write, when a guide breaks one:
   the (whole) house.
 - **Looks are real**: each is an effect exactly as `place_effects` takes one, of the guide's own
   kind, with settings in range; and it lights something on every kind of target it says it suits.
+  The effects that set DMX channels (`dmx`, `movingHead`, `servo`) draw no pixels, and the stage
+  has no fixtures: their looks suit only the house, and each is tried on a group of the fixtures
+  it acts on (floods, moving heads, servos), where it must light, point, or turn them.
 - **A guide fits in one answer** with room for others: 12,000 bytes as the Assistant reads it.
 
 ## Writing an effect's guide

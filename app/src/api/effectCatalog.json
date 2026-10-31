@@ -4534,5 +4534,319 @@
         "type": "dmxChannels"
       }
     ]
+  },
+  {
+    "description": "Points moving heads: still, or sweeping, circling or wandering, fanned across a group, lit in the palette's colors.",
+    "kind": "movingHead",
+    "label": "Moving Head",
+    "settings": [
+      {
+        "default": 0.0,
+        "description": "Turning round, in degrees from Home (+ to the right, seen from the street).",
+        "key": "pan",
+        "label": "Pan",
+        "max": 360.0,
+        "min": -360.0,
+        "step": 1.0,
+        "type": "number",
+        "unit": "°"
+      },
+      {
+        "default": 0.0,
+        "description": "Leaning, in degrees from Home (straight up; + toward the street).",
+        "key": "tilt",
+        "label": "Tilt",
+        "max": 180.0,
+        "min": -180.0,
+        "step": 1.0,
+        "type": "number",
+        "unit": "°"
+      },
+      {
+        "default": "still",
+        "description": "How it moves about the pan and tilt.",
+        "key": "pattern",
+        "label": "Movement",
+        "options": [
+          {
+            "label": "Still",
+            "value": "still"
+          },
+          {
+            "label": "Sweep",
+            "value": "sweep"
+          },
+          {
+            "label": "Circle",
+            "value": "circle"
+          },
+          {
+            "label": "Figure eight",
+            "value": "eight"
+          },
+          {
+            "label": "Wave",
+            "value": "wave"
+          },
+          {
+            "label": "Wander",
+            "value": "wander"
+          }
+        ],
+        "type": "choice"
+      },
+      {
+        "default": 90.0,
+        "description": "How far the movement goes across (pan), end to end.",
+        "key": "width",
+        "label": "Width",
+        "max": 360.0,
+        "min": 0.0,
+        "step": 1.0,
+        "type": "number",
+        "unit": "°"
+      },
+      {
+        "default": 45.0,
+        "description": "How far the movement goes up and down (tilt), end to end.",
+        "key": "height",
+        "label": "Height",
+        "max": 180.0,
+        "min": 0.0,
+        "step": 1.0,
+        "type": "number",
+        "unit": "°"
+      },
+      {
+        "default": 0.25,
+        "description": "Times round the movement each second.",
+        "key": "speed",
+        "label": "Speed",
+        "max": 10.0,
+        "min": 0.0,
+        "step": 0.01,
+        "type": "number",
+        "unit": "per second"
+      },
+      {
+        "default": 0.0,
+        "description": "Pan between neighboring heads of a group, spread evenly about the middle.",
+        "key": "fanPan",
+        "label": "Fan pan",
+        "max": 180.0,
+        "min": -180.0,
+        "step": 1.0,
+        "type": "number",
+        "unit": "°"
+      },
+      {
+        "default": 0.0,
+        "description": "Tilt between neighboring heads of a group.",
+        "key": "fanTilt",
+        "label": "Fan tilt",
+        "max": 90.0,
+        "min": -90.0,
+        "step": 1.0,
+        "type": "number",
+        "unit": "°"
+      },
+      {
+        "default": 0.0,
+        "description": "Each head of a group runs this far behind the one before: 0 moves them together.",
+        "key": "delay",
+        "label": "Delay per head",
+        "max": 5.0,
+        "min": 0.0,
+        "step": 0.01,
+        "type": "number",
+        "unit": "s"
+      },
+      {
+        "default": 1,
+        "description": "Splits a group's heads into this many fans side by side that move alike.",
+        "key": "fans",
+        "label": "Fans",
+        "max": 16,
+        "min": 1,
+        "more": true,
+        "step": 1,
+        "type": "int"
+      },
+      {
+        "default": false,
+        "description": "The right half of each fan points and moves as a mirror image of the left.",
+        "key": "mirror",
+        "label": "Mirror",
+        "more": true,
+        "type": "bool"
+      },
+      {
+        "default": "first",
+        "description": "Where its light's color comes from.",
+        "key": "color",
+        "label": "Color",
+        "options": [
+          {
+            "label": "First color",
+            "value": "first"
+          },
+          {
+            "label": "Through the colors",
+            "value": "wash"
+          },
+          {
+            "label": "A color per head",
+            "value": "perHead"
+          },
+          {
+            "label": "From the layers below",
+            "value": "drawn"
+          }
+        ],
+        "type": "choice"
+      },
+      {
+        "default": 100.0,
+        "description": "How bright its light is.",
+        "key": "dimmer",
+        "label": "Dimmer",
+        "max": 100.0,
+        "min": 0.0,
+        "step": 1.0,
+        "type": "number",
+        "unit": "%"
+      },
+      {
+        "default": 0.0,
+        "description": "Flashes it this many times a second through its strobe channel (0: the shutter open).",
+        "key": "strobe",
+        "label": "Strobe",
+        "max": 20.0,
+        "min": 0.0,
+        "step": 0.1,
+        "type": "number",
+        "unit": "per second"
+      },
+      {
+        "default": 1,
+        "description": "Picks the paths Wander takes.",
+        "key": "seed",
+        "label": "Seed",
+        "max": 9999,
+        "min": 0,
+        "more": true,
+        "step": 1,
+        "type": "int"
+      }
+    ]
+  },
+  {
+    "description": "Turns servos to a position, or sweeps, waves or steps them, fanned across a group.",
+    "kind": "servo",
+    "label": "Servo",
+    "settings": [
+      {
+        "default": 0.0,
+        "description": "Where it turns to, in degrees from Home.",
+        "key": "position",
+        "label": "Position",
+        "max": 180.0,
+        "min": -180.0,
+        "step": 1.0,
+        "type": "number",
+        "unit": "°"
+      },
+      {
+        "default": "still",
+        "description": "How it moves about the position.",
+        "key": "pattern",
+        "label": "Movement",
+        "options": [
+          {
+            "label": "Still",
+            "value": "still"
+          },
+          {
+            "label": "Sweep",
+            "value": "sweep"
+          },
+          {
+            "label": "Wave",
+            "value": "wave"
+          },
+          {
+            "label": "Steps",
+            "value": "steps"
+          }
+        ],
+        "type": "choice"
+      },
+      {
+        "default": 90.0,
+        "description": "How far the movement goes, end to end.",
+        "key": "size",
+        "label": "Size",
+        "max": 360.0,
+        "min": 0.0,
+        "step": 1.0,
+        "type": "number",
+        "unit": "°"
+      },
+      {
+        "default": 0.5,
+        "description": "Times back and forth each second.",
+        "key": "speed",
+        "label": "Speed",
+        "max": 10.0,
+        "min": 0.0,
+        "step": 0.01,
+        "type": "number",
+        "unit": "per second"
+      },
+      {
+        "default": 4,
+        "description": "Positions Steps jumps between.",
+        "key": "steps",
+        "label": "Steps",
+        "max": 32,
+        "min": 2,
+        "more": true,
+        "step": 1,
+        "type": "int"
+      },
+      {
+        "default": 0.0,
+        "description": "Between neighboring servos, spread evenly about the middle.",
+        "key": "fan",
+        "label": "Fan",
+        "max": 180.0,
+        "min": -180.0,
+        "step": 1.0,
+        "type": "number",
+        "unit": "°"
+      },
+      {
+        "default": 0.0,
+        "description": "Each servo runs this far behind the one before: 0 moves them together.",
+        "key": "delay",
+        "label": "Delay per servo",
+        "max": 5.0,
+        "min": 0.0,
+        "step": 0.01,
+        "type": "number",
+        "unit": "s"
+      },
+      {
+        "default": 0,
+        "description": "Only this servo of each fixture (0: every one).",
+        "key": "servo",
+        "label": "Which servo",
+        "max": 64,
+        "min": 0,
+        "more": true,
+        "step": 1,
+        "type": "int"
+      }
+    ]
   }
 ]

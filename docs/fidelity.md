@@ -540,6 +540,8 @@ of a second late is close (61 to 63).
 6. **Look at every prop** over the frames either side lit it, whatever effects were on it
    (`props[].look`). The mean over the props, by pixel-seconds, is the sequence's `asSeen`:
    the look of the whole picture, with no question of which effect to blame.
+7. **Hold every DMX fixture to xLights' channels**, frame by frame: where it points, the light
+   it shows, and what it holds (`fixtures`, and `dmx` for them as a whole). See "DMX fixtures".
 
 ## Reading a scorecard
 
@@ -590,6 +592,43 @@ pixel over scores as wrong. They find structural bugs, which is what they are ke
   0, and effects starting on dark pixels should first light them on the same frame on both sides.
 - `props[].reversedMae` far below `props[].scores.mae`: a prop wired the other way round.
 - An effect that matches alone and not layered: the way rows or layers are mixed.
+
+## DMX fixtures
+
+A flood, a moving head, or a set of servos has channels, not pixels, so the look score never
+sees it. The import wires each fixture at the channels xLights gives the model, so both renders
+have its channels in the same place. `pf-fidelity` holds them against each other frame by frame
+(`pf_fidelity::dmx`), as a viewer would see them:
+
+| Part | Compared as | The same when |
+|---|---|---|
+| **Where it points** | Each pan, tilt, and servo as a position in degrees from Home, 16-bit where it has a fine channel. | Within 2°, or a step of its channel where that is more (an 8-bit pan of 540° steps 2.1°). A beam 15° wide moved 2° still lights seven-eighths of its spot. Beyond 15°, a usual beam's width, it points somewhere else. |
+| **The light it shows** | The color its channels make on each cell, dark where its shutter is closed. Red, green, and blue, a color wheel, cyan, magenta, and yellow, and a dimmer all compare as the light they make, whichever channels carry it. | Red, green, and blue each within 8 levels of 255, or an eighth of the light's brightness where that is more. The same light carried by a dimmer on one side and by the color channels on the other comes back a level or two apart. The same color at another brightness is a little off; another color, or dark where the other is lit, is far off. |
+| **What it holds** | Every other channel (strobe, mode, gobo, speed, zoom) as its value; a strobe channel as what its value does: closed, open, or a strobe. | The same value, or a shutter doing the same (a strobe within a fifth of the same pace). |
+
+A head's aim and what it holds show only while it is lit, so they count on the frames either
+render lights it. A head turning in the dark is getting ready for its next cue, and nobody sees
+it. A servo makes no light, and counts on every frame.
+
+Each of PixelFlow's frames is held against xLights' from the frame before to the frame after.
+Anywhere between, within the tolerance, is the same: a move or a fade a frame early or late
+isn't counted.
+
+Each part earns a verdict from the frames it counts on:
+
+- **Matches**: off on at most 2% of them.
+- **Different**: far off (pointing elsewhere, another color, dark where the other is lit) on more
+  than a quarter of them.
+- **Close**: anything between. A held value that differs is never worse than close.
+
+A fixture earns the worst verdict of its parts, and says what a viewer would notice: "pan off by
+up to 14° in 30% of frames", "color differs in 33% of frames", "gobo differs in 100% of frames".
+Its score is how many frames of 100 it shows the same on in every part. The fixtures of a
+sequence as a whole earn the worst verdict of theirs. A scorecard lists them under "DMX
+fixtures" (`fixtures`, and `dmx` for them as a whole), and `method.fixtures` has the lines above.
+
+What it can't tell: how fast a head gets where it goes (a speed channel is a value, and the
+fixture does the moving), and what a gobo or a zoom looks like (they are values too).
 
 ## The importer's labels
 
@@ -655,8 +694,9 @@ and five sequences with no music.
 | Words in the computer's fonts | 16 s of 50 ms frames | Text in Arial, Times New Roman, Verdana, and Courier New (fonts every Mac and Windows computer has), bold and italic, still and moving, on the matrix and around the tree |
 
 The heads and servos are DMX fixtures: the look score doesn't judge them (it reads pixels), but
-their channels are in xLights' renders, so the references hold what xLights sends them. A test
-holds PixelFlow's own render of them to the channels the sequence sets.
+their channels are in xLights' renders, so the references hold what xLights sends them, and
+each is held to those channels instead ("DMX fixtures"). A test holds PixelFlow's own render of
+them to the channels the sequence sets.
 
 50 effects in all, covering the kinds the real corpus uses most, and DMX fixtures.
 `src/madeup.rs` writes every file (`cargo run -p pf-fidelity -- corpus-files`), and a test fails
@@ -703,6 +743,13 @@ aren't the ones the baseline lists can't be held to it, and fails. An effect tha
 the margin is listed as improved; one that was judged in every scoring and whose look says too
 little now is listed, and doesn't fail by itself, since the look it got is still held. The job
 prints a table of everything that moved, and adds it to the run's summary page.
+
+Each DMX fixture is held the same way, by its score (frames of 100 it shows the same on) and its
+verdict. It fails when its score is more than 3 under the lowest the baseline measured, when it
+earns a worse verdict than the worst the baseline saw even with 3 more frames of 100 the same,
+or when it was compared and isn't now. A sequence whose fixtures aren't the ones the baseline
+lists fails. A baseline made before fixtures were compared has none for them: they aren't held
+until it is made again (`regress --accept`), and the check says so.
 
 The margins are measured, not guessed. The baseline is made from five scorings, each with every
 effect's chance drawn from another set of ids (`compare::fix_ids`), so the range it keeps for an

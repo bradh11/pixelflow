@@ -92,20 +92,43 @@ describe("layout edits", () => {
     expect((box.minY + box.maxY) / 2).toBeCloseTo(50, 2);
   });
 
-  it("steps each new prop down and right so it doesn't land on the last one", () => {
-    const show = demoShow();
+  it("puts each new prop beside the last ones, in view and on none of them, nearest the middle", () => {
+    let show = demoShow();
     const visible = { minX: 100, minY: 40, maxX: 140, maxY: 60 };
-    const first = placedInView(newProp("arch", show), show, [], visible);
+    const boxes = [];
+    for (const kind of ["tree", "tree", "arch", "matrix", "star", "line", "tree"] as const) {
+      const placed = placedInView(newProp(kind, show), show, [], visible);
+      boxes.push(boxOfPoints(frontView(placed))!);
+      show = { ...show, props: [...show.props, placed] };
+    }
+    const [first, second] = boxes;
+    // The first in the middle; the next one right beside it, at the same height.
+    expect((first.minX + first.maxX) / 2).toBeCloseTo(120, 2);
+    expect((second.minY + second.maxY) / 2).toBeCloseTo(50, 2);
+    expect(second.minX).toBeGreaterThan(first.maxX);
+    for (const [i, b] of boxes.entries()) {
+      expect(b.minX >= visible.minX && b.maxX <= visible.maxX && b.minY >= visible.minY && b.maxY <= visible.maxY).toBe(true);
+      for (const other of boxes.slice(0, i)) {
+        const apart = b.minX >= other.maxX || b.maxX <= other.minX || b.minY >= other.maxY || b.maxY <= other.minY;
+        expect(apart).toBe(true);
+      }
+    }
+  });
+
+  it("steps aside from the middle when nothing in view is clear, enough to leave the last one to pick", () => {
+    // A matrix as big as the view, in the middle of it: nothing in view is clear.
+    const show = emptyShow("t");
+    const wall = newProp("matrix", show);
+    if (wall.shape.source === "generator" && wall.shape.type === "matrix") Object.assign(wall.shape, { width: 24, height: 24 });
+    show.props = [wall];
+    const visible = { minX: -10, minY: -10, maxX: 10, maxY: 10 };
+    const first = placedInView(newProp("tree", show), show, [], visible);
     const withFirst = { ...show, props: [...show.props, first] };
-    const second = placedInView(newProp("arch", withFirst), withFirst, [], visible);
-    const withBoth = { ...withFirst, props: [...withFirst.props, second] };
-    const third = placedInView(newProp("arch", withBoth), withBoth, [], visible);
-    const step = second.transform.position.x - first.transform.position.x;
-    expect(step).toBeGreaterThan(0);
-    expect(second.transform.position.y).toBeCloseTo(first.transform.position.y - step, 2);
-    expect(third.transform.position.x).toBeCloseTo(first.transform.position.x + 2 * step, 2);
-    // Still inside what's shown.
-    expect(third.transform.position.x).toBeLessThan(visible.maxX);
+    const second = placedInView(newProp("tree", withFirst), withFirst, [], visible);
+    const [a, b] = [boxOfPoints(frontView(first))!, boxOfPoints(frontView(second))!];
+    // A quarter of a tree's size (the tree is 5 tall) down and to the right of the last one.
+    expect(b.minX - a.minX).toBeGreaterThanOrEqual(1.25 - 1e-6);
+    expect(a.minY - b.minY).toBeGreaterThanOrEqual(1.25 - 1e-6);
   });
 
   it("falls back to beside the others when the canvas hasn't been measured", () => {

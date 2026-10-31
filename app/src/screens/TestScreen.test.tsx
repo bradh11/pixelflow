@@ -57,7 +57,7 @@ describe("test screen", () => {
     head.name = "Lawn Spot";
     const node = newController("Lawn DMX", "192.0.2.80", "sacn", 1);
     node.kind = "dmx";
-    node.ports[0].slots.push({ prop: head.id });
+    node.ports[0].slots.push({ prop: head.id, segment: null, nullPixels: 0, reverse: false, brightness: null, gamma: null, smartReceiver: null });
     show.props.push(head);
     show.controllers.push(node);
     const { backend, user } = await setup(show);

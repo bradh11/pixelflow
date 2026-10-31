@@ -6,7 +6,7 @@ import { MemoryBackend, emptyShow } from "../api/memory";
 import type { FppSendRequest, SendSource } from "../api/types";
 import { newController } from "../lib/shows";
 import { useApp } from "../state/store";
-import { SendToFppDialog, fppChoices } from "./SendToFppDialog";
+import { SendToFppDialog, fppChoices, sendChoices } from "./SendToFppDialog";
 
 const FPP = "192.0.2.10";
 const SOURCE: SendSource = { kind: "openSequence", name: "Jingle Bells" };
@@ -46,6 +46,79 @@ describe("Send to FPP", () => {
     const devices = demoDevices().details.map((d) => ({ ...d.device, responding: true, lastSeen: 0 }));
     expect(fppChoices(show.controllers, devices)).toEqual([{ address: FPP, name: "Main FPP" }]);
     expect(fppChoices(undefined, [{ ...devices[0], address: "192.0.2.99", name: "Garage" }])).toEqual([{ address: "192.0.2.99", name: "Garage" }]);
+  });
+
+  it("offers the show's other controllers after the FPPs, not checked yet, and leaves out what isn't an FPP", () => {
+    const generic = (name: string, address: string) => newController(name, address, "ddp", 1);
+    const controllers = [
+      generic("Show Pi", "192.0.2.50"),
+      { ...newController("Falcon", "192.0.2.20", "ddp", 0), adapter: "falcon" as const },
+      { ...generic("Lawn DMX", "192.0.2.80"), kind: "dmx" as const },
+      generic("No address yet", " "),
+      generic("Found Falcon", "192.0.2.21"),
+      generic("Found FPP", FPP),
+      { ...newController("Main FPP", "192.0.2.11", "ddp", 0), adapter: "fpp" as const },
+    ];
+    const devices = demoDevices().details.map((d) => ({ ...d.device, responding: true, lastSeen: 0 }));
+    devices.push({ ...devices[1], address: "192.0.2.21", name: "Falcon_Garage" });
+    expect(sendChoices(controllers, devices)).toEqual([
+      { address: "192.0.2.11", name: "Main FPP", checked: true },
+      { address: FPP, name: "FPP", checked: true },
+      { address: "192.0.2.50", name: "Show Pi", checked: false },
+    ]);
+  });
+
+  it("reads a controller that isn't known to be an FPP only on Check, then sends on Send", async () => {
+    localStorage.removeItem("pixelflow.sendToFpp");
+    const show = emptyShow("Home");
+    // Added by hand on Wiring, its type left as Other.
+    show.controllers = [newController("Garage Pi", FPP, "ddp", 1)];
+    const backend = new MemoryBackend(show);
+    backend.fppPlayers = demoPlayers();
+    backend.fppFiles[FPP] = { media: [], playlists: {}, freeBytes: 5 * 1024 ** 3 };
+    await useApp.getState().connect(backend);
+    const plan = vi.spyOn(backend, "fppSendPlan");
+    const send = vi.spyOn(backend, "fppSend");
+    const user = userEvent.setup();
+    const { unmount } = render(<SendToFppDialog source={SOURCE} title="Jingle Bells" music={null} onClose={() => {}} />);
+    const dialog = screen.getByRole("dialog", { name: "Send to FPP" });
+    const picker = within(dialog).getByRole("combobox", { name: "FPP" });
+    expect(picker).toHaveValue(FPP);
+    expect(within(picker).getByRole("option", { name: `Garage Pi (${FPP}), not checked yet` })).toBeInTheDocument();
+    expect(within(dialog).getByText(/Check reads it to make sure it's an FPP; nothing is sent/)).toBeInTheDocument();
+    await new Promise((r) => setTimeout(r, 300));
+    expect(plan).not.toHaveBeenCalled();
+    expect(within(dialog).getByRole("button", { name: /^Send$/ })).toBeDisabled();
+
+    await user.click(within(dialog).getByRole("button", { name: "Check" }));
+    expect(await within(dialog).findByText(/^Garage Pi has .+ free\.$/)).toBeInTheDocument();
+    expect(within(picker).getByRole("option", { name: `Garage Pi (${FPP})` })).toBeInTheDocument();
+    expect(send).not.toHaveBeenCalled();
+    await user.click(within(dialog).getByRole("button", { name: /^Send$/ }));
+    expect(await within(dialog).findByText(/Jingle Bells.fseq are on Garage Pi/)).toBeInTheDocument();
+    expect(backend.calls.some((c) => c.startsWith("fppStart"))).toBe(false);
+
+    // Sent to once, it's read straight away next time.
+    unmount();
+    plan.mockClear();
+    render(<SendToFppDialog source={SOURCE} title="Jingle Bells" music={null} onClose={() => {}} />);
+    expect(await screen.findByText(/^Garage Pi has .+ free\.$/)).toBeInTheDocument();
+    expect(plan).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: "Check" })).not.toBeInTheDocument();
+  });
+
+  it("says a controller that doesn't answer as an FPP may not be one, and won't send to it", async () => {
+    const show = emptyShow("Home");
+    show.controllers = [newController("Roof", "192.0.2.77", "ddp", 1)];
+    const backend = new MemoryBackend(show);
+    await useApp.getState().connect(backend);
+    const user = userEvent.setup();
+    render(<SendToFppDialog source={SOURCE} title="Jingle Bells" music={null} onClose={() => {}} />);
+    const dialog = screen.getByRole("dialog", { name: "Send to FPP" });
+    await user.click(within(dialog).getByRole("button", { name: "Check" }));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("Could not reach 192.0.2.77");
+    expect(within(dialog).getByText(/Roof may not be an FPP\. If it isn't, pick your FPP above, or choose Another address…/)).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: /^Send$/ })).toBeDisabled();
   });
 
   it("checks the FPP without changing anything, then sends only on Send", async () => {

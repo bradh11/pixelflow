@@ -17,8 +17,8 @@ const DMX_KINDS = [
 ];
 
 /**
- * "Add prop ▾": pick a kind and it lands in the middle of the canvas, selected. (To draw one where
- * it goes instead, pick its tool on the toolbar.)
+ * "Add prop ▾": pick a kind and it lands near the middle of the canvas, clear of the props there,
+ * selected. (To draw one where it goes instead, pick its tool on the toolbar.)
  */
 export function AddPropMenu({ preview }: { preview: PreviewProp[] }) {
   const [open, setOpen] = useState(false);
@@ -63,7 +63,7 @@ export function AddPropMenu({ preview }: { preview: PreviewProp[] }) {
         if (open && !box.current?.contains(e.relatedTarget as Node | null)) setOpen(false);
       }}
     >
-      <Button ref={trigger} variant="primary" aria-haspopup="menu" aria-expanded={open} title="Add a prop in the middle of the canvas" onClick={() => setOpen(!open)}>
+      <Button ref={trigger} variant="primary" aria-haspopup="menu" aria-expanded={open} title="Add a prop near the middle of the canvas" onClick={() => setOpen(!open)}>
         <Plus size={16} aria-hidden /> Add prop <ChevronDown size={14} aria-hidden />
       </Button>
       {open && (
@@ -113,7 +113,7 @@ export function AddPropMenu({ preview }: { preview: PreviewProp[] }) {
             ))}
           </div>
           <p className="mt-1 border-t border-neutral-200 px-2 pt-1.5 pb-1 text-xs text-neutral-500 dark:border-neutral-800">
-            Lands in the middle of the canvas. To draw a prop right where it goes, pick its tool on the toolbar and drag.
+            Lands near the middle of the canvas, clear of the props there. To draw a prop right where it goes, pick its tool on the toolbar and drag.
           </p>
         </div>
       )}

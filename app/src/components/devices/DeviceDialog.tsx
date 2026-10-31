@@ -1,8 +1,9 @@
 import { type ReactNode, useEffect, useRef } from "react";
 import type { ColorOrder, MatchReason, Prop, PropMatch, Show } from "../../api/types";
 import { doubleReorder, mappingProblem } from "../../lib/deviceSetup";
-import { thousands } from "../../lib/format";
+import { plural, thousands } from "../../lib/format";
 import { nodeCount } from "../../lib/shows";
+import type { UnwiredFit } from "../../lib/unwiredFits";
 import { Select } from "../ui";
 
 /**
@@ -77,7 +78,10 @@ const WHY: Record<MatchReason, string> = { samePort: "already on this port", sam
 
 /**
  * Picks what a device string becomes in the show: a new starter prop, or a prop already in the
- * show (one imported from xLights, say). When `suggestion` is picked, it says why it was.
+ * show (one imported from xLights, say). When `suggestion` is picked, it says why it was. The
+ * show's unwired props that fit the string (`fit`) come first, and while a new prop is picked it
+ * says they're there. Props another string has (`claimed`, with that string's name) can't be
+ * picked: one prop is never two strings.
  */
 export function PropPicker({
   show,
@@ -86,6 +90,8 @@ export function PropPicker({
   order,
   value,
   suggestion,
+  fit,
+  claimed,
   onChange,
 }: {
   show: Show;
@@ -95,6 +101,8 @@ export function PropPicker({
   order: ColorOrder | null;
   value: string;
   suggestion?: PropMatch;
+  fit?: UnwiredFit;
+  claimed?: Map<string, string>;
   onChange: (id: string) => void;
 }) {
   const props = [...show.props].sort((a, b) => a.name.localeCompare(b.name));
@@ -102,21 +110,45 @@ export function PropPicker({
   const size = chosen ? nodeCount(chosen.shape) : null;
   const problem = chosen && order ? mappingProblem(chosen, order) : null;
   const twice = chosen && order && !problem ? doubleReorder(chosen, order) : null;
-  const why = chosen && suggestion?.prop === chosen.id ? WHY[suggestion.reason] : null;
+  const fitting = (fit?.props ?? []).flatMap((id) => props.filter((p) => p.id === id));
+  const open = fitting.filter((p) => !claimed?.has(p.id));
+  const why =
+    chosen && suggestion?.prop === chosen.id
+      ? WHY[suggestion.reason]
+      : chosen && fitting.includes(chosen)
+        ? `unwired${fit?.kind ? ` ${fit.kind}` : ""}, ${plural(pixels, "pixel")}`
+        : null;
+  const option = (p: Prop) => {
+    const at = wiredAt(show, p);
+    const other = p.id !== value ? claimed?.get(p.id) : undefined;
+    return (
+      <option key={p.id} value={p.id} disabled={other !== undefined}>
+        {p.name} · {thousands(nodeCount(p.shape))} px{at ? ` (on ${at})` : ""}
+        {other ? ` (picked for ${other})` : ""}
+      </option>
+    );
+  };
   return (
     <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
       <Select aria-label={label} value={value} onChange={(e) => onChange(e.target.value)} className="max-w-72 py-0.5 text-xs">
         <option value="">A new prop</option>
-        {props.map((p) => {
-          const at = wiredAt(show, p);
-          return (
-            <option key={p.id} value={p.id}>
-              {p.name} · {thousands(nodeCount(p.shape))} px{at ? ` (on ${at})` : ""}
-            </option>
-          );
-        })}
+        {fitting.length > 0 ? (
+          <>
+            <optgroup label={`Unwired, ${plural(pixels, "pixel")}`}>{fitting.map(option)}</optgroup>
+            <optgroup label="Other props">{props.filter((p) => !fitting.includes(p)).map(option)}</optgroup>
+          </>
+        ) : (
+          props.map(option)
+        )}
       </Select>
       {why && <span className="text-neutral-500">{why}</span>}
+      {!chosen && open.length > 0 && (
+        <span className="text-amber-700 dark:text-amber-400">
+          {open.length === 1
+            ? `${open[0].name} is unwired with ${plural(pixels, "pixel")}: pick it if it's this string`
+            : `${open.length} unwired props have ${plural(pixels, "pixel")}: pick one if it's this string`}
+        </span>
+      )}
       {chosen && size !== pixels && !problem && (
         <span className="text-amber-700 dark:text-amber-400">
           {why

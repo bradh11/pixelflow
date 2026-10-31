@@ -4,6 +4,7 @@ import { errorMessage } from "../api/backend";
 import type { DeviceDetails, DeviceInput, Show, UseProps } from "../api/types";
 import { stringKey } from "../lib/deviceSetup";
 import { plural, thousands } from "../lib/format";
+import { type UnwiredFit, clearFits, unwiredFits } from "../lib/unwiredFits";
 import { useApp } from "../state/store";
 import { PropPicker } from "./devices/DeviceDialog";
 import { Button } from "./ui";
@@ -58,6 +59,8 @@ export function ImportDialog({
   const [details, setDetails] = useState<DeviceDetails | null>(null);
   /** Strings wired to props already in the show instead of new starter props, by string key. */
   const [useProps, setUseProps] = useState<UseProps>({});
+  /** The show's unwired props that fit strings no name matched, by string key. */
+  const [fits, setFits] = useState<Record<string, UnwiredFit>>({});
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const cancelRef = useRef<HTMLButtonElement>(null);
@@ -68,8 +71,12 @@ export function ImportDialog({
       (d) => {
         if (cancelled) return;
         setDetails(d);
-        // "In your show" starts on the props the strings most likely are.
-        setUseProps(Object.fromEntries(Object.entries(d.plan.suggested).map(([key, match]) => [key, match.prop])));
+        // "In your show" starts on the props the strings most likely are: by port or name, else
+        // the one unwired prop that fits, so a drawn prop isn't made again.
+        const current = useApp.getState().snapshot?.show;
+        const found = current ? unwiredFits(current, d.config, d.plan.suggested) : {};
+        setFits(found);
+        setUseProps({ ...Object.fromEntries(Object.entries(d.plan.suggested).map(([key, match]) => [key, match.prop])), ...clearFits(found) });
       },
       (e) => !cancelled && setError(errorMessage(e)),
     );
@@ -109,6 +116,11 @@ export function ImportDialog({
 
   const mapping = (show?.props.length ?? 0) > 0 && details?.plan.canImport === true;
   const reused = Object.values(useProps).filter(Boolean).length;
+  const stringName = (port: number, i: number, name: string | null) => `port ${port} ${name ?? `string ${i + 1}`}`;
+  const names = new Map(details?.config.ports.flatMap((port) => port.strings.map((s, i) => [stringKey(port.number, i), stringName(port.number, i, s.name)] as const)));
+  /** The props the other strings have, with those strings' names: one prop is never two strings. */
+  const claimedBesides = (key: string) =>
+    new Map(Object.entries(useProps).flatMap(([other, prop]) => (other !== key && prop ? [[prop, names.get(other) ?? other] as const] : [])));
   const compare = details?.plan.alreadyInShow && onCompare ? onCompare : null;
 
   return (
@@ -179,11 +191,13 @@ export function ImportDialog({
                                 <td className={`${CELL} min-w-56`}>
                                   <PropPicker
                                     show={show}
-                                    label={`Prop for port ${port.number} ${s.name ?? `string ${i + 1}`}`}
+                                    label={`Prop for ${stringName(port.number, i, s.name)}`}
                                     pixels={s.pixels}
                                     order={s.colorOrder}
                                     value={useProps[key] ?? ""}
                                     suggestion={details.plan.suggested[key]}
+                                    fit={fits[key]}
+                                    claimed={claimedBesides(key)}
                                     onChange={(id) => setUseProps((now) => ({ ...now, [key]: id }))}
                                   />
                                 </td>

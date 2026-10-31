@@ -14,7 +14,7 @@ servo.
 
 ## Adding a fixture
 
-1. On **Layout**, choose **Add prop ▾ → DMX flood or bar**. A flood lands in the middle of the
+1. On **Layout**, choose **Add prop ▾ → DMX flood or bar**. A flood lands near the middle of the
    canvas; drag it to where the light is (a flood on the lawn washing the house front, a par at
    the foot of a tree).
 

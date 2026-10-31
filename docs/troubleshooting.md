@@ -164,6 +164,11 @@ Likely causes, in order:
 6. **Imported from xLights.** Read the import notes for the prop. Some wiring details are
    approximated. See [A sequence import says effects look close or
    different](#a-sequence-import-says-effects-look-close-or-different).
+7. **A prop is in the show twice, and the one you drew stays dark.** Adding a controller from
+   **Controllers** made a new prop for a string that is a prop you had already drawn. Press ⌘Z to
+   undo the add (it is one step), open the controller again, and pick your prop under **In your
+   show** for that string. An unwired prop with the string's pixel count is picked for you when
+   it's the only one that fits; when several fit, they're listed first.
 
 ## The controller is not found or "not answering"
 
@@ -245,6 +250,15 @@ are the FPP's own message.
 9. **Playback fails afterward.** After a successful send, choose **Play it now on the FPP**. If the
    FPP is busy, the window asks "Stop … and play this now?". On **Controllers**, the FPP page's
    **Health** section lists warnings the FPP reports.
+10. **Your FPP is marked "not checked yet", or isn't listed.** The list has controllers of type
+    FPP and the FPPs **Find controllers** found, then your show's other controllers, marked "not
+    checked yet" (a controller added on **Wiring** with the type **Other / not listed**). Pick
+    yours and choose **Check**: PixelFlow reads it, and **Send** works once it answers as an
+    FPP. "… may not be an FPP" means nothing at that address answered as one: check the address,
+    or that the FPP is on (see [The controller is not found or "not
+    answering"](#the-controller-is-not-found-or-not-answering)). A Falcon, a WLED, or a DMX
+    controller is never listed. To send to an FPP that isn't in your show, choose **Another
+    address…**.
 
 Stop a send with **Cancel**. Nothing on the FPP changes if you cancel before the files are
 moved into place. Once the window says "Moving the files into place. This can't be cancelled

@@ -191,6 +191,12 @@ You can scan for it or add it by address.
    - For a Falcon or WLED controller, a window shows its ports and strings. Choose **Add to
      show**. (A Falcon is read-only: PixelFlow reads its setup but can't send one, so **Send
      setup** is off for it.)
+   - Each string becomes a new prop, unless your show already has it. If you drew your props
+     first, check the **In your show** column before **Add to show**. A string starts on the
+     prop with its name, or else on the one unwired prop with its pixel count (and the kind its
+     name says, such as a tree), with the reason beside it, such as "unwired tree, 800 pixels".
+     When several props fit, they are listed first and the string waits for you to pick one. A
+     prop picked for one string can't be picked for another.
    - For an FPP, a page opens. Its **Outputs → your show** section lists the controllers the FPP
      sends to. Choose **Set up my show from this FPP**, review what it will add, and choose the
      button that adds the controllers.
@@ -207,7 +213,10 @@ You can scan for it or add it by address.
 2. Or, on **Wiring**, choose **Add controller** and fill in the form: **Name**, **Controller
    type**, **IP address**, **Protocol** (**DDP** or **sACN (E1.31)**), and **Ports**. Choose
    **Add**. Picking a known **Controller type**, such as **Falcon F16V5**, fills in the port
-   count and a pixel limit for each port.
+   count and a pixel limit for each port. While the type is **Other / not listed**, the form
+   offers one when it can tell: a scan found an FPP (or a Falcon or WLED) at that address, or
+   the name says FPP. Choose **Set type to FPP** to take it. **Send to FPP** lists a controller
+   of type FPP first, ready to send to.
 
 ![The Add controller form on Wiring, filled in: Name, Controller type Falcon F16V5, IP address, Protocol DDP, and Ports 16, with Add and Cancel, and a note that with 16 ports in use each drives up to 1,024 pixels.](images/add-controller.png)
 
@@ -220,8 +229,9 @@ your show are marked **In show**.
 
 1. Open **Layout**.
 2. Choose **Add prop** (top right) and pick a shape from the menu, such as **Arch**, **Line /
-   string**, **Matrix**, or **Mega tree**. It lands in the middle of the canvas. Or pick a tool on
-   the toolbar and drag on the canvas to draw the prop where it belongs.
+   string**, **Matrix**, or **Mega tree**. It lands near the middle of the canvas, clear of the
+   props already there, so each one you add can be seen and picked. Or pick a tool on the
+   toolbar and drag on the canvas to draw the prop where it belongs.
 
    ![The Add prop menu open below the Add prop button: Arch, Line / string, Poly line (bends), Matrix, Mega tree, Star, Circle, Wreath, Candy canes, Icicles, Window frame, Spinner, Sphere, Cube, Custom grid, then DMX flood or bar, DMX moving head, and DMX servo.](images/layout-add-prop.png)
 
@@ -390,7 +400,10 @@ its own, put the sequence on the FPP.
 
 1. On **Sequence**, choose **Send to FPP…**.
 2. Pick your FPP from the list, or choose **Another address…**, type its address, and choose
-   **Check**.
+   **Check**. The list has the FPPs PixelFlow knows first (controllers of type FPP, and FPPs
+   **Find controllers** found), then your show's other controllers, marked "not checked yet".
+   Pick one of those and choose **Check**: PixelFlow reads it to make sure it's an FPP, and
+   nothing is sent.
 3. Check the **Music** line. Choose **Change…** or **Choose music…** if you need to, or **No
    music** to send lights only.
 4. If the FPP already has a file with the same name, choose **Replace it**, **Keep both**, or

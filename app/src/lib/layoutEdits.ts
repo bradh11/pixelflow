@@ -120,25 +120,59 @@ export function visibleBox(view: View, size: Size): Box | null {
   return { minX: a.x, minY: a.y, maxX: b.x, maxY: b.y };
 }
 
+/** At most this many spots are tried for a new prop (a coarser grid in a big view). */
+const MOST_SPOTS = 4000;
+
 /**
- * A new prop centred in `visible` (what the canvas shows). When another prop is already centred
- * there (the last one added, say), it steps down and to the right until it's clear, so props added
- * one after another fan out instead of stacking. Without a visible area, it goes beside the others.
+ * The centre nearest `target` for a `w` × `h` box that stays inside `area` and `gap` clear of each
+ * of `others`, tried on a grid of half the box's size; right before left and down before up when
+ * two are as near. Null when no spot in the area is clear.
+ */
+function clearSpot(target: { cx: number; cy: number }, w: number, h: number, area: Box, others: Box[], gap: number): { cx: number; cy: number } | null {
+  const [left, right] = [area.minX + gap + w / 2, area.maxX - gap - w / 2];
+  const [bottom, top] = [area.minY + gap + h / 2, area.maxY - gap - h / 2];
+  if (left > right || bottom > top) return null;
+  let [sx, sy] = [Math.max((w + gap) / 2, gap), Math.max((h + gap) / 2, gap)];
+  while (((right - left) / sx + 1) * ((top - bottom) / sy + 1) > MOST_SPOTS) [sx, sy] = [sx * 1.5, sy * 1.5];
+  const spots: { i: number; j: number; d: number }[] = [];
+  for (let i = Math.ceil((left - target.cx) / sx); target.cx + i * sx <= right; i++) {
+    for (let j = Math.ceil((bottom - target.cy) / sy); target.cy + j * sy <= top; j++) spots.push({ i, j, d: Math.hypot(i * sx, j * sy) });
+  }
+  spots.sort((a, b) => (Math.abs(a.d - b.d) > 1e-9 ? a.d - b.d : b.i - a.i || a.j - b.j));
+  // Exactly `gap` apart counts as clear.
+  const near = gap * (1 - 1e-6);
+  const nearby = others.filter((o) => o.maxX + near > area.minX && o.minX - near < area.maxX && o.maxY + near > area.minY && o.minY - near < area.maxY);
+  for (const { i, j } of spots) {
+    const [cx, cy] = [target.cx + i * sx, target.cy + j * sy];
+    const clear = nearby.every((o) => cx - w / 2 >= o.maxX + near || cx + w / 2 <= o.minX - near || cy - h / 2 >= o.maxY + near || cy + h / 2 <= o.minY - near);
+    if (clear) return { cx, cy };
+  }
+  return null;
+}
+
+/**
+ * A new prop where it can be seen and picked on its own: in the middle of `visible` (what the
+ * canvas shows) when nothing is there, else on the clear spot in view nearest the middle, so props
+ * added one after another sit side by side instead of on top of each other. When nothing in view
+ * is clear, it steps down and to the right from the middle until it's off the other props'
+ * centres, by enough to leave the one under it to pick. Without a visible area, it goes beside the
+ * others.
  */
 export function placedInView(prop: Prop, show: Show, preview: PreviewProp[], visible: Box | null): Prop {
   if (!visible) return besideOthers(prop, show, preview);
   const own = boxOfPoints(frontView(prop));
   if (!own) return prop;
   const drawn = new Map(preview.map((p) => [p.prop, p.points]));
-  const centres = show.props
-    .map((p) => boxOfPoints(drawn.get(p.id) ?? frontView(p)))
-    .filter((b): b is Box => b !== null)
-    .map(boxCenter);
+  const others = show.props.map((p) => boxOfPoints(drawn.get(p.id) ?? frontView(p))).filter((b): b is Box => b !== null);
   const target = boxCenter(visible);
   const width = visible.maxX - visible.minX;
   const height = visible.maxY - visible.minY;
-  const step = Math.max(Math.min(width, height) * 0.05, 1e-3);
-  let { cx, cy } = target;
+  const [w, h] = [own.maxX - own.minX, own.maxY - own.minY];
+  const gap = Math.max(Math.min(width, height) * 0.03, 1e-3);
+  const spot = clearSpot(target, w, h, visible, others, gap);
+  let { cx, cy } = spot ?? target;
+  const centres = spot ? [] : others.map(boxCenter);
+  const step = Math.max(Math.min(width, height) * 0.05, Math.max(w, h) * 0.25, 1e-3);
   // Fan out until clear, but never past the edge of what's shown (then start a new fan).
   for (let i = 0; i < 400 && centres.some((c) => Math.abs(c.cx - cx) < step / 2 && Math.abs(c.cy - cy) < step / 2); i++) {
     cx += step;

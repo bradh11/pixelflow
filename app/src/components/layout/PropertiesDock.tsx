@@ -8,6 +8,9 @@ import { IconButton } from "../ui";
 
 const PREF_KEY = "pixelflow.layoutProperties";
 
+/** The panel's width in CSS pixels (its `w-72`). */
+export const PROPERTIES_PANEL_WIDTH = 288;
+
 /**
  * When the properties panel shows: "auto" while something is selected, "pinned" always, or
  * "hidden" never (until asked for again).

@@ -133,6 +133,10 @@ you make in PixelFlow takes it from whichever channel is louder, so a sound on t
 heard too. To change it, choose **Sequence settings** (the small button beside the sequence's
 name) and set **Loudness from**. Undo takes it back.
 
+A Text effect drawn in one of the computer's fonts in xLights (Arial, say) comes in in that font,
+at the same size, bold or italic as it was. If your computer hasn't got the font, it shows in
+PixelFlow's pixel font, and the report says so: "Arial Narrow isn't on this computer".
+
 **If it doesn't:** see [A sequence import says effects look close or
 different](troubleshooting.md#a-sequence-import-says-effects-look-close-or-different).
 
@@ -326,6 +330,11 @@ language](troubleshooting.md#lyrics-are-wrong-or-in-the-wrong-language) and
 2. Select the effect on the timeline to change its settings.
 3. Press Space to play. Press L to loop.
 4. If a row is missing, choose **Add row**.
+
+**Words in a font.** A **Text** effect draws its words in PixelFlow's pixel font, or in any font
+on your computer. Under **Font**, type to find one; **Pixel font** is first in the list. The
+**Bold** and **Italic** buttons sit beside it. **Size** is the font's size in pixels. Played on a
+computer without that font, the words show in the pixel font, and the settings say so.
 
 ![The Sequence screen: the Effects list as a column of icons on the left; timing tracks for beats, bars, and lyrics above a row of effects for each prop; the preview at the top right; and below it the settings of the selected Color Wash effect: Cycles, Gradient, Colors, and Fades.](images/sequence.png)
 

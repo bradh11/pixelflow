@@ -170,7 +170,7 @@ Except where a row says so, these files have no test module, so impl equals tota
 | PixelFlow file | Lines (impl) | xLights source followed | Lines following it | What matches | Clean-room |
 |---|---|---|---|---|---|
 | `styles.rs` | 759 (481) | `models/ModelGroup.cpp` (`GetBufferSize`, `InitRenderBufferNodes`), `models/Model.cpp` (Per Preview) | about 215 | `grid_cells` and `preview_cells` step for step (2048 cap, `count*5 > area`, 400 cap). Group stacking arms are likely ports, re-expressed per pixel. | **M** |
-| `text.rs` | 419 (419) | `effects/TextEffect.cpp` (`RenderTextLine`, the `zigzag` macro, `FormatCountdown`) | about 190 | Movement offsets case by case (`xlimit = totwidth*8 + 1`), countdown formatting including "Invalid Format". Layout, colouring, and the font are not from xLights. | **M** |
+| `text.rs` | 419 (419) | `effects/TextEffect.cpp` (`RenderTextLine`, the `zigzag` macro, `FormatCountdown`) | about 190 | Movement offsets case by case (`xlimit = totwidth*8 + 1`), countdown formatting including "Invalid Format". Layout, colouring, and the font are not from xLights, nor is drawing in a computer's fonts (`pf-fonts`, under "Independent"). | **M** |
 | `geometry.rs` | 1,353 (786) | `models/SubModel.cpp` (`initDefaultBuffer`, `initSubbufferRange`), `models/Model.cpp` | about 190 | `grid_buffer` step for step; the sub-buffer edge rounding (start edge rounded, end truncated). | **M** |
 | `color.rs` | 617 (377) | `effects/ispc/LayerBlendingFunctions.ispc` | about 165 | `to_hsv` and `from_hsv` (both `1e-20` epsilons), and 16 blend arms branch for branch (`/ 5.0` shadow, `/ 2.0` shadow below). Normal, Add, Max, Multiply, and coverage are PixelFlow's. | **S** |
 | `raster.rs` | 340 (269) | `render/RenderBuffer.cpp` (`SetPixel`, `DrawLine`, `DrawThickLine`, `DrawCircle`, `DrawFadingCircle`) | about 150 | The gap-filling thick line case for case, the eight-point circle, and the `> width` wrap quirk (asserted by a test). The underlying algorithms are textbook. | **S** |
@@ -312,6 +312,12 @@ public specifications), `pf-fidelity` (which compares rendered output and cites 
 syllabifier have no xLights counterpart), `pf-xlights`'s XML reader, vendor package reader, and
 auto-mapping, `pf-sequence`'s documents, timing, and validation, `pf-model` apart from the files
 named, the desktop shell (`app/src-tauri`), and the UI apart from the files named.
+
+Written for PixelFlow where a library could have stood instead:
+
+| Part | Where | What it is | Notes |
+|---|---|---|---|
+| Finding the computer's fonts, and drawing their letters | `crates/pf-fonts` (`find.rs`, `raster.rs`, `sized.rs`), used by the Text effect (`pf-render/src/text.rs`), the importer, and the Assistant's review | PixelFlow's own (October 2026). It looks through the system's, everyone's, and the user's font folders on macOS, Windows, and Linux, reading only each font file's table directory and its `name`, `OS/2`, and `head` tables; it cuts a letter's outline into short lines and fills it by the exact area each pixel has inside it, so edges are partial brightness; it makes up a bold or an italic a family lacks; and it keeps each letter drawn once a size. | The font files are read with `ttf-parser` (MIT OR Apache-2.0), a dependency, not copied. Filling an outline by signed area is a well-known technique; no rasterizer's source (FreeType, font-rs, fontdue, ab_glyph) and no font finder's (fontdb, fontconfig) was read. No font file ships: the Text effect uses the fonts installed on the user's computer. How xLights describes a font in a sequence ("bold 'arial narrow' 12 utf-8", wxWidgets' words for a font) is read as format. |
 
 ## Borrowed data
 

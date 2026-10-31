@@ -896,9 +896,33 @@ fn dmx(channels: &[(u32, u32)], ramps: &[(u32, u32, u32)]) -> String {
     parts.join(",")
 }
 
-/// "Moving heads and servos": the DMX effect pointing two heads and turning two servos, over
-/// colors drawn on the heads by ordinary effects (red, green, blue and white on one, a color
-/// wheel on the other). 20 seconds of 50 ms frames.
+/// xLights' Moving Head effect on the heads with fixture numbers `heads` (`MH1` is 1), each given
+/// the same settings, as xLights writes them: fields `Label: value` joined by `;`, `before` the
+/// list of heads and `after` it, a comma inside a field written `&comma;`, and on a group, each
+/// head drawn on its own buffer.
+fn moving_head(heads: &[u32], before: &[&str], after: &[&str]) -> String {
+    let list: Vec<String> = heads.iter().map(u32::to_string).collect();
+    let mut fields: Vec<String> = before.iter().map(|f| f.to_string()).collect();
+    fields.push(format!("Heads: {}", list.join(",")));
+    fields.extend(after.iter().map(|f| f.to_string()));
+    let text = fields.join(";").replace(',', "&comma;");
+    let mut parts = vec!["B_CHOICE_BufferStyle=Per Model Default".to_string()];
+    parts.extend(heads.iter().map(|n| format!("E_TEXTCTRL_MH{n}_Settings={text}")));
+    parts.join(",")
+}
+
+/// xLights' Servo effect on the model's servo `n` (by its node's name), from `start` to `end`
+/// percent of its travel.
+fn servo(n: u32, start: u32, end: u32) -> String {
+    format!("E_CHOICE_Channel=Servo{n},E_TEXTCTRL_EndValue={end},E_TEXTCTRL_Servo={start}")
+}
+
+/// "Moving heads and servos": for 20 seconds the DMX effect pointing two heads and turning two
+/// servos, over colors drawn on the heads by ordinary effects (red, green, blue and white on
+/// one, a color wheel on the other); then 20 seconds of xLights' Moving Head effect on the two
+/// heads (a position, a fan, a circle with a dimmer, a pan swept by a value curve) and its Servo
+/// effect on each servo (from one share of its travel to another, and by a value curve). 40
+/// seconds of 50 ms frames.
 fn heads() -> Xsq {
     let left = row(
         "Spot Left",
@@ -938,33 +962,89 @@ fn heads() -> Xsq {
             vec![fx("Color Wash", 0, 20000, &color_wash("2.0"), palette(WARM, ""))],
         ],
     );
-    let arm = row(
-        "Arm",
+    // Colors as hue, saturation and value: red, green, blue, white.
+    const RED: &str = "0.000000,1.000000,1.000000";
+    const GREEN: &str = "0.333333,1.000000,1.000000";
+    const BLUE: &str = "0.666667,1.000000,1.000000";
+    const WHITE_HSV: &str = "0.000000,0.000000,1.000000";
+    let pan_sweep =
+        "Pan VC: Active=TRUE|Id=ID_VALUECURVE_MHPan|Type=Ramp|Min=-180|Max=180|P1=-90.00|P2=90.00|RV=TRUE|";
+    let both = [1, 2];
+    let head = |start: u32, before: &[&str], after: &[&str]| {
+        fx(
+            "Moving Head",
+            start,
+            start + 5000,
+            &moving_head(&both, before, after),
+            palette(WHITE, ""),
+        )
+    };
+    let group = row(
+        "Heads",
         vec![vec![
-            fx(
-                "DMX",
-                0,
-                10000,
-                &dmx(&[(2, 0), (3, 64), (4, 0)], &[(1, 0, 255)]),
-                palette(WHITE, ""),
+            head(20000, &["Pan: 45.0", "Tilt: 20.0"], &[&format!("Color: {RED}")]),
+            head(
+                25000,
+                &["Pan: 0.0", "Tilt: 30.0", "PanOffset: 30.0", "TiltOffset: 10.0"],
+                &[&format!("Color: {GREEN}")],
             ),
-            fx(
-                "DMX",
-                10000,
-                20000,
-                &dmx(&[(1, 255), (2, 255), (4, 0)], &[(3, 0, 255)]),
-                palette(WHITE, ""),
+            head(
+                30000,
+                &[
+                    "Pan: 0.0",
+                    "Tilt: 30.0",
+                    "Pattern: Circle",
+                    "PatternWidth: 90",
+                    "PatternHeight: 45",
+                    "Cycles: 2",
+                ],
+                &[
+                    &format!("Color: {BLUE}"),
+                    "Dimmer: 0.0,0.0,0.5,1.0,1.0,0.0",
+                    "Shutter: On",
+                ],
+            ),
+            head(
+                35000,
+                &[pan_sweep, "Tilt: 45.0"],
+                &[&format!("Color: {WHITE_HSV},{RED}")],
             ),
         ]],
+    );
+    let servo_curve = "E_CHOICE_Channel=Servo2,E_VALUECURVE_Servo=Active=TRUE|Id=ID_VALUECURVE_Servo|Type=Ramp|Min=0|Max=1000|P1=0.00|P2=1000.00|RV=TRUE|";
+    let arm = row(
+        "Arm",
+        vec![
+            vec![
+                fx(
+                    "DMX",
+                    0,
+                    10000,
+                    &dmx(&[(2, 0), (3, 64), (4, 0)], &[(1, 0, 255)]),
+                    palette(WHITE, ""),
+                ),
+                fx(
+                    "DMX",
+                    10000,
+                    20000,
+                    &dmx(&[(1, 255), (2, 255), (4, 0)], &[(3, 0, 255)]),
+                    palette(WHITE, ""),
+                ),
+                fx("Servo", 20000, 30000, &servo(1, 10, 90), palette(WHITE, "")),
+                fx("Servo", 30000, 40000, &servo(1, 75, 75), palette(WHITE, "")),
+            ],
+            vec![fx("Servo", 20000, 40000, servo_curve, palette(WHITE, ""))],
+        ],
     );
     Xsq {
         title: "Moving heads and servos",
         about: "Moving heads and servos: the DMX effect pointing two heads and turning two servos,\n     \
-                over colors drawn on the heads by ordinary effects. 20 seconds of 50 ms frames.",
+                over colors drawn on the heads by ordinary effects, then xLights' Moving Head and\n     \
+                Servo effects. 40 seconds of 50 ms frames.",
         frame_ms: 50,
-        duration_ms: 20_000,
+        duration_ms: 40_000,
         timing: Vec::new(),
-        rows: vec![left, right, arm],
+        rows: vec![left, right, group, arm],
     }
 }
 

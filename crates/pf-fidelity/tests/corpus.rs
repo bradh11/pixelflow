@@ -492,4 +492,36 @@ fn the_corpus_heads_and_servos_get_their_channels() {
         "pan, pan fine, tilt, tilt fine"
     );
     assert_eq!(held("Spot Right", 2), [128, 128], "pan, tilt");
+
+    // From 20 s, xLights' Moving Head and Servo effects, as PixelFlow's own. Where each head
+    // points, in degrees from Home, read back through its own motors.
+    let fixture = |name: &str| {
+        let prop = imported.show.props.iter().find(|p| p.name == name).unwrap();
+        prop.dmx.clone().unwrap()
+    };
+    let degrees = |frame: &[u8], name: &str, at: usize, role: pf_model::DmxRole| {
+        let dmx = fixture(name);
+        let axis = dmx.axes().into_iter().find(|a| a.role == role).unwrap();
+        axis.degrees(&frame[at..at + dmx.footprint()])
+    };
+    let near = |a: f64, b: f64| (a - b).abs() < 1.5;
+    use pf_model::DmxRole::{Pan, Servo, Tilt};
+    // 22.5 s: both at pan 45 and tilt 20, Spot Left in red.
+    let still = at(450);
+    for (name, place) in [("Spot Left", left), ("Spot Right", right)] {
+        let (pan, tilt) = (
+            degrees(&still, name, place, Pan),
+            degrees(&still, name, place, Tilt),
+        );
+        assert!(near(pan, 45.0) && near(tilt, 20.0), "{name}: {pan} {tilt}");
+    }
+    assert_eq!(&still[left + 5..left + 10], &[255, 255, 0, 0, 0], "dimmer, red");
+    // 27.5 s: fanned 30 apart about the middle, at tilt 30 (Spot Left first in the group).
+    let fanned = at(550);
+    assert!(near(degrees(&fanned, "Spot Left", left, Pan), -15.0));
+    assert!(near(degrees(&fanned, "Spot Right", right, Pan), 15.0));
+    assert!(near(degrees(&fanned, "Spot Left", left, Tilt), 25.0));
+    assert!(near(degrees(&fanned, "Spot Right", right, Tilt), 35.0));
+    // 25 s: the first servo half way from 10% to 90% of its travel, at Home.
+    assert!(near(degrees(&at(500), "Arm", arm, Servo), 0.0));
 }

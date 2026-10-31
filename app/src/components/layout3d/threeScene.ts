@@ -52,6 +52,7 @@ import {
   Line,
   LineSegments,
   LineBasicMaterial,
+  LineDashedMaterial,
   type Material,
   Mesh,
   MeshBasicMaterial,
@@ -98,15 +99,11 @@ import {
   pixelsPerUnit,
 } from "../../lib/layout3d";
 import { DOT_RADIUS, FAINT, FILL, FINE_FROM, SMALLEST } from "../../lib/pixelBatches";
-import { ARM_COLOR, BEAM_PEAK as BEAM_STRENGTH, spread } from "../../lib/beams";
+import { ARM_COLOR, AIM_DASH, AIM_GAP, BEAM_PEAK, BEAM_SOFT, FADE_FROM, NARROWEST, POOL_PEAK, POOL_SOFT, spread } from "../../lib/beams";
+import { cosDeg, sinDeg } from "../../lib/motion";
 import { FLOOD_RADIUS, FLOOD_STRENGTH, SMALLEST_WASH, UNLIT_WASH } from "../../lib/floodWash";
 import { GLOW_STEPS, GLOW_STRENGTH, GLOW_WIDTH, glowStep } from "../../lib/pixelGlow";
 import type { Scene3d } from "./scene";
-
-// Until the 3D view draws beams as the flat previews do: how much of its strength a beam has
-// lost at its end, and how solid it is where it rests.
-const BEAM_FADE = 0.6;
-const UNLIT_BEAM = 0.18;
 
 const SKY_TOP = new Color("#04060f");
 const SKY_HORIZON = new Color("#141b33");
@@ -380,16 +377,24 @@ const WASH_FRAGMENT = /* glsl */ `
   }
 `;
 
-// A moving head's beam: a cone from the head opening along its direction (lib/beams.ts), as solid
-// as the flat previews' beam along its middle (BEAM_STRENGTH, losing BEAM_FADE of it by the far
-// end), softening toward its edges as seen from the camera.
+// A moving head's beam: a cone from the head opening along its direction, drawn as the flat
+// previews draw it (lib/beams.ts): in its hue, as bright as `level`, strong where it looks narrow
+// on the screen and soft where it looks wide (`beamStrength`, from how many screen pixels wide it
+// is there), fading out past FADE_FROM of its length unless it `lands` on the ground; softening
+// toward its edges as seen from the camera.
 const BEAM_VERTEX = /* glsl */ `
+  uniform float width;
+  uniform float scale;
+  uniform float ratio;
   varying float vAlong;
+  varying float vHalf;
   varying vec3 vNormal;
   varying vec3 vView;
   void main() {
     vAlong = -position.y;
     vec4 seen = modelViewMatrix * vec4(position, 1.0);
+    // How wide the beam is either side of its middle here, in screen pixels.
+    vHalf = vAlong * width * scale / max(-seen.z, 1e-4) / ratio;
     vNormal = normalize(normalMatrix * normal);
     vView = normalize(-seen.xyz);
     gl_Position = projectionMatrix * seen;
@@ -398,13 +403,52 @@ const BEAM_VERTEX = /* glsl */ `
 
 const BEAM_FRAGMENT = /* glsl */ `
   uniform vec3 color;
-  uniform float strength;
+  uniform float level;
+  uniform float lands;
   varying float vAlong;
+  varying float vHalf;
   varying vec3 vNormal;
   varying vec3 vView;
   void main() {
     float facing = abs(dot(normalize(vNormal), normalize(vView)));
-    gl_FragColor = vec4(color, strength * (1.0 - ${glsl(BEAM_FADE)} * clamp(vAlong, 0.0, 1.0)) * facing * facing);
+    float wide = max(vHalf, ${glsl(NARROWEST)});
+    float strength = ${glsl(BEAM_PEAK * BEAM_SOFT)} / (${glsl(BEAM_SOFT)} + wide);
+    float u = clamp((vAlong - ${glsl(FADE_FROM)}) / ${glsl(1 - FADE_FROM)}, 0.0, 1.0);
+    float fade = max(lands, 1.0 - u * u * (3.0 - 2.0 * u));
+    // The near and far sides of the cone are each drawn: each is half as solid, so together
+    // they are as solid as the beam.
+    float solid = clamp(level * strength * fade * facing * facing, 0.0, 1.0);
+    gl_FragColor = vec4(color, 1.0 - sqrt(1.0 - solid));
+  }
+`;
+
+// A pool of light where a beam meets the ground: a flat disc on it, its hue as bright as `level`,
+// solid at its middle (as `poolStrength` says for how many screen pixels wide it looks) and soft
+// to its edge, as the flat previews draw it.
+const POOL_VERTEX = /* glsl */ `
+  uniform float radius;
+  uniform float scale;
+  uniform float ratio;
+  varying vec2 vAt;
+  varying float vHalf;
+  void main() {
+    vAt = position.xz;
+    vec4 seen = modelViewMatrix * vec4(position, 1.0);
+    vHalf = radius * scale / max(-seen.z, 1e-4) / ratio;
+    gl_Position = projectionMatrix * seen;
+  }
+`;
+
+const POOL_FRAGMENT = /* glsl */ `
+  uniform vec3 color;
+  uniform float level;
+  varying vec2 vAt;
+  varying float vHalf;
+  void main() {
+    float q = dot(vAt, vAt);
+    if (q >= 1.0) discard;
+    float s = 1.0 - q;
+    gl_FragColor = vec4(color, level * ${glsl(POOL_PEAK * POOL_SOFT)} / (${glsl(POOL_SOFT)} + vHalf) * s * s);
   }
 `;
 
@@ -695,16 +739,23 @@ export function createThreeScene(canvas: HTMLCanvasElement, makeRenderer: (canva
   washScene.add(washes);
   let anyFloods = false;
 
-  // Moving heads' beams and servos' arms, over the scene (behind the house model where it stands
-  // in front of them) and under the dots. A beam's cone has its point at the origin and opens
-  // along -y, one unit long and one wide: each is placed, turned and stretched to its own.
+  // Moving heads' beams, their pools on the ground, a selected head's aim, and servos' arms, over
+  // the scene (behind the house model where it stands in front of them) and under the dots. A
+  // beam's cone has its point at the origin and opens along -y, one unit long and one wide; a
+  // pool is a disc one unit across, flat on the ground: each is placed, turned and stretched to
+  // its own.
   const motionScene = new Scene();
   const beamCone = new ConeGeometry(1, 1, 32, 1, true);
   beamCone.translate(0, -0.5, 0);
+  const poolDisc = new PlaneGeometry(2, 2);
+  poolDisc.rotateX(-Math.PI / 2);
   const beamMeshes: Mesh<ConeGeometry, ShaderMaterial>[] = [];
+  const poolMeshes: Mesh<PlaneGeometry, ShaderMaterial>[] = [];
   const arms = new LineSegments(new BufferGeometry(), new LineBasicMaterial({ color: new Color(ARM_COLOR[0] / 255, ARM_COLOR[1] / 255, ARM_COLOR[2] / 255) }));
   arms.frustumCulled = false;
-  motionScene.add(arms);
+  const aims = new LineSegments(new BufferGeometry(), new LineDashedMaterial({ color: new Color(), transparent: true, opacity: 0.85, dashSize: 1, gapSize: 1 }));
+  aims.frustumCulled = false;
+  motionScene.add(arms, aims);
   let anyMotion = false;
 
   // The halos: the lit pixels alone, drawn into a picture a screen pixel to each of its own.
@@ -874,12 +925,14 @@ export function createThreeScene(canvas: HTMLCanvasElement, makeRenderer: (canva
     },
 
     setMotion(items) {
-      const beams = items.filter((m) => m.kind === "beam");
+      const beams = items.flatMap((m) => (m.kind === "beam" ? [m] : []));
+      const pools = items.flatMap((m) => (m.kind === "pool" ? [m] : []));
+      const placed = { scale: dots.scale, ratio: dots.ratio };
       while (beamMeshes.length < beams.length) {
         const mesh = new Mesh(
           beamCone,
           new ShaderMaterial({
-            uniforms: { color: { value: new Color() }, strength: { value: 0 } },
+            uniforms: { color: { value: new Color() }, level: { value: 0 }, lands: { value: 0 }, width: { value: 1 }, ...placed },
             vertexShader: BEAM_VERTEX,
             fragmentShader: BEAM_FRAGMENT,
             transparent: true,
@@ -891,18 +944,54 @@ export function createThreeScene(canvas: HTMLCanvasElement, makeRenderer: (canva
         motionScene.add(mesh);
         beamMeshes.push(mesh);
       }
+      while (poolMeshes.length < pools.length) {
+        const mesh = new Mesh(
+          poolDisc,
+          new ShaderMaterial({
+            uniforms: { color: { value: new Color() }, level: { value: 0 }, radius: { value: 1 }, ...placed },
+            vertexShader: POOL_VERTEX,
+            fragmentShader: POOL_FRAGMENT,
+            transparent: true,
+            depthWrite: false,
+            side: DoubleSide,
+            // Drawn over the ground's grid lines, which lie in the same plane, never mixed with them.
+            polygonOffset: true,
+            polygonOffsetFactor: -4,
+            polygonOffsetUnits: -4,
+          }),
+        );
+        mesh.frustumCulled = false;
+        motionScene.add(mesh);
+        poolMeshes.push(mesh);
+      }
       const down = new Vector3(0, -1, 0);
       beamMeshes.forEach((mesh, i) => {
         const beam = beams[i];
         const dir = beam ? new Vector3(beam.dir.x, beam.dir.y, beam.dir.z) : null;
-        mesh.visible = !!beam && !!dir && dir.lengthSq() > 0;
+        mesh.visible = !!beam && !!dir && dir.lengthSq() > 0 && beam.length > 0;
         if (!beam || !dir || !mesh.visible) return;
         const width = beam.length * spread(beam.angleDeg);
         mesh.position.set(beam.origin.x, beam.origin.y, beam.origin.z);
         mesh.quaternion.setFromUnitVectors(down, dir.normalize());
         mesh.scale.set(width, beam.length, width);
-        mesh.material.uniforms.color.value.setRGB(beam.color[0] / 255, beam.color[1] / 255, beam.color[2] / 255);
-        mesh.material.uniforms.strength.value = beam.lit ? BEAM_STRENGTH : UNLIT_BEAM;
+        const u = mesh.material.uniforms;
+        u.color.value.setRGB(beam.color[0] / 255, beam.color[1] / 255, beam.color[2] / 255);
+        u.level.value = beam.level;
+        u.lands.value = beam.lands ? 1 : 0;
+        u.width.value = width;
+      });
+      poolMeshes.forEach((mesh, i) => {
+        const pool = pools[i];
+        mesh.visible = !!pool;
+        if (!pool) return;
+        // Just above the ground, so it isn't lost in it.
+        mesh.position.set(pool.at.x, 0.01, pool.at.z);
+        mesh.rotation.set(0, Math.atan2(-pool.heading.z, pool.heading.x), 0);
+        mesh.scale.set(pool.stretch, 1, pool.radius);
+        const u = mesh.material.uniforms;
+        u.color.value.setRGB(pool.color[0] / 255, pool.color[1] / 255, pool.color[2] / 255);
+        u.level.value = pool.level;
+        u.radius.value = pool.radius;
       });
       const ends = items.flatMap((m) =>
         m.kind === "arm" ? [m.origin.x, m.origin.y, m.origin.z, m.origin.x + m.dir.x * m.length, m.origin.y + m.dir.y * m.length, m.origin.z + m.dir.z * m.length] : [],
@@ -910,6 +999,38 @@ export function createThreeScene(canvas: HTMLCanvasElement, makeRenderer: (canva
       arms.geometry.dispose();
       arms.geometry = new BufferGeometry();
       arms.geometry.setAttribute("position", new BufferAttribute(new Float32Array(ends), 3));
+      // A selected head's aim: lines from the head to round the end of its beam, and round the end.
+      const outline: number[] = [];
+      const sides = 12;
+      for (const m of items) {
+        if (m.kind !== "aim") continue;
+        const dir = new Vector3(m.dir.x, m.dir.y, m.dir.z).normalize();
+        const side = new Vector3(dir.y, -dir.x, 0);
+        if (side.lengthSq() < 1e-6) side.set(1, 0, 0);
+        side.normalize();
+        const other = new Vector3().crossVectors(dir, side).normalize();
+        const r = m.length * spread(m.angleDeg);
+        const rim = (k: number) =>
+          new Vector3(m.origin.x, m.origin.y, m.origin.z)
+            .addScaledVector(dir, m.length)
+            .addScaledVector(side, r * cosDeg((k * 360) / sides))
+            .addScaledVector(other, r * sinDeg((k * 360) / sides));
+        for (let k = 0; k < sides; k++) {
+          const [a, b] = [rim(k), rim(k + 1)];
+          outline.push(a.x, a.y, a.z, b.x, b.y, b.z);
+          if (k % 3 === 0) outline.push(m.origin.x, m.origin.y, m.origin.z, a.x, a.y, a.z);
+        }
+        const material = aims.material as LineDashedMaterial;
+        material.color.setRGB(m.color[0] / 255, m.color[1] / 255, m.color[2] / 255);
+        // Dashes as long as the flat previews' are, near enough, for a beam drawn about a third of the view high.
+        const unit = Math.max(m.length / 60, 0.01);
+        material.dashSize = (unit * AIM_DASH) / 2;
+        material.gapSize = (unit * AIM_GAP) / 2;
+      }
+      aims.geometry.dispose();
+      aims.geometry = new BufferGeometry();
+      aims.geometry.setAttribute("position", new BufferAttribute(new Float32Array(outline), 3));
+      aims.computeLineDistances();
       anyMotion = items.length > 0;
     },
 
@@ -1101,6 +1222,7 @@ export function createThreeScene(canvas: HTMLCanvasElement, makeRenderer: (canva
       disposeTree(washScene);
       disposeTree(motionScene);
       beamCone.dispose();
+      poolDisc.dispose();
       disposeTree(hidingScene);
       occluder.dispose();
       hidingTarget.dispose();

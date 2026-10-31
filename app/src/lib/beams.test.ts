@@ -96,10 +96,28 @@ describe("moving heads' beams and servos' arms in the previews (the same cases a
   it("go to the 3D view as cones and arms from the cells, a dark head showing none", () => {
     const prop: PreviewProp3d = { prop: "h", frameOffset: 0, channelsPerPixel: 3, xyz: new Float32Array([1, 2, 3]), motion: { ...motion, servos: [motion.beam!.pan!] } };
     const lit = motionOf([prop], new Uint8Array([255, 0, 0, 128, 0, 128, 0]));
-    expect(lit[0]).toMatchObject({ kind: "beam", origin: { x: 1, y: 2, z: 3 }, color: [255, 0, 0], lit: true, length: 6, angleDeg: 30 });
+    expect(lit[0]).toMatchObject({ kind: "beam", origin: { x: 1, y: 2, z: 3 }, color: [255, 0, 0], level: 1, lands: false, length: 6, angleDeg: 30 });
     expect(lit[1]).toMatchObject({ kind: "arm", origin: { x: 1, y: 2, z: 3 } });
+    // Dimmed: the same hue, less bright.
+    expect(motionOf([prop], new Uint8Array([100, 50, 0, 128, 0, 128, 0]))[0]).toMatchObject({ color: [255, 128, 0], level: 100 / 255 });
     expect(motionOf([prop], new Uint8Array(7)).map((m) => m.kind)).toEqual(["arm"]);
-    expect(motionOf([prop], null)[0]).toMatchObject({ kind: "beam", lit: false });
+  });
+
+  it("show no light in 3D while nothing plays, only a selected head's aim", () => {
+    const prop: PreviewProp3d = { prop: "h", frameOffset: 0, channelsPerPixel: 3, xyz: new Float32Array([1, 2, 3]), motion };
+    expect(motionOf([prop], null)).toEqual([]);
+    expect(motionOf([prop], null, new Set(["h"]))).toMatchObject([{ kind: "aim", origin: { x: 1, y: 2, z: 3 }, length: 6, angleDeg: 30 }]);
+  });
+
+  it("stop a 3D beam pointing down at the ground, with a pool of light there", () => {
+    // Hung 2 up, at Home: straight down.
+    const hung: PreviewMotion = { ...motion, basis: [-1, 0, 0, 0, -1, 0, 0, 0, 1] };
+    const prop: PreviewProp3d = { prop: "h", frameOffset: 0, channelsPerPixel: 3, xyz: new Float32Array([1, 2, 3]), motion: hung };
+    const [beam, pool] = motionOf([prop], new Uint8Array([0, 0, 200, 128, 0, 128, 0]));
+    expect(beam).toMatchObject({ kind: "beam", lands: true });
+    expect(beam.kind === "beam" && beam.length).toBeCloseTo(2, 3);
+    expect(pool).toMatchObject({ kind: "pool", color: [0, 0, 255], level: 200 / 255 });
+    expect(pool.kind === "pool" && [pool.at.x, pool.at.y, pool.at.z]).toEqual([expect.closeTo(1, 3), 0, expect.closeTo(3, 3)]);
   });
 
   it("move in the browser stand-in's frames as a DMX effect sets the head's channels", () => {

@@ -63,7 +63,7 @@
         "frameMs": 25,
         "name": "Song",
         "rows": [{ "id": "44444444-0000-4000-8000-000000000001", "layers": [{ "effects": [] }], "target": { "prop": "11111111-0000-4000-8000-000000000001" } }, { "id": "44444444-0000-4000-8000-000000000002", "layers": [{ "effects": [] }], "target": { "prop": "11111111-0000-4000-8000-000000000002" } }],
-        "schemaVersion": 15,
+        "schemaVersion": 16,
         "timingTracks": []
       },
       "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }
@@ -112,7 +112,7 @@
           },
           { "id": "44444444-0000-4000-8000-000000000002", "layers": [{ "effects": [] }], "target": { "prop": "11111111-0000-4000-8000-000000000002" } }
         ],
-        "schemaVersion": 15,
+        "schemaVersion": 16,
         "timingTracks": [{ "id": "66666666-0000-4000-8000-000000000001", "kind": "custom", "marks": [], "name": "Cues" }]
       },
       "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }
@@ -295,7 +295,7 @@
         "frameMs": 25,
         "name": "Song",
         "rows": [{ "id": "44444444-0000-4000-8000-000000000001", "layers": [{ "effects": [] }], "target": { "prop": "11111111-0000-4000-8000-000000000001" } }, { "id": "44444444-0000-4000-8000-000000000002", "layers": [{ "effects": [] }], "target": { "prop": "11111111-0000-4000-8000-000000000002" } }],
-        "schemaVersion": 15,
+        "schemaVersion": 16,
         "timingTracks": []
       },
       "show": { "canRedo": false, "canUndo": true, "dirty": true, "path": null, "revision": 1 }

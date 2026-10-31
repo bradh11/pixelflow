@@ -20,7 +20,7 @@ set -eu
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 CORPUS="$ROOT/crates/pf-fidelity/corpus"
-SEQUENCES="washes chance marks heads"
+SEQUENCES="washes chance marks heads words"
 WORK=${2:-"$HOME/PixelFlow fidelity corpus"}
 
 usage() {
@@ -53,7 +53,7 @@ Copied the corpus's show to:
 
 In xLights (crates/pf-fidelity/corpus/README.md has the details):
   1. Open that folder as the show folder.
-  2. Tools > Batch Render: tick washes.xsq, chance.xsq, marks.xsq, and heads.xsq; render.
+  2. Tools > Batch Render: tick washes.xsq, chance.xsq, marks.xsq, heads.xsq, and words.xsq; render.
      (Or open each one, Render All, and File > Save.)
   3. Don't save any change to the layout or the controllers.
   4. Open your own show folder again.

@@ -2383,6 +2383,38 @@
         "type": "text"
       },
       {
+        "default": "",
+        "description": "Blank for PixelFlow's own pixel font, or a font on the computer by family name (\"Arial Narrow\"). A computer without that font shows the pixel font.",
+        "key": "font",
+        "label": "Font",
+        "type": "font"
+      },
+      {
+        "default": 8,
+        "description": "How big the letters are, in pixels: the pixel font's are this tall (8 is its own size); a computer font is drawn at this size, as a font size in points draws on a Mac.",
+        "key": "size",
+        "label": "Size",
+        "max": 100,
+        "min": 4,
+        "step": 1,
+        "type": "int",
+        "unit": "pixels"
+      },
+      {
+        "default": false,
+        "description": "Bold, in a computer font (made thicker when the family has no bold).",
+        "key": "bold",
+        "label": "Bold",
+        "type": "bool"
+      },
+      {
+        "default": false,
+        "description": "Italic, in a computer font (slanted when the family has no italic).",
+        "key": "italic",
+        "label": "Italic",
+        "type": "bool"
+      },
+      {
         "default": "none",
         "description": "Still, or moving.",
         "key": "movement",
@@ -2452,17 +2484,6 @@
         "min": 0,
         "step": 1,
         "type": "int"
-      },
-      {
-        "default": 8,
-        "description": "How tall the letters are (8 is the font's own size; others scale it).",
-        "key": "size",
-        "label": "Letter height",
-        "max": 100,
-        "min": 4,
-        "step": 1,
-        "type": "int",
-        "unit": "pixels"
       },
       {
         "default": "across",

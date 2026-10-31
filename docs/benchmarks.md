@@ -753,6 +753,14 @@ buffer its bursts reach and how many sparks a pixel there has to look at: 5 burs
 200 sparks with full tails, glowing for 3 seconds and as big as the prop, take 21.1 ms a frame
 (105 ns a pixel).
 
+Text in a font on the computer was added after these tables too. Timed the same way, but on a
+busy machine (other builds running, a load average above 20, so the figures are rough), Text in
+Arial on every prop takes 1.22 ms a frame (6.1 ns a pixel) where Text in the pixel font, timed
+beside it, takes 1.14 ms (5.7 ns). Each letter is drawn once for its size and kept, so a frame
+only places the letters and looks up each pixel's share of one. The effect costs now have this
+line ("Text in a computer font") whenever the computer has Arial, Helvetica, DejaVu Sans, or
+Liberation Sans.
+
 #### Shaders
 
 The Shader effect runs a shader file for every pixel (see [shaders.md](shaders.md)), a run of

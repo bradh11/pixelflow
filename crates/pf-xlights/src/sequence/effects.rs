@@ -1649,22 +1649,85 @@ fn vu_meter(r: &Reader, diff: &mut Diff) -> EffectParams {
     })
 }
 
-/// A font's letter height in pixels: from xLights' own font's name ("7-7x9 Thin" is 9 tall), or
-/// the point size in a system font's description; `None` when it doesn't say.
-fn font_height(xl_font: &str, os_font: &str) -> Option<f64> {
-    if xl_font != "Use OS Fonts" {
-        let size = xl_font.split_whitespace().next()?.split('-').nth(1)?;
-        return size.split('x').nth(1)?.parse().ok();
-    }
-    os_font
-        .split_whitespace()
-        .filter_map(|word| word.trim_matches('\'').parse::<f64>().ok())
-        .find(|&points| points > 0.0)
+/// The letter height of one of xLights' own fonts, from its name ("7-7x9 Thin" is 9 tall); `None`
+/// when the name doesn't say.
+fn font_height(xl_font: &str) -> Option<f64> {
+    let size = xl_font.split_whitespace().next()?.split('-').nth(1)?;
+    size.split('x').nth(1)?.parse().ok()
 }
 
-/// Text (xLights' `TextEffect`), in PixelFlow's pixel font at about the font's size (10 pixels
-/// when the font doesn't say, where xLights takes the size of the computer's own text: 13 on a
-/// Mac).
+/// What an import note says of a Text effect whose font this computer doesn't have; the
+/// fidelity checks leave such an effect out of what they hold to xLights' renders.
+pub const FONT_NOT_ON_THIS_COMPUTER: &str = "isn't on this computer";
+
+/// A computer font as xLights stores the one it was given (wxWidgets' words for a font, as
+/// "bold italic 'arial narrow' 12 utf-8"): the family, its size in points when it says, and its
+/// style.
+#[derive(Debug, Default, PartialEq)]
+struct OsFont {
+    family: String,
+    points: Option<f64>,
+    bold: bool,
+    italic: bool,
+    /// Underlined or struck through.
+    lines: bool,
+}
+
+fn os_font(described: &str) -> OsFont {
+    let mut font = OsFont::default();
+    // The family is quoted; what's around it is its style, size, and character set.
+    let (around, quoted) = match (described.find('\''), described.rfind('\'')) {
+        (Some(a), Some(b)) if b > a => (
+            format!("{} {}", &described[..a], &described[b + 1..]),
+            Some(described[a + 1..b].trim().to_string()),
+        ),
+        _ => (described.to_string(), None),
+    };
+    let mut unquoted = Vec::new();
+    for word in around.split_whitespace() {
+        let lower = word.to_ascii_lowercase();
+        let points = lower.parse::<f64>().ok().filter(|p| p.is_finite() && *p > 0.0);
+        match lower.as_str() {
+            "bold" | "semibold" | "demibold" | "extrabold" | "ultrabold" | "heavy" | "extraheavy" => {
+                font.bold = true
+            }
+            "italic" | "slant" | "oblique" => font.italic = true,
+            "underlined" | "strikethrough" => font.lines = true,
+            "light" | "thin" | "extralight" | "ultralight" | "medium" | "normal" | "regular" | "book" => {}
+            _ if points.is_some() => font.points = font.points.or(points),
+            // A character set: "utf-8", "windows-1252", "iso-8859-1", "macroman".
+            w if w.contains('-')
+                || ["utf", "iso", "windows", "mac", "ascii", "default"]
+                    .iter()
+                    .any(|set| w.starts_with(set)) => {}
+            _ => unquoted.push(word),
+        }
+    }
+    font.family = quoted.unwrap_or_else(|| unquoted.join(" "));
+    font
+}
+
+/// A family name as people write it ("arial narrow" as "Arial Narrow"), for one this computer
+/// doesn't have to spell it.
+fn title_case(name: &str) -> String {
+    name.split_whitespace()
+        .map(|word| {
+            let mut chars = word.chars();
+            chars
+                .next()
+                .map_or_else(String::new, |first| first.to_uppercase().chain(chars).collect())
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// The size a Mac gives text whose size isn't set, which xLights draws such a font at.
+const UNSET_FONT_POINTS: f64 = 13.0;
+
+/// Text (xLights' `TextEffect`). A computer font (xLights' "Use OS Fonts") is drawn in that font
+/// when this computer has it, at its point size in pixels as xLights draws it on a Mac, and in
+/// PixelFlow's pixel font when it doesn't. xLights' own fonts (pictures of letters it ships) are
+/// shown in the pixel font at their height.
 fn text(r: &Reader, diff: &mut Diff) -> EffectParams {
     let words = r.s.text("E_TEXTCTRL_Text", "");
     if words.is_empty()
@@ -1676,26 +1739,75 @@ fn text(r: &Reader, diff: &mut Diff) -> EffectParams {
     if words.contains("${") {
         diff.add("song details in the text shown as written");
     }
-    let xl_font = r.choice("Text_Font", "Use OS Fonts");
-    let os_font = r.s.text("E_FONTPICKER_Text_Font", "");
-    let font = if xl_font != "Use OS Fonts" {
-        xl_font
-    } else {
-        os_font.split('\'').nth(1).unwrap_or("default")
-    };
-    let size = font_height(xl_font, os_font);
-    diff.add(match size {
-        Some(_) => format!("'{font}' font shown in PixelFlow's pixel font"),
-        None => format!(
-            "'{font}' font shown in PixelFlow's pixel font, 10 pixels high where xLights uses the \
-             computer's own text size"
-        ),
-    });
-    let size = size.unwrap_or(10.0);
     // The pixel font has the printable ASCII characters; xLights draws the rest (emoji too)
     // with the computer's fonts.
-    if words.chars().any(|c| !matches!(c, ' '..='~' | '\n')) {
-        diff.add("characters PixelFlow's pixel font doesn't have (accents, emoji) shown as boxes");
+    let boxes = |diff: &mut Diff| {
+        if words.chars().any(|c| !matches!(c, ' '..='~' | '\n')) {
+            diff.add("characters PixelFlow's pixel font doesn't have (accents, emoji) shown as boxes");
+        }
+    };
+    let xl_font = r.choice("Text_Font", "Use OS Fonts");
+    let os = os_font(r.s.text("E_FONTPICKER_Text_Font", ""));
+    let (font, size, bold, italic) = if xl_font != "Use OS Fonts" {
+        let size = font_height(xl_font);
+        diff.add(match size {
+            Some(_) => format!("'{xl_font}' font shown in PixelFlow's pixel font"),
+            None => format!(
+                "'{xl_font}' font shown in PixelFlow's pixel font, 10 pixels high where xLights uses the \
+                 computer's own text size"
+            ),
+        });
+        boxes(diff);
+        (String::new(), size.unwrap_or(10.0), false, false)
+    } else if os.family.is_empty() || os.family.eq_ignore_ascii_case("default") {
+        // The computer's own text: which font that is depends on the computer.
+        diff.add(match os.points {
+            Some(_) => "'default' font shown in PixelFlow's pixel font".to_string(),
+            None => "'default' font shown in PixelFlow's pixel font, 10 pixels high where xLights uses the \
+                     computer's own text size"
+                .to_string(),
+        });
+        boxes(diff);
+        (String::new(), os.points.unwrap_or(10.0), false, false)
+    } else {
+        match pf_fonts::style_of(&os.family, os.bold, os.italic) {
+            Some((family, fake_bold, fake_italic)) => {
+                if fake_bold {
+                    diff.add(format!(
+                        "bold drawn by thickening {family}, which has no bold on this computer"
+                    ));
+                }
+                if fake_italic {
+                    diff.add(format!(
+                        "italic drawn by slanting {family}, which has no italic on this computer"
+                    ));
+                }
+                if os.points.is_none() {
+                    diff.add(format!(
+                        "{family} at {UNSET_FONT_POINTS} pixels, the size a Mac gives text whose size isn't set"
+                    ));
+                }
+                if pf_fonts::missing_letters(&family, os.bold, os.italic, words)
+                    .is_some_and(|m| !m.is_empty())
+                {
+                    diff.add(format!(
+                        "characters {family} doesn't have shown as its missing-letter box"
+                    ));
+                }
+                (family, os.points.unwrap_or(UNSET_FONT_POINTS), os.bold, os.italic)
+            }
+            None => {
+                let family = title_case(&os.family);
+                diff.add(format!(
+                    "{family} {FONT_NOT_ON_THIS_COMPUTER}: shown in PixelFlow's pixel font"
+                ));
+                boxes(diff);
+                (family, os.points.unwrap_or(10.0), os.bold, os.italic)
+            }
+        }
+    };
+    if os.lines {
+        diff.add("underline or strike-through not shown");
     }
     use TextMovement as M;
     let movement = match r.choice("Text_Dir", "none") {
@@ -1738,6 +1850,9 @@ fn text(r: &Reader, diff: &mut Diff) -> EffectParams {
     let at = |id: &str| r.get(id, 0.0, -200.0, 200.0) as f32;
     EffectParams::Text(TextParams {
         text: words.to_string(),
+        font,
+        bold,
+        italic,
         movement,
         speed: count(r.get("Text_Speed", 10.0, 0.0, 100.0), 0, 100),
         size: count(size, 4, 100),
@@ -4066,24 +4181,85 @@ mod tests {
         );
     }
 
+    /// The tiny test font as "PixelFlow Import Sans", regular and bold but no italic, added to
+    /// this run's fonts once (the computers tests run on have different fonts, or none).
+    fn import_font() -> &'static str {
+        static ONCE: std::sync::Once = std::sync::Once::new();
+        ONCE.call_once(|| {
+            pf_fonts::add_font(pf_fonts::testing::tiny_font(
+                "PixelFlow Import Sans",
+                false,
+                false,
+            ));
+            pf_fonts::add_font(pf_fonts::testing::tiny_font("PixelFlow Import Sans", true, false));
+        });
+        "PixelFlow Import Sans"
+    }
+
+    fn text_of(settings: &str) -> (TextParams, Fidelity) {
+        import_font();
+        let t = translate(
+            "Text",
+            &Settings::parse(settings),
+            &palette(&[Rgb::RED]),
+            4000,
+            50,
+        )
+        .unwrap();
+        let EffectParams::Text(p) = t.params else {
+            unreachable!()
+        };
+        (p, t.fidelity)
+    }
+
     #[test]
-    fn text_translates_with_its_font_noted() {
-        let s = Settings::parse(
+    fn a_computer_font_is_read_from_how_xlights_describes_it() {
+        let read = |d: &str| {
+            let f = os_font(d);
+            (f.family, f.points, f.bold, f.italic, f.lines)
+        };
+        assert_eq!(
+            read("bold italic 'arial narrow' 12 utf-8"),
+            ("arial narrow".into(), Some(12.0), true, true, false)
+        );
+        assert_eq!(
+            read("'Times New Roman' 9.5 windows-1252"),
+            ("Times New Roman".into(), Some(9.5), false, false, false)
+        );
+        assert_eq!(
+            read("Verdana 10"),
+            ("Verdana".into(), Some(10.0), false, false, false)
+        );
+        assert_eq!(
+            read("light 'Helvetica Neue' 13"),
+            ("Helvetica Neue".into(), Some(13.0), false, false, false)
+        );
+        assert_eq!(
+            read("underlined semibold 'Avenir Next' 14"),
+            ("Avenir Next".into(), Some(14.0), true, false, true)
+        );
+        assert_eq!(read(""), (String::new(), None, false, false, false));
+        assert_eq!(title_case("arial  narrow"), "Arial Narrow");
+    }
+
+    #[test]
+    fn text_in_a_font_this_computer_has_is_drawn_in_it() {
+        let (p, fidelity) = text_of(
             "E_CHECKBOX_TextNoRepeat=1,E_CHECKBOX_TextToCenter=0,E_CHECKBOX_Text_Color_PerWord=1,\
              E_CHOICE_Text_Count=none,E_CHOICE_Text_Dir=up,E_CHOICE_Text_Effect=vert text down,\
-             E_CHOICE_Text_Font=Use OS Fonts,E_FONTPICKER_Text_Font=bold 'arial narrow' 12 utf-8,\
+             E_CHOICE_Text_Font=Use OS Fonts,E_FONTPICKER_Text_Font=bold 'pixelflow import sans' 12 utf-8,\
              E_SLIDER_Text_XStart=10,E_SLIDER_Text_YStart=-20,E_TEXTCTRL_Text=Happy&comma; days,\
              E_TEXTCTRL_Text_Speed=12",
         );
-        let t = translate("Text", &s, &palette(&[Rgb::RED]), 4000, 50).unwrap();
+        // The family as this computer spells it, bold, at its size: nothing to note.
+        assert_eq!(fidelity, Fidelity::Exact);
         assert_eq!(
-            t.fidelity,
-            Fidelity::Approximate(vec!["'arial narrow' font shown in PixelFlow's pixel font".into()])
-        );
-        assert_eq!(
-            t.params,
-            EffectParams::Text(TextParams {
+            p,
+            TextParams {
                 text: "Happy, days".into(),
+                font: "PixelFlow Import Sans".into(),
+                bold: true,
+                italic: false,
                 movement: TextMovement::Up,
                 speed: 12,
                 size: 12,
@@ -4097,20 +4273,73 @@ mod tests {
                 pixel_offsets: false,
                 color_per_word: true,
                 countdown: TextCountdown::None,
-            })
+            }
         );
+        // An italic the family hasn't got is made up; a size not given is a Mac's; letters the
+        // font hasn't got are its box; an underline isn't drawn. Each is said.
+        let (p, fidelity) = text_of(
+            "E_CHOICE_Text_Font=Use OS Fonts,E_FONTPICKER_Text_Font=underlined italic 'PixelFlow Import Sans' utf-8,\
+             E_TEXTCTRL_Text=No\u{eb}l",
+        );
+        assert_eq!(
+            (p.font.as_str(), p.size, p.bold, p.italic),
+            ("PixelFlow Import Sans", 13, false, true)
+        );
+        assert_eq!(
+            fidelity,
+            Fidelity::Approximate(vec![
+                "italic drawn by slanting PixelFlow Import Sans, which has no italic on this computer".into(),
+                "PixelFlow Import Sans at 13 pixels, the size a Mac gives text whose size isn't set".into(),
+                "characters PixelFlow Import Sans doesn't have shown as its missing-letter box".into(),
+                "underline or strike-through not shown".into(),
+            ])
+        );
+    }
+
+    #[test]
+    fn text_in_a_font_this_computer_lacks_is_shown_in_the_pixel_font_and_keeps_its_font() {
+        let (p, fidelity) = text_of(
+            "E_CHOICE_Text_Font=Use OS Fonts,E_FONTPICKER_Text_Font=bold 'pixelflow made up narrow' 12 utf-8,\
+             E_TEXTCTRL_Text=Hello",
+        );
+        // Kept, so a computer that has it draws in it.
+        assert_eq!(
+            (p.font.as_str(), p.size, p.bold),
+            ("Pixelflow Made Up Narrow", 12, true)
+        );
+        assert_eq!(
+            fidelity,
+            Fidelity::Approximate(vec![
+                "Pixelflow Made Up Narrow isn't on this computer: shown in PixelFlow's pixel font".into()
+            ])
+        );
+        assert!(matches!(&fidelity, Fidelity::Approximate(n) if n[0].contains(FONT_NOT_ON_THIS_COMPUTER)));
+        // With no size given it's 10 pixels in the pixel font; characters that font hasn't got
+        // are boxes.
+        let (p, fidelity) = text_of(
+            "E_CHOICE_Text_Font=Use OS Fonts,E_FONTPICKER_Text_Font='PixelFlow Made Up Narrow' utf-8,\
+             E_TEXTCTRL_Text=No\u{eb}l \u{2744}",
+        );
+        assert_eq!((p.font.as_str(), p.size), ("PixelFlow Made Up Narrow", 10));
+        assert_eq!(
+            fidelity,
+            Fidelity::Approximate(vec![
+                "PixelFlow Made Up Narrow isn't on this computer: shown in PixelFlow's pixel font".into(),
+                "characters PixelFlow's pixel font doesn't have (accents, emoji) shown as boxes".into(),
+            ])
+        );
+    }
+
+    #[test]
+    fn text_in_xlights_own_fonts_or_the_computers_own_text_is_shown_in_the_pixel_font() {
         // xLights' own fonts give their height; what PixelFlow can't show says so.
-        let s = Settings::parse(
+        let (p, fidelity) = text_of(
             "E_CHOICE_Text_Font=7-7x9 Bold,E_CHOICE_Text_Dir=word-flip,E_CHOICE_Text_Effect=rotate up 45,\
              E_CHOICE_Text_Count=to date 's',E_TEXTCTRL_Text=${TITLE}",
         );
-        let t = translate("Text", &s, &palette(&[Rgb::RED]), 4000, 50).unwrap();
-        let EffectParams::Text(p) = &t.params else {
-            unreachable!()
-        };
-        assert_eq!(p.size, 9);
+        assert_eq!((p.font.as_str(), p.size, p.bold), ("", 9, false));
         assert_eq!(
-            t.fidelity,
+            fidelity,
             Fidelity::Approximate(vec![
                 "song details in the text shown as written".into(),
                 "'7-7x9 Bold' font shown in PixelFlow's pixel font".into(),
@@ -4119,24 +4348,15 @@ mod tests {
                 "countdown 'to date 's'' shown as the text itself".into(),
             ])
         );
-        // A system font that doesn't give its size is drawn at the size of the computer's own
-        // text in xLights, and characters outside the pixel font are boxes here.
-        let s = Settings::parse(
-            "E_CHOICE_Text_Font=Use OS Fonts,E_FONTPICKER_Text_Font=bold 'arial narrow' utf-8,\
-             E_TEXTCTRL_Text=No\u{eb}l \u{2744}",
-        );
-        let t = translate("Text", &s, &palette(&[Rgb::RED]), 4000, 50).unwrap();
-        let EffectParams::Text(p) = &t.params else {
-            unreachable!()
-        };
-        assert_eq!(p.size, 10);
+        // No font picked: the computer's own text, which depends on the computer.
+        let (p, fidelity) = text_of("E_CHOICE_Text_Font=Use OS Fonts,E_TEXTCTRL_Text=Hi");
+        assert_eq!((p.font.as_str(), p.size), ("", 10));
         assert_eq!(
-            t.fidelity,
+            fidelity,
             Fidelity::Approximate(vec![
-                "'arial narrow' font shown in PixelFlow's pixel font, 10 pixels high where xLights uses the \
+                "'default' font shown in PixelFlow's pixel font, 10 pixels high where xLights uses the \
                  computer's own text size"
-                    .into(),
-                "characters PixelFlow's pixel font doesn't have (accents, emoji) shown as boxes".into(),
+                    .into()
             ])
         );
     }

@@ -31,7 +31,7 @@ type Migration = fn(Value) -> Result<Value, SequenceError>;
 /// `MIGRATIONS[i]` upgrades a document from schema version `i + 1` to `i + 2`.
 const MIGRATIONS: &[Migration] = &[
     v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8, v8_to_v9, v9_to_v10, v10_to_v11,
-    v11_to_v12, v12_to_v13, v13_to_v14, v14_to_v15,
+    v11_to_v12, v12_to_v13, v13_to_v14, v14_to_v15, v15_to_v16,
 ];
 
 /// Version 2 only adds submodel targets, so version 1 documents are already valid.
@@ -118,6 +118,13 @@ fn v13_to_v14(doc: Value) -> Result<Value, SequenceError> {
 /// Version 15 only adds an effect kind (DMX) and the curve keys that go with it
 /// (`channels.<number>`), so version 14 documents are already valid.
 fn v14_to_v15(doc: Value) -> Result<Value, SequenceError> {
+    Ok(doc)
+}
+
+/// Version 16 only adds Text settings with defaults for when they're missing (`font`: PixelFlow's
+/// own pixel font, as before; `bold` and `italic`: off), so version 15 documents are already
+/// valid.
+fn v15_to_v16(doc: Value) -> Result<Value, SequenceError> {
     Ok(doc)
 }
 
@@ -347,7 +354,7 @@ mod tests {
             .effects
             .push(crate::Effect::new(crate::EffectKind::Dancer, 500, 1000).with_params(dancer));
         let saved = sequence_to_json(&seq).unwrap();
-        assert!(saved.contains(r#""schemaVersion": 15"#), "{saved}");
+        assert!(saved.contains(r#""schemaVersion": 16"#), "{saved}");
         assert_eq!(sequence_from_json(&saved).unwrap(), seq);
     }
 
@@ -385,7 +392,7 @@ mod tests {
             .effects
             .push(crate::Effect::new(crate::EffectKind::Picture, 500, 1000).with_params(picture));
         let saved = sequence_to_json(&seq).unwrap();
-        assert!(saved.contains(r#""schemaVersion": 15"#), "{saved}");
+        assert!(saved.contains(r#""schemaVersion": 16"#), "{saved}");
         assert!(saved.contains(r#""file": "images/santa dancing.gif""#), "{saved}");
         assert_eq!(sequence_from_json(&saved).unwrap(), seq);
         // A new picture has no file yet and plays at its own speed; settings out of range are
@@ -468,7 +475,7 @@ mod tests {
             .effects
             .push(crate::Effect::new(crate::EffectKind::Fire, 500, 1000).with_params(flicker));
         let saved = sequence_to_json(&seq).unwrap();
-        assert!(saved.contains(r#""schemaVersion": 15"#), "{saved}");
+        assert!(saved.contains(r#""schemaVersion": 16"#), "{saved}");
         assert!(saved.contains(r#""style": "flicker""#), "{saved}");
         let again = sequence_from_json(&saved).unwrap();
         // Out-of-range settings are pulled back in on open.
@@ -516,7 +523,7 @@ mod tests {
             .effects
             .push(crate::Effect::new(crate::EffectKind::Fireworks, 500, 1000).with_params(fireworks));
         let saved = sequence_to_json(&seq).unwrap();
-        assert!(saved.contains(r#""schemaVersion": 15"#), "{saved}");
+        assert!(saved.contains(r#""schemaVersion": 16"#), "{saved}");
         assert_eq!(sequence_from_json(&saved).unwrap(), seq);
         // A new one bursts at random moments and places, with soft sparks, in percent of the prop.
         let EffectParams::Fireworks(new) = EffectParams::default_for(crate::EffectKind::Fireworks) else {
@@ -636,7 +643,7 @@ mod tests {
         effect.curves.insert("speed".into(), crate::Curve::ramp(0.5, 2.0));
         seq.rows[0].layers[0].effects.push(effect);
         let saved = sequence_to_json(&seq).unwrap();
-        assert!(saved.contains(r#""schemaVersion": 15"#), "{saved}");
+        assert!(saved.contains(r#""schemaVersion": 16"#), "{saved}");
         assert!(saved.contains(r#""file": "shaders/rings.fs""#), "{saved}");
         assert!(saved.contains(r#""inputs.at.x""#), "{saved}");
         assert_eq!(sequence_from_json(&saved).unwrap(), seq);
@@ -689,6 +696,74 @@ mod tests {
             .insert("inputs.rate".into(), crate::Curve::ramp(0.0, 5.0e9));
         let problem = wide.setting_problem().unwrap();
         assert!(problem.starts_with("rate's curve"), "{problem}");
+    }
+
+    #[test]
+    fn version_15_files_open_in_the_pixel_font_and_fonts_round_trip() {
+        let text = r#"{ "schemaVersion": 15, "name": "x", "durationMs": 1000, "rows": [
+            { "id": "11111111-0000-4000-8000-000000000001",
+              "target": { "prop": "22222222-0000-4000-8000-000000000001" },
+              "layers": [ { "effects": [ { "id": "33333333-0000-4000-8000-000000000001",
+                  "startMs": 0, "endMs": 500,
+                  "params": { "kind": "text", "text": "Noel", "size": 12, "movement": "left" } } ] } ] } ] }"#;
+        let mut seq = sequence_from_json(text).unwrap();
+        assert_eq!(seq.schema_version, CURRENT_SCHEMA_VERSION);
+        let EffectParams::Text(p) = &seq.rows[0].layers[0].effects[0].params else {
+            unreachable!()
+        };
+        // As it was drawn: the pixel font, upright and not bold.
+        assert_eq!(
+            p,
+            &crate::TextParams {
+                text: "Noel".into(),
+                size: 12,
+                movement: crate::TextMovement::Left,
+                ..Default::default()
+            }
+        );
+        assert_eq!((p.font.as_str(), p.bold, p.italic), ("", false, false));
+        // A font, bold and italic, saves and opens again.
+        let EffectParams::Text(p) = &mut seq.rows[0].layers[0].effects[0].params else {
+            unreachable!()
+        };
+        p.font = "Arial Narrow".into();
+        p.bold = true;
+        p.italic = true;
+        let saved = sequence_to_json(&seq).unwrap();
+        assert!(saved.contains(r#""schemaVersion": 16"#), "{saved}");
+        assert!(saved.contains(r#""font": "Arial Narrow""#), "{saved}");
+        assert!(
+            saved.contains(r#""bold": true"#) && saved.contains(r#""italic": true"#),
+            "{saved}"
+        );
+        assert_eq!(sequence_from_json(&saved).unwrap(), seq);
+        // A font name longer than any is cut to the longest text a setting holds on open, and
+        // refused in memory.
+        let long = "F".repeat(crate::MAX_TEXT_LEN + 5);
+        let opened = sequence_from_json(&saved.replace("Arial Narrow", &long)).unwrap();
+        let EffectParams::Text(p) = &opened.rows[0].layers[0].effects[0].params else {
+            unreachable!()
+        };
+        assert_eq!(p.font.chars().count(), crate::MAX_TEXT_LEN);
+        let mut bad = seq.clone();
+        let EffectParams::Text(p) = &mut bad.rows[0].layers[0].effects[0].params else {
+            unreachable!()
+        };
+        p.font = long;
+        assert!(
+            limit_problems(&bad)[0].contains("Font is longer than"),
+            "{:?}",
+            limit_problems(&bad)
+        );
+        // The font picker is a setting of its own kind, under the text.
+        let font = crate::TextParams::SETTINGS
+            .iter()
+            .find(|s| s.key == "font")
+            .unwrap();
+        assert_eq!(
+            (font.label, font.range, font.more),
+            ("Font", crate::SettingRange::Font, false)
+        );
     }
 
     #[test]
@@ -794,7 +869,7 @@ mod tests {
             sequence_from_json(r#"{ "schemaVersion": "1", "name": "x" }"#),
             Err(SequenceError::InvalidSchemaVersion(_))
         ));
-        let err = sequence_from_json(r#"{ "schemaVersion": 16, "name": "x" }"#).unwrap_err();
+        let err = sequence_from_json(r#"{ "schemaVersion": 17, "name": "x" }"#).unwrap_err();
         assert!(err.to_string().contains("update PixelFlow"), "{err}");
         assert!(matches!(sequence_from_json("[1, 2"), Err(SequenceError::Json(_))));
     }

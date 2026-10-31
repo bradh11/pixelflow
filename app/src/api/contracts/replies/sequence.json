@@ -37,7 +37,7 @@
             }
           }
         ],
-        "schemaVersion": 15,
+        "schemaVersion": 16,
         "timingTracks": []
       }
     }
@@ -710,10 +710,13 @@
               "id": "55555555-0000-4000-8000-000000000027",
               "palette": { "colors": ["#ff0000", "#00ff00"] },
               "params": {
+                "bold": false,
                 "colorPerWord": false,
                 "countdown": "none",
                 "endX": 0.0,
                 "endY": 0.0,
+                "font": "",
+                "italic": false,
                 "kind": "text",
                 "movement": "none",
                 "noRepeat": false,
@@ -1633,7 +1636,7 @@
             "target": { "group": "22222222-0000-4000-8000-000000000001" }
           }
         ],
-        "schemaVersion": 15,
+        "schemaVersion": 16,
         "timingTracks": [
           {
             "id": "66666666-0000-4000-8000-000000000002",
@@ -1919,7 +1922,7 @@
             "target": { "group": "22222222-0000-4000-8000-000000000001" }
           }
         ],
-        "schemaVersion": 15,
+        "schemaVersion": 16,
         "timingTracks": [
           {
             "id": "66666666-0000-4000-8000-000000000002",

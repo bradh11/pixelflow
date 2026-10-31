@@ -425,6 +425,22 @@ fn sequence_file_replies() {
         "string[]",
         &shell.ok("list_pictures", json!({})),
     );
+    // The computer's fonts differ from one computer to the next: the reply is checked for one
+    // added here, and only that one is written down.
+    pf_fonts::add_font(pf_fonts::testing::tiny_font(
+        "PixelFlow Contract Sans",
+        false,
+        false,
+    ));
+    let fonts = shell.ok("list_fonts", json!({}));
+    let fonts = fonts.as_array().expect("a list of fonts");
+    assert!(fonts.iter().all(Value::is_string), "{fonts:?}");
+    assert!(fonts.contains(&json!("PixelFlow Contract Sans")), "{fonts:?}");
+    fixtures.reply(
+        "the computer's fonts",
+        "string[]",
+        &json!(["PixelFlow Contract Sans"]),
+    );
     // The shaders a Shader effect can use: PixelFlow's own, then the files in the show's shaders
     // folder, one of which can't be run.
     std::fs::create_dir_all(folder.join("shaders")).unwrap();

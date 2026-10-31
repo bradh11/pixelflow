@@ -644,7 +644,7 @@ So the repository keeps a corpus of its own, `crates/pf-fidelity/corpus`, made u
 purpose and PixelFlow's to publish: a show folder of seven props of the common kinds (a 32 by 16
 matrix, a 360° tree, three arches with a submodel, a line, four candy canes, a star, and a custom
 model; 1,091 pixels), two DMX moving heads and two servos, all on one controller, three groups,
-and four sequences with no music.
+and five sequences with no music.
 
 | Sequence | Length | What it holds |
 |---|---|---|
@@ -652,12 +652,13 @@ and four sequences with no music.
 | Chance | 20 s of 25 ms frames | Snowflakes, Fireworks, Circles, Shape, Fire, Twinkle, and sparkles: what no two renders draw alike |
 | Marks, words, and pictures | 20 s of 50 ms frames | A timing track and Shapes it sets off, Text, a picture standing and scrolling, PixelFlow's own Prism shader on a group and on the tree, a Shockwave whose size follows a curve, a Color Wash cycling three colors |
 | Moving heads and servos | 20 s of 50 ms frames | The DMX effect sweeping two heads' pan and tilt and turning two servos, with curves; an On and Color Washes giving the heads their color (red, green, blue and white on one, a color wheel on the other) |
+| Words in the computer's fonts | 16 s of 50 ms frames | Text in Arial, Times New Roman, Verdana, and Courier New (fonts every Mac and Windows computer has), bold and italic, still and moving, on the matrix and around the tree |
 
 The heads and servos are DMX fixtures: the look score doesn't judge them (it reads pixels), but
 their channels are in xLights' renders, so the references hold what xLights sends them. A test
 holds PixelFlow's own render of them to the channels the sequence sets.
 
-45 effects in all, covering the kinds the real corpus uses most, and DMX fixtures.
+50 effects in all, covering the kinds the real corpus uses most, and DMX fixtures.
 `src/madeup.rs` writes every file (`cargo run -p pf-fidelity -- corpus-files`), and a test fails
 when the files and the module disagree. Nothing in it comes from anyone's show, and nothing was downloaded: the
 picture is drawn by the module, and the shader is PixelFlow's own.
@@ -675,6 +676,10 @@ blue. Any of them moving by more than 2 levels of 255 fails: a color, a brightne
 direction, or light on another part of a prop moves them many times that. A digest of every
 frame is kept beside it for the system it was made on, and the report says when a render is
 the same to the bit.
+
+Which fonts a computer has differs from one to the next, so the fingerprint draws every Text
+effect in PixelFlow's pixel font, whatever font it names; how a font is drawn is held by
+`pf-fonts`' and `pf-render`'s own tests, in a font made in the test.
 
 The bits aren't the gate because they aren't yet the same on every system. A frame is the same
 bytes on any number of threads, but what is worked out with the system's own sines, cosines,
@@ -711,6 +716,10 @@ twinkles on the custom model, 91 to 100) with two scorings of eight where its lo
 little; an import made worse (one palette color changed) failed with every effect it touched
 listed.
 
+A Text effect in a font the checking computer hasn't got (Linux has none of the four the corpus
+uses) is drawn in the pixel font there, while the baseline is of the font: the check lists it
+under "Not held on this computer" and leaves it out.
+
 **Until the references exist**, the second check passes and says so: "The corpus has no xLights
 references yet … no import was held against xLights", in the log, as a notice on the run, and
 on its summary page. `baseline.json` holds no sequences until then.
@@ -730,7 +739,10 @@ corpus itself (`madeup.rs`) needs both, and the references rendered again.
 ## Limits
 
 - **It can't read.** Text in other lettering that fills the same space the same way looks the
-  same to it. The importer's label for Text says "close" regardless.
+  same to it. So the importer's label for Text says what the lettering is: a font on the
+  computer that xLights used comes in in that font and nothing is noted for it; one the
+  computer hasn't got, or one of xLights' own fonts, is drawn in PixelFlow's pixel font, which is
+  noted, and looks close.
 - **It doesn't hear.** An effect a beat late against the music shows only as a rhythm out of
   step with xLights' render, never against the song.
 - **Layered effects share a look.** Where several effects are on a pixel the difference can't be
@@ -1192,7 +1204,11 @@ further.
   louder of the two channels in a sequence made in PixelFlow and the left channel in one
   imported from xLights, a setting of the sequence's own; and sparkles flash on an effect its
   own Transparency hides.
-- *What PixelFlow can't show yet.* Text in the sequence's own font. A Shader whose file isn't
+- *What PixelFlow can't show yet.* Text in xLights' own fonts (pictures of letters xLights
+  ships), and in a font the computer hasn't got: both are drawn in PixelFlow's pixel font. A
+  font the computer has is drawn in that font, at its size, bold or italic; that hasn't been
+  measured against xLights' renders yet (the corpus's "Words in the computer's fonts" is there
+  for it). A Shader whose file isn't
   found near the sequence, or needs what PixelFlow doesn't give a shader yet (several passes,
   kept buffers, pictures, the music), is still a dim fill; an input on a value curve stays at its
   slider's value. A Tendril that wanders at random shows less of itself and pulses at other

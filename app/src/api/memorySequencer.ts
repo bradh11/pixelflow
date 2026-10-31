@@ -127,6 +127,9 @@ export const BUILT_IN_SHADERS = builtInShadersJson as unknown as ShaderInfo[];
 /** Characters in a name or label (the engine's MAX_TEXT_LEN). */
 const MAX_TEXT_LEN = 4096;
 
+/** The browser stand-in's computer fonts: a few that every Mac and Windows computer has. */
+export const MEMORY_FONTS = ["Arial", "Arial Black", "Comic Sans MS", "Courier New", "Georgia", "Impact", "Times New Roman", "Trebuchet MS", "Verdana"];
+
 /** The first timing size limit the sequence breaks, in the engine's words; null when it fits. */
 export function timingLimitProblem(doc: Sequence): string | null {
   const count = doc.timingTracks.reduce((n, t) => n + t.marks.length, 0);
@@ -483,7 +486,7 @@ export function diffSequences(before: Sequence, after: Sequence): SequenceChange
 }
 
 function newSequence(name: string, durationMs: number): Sequence {
-  return { schemaVersion: 15, name, audio: null, durationMs, frameMs: 25, timingTracks: [], rows: [] };
+  return { schemaVersion: 16, name, audio: null, durationMs, frameMs: 25, timingTracks: [], rows: [] };
 }
 
 /** Find lyrics' steps that read the whole song, and so report how far they've got. */
@@ -1372,6 +1375,11 @@ export class MemorySequencer implements SequencerApi {
 
   async listPictures() {
     return [...this.pictures.keys()].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+  }
+
+  /** A few fonts every Mac and Windows computer has (the browser stand-in has no computer's own). */
+  async listFonts() {
+    return [...MEMORY_FONTS];
   }
 
   async checkSequencePictures(): Promise<PicturesChecked> {

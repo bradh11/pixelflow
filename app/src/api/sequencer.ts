@@ -285,6 +285,8 @@ export interface SequencerApi extends VideoApi {
   readPicture(file: string): Promise<Uint8Array>;
   /** The pictures in the show's images folder, as a Picture effect's `file` names them. */
   listPictures(): Promise<string[]>;
+  /** The font families on this computer, sorted by name, for a Text effect's `font`. */
+  listFonts(): Promise<string[]>;
   /** Looks at whether the open sequence's pictures are there. */
   checkSequencePictures(): Promise<PicturesChecked>;
   /** Looks for the open sequence's missing pictures by name in the show's folder and the
@@ -385,6 +387,7 @@ export const tauriSequencer: SequencerApi = {
   pickPicture: () => whileFileDialog(() => invoke("pick_picture")),
   readPicture: async (file) => new Uint8Array(await invoke<ArrayBuffer>("read_picture", { file })),
   listPictures: () => invoke("list_pictures"),
+  listFonts: () => invoke("list_fonts"),
   checkSequencePictures: () => invoke("check_sequence_pictures"),
   findSequencePictures: () => invoke("find_sequence_pictures"),
   locateSequencePicture: (path) => whileFileDialog(() => invoke("locate_sequence_picture", { path })),

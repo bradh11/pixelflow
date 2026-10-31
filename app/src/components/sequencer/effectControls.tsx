@@ -11,6 +11,7 @@ import { newGesture, useSequencer } from "../../state/sequencer";
 import { imageType } from "../layout/useLayoutData";
 import { Button, More } from "../ui";
 import { CurveEditor } from "./CurveEditor";
+import { FontSetting } from "./FontSetting";
 
 // The controls the effect settings panel is made of: setting fields from the catalog, colors,
 // times, and the sections they sit in.
@@ -405,6 +406,17 @@ export function SettingControl({
   }
   if (setting.type === "text") {
     return <TextSetting setting={setting} value={typeof value === "string" ? value : setting.default} onChange={onChange} mixed={mixed} />;
+  }
+  if (setting.type === "font") {
+    return (
+      <FontSetting
+        label={setting.label}
+        description={setting.description}
+        value={typeof value === "string" ? value : setting.default}
+        onChange={(font) => void onChange(font)}
+        mixed={mixed}
+      />
+    );
   }
   if (setting.type === "image") {
     return <ImageSetting setting={setting} value={typeof value === "string" ? value : setting.default} onChange={onChange} mixed={mixed} />;

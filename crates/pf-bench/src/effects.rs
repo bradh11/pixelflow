@@ -20,7 +20,7 @@ use crate::sequence::{
 };
 use crate::show::{Category, GroupKind, tier_label};
 use crate::stats::ms;
-use pf_sequence::{Effect, EffectKind, Layer, Row, Sequence, Target};
+use pf_sequence::{Effect, EffectKind, EffectParams, Layer, Row, Sequence, Target};
 use serde::{Deserialize, Serialize};
 use std::time::Instant;
 
@@ -167,6 +167,14 @@ fn with_each(seq: &Sequence, change: impl Fn(&mut Effect)) -> Sequence {
     out
 }
 
+/// The font "Text in a computer font" is costed in: the first of a few common ones this computer
+/// has, or `None` (and no such line) when it has none of them.
+pub fn text_font() -> Option<String> {
+    ["Arial", "Helvetica", "DejaVu Sans", "Liberation Sans"]
+        .into_iter()
+        .find_map(pf_fonts::installed)
+}
+
 /// What the effects cost on the workload's show: each kind alone for `alone_seconds`, and each
 /// kind's share of both synthetic sequences over their first `seconds` seconds. `progress` hears
 /// what is being drawn.
@@ -242,21 +250,34 @@ pub fn breakdown(
         });
     }
 
-    progress("blur, sparkles, and curves");
-    let changes: [(&str, Change); 5] = [
-        ("Plasma", &|_| {}),
-        ("Plasma with sparkles", &|e| e.sparkles = 100),
-        ("Plasma with blur 2", &|e| e.blur = 2),
-        ("Plasma with blur 8", &|e| e.blur = 8),
-        ("Plasma with a curve on its speed", &|e| Maker::speed_curve(e)),
+    progress("blur, sparkles, curves, and fonts");
+    let changes: [(&str, EffectKind, Change); 5] = [
+        ("Plasma", EffectKind::Plasma, &|_| {}),
+        ("Plasma with sparkles", EffectKind::Plasma, &|e| e.sparkles = 100),
+        ("Plasma with blur 2", EffectKind::Plasma, &|e| e.blur = 2),
+        ("Plasma with blur 8", EffectKind::Plasma, &|e| e.blur = 8),
+        ("Plasma with a curve on its speed", EffectKind::Plasma, &|e| {
+            Maker::speed_curve(e)
+        }),
     ];
+    // Text in a font on this computer, where it has one (the pixel font's own cost is the Text
+    // kind's, above).
+    let family = text_font();
+    let in_font = |e: &mut Effect| {
+        if let (Some(family), EffectParams::Text(p)) = (&family, &mut e.params) {
+            p.font = family.clone();
+        }
+    };
+    let font_label = family.as_ref().map(|f| format!("Text in a computer font ({f})"));
     let extras = changes
         .into_iter()
-        .map(|(what, change)| {
-            let seq = on_props(&mut maker, EffectKind::Plasma, change);
+        .map(|(what, kind, change)| (what.to_string(), kind, change))
+        .chain(font_label.map(|label| (label, EffectKind::Text, &in_font as Change)))
+        .map(|(what, kind, change)| {
+            let seq = on_props(&mut maker, kind, change);
             let ms = draw(workload, &seq, SETTLE_FRAMES, alone).ms - empty_frame_ms;
             ExtraCost {
-                what: what.to_string(),
+                what,
                 ms,
                 ns: ns(ms, f64::from(pixels)),
             }

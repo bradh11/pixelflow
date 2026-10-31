@@ -298,6 +298,15 @@ fn auto_variants(kind: EffectKind) -> Vec<(String, Value)> {
                     out.push((format!("{key} = {file}"), json!({ key: file })));
                 }
             }
+            // A font every Mac and Windows computer has, where this one has it too.
+            SettingValue::Font { .. } => {
+                if let Some(family) = ["Arial", "Helvetica", "DejaVu Sans"]
+                    .into_iter()
+                    .find_map(pf_fonts::installed)
+                {
+                    out.push((format!("{key} = {family}"), json!({ key: family })));
+                }
+            }
             SettingValue::Face { .. }
             | SettingValue::Text { .. }
             | SettingValue::ShaderInputs { .. }

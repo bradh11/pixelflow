@@ -694,7 +694,7 @@ fn effect_tables(out: &mut String, b: &Breakdown) {
         .collect();
     table(
         out,
-        "Blur, sparkles, and curves (on every prop)",
+        "Blur, sparkles, curves, and a computer font (on every prop)",
         &["Effect", "ms a frame", "ns a pixel"],
         rows,
     );

@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- PixelFlow's made-up fidelity corpus (crates/pf-fidelity/src/madeup.rs writes this file).
+     Words in the computer's fonts: Text in Arial, Times New Roman, Verdana, and Courier New,
+     bold and italic, still and moving, on the matrix and around the tree. 16 seconds of 50 ms frames.
+     Render it in xLights on this show folder and save the .fseq beside it: see ../README.md. -->
+<xsequence BaseChannel="0" ChanCtrlBasic="0" ChanCtrlColor="0" FixedPointTiming="1" ModelBlending="true">
+  <head>
+    <version>2026.14</version>
+    <author>PixelFlow</author>
+    <song>Words in the computer's fonts</song>
+    <sequenceTiming>50 ms</sequenceTiming>
+    <sequenceType>Animation</sequenceType>
+    <sequenceDuration>16.000</sequenceDuration>
+  </head>
+  <ColorPalettes>
+    <ColorPalette>C_BUTTON_Palette1=#FF0000,C_BUTTON_Palette2=#FFFFFF,C_CHECKBOX_Palette1=1,C_CHECKBOX_Palette2=1</ColorPalette>
+    <ColorPalette>C_BUTTON_Palette1=#FFB000,C_CHECKBOX_Palette1=1</ColorPalette>
+    <ColorPalette>C_BUTTON_Palette1=#00FFFF,C_BUTTON_Palette2=#0000FF,C_BUTTON_Palette3=#FF00FF,C_CHECKBOX_Palette1=1,C_CHECKBOX_Palette2=1,C_CHECKBOX_Palette3=1</ColorPalette>
+    <ColorPalette>C_BUTTON_Palette1=#FF0000,C_BUTTON_Palette2=#00FF00,C_CHECKBOX_Palette1=1,C_CHECKBOX_Palette2=1</ColorPalette>
+  </ColorPalettes>
+  <EffectDB>
+    <Effect>E_CHECKBOX_TextToCenter=0,E_CHOICE_Text_Count=none,E_CHOICE_Text_Dir=none,E_CHOICE_Text_Effect=normal,E_CHOICE_Text_Font=Use OS Fonts,E_FONTPICKER_Text_Font=bold 'Arial' 12 utf-8,E_SLIDER_Text_XStart=0,E_SLIDER_Text_YStart=0,E_TEXTCTRL_Text=NOEL,E_TEXTCTRL_Text_Speed=10</Effect>
+    <Effect>E_CHECKBOX_TextToCenter=0,E_CHOICE_Text_Count=none,E_CHOICE_Text_Dir=left,E_CHOICE_Text_Effect=normal,E_CHOICE_Text_Font=Use OS Fonts,E_FONTPICKER_Text_Font=italic 'Times New Roman' 14 utf-8,E_SLIDER_Text_XStart=0,E_SLIDER_Text_YStart=0,E_TEXTCTRL_Text=Joy to all,E_TEXTCTRL_Text_Speed=10</Effect>
+    <Effect>E_CHECKBOX_TextToCenter=0,E_CHOICE_Text_Count=none,E_CHOICE_Text_Dir=up,E_CHOICE_Text_Effect=normal,E_CHOICE_Text_Font=Use OS Fonts,E_FONTPICKER_Text_Font='Verdana' 9 utf-8,E_SLIDER_Text_XStart=0,E_SLIDER_Text_YStart=0,E_TEXTCTRL_Text=PEACE,E_TEXTCTRL_Text_Speed=10</Effect>
+    <Effect>E_CHECKBOX_TextToCenter=0,E_CHOICE_Text_Count=none,E_CHOICE_Text_Dir=none,E_CHOICE_Text_Effect=normal,E_CHOICE_Text_Font=Use OS Fonts,E_FONTPICKER_Text_Font=bold 'Courier New' 11 utf-8,E_SLIDER_Text_XStart=0,E_SLIDER_Text_YStart=0,E_TEXTCTRL_Text=HO HO,E_TEXTCTRL_Text_Speed=10,E_CHECKBOX_Text_Color_PerWord=1</Effect>
+    <Effect>E_CHECKBOX_TextToCenter=0,E_CHOICE_Text_Count=none,E_CHOICE_Text_Dir=left,E_CHOICE_Text_Effect=normal,E_CHOICE_Text_Font=Use OS Fonts,E_FONTPICKER_Text_Font=bold 'Arial' 16 utf-8,E_SLIDER_Text_XStart=0,E_SLIDER_Text_YStart=0,E_TEXTCTRL_Text=MERRY CHRISTMAS,E_TEXTCTRL_Text_Speed=10</Effect>
+  </EffectDB>
+  <DisplayElements>
+    <Element collapsed="0" type="model" name="Matrix" visible="1"/>
+    <Element collapsed="0" type="model" name="Tree" visible="1"/>
+  </DisplayElements>
+  <ElementEffects>
+    <Element type="model" name="Matrix">
+      <EffectLayer>
+        <Effect ref="0" name="Text" palette="0" startTime="0" endTime="4000"/>
+        <Effect ref="1" name="Text" palette="1" startTime="4000" endTime="8000"/>
+        <Effect ref="2" name="Text" palette="2" startTime="8000" endTime="12000"/>
+        <Effect ref="3" name="Text" palette="3" startTime="12000" endTime="16000"/>
+      </EffectLayer>
+    </Element>
+    <Element type="model" name="Tree">
+      <EffectLayer>
+        <Effect ref="4" name="Text" palette="1" startTime="0" endTime="16000"/>
+      </EffectLayer>
+    </Element>
+  </ElementEffects>
+  <lastView>0</lastView>
+</xsequence>

@@ -805,6 +805,80 @@ fn marks() -> Xsq {
     }
 }
 
+/// A Text effect in a computer font (xLights' "Use OS Fonts"): `font` as xLights describes it,
+/// moving `dir`, saying `words`, and anything else of the effect's (`extra`).
+fn text(dir: &str, font: &str, words: &str, extra: &str) -> String {
+    format!(
+        "E_CHECKBOX_TextToCenter=0,E_CHOICE_Text_Count=none,E_CHOICE_Text_Dir={dir},E_CHOICE_Text_Effect=normal,\
+         E_CHOICE_Text_Font=Use OS Fonts,E_FONTPICKER_Text_Font={font},E_SLIDER_Text_XStart=0,\
+         E_SLIDER_Text_YStart=0,E_TEXTCTRL_Text={words},E_TEXTCTRL_Text_Speed=10{extra}"
+    )
+}
+
+/// "Words in the computer's fonts": Text in fonts every Mac and Windows computer has (Arial,
+/// Times New Roman, Verdana, Courier New), at a few sizes, bold and italic, still and moving, on
+/// the matrix and around the tree. Every font says its size, so a computer without it draws the
+/// pixel font at that size.
+fn words() -> Xsq {
+    let matrix = row(
+        "Matrix",
+        vec![vec![
+            fx(
+                "Text",
+                0,
+                4000,
+                &text("none", "bold 'Arial' 12 utf-8", "NOEL", ""),
+                palette(RED_WHITE, ""),
+            ),
+            fx(
+                "Text",
+                4000,
+                8000,
+                &text("left", "italic 'Times New Roman' 14 utf-8", "Joy to all", ""),
+                palette(GOLD, ""),
+            ),
+            fx(
+                "Text",
+                8000,
+                12000,
+                &text("up", "'Verdana' 9 utf-8", "PEACE", ""),
+                palette(COOL, ""),
+            ),
+            fx(
+                "Text",
+                12000,
+                16000,
+                &text(
+                    "none",
+                    "bold 'Courier New' 11 utf-8",
+                    "HO HO",
+                    ",E_CHECKBOX_Text_Color_PerWord=1",
+                ),
+                palette(RED_GREEN, ""),
+            ),
+        ]],
+    );
+    let tree = row(
+        "Tree",
+        vec![vec![fx(
+            "Text",
+            0,
+            16000,
+            &text("left", "bold 'Arial' 16 utf-8", "MERRY CHRISTMAS", ""),
+            palette(GOLD, ""),
+        )]],
+    );
+    Xsq {
+        title: "Words in the computer's fonts",
+        about: "Words in the computer's fonts: Text in Arial, Times New Roman, Verdana, and Courier New,\n     \
+                bold and italic, still and moving, on the matrix and around the tree. 16 seconds of 50 ms frames.",
+        frame_ms: 50,
+        duration_ms: 16_000,
+        timing: Vec::new(),
+        rows: vec![matrix, tree],
+    }
+}
+
 /// xLights' DMX effect: each channel `(n, value)` set by its slider, and those of `ramps` swept by
 /// a value curve from the first value to the second (0-255) over the effect.
 fn dmx(channels: &[(u32, u32)], ramps: &[(u32, u32, u32)]) -> String {
@@ -943,16 +1017,17 @@ fn manifest() -> String {
 }
 
 /// Each sequence's file name (without `.xsq`) and the label the reports give it.
-pub const SEQUENCES: [(&str, &str); 4] = [
+pub const SEQUENCES: [(&str, &str); 5] = [
     ("washes", "Washes and shapes"),
     ("chance", "Chance"),
     ("marks", "Marks, words, and pictures"),
     ("heads", "Moving heads and servos"),
+    ("words", "Words in the computer's fonts"),
 ];
 
 /// Every file of the corpus that is made here, by its path in the corpus folder.
 pub fn files() -> Vec<(String, Vec<u8>)> {
-    let sequences = [washes(), chance(), marks(), heads()];
+    let sequences = [washes(), chance(), marks(), heads(), words()];
     let mut files = vec![
         ("manifest.json".to_string(), manifest().into_bytes()),
         ("show/xlights_rgbeffects.xml".to_string(), layout().into_bytes()),

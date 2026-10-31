@@ -439,6 +439,7 @@ async function callTheSequencer(sequencer: SequencerApi) {
   await sequencer.pickPicture();
   await sequencer.readPicture("images/star.gif");
   await sequencer.listPictures();
+  await sequencer.listFonts();
   await sequencer.listShaders();
   await sequencer.shaderInfo("shaders/rings.fs");
   await sequencer.pickShader();

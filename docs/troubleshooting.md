@@ -317,6 +317,10 @@ differ, with what you would notice.
    or ask the assistant.
 7. **Vendor sequences.** If many effects are missing, check the mapping in the "Map … onto your
    props" window. A model that is **Not mapped** brings none of its effects.
+8. **"… isn't on this computer: shown in PixelFlow's pixel font".** The xLights Text effect uses a
+   font your computer hasn't got. The effect keeps the font's name, so it draws in that font once
+   the font is installed. PixelFlow looks for fonts when it starts, so quit and open it again
+   after installing one. Or pick another font under **Font** in the effect's settings.
 
 ## Lyrics are wrong or in the wrong language
 

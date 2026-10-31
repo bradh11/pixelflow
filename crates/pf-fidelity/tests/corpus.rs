@@ -185,6 +185,56 @@ fn a_sequence_with_a_reference_and_no_baseline_cant_be_held() {
     assert_eq!(checked.unrendered, ["Chance"]);
 }
 
+/// A Text effect in a font this computer hasn't got is drawn in the pixel font here, so it isn't
+/// held to a baseline made where the font is: the check lists it and passes over it.
+#[test]
+fn text_in_a_font_this_computer_lacks_is_listed_and_not_held() {
+    let dir = TempDir::new().unwrap();
+    small_corpus(dir.path());
+    let path = dir.path().join("show/known.xsq");
+    let twinkle = "    <Effect>E_SLIDER_Twinkle_Count=20,E_SLIDER_Twinkle_Steps=40</Effect>\n";
+    let blue = "        <Effect ref=\"0\" name=\"On\" palette=\"2\" startTime=\"0\" endTime=\"2000\"/>\n";
+    let known = std::fs::read_to_string(&path)
+        .unwrap()
+        .replace(
+            twinkle,
+            &format!(
+                "{twinkle}    <Effect>E_CHOICE_Text_Font=Use OS Fonts,E_FONTPICKER_Text_Font='PixelFlow Made Up Narrow' 8,E_TEXTCTRL_Text=HI</Effect>\n"
+            ),
+        )
+        .replace(
+            blue,
+            &format!("{blue}        <Effect ref=\"3\" name=\"Text\" palette=\"4\" startTime=\"2000\" endTime=\"4000\"/>\n"),
+        );
+    assert!(known.contains("name=\"Text\""));
+    std::fs::write(&path, &known).unwrap();
+    stand_in(dir.path(), "known", &known);
+    let manifest = Manifest::read(&dir.path().join("manifest.json")).unwrap();
+    let (with, without) = regress::references(&manifest);
+    assert_eq!((with.len(), without.len()), (1, 1));
+    let baseline = regress::measure(&with, 1, |_, _| {}).unwrap();
+    let cards: Vec<_> = with
+        .iter()
+        .map(|e| regress::score(e, regress::IDS).unwrap())
+        .collect();
+    let checked = regress::check(Some(&baseline), &cards, &without);
+    assert!(
+        checked.passed(),
+        "{}",
+        regress::markdown(&checked, baseline.margin)
+    );
+    assert_eq!(checked.not_here.len(), 1, "{:?}", checked.not_here);
+    let line = &checked.not_here[0];
+    assert!(
+        line.starts_with("Known #")
+            && line.contains("Text on Matrix")
+            && line.contains("isn't on this computer"),
+        "{line}"
+    );
+    assert_eq!(checked.held, cards[0].effects.len() - 1);
+    assert!(regress::markdown(&checked, baseline.margin).contains("Not held on this computer"));
+}
+
 /// The corpus's moving heads and servos, imported and rendered by PixelFlow alone, are sent what
 /// the sequence's DMX effects set at their channels (where xLights puts them), with the colors
 /// drawn on the heads in their color channels.

@@ -143,19 +143,19 @@ Code and data taken from xLights and other projects' **source** are a different 
 
 | Scope | Third-party packages | Shipped | Build-time only | Tests only | Not used on desktop targets |
 | --- | --- | --- | --- | --- | --- |
-| (a) Engine workspace (`Cargo.toml`) | 431 | 304 | 41 | 35 | 51 |
-| (b) Desktop app (`app/src-tauri/Cargo.toml`) | 642 | 461 | 96 | 1 | 84 |
+| (a) Engine workspace (`Cargo.toml`) | 432 | 305 | 41 | 35 | 51 |
+| (b) Desktop app (`app/src-tauri/Cargo.toml`) | 643 | 462 | 96 | 1 | 84 |
 | (c) App UI, production (`app/package.json`) | 34 | 34 | 0 | 0 | 0 |
 
 "Shipped" means linked into a binary for macOS, Windows, or Linux. "Build-time only" covers build scripts and procedural macros, which run while compiling and are not in the binary. "Not used on desktop targets" are packages the lockfile lists for other platforms (Android, iOS, WebAssembly).
 
 ## PixelFlow's own packages
 
-All 25 of PixelFlow's own packages state `GPL-3.0-only`: the GNU General Public License, version 3 (the `LICENSE` file at the repo root).
+All 26 of PixelFlow's own packages state `GPL-3.0-only`: the GNU General Public License, version 3 (the `LICENSE` file at the repo root).
 
 ## Shipped packages against PixelFlow's licence (`GPL-3.0-only`)
 
-Of the 511 packages shipped (engine, app, and UI together), 493 offer a licence the Free Software Foundation's licence list names as compatible with the GNU GPL, version 3. Where a package offers a choice, one compatible option is enough.
+Of the 512 packages shipped (engine, app, and UI together), 494 offer a licence the Free Software Foundation's licence list names as compatible with the GNU GPL, version 3. Where a package offers a choice, one compatible option is enough.
 
 **Shipped under a permissive licence that list does not name (read, and nothing in it limits distribution under the GPL; not confirmed by anyone with authority)** (18):
 
@@ -184,7 +184,7 @@ Of the 511 packages shipped (engine, app, and UI together), 493 offer a licence 
 
 | Licence (as the package states it) | Packages | Flag |
 | --- | --- | --- |
-| `Apache-2.0 OR MIT` | 206 |  |
+| `Apache-2.0 OR MIT` | 207 |  |
 | `MIT` | 35 |  |
 | `MPL-2.0` | 14 | copyleft |
 | `Apache-2.0 OR MIT OR Zlib` | 13 |  |
@@ -211,7 +211,7 @@ Of the 511 packages shipped (engine, app, and UI together), 493 offer a licence 
 
 | Licence (as the package states it) | Packages | Flag |
 | --- | --- | --- |
-| `Apache-2.0 OR MIT` | 278 |  |
+| `Apache-2.0 OR MIT` | 279 |  |
 | `MIT` | 82 |  |
 | `Apache-2.0 OR MIT OR Zlib` | 20 |  |
 | `MPL-2.0` | 18 | copyleft |
@@ -907,6 +907,7 @@ Across both Cargo workspaces (every use, not only shipped) and the app UI's prod
 | `tray-icon` | 0.25.1 | `MIT OR Apache-2.0` |  | shipped (all) |
 | `triple_buffer` | 9.0.0 | `MPL-2.0` | shipped (all) | shipped (all) |
 | `try-lock` | 0.2.5 | `MIT` |  | not on desktop |
+| `ttf-parser` | 0.25.1 | `MIT OR Apache-2.0` | shipped (all) | shipped (all) |
 | `typed-path` | 0.13.0 | `MIT OR Apache-2.0` | shipped (all) | shipped (all) |
 | `typeid` | 1.0.3 | `MIT OR Apache-2.0` | shipped (all) | shipped (all) |
 | `typenum` | 1.20.1 | `MIT OR Apache-2.0` | shipped (all) | shipped (all) |

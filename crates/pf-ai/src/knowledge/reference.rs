@@ -138,6 +138,9 @@ fn setting_line(kind: EffectKind, setting: &SettingInfo) -> String {
             format!("{}; default `{default}`", listed.join(" | "))
         }
         SettingValue::Face { .. } => "the name of one of the prop's faces; \"\" is its first".to_string(),
+        SettingValue::Font { .. } => {
+            "a font family on this computer, by name; \"\" is PixelFlow's pixel font".to_string()
+        }
         SettingValue::Text { default } if !default.is_empty() => format!(
             "text, up to {} characters; default \"{default}\"",
             pf_sequence::MAX_TEXT_LEN

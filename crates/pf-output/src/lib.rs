@@ -29,7 +29,7 @@ pub use health::ControllerState;
 pub use lut::build_lut;
 pub use plan::{
     ControllerPlan, DDP_PORT, GatherSpan, OutputPlan, PassthroughRoute, SACN_PORT, USB_DESTINATION, Wire,
-    build_offline_plan, build_passthrough_plan, build_plan, wire_order,
+    build_offline_plan, build_passthrough_plan, build_plan, hold_motors, motor_channels, wire_order,
 };
 pub use serial::SystemSerialPorts;
 pub use settings::OutputSettings;

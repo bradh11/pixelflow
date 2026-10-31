@@ -184,3 +184,49 @@ fn a_sequence_with_a_reference_and_no_baseline_cant_be_held() {
     assert!(checked.broken[0].contains("regress --accept"));
     assert_eq!(checked.unrendered, ["Chance"]);
 }
+
+/// The corpus's moving heads and servos, imported and rendered by PixelFlow alone, are sent what
+/// the sequence's DMX effects set at their channels (where xLights puts them), with the colors
+/// drawn on the heads in their color channels.
+#[test]
+fn the_corpus_heads_and_servos_get_their_channels() {
+    let show = corpus().join("show");
+    let bytes = render_fseq(&show, &show.join("heads.xsq"), regress::IDS).unwrap();
+    let mut fseq = pf_fseq::Sequence::from_reader(std::io::Cursor::new(bytes)).unwrap();
+    let channels = fseq.header().channels as usize;
+    assert_eq!(channels, 3_297);
+    let mut at = |n: u32| {
+        let mut frame = vec![0u8; channels];
+        fseq.read_frame(n, &mut frame).unwrap();
+        frame
+    };
+    // Spot Left at 3274, Spot Right at 3286, Arm at 3294 (0-based: 3273, 3285, 3293).
+    let (left, right, arm) = (3273, 3285, 3293);
+    let first = at(0);
+    let late = at(195);
+    assert!(first[left] < 10 && late[left] > 240, "the pan sweeps up");
+    assert_eq!(
+        &first[left + 1..left + 4],
+        &[0, 96, 0],
+        "pan fine, tilt, tilt fine as set"
+    );
+    assert_eq!(first[left + 5], 255, "the dimmer, from the red On under it");
+    assert_eq!(&first[left + 6..left + 10], &[255, 0, 0, 0], "red");
+    assert_eq!(first[left + 10], 255, "the shutter held open");
+    // Its sweep runs the whole 20 seconds: halfway at 9.75 s, all the way down at the end.
+    let last = at(399);
+    assert!(
+        first[right] > 245 && (110..=145).contains(&late[right]) && last[right] < 10,
+        "the pan sweeps down: {} {} {}",
+        first[right],
+        late[right],
+        last[right]
+    );
+    assert_eq!(first[right + 1], 128);
+    assert!(
+        [0, 16, 32, 48].contains(&first[right + 4]),
+        "the wheel at one of its colors"
+    );
+    assert!(first[arm] < 10 && late[arm] > 240, "the first servo turns");
+    assert_eq!(&first[arm + 1..arm + 4], &[0, 64, 0]);
+}

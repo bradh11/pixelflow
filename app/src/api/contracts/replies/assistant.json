@@ -183,7 +183,7 @@
               }
             }
           ],
-          "schemaVersion": 14,
+          "schemaVersion": 15,
           "sequences": [],
           "settings": { "frameRate": 40 }
         },

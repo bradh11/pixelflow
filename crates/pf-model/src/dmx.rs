@@ -20,9 +20,16 @@
 //!    channel.
 //! 3. **Amber** stands for the colour 255, 128, 0: after white, it is the most of that the colour
 //!    holds (the smaller of red and twice green), taken out of red and green.
-//! 4. Every other channel (UV, strobe, a mode or macro, and the moving-head channels) holds the
-//!    value set on the fixture, unless a DMX effect sets it.
+//! 4. **Cyan, magenta and yellow** (a fixture that mixes colour by taking it out of a white lamp)
+//!    are what red, green and blue leave out: cyan is 255 less the red, and so on.
+//! 5. **A colour wheel** with its colours listed (its slots) takes the slot nearest the colour
+//!    drawn (at full brightness: the dimmer carries the brightness). Where nothing is drawn it
+//!    keeps the value it holds, so it doesn't turn for nothing.
+//! 6. Every other channel (UV, strobe, a mode or macro, pan, tilt and servos) holds the value set
+//!    on the fixture, unless a DMX effect sets it. A moving head's pan and tilt, and a servo,
+//!    turn as their `motor` says (see `motion.rs`).
 
+use crate::motion::{DmxBeam, DmxMotor, DmxSlot, MAX_DMX_SLOTS};
 use serde::{Deserialize, Serialize};
 
 /// The most channels one fixture may have: a whole DMX universe.
@@ -51,19 +58,30 @@ pub enum DmxRole {
     /// A mode, macro or program channel: held at its value.
     #[default]
     Fixed,
-    /// Moving-head channels, held at their value for now.
+    /// A moving head's pan (turning round) and tilt (leaning), each with its fine channel for
+    /// a 16-bit head: held at their value unless a DMX effect sets them.
     Pan,
     PanFine,
     Tilt,
     TiltFine,
+    /// A colour wheel: from the colour drawn when its slots are listed, else held.
     ColorWheel,
     Gobo,
     /// Anything else: held at its value.
     Other,
+    /// Colour taken out of a white lamp: what the colour drawn leaves out of red, green, blue.
+    Cyan,
+    Magenta,
+    Yellow,
+    /// A servo's position, and its fine channel for a 16-bit servo.
+    Servo,
+    ServoFine,
+    /// How fast a head moves: held at its value.
+    Speed,
 }
 
 impl DmxRole {
-    pub const ALL: [DmxRole; 16] = [
+    pub const ALL: [DmxRole; 22] = [
         DmxRole::Dimmer,
         DmxRole::Red,
         DmxRole::Green,
@@ -80,6 +98,12 @@ impl DmxRole {
         DmxRole::ColorWheel,
         DmxRole::Gobo,
         DmxRole::Other,
+        DmxRole::Cyan,
+        DmxRole::Magenta,
+        DmxRole::Yellow,
+        DmxRole::Servo,
+        DmxRole::ServoFine,
+        DmxRole::Speed,
     ];
 
     /// The name people see.
@@ -101,6 +125,12 @@ impl DmxRole {
             DmxRole::ColorWheel => "Color wheel",
             DmxRole::Gobo => "Gobo",
             DmxRole::Other => "Other",
+            DmxRole::Cyan => "Cyan",
+            DmxRole::Magenta => "Magenta",
+            DmxRole::Yellow => "Yellow",
+            DmxRole::Servo => "Servo",
+            DmxRole::ServoFine => "Servo fine",
+            DmxRole::Speed => "Speed",
         }
     }
 
@@ -108,7 +138,15 @@ impl DmxRole {
     pub fn from_color(self) -> bool {
         matches!(
             self,
-            DmxRole::Dimmer | DmxRole::Red | DmxRole::Green | DmxRole::Blue | DmxRole::White | DmxRole::Amber
+            DmxRole::Dimmer
+                | DmxRole::Red
+                | DmxRole::Green
+                | DmxRole::Blue
+                | DmxRole::White
+                | DmxRole::Amber
+                | DmxRole::Cyan
+                | DmxRole::Magenta
+                | DmxRole::Yellow
         )
     }
 
@@ -116,8 +154,49 @@ impl DmxRole {
     pub fn per_cell(self) -> bool {
         matches!(
             self,
-            DmxRole::Red | DmxRole::Green | DmxRole::Blue | DmxRole::White | DmxRole::Amber
+            DmxRole::Red
+                | DmxRole::Green
+                | DmxRole::Blue
+                | DmxRole::White
+                | DmxRole::Amber
+                | DmxRole::Cyan
+                | DmxRole::Magenta
+                | DmxRole::Yellow
         )
+    }
+
+    /// A motor's channel: a head's pan or tilt, or a servo (each with a `motor`).
+    pub fn is_motor(self) -> bool {
+        matches!(self, DmxRole::Pan | DmxRole::Tilt | DmxRole::Servo)
+    }
+
+    /// A channel that moves the fixture: a motor's, or its fine channel. Blackout leaves these
+    /// where they are, so stopping never swings a head.
+    pub fn moves(self) -> bool {
+        matches!(
+            self,
+            DmxRole::Pan
+                | DmxRole::PanFine
+                | DmxRole::Tilt
+                | DmxRole::TiltFine
+                | DmxRole::Servo
+                | DmxRole::ServoFine
+        )
+    }
+
+    /// The fine channel's role for a motor's role.
+    pub fn fine(self) -> Option<DmxRole> {
+        match self {
+            DmxRole::Pan => Some(DmxRole::PanFine),
+            DmxRole::Tilt => Some(DmxRole::TiltFine),
+            DmxRole::Servo => Some(DmxRole::ServoFine),
+            _ => None,
+        }
+    }
+
+    /// A channel that holds slots (a colour wheel or a gobo wheel).
+    pub fn has_slots(self) -> bool {
+        matches!(self, DmxRole::ColorWheel | DmxRole::Gobo)
     }
 }
 
@@ -130,7 +209,7 @@ fn is_zero_u32(v: &u32) -> bool {
 }
 
 /// One channel of a fixture, in the order the fixture takes them.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct DmxChannel {
@@ -142,9 +221,16 @@ pub struct DmxChannel {
     #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub cell: u32,
     /// The value it holds when nothing sets it (0-255); colour and dimmer channels are worked
-    /// out from the colour instead.
+    /// out from the colour instead. A motor's held value is where it rests.
     #[serde(default, skip_serializing_if = "is_zero_u8")]
     pub value: u8,
+    /// How a pan, tilt or servo channel turns with its value (left out: the usual for its role,
+    /// see [`DmxMotor::default_for`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub motor: Option<DmxMotor>,
+    /// A colour wheel's colours, or a gobo wheel's gobos, by the value that selects each.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub slots: Vec<DmxSlot>,
 }
 
 impl DmxChannel {
@@ -154,7 +240,27 @@ impl DmxChannel {
             role,
             cell: 0,
             value: 0,
+            motor: role.is_motor().then(|| DmxMotor::default_for(role)),
+            slots: Vec::new(),
         }
+    }
+
+    /// Its motor, or the usual one for its role (a motor's channel only).
+    pub fn motor(&self) -> Option<DmxMotor> {
+        self.role
+            .is_motor()
+            .then(|| self.motor.unwrap_or_else(|| DmxMotor::default_for(self.role)))
+    }
+
+    /// Its value comes from the colour drawn: a colour or dimmer channel, or a colour wheel with
+    /// its colours listed.
+    pub fn from_color(&self) -> bool {
+        self.role.from_color() || self.is_color_wheel()
+    }
+
+    /// A colour wheel with its colours listed.
+    pub fn is_color_wheel(&self) -> bool {
+        self.role == DmxRole::ColorWheel && self.slots.iter().any(|s| s.color.is_some())
     }
 
     pub fn in_cell(mut self, cell: u32) -> Self {
@@ -169,7 +275,7 @@ impl DmxChannel {
 }
 
 /// What makes a prop a DMX fixture: where it starts in its universe, and its channels.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct DmxFixture {
@@ -180,16 +286,104 @@ pub struct DmxFixture {
     /// The library layout it was made from (see [`DMX_LAYOUTS`]), when it was.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub layout: Option<String>,
+    /// A moving head's beam, as the previews draw it (left out: the usual, for a head).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub beam: Option<DmxBeam>,
+}
+
+/// One motor of a fixture: a head's pan or tilt, or a servo.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DmxAxis {
+    pub role: DmxRole,
+    /// Its channel, and its fine channel for a 16-bit motor (indices into the fixture's).
+    pub coarse: usize,
+    pub fine: Option<usize>,
+    pub motor: DmxMotor,
+}
+
+impl DmxAxis {
+    /// The values it takes for `degrees` from Home: its channel's, and its fine channel's (if it
+    /// has one).
+    pub fn values(&self, degrees: f64) -> (u8, Option<u8>) {
+        let (coarse, fine) = self.motor.values(degrees, self.fine.is_some());
+        (coarse, self.fine.map(|_| fine))
+    }
+
+    /// Where it is, in degrees from Home, with the fixture's channels at `dmx`.
+    pub fn degrees(&self, dmx: &[u8]) -> f64 {
+        let at = |i: usize| dmx.get(i).copied().unwrap_or(0);
+        self.motor.degrees(at(self.coarse), self.fine.map(at))
+    }
+}
+
+/// A fixture's motors, in the order of their channels: each pan, tilt and servo channel with its
+/// fine channel. The k-th fine channel of a kind belongs to the k-th motor of that kind,
+/// wherever it is (heads often put both fine channels after both coarse ones).
+pub fn axes(channels: &[DmxChannel]) -> Vec<DmxAxis> {
+    let mut out = Vec::new();
+    for (i, c) in channels.iter().enumerate() {
+        let Some(motor) = c.motor() else { continue };
+        let nth = channels[..i].iter().filter(|o| o.role == c.role).count();
+        let fine = c.role.fine().and_then(|fine| {
+            channels
+                .iter()
+                .enumerate()
+                .filter(|(_, o)| o.role == fine)
+                .nth(nth)
+                .map(|(j, _)| j)
+        });
+        out.push(DmxAxis {
+            role: c.role,
+            coarse: i,
+            fine,
+            motor,
+        });
+    }
+    out
+}
+
+/// Sets each motor's held values (its channel's, and its fine channel's) to `degrees` from Home:
+/// where it rests when nothing moves it.
+pub fn rest_motors_at(channels: &mut [DmxChannel], degrees: f64) {
+    for axis in axes(channels) {
+        let (coarse, fine) = axis.values(degrees);
+        channels[axis.coarse].value = coarse;
+        if let (Some(at), Some(v)) = (axis.fine, fine) {
+            channels[at].value = v;
+        }
+    }
 }
 
 impl DmxFixture {
     /// A fixture at `address` laid out as the library's `layout` with `cells` cells.
     pub fn from_layout(layout: &DmxLayout, cells: u32, address: u16) -> Self {
-        Self {
+        let mut fixture = Self {
             address,
             channels: layout.channels(cells),
             layout: Some(layout.id.to_string()),
+            beam: None,
+        };
+        if fixture.is_head() {
+            fixture.beam = Some(DmxBeam::default());
         }
+        fixture
+    }
+
+    /// Its motors (see [`axes`]).
+    pub fn axes(&self) -> Vec<DmxAxis> {
+        axes(&self.channels)
+    }
+
+    /// A moving head: it has a pan or a tilt channel.
+    pub fn is_head(&self) -> bool {
+        self.channels
+            .iter()
+            .any(|c| matches!(c.role, DmxRole::Pan | DmxRole::Tilt))
+    }
+
+    /// Its beam as drawn: its own, or the usual one for a head.
+    pub fn beam(&self) -> Option<DmxBeam> {
+        self.is_head().then(|| self.beam.unwrap_or_default())
     }
 
     /// Channels it takes from its address on.
@@ -262,6 +456,31 @@ impl DmxFixture {
                 c.name.chars().take(12).collect::<String>()
             ));
         }
+        for c in &self.channels {
+            if let Some(problem) = c.motor.and_then(|m| m.problem()) {
+                return Some(format!("The channel '{}': {problem}", c.name));
+            }
+            if c.slots.len() > MAX_DMX_SLOTS {
+                return Some(format!(
+                    "The channel '{}' lists {} slots; a wheel has at most {MAX_DMX_SLOTS}.",
+                    c.name,
+                    c.slots.len()
+                ));
+            }
+            if let Some(slot) = c.slots.iter().find(|s| {
+                s.name
+                    .as_ref()
+                    .is_some_and(|n| n.chars().count() > MAX_DMX_CHANNEL_NAME)
+            }) {
+                return Some(format!(
+                    "The slot at {} of '{}' has a name longer than {MAX_DMX_CHANNEL_NAME} characters.",
+                    slot.value, c.name
+                ));
+            }
+        }
+        if let Some(problem) = self.beam.and_then(|b| b.problem()) {
+            return Some(problem);
+        }
         None
     }
 }
@@ -276,14 +495,34 @@ pub struct DmxLayout {
     pub head: &'static [DmxRole],
     pub cell: &'static [DmxRole],
     pub tail: &'static [DmxRole],
-    /// Made for several cells (a bar); the others are usually one.
+    /// Made for several cells (a bar, or several servos); the others are usually one.
     pub multi_cell: bool,
+    /// What kind of fixture it is for.
+    pub kind: DmxKind,
+}
+
+/// What kind of fixture a library layout is for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum DmxKind {
+    /// A flood, par or bar: light only.
+    Flood,
+    /// A moving head: light, pointed by its pan and tilt.
+    Head,
+    /// Servos, one a cell: they move something, and make no light.
+    Servo,
 }
 
 impl DmxLayout {
     /// Its channels for a fixture of `cells` cells, named by role (with the cell's number when
-    /// there are several).
+    /// there are several). Motors rest at Home.
     pub fn channels(&self, cells: u32) -> Vec<DmxChannel> {
+        let mut out = self.channels_as_listed(cells);
+        rest_motors_at(&mut out, 0.0);
+        out
+    }
+
+    fn channels_as_listed(&self, cells: u32) -> Vec<DmxChannel> {
         let cells = cells.max(1);
         let mut out: Vec<DmxChannel> = self.head.iter().map(|&r| DmxChannel::new(r)).collect();
         for cell in 0..cells {
@@ -309,10 +548,12 @@ impl DmxLayout {
 }
 
 use DmxRole::{
-    Amber as A, Blue as B, Dimmer as D, Fixed as M, Green as G, Red as R, Strobe as S, Uv as U, White as W,
+    Amber as A, Blue as B, Dimmer as D, Fixed as M, Green as G, Pan as P, PanFine as PF, Red as R,
+    Speed as SP, Strobe as S, Tilt as T, TiltFine as TF, Uv as U, White as W,
 };
 
-/// The library of common flood, par and bar layouts, named by their channels.
+/// The library of common flood, par, bar, moving-head and servo layouts, named by their channels
+/// (generic layouts many fixtures share, not any one maker's).
 pub const DMX_LAYOUTS: &[DmxLayout] = &[
     DmxLayout {
         id: "rgb",
@@ -321,6 +562,7 @@ pub const DMX_LAYOUTS: &[DmxLayout] = &[
         cell: &[R, G, B],
         tail: &[],
         multi_cell: false,
+        kind: DmxKind::Flood,
     },
     DmxLayout {
         id: "dimmer-rgb",
@@ -329,6 +571,7 @@ pub const DMX_LAYOUTS: &[DmxLayout] = &[
         cell: &[R, G, B],
         tail: &[],
         multi_cell: false,
+        kind: DmxKind::Flood,
     },
     DmxLayout {
         id: "rgbw",
@@ -337,6 +580,7 @@ pub const DMX_LAYOUTS: &[DmxLayout] = &[
         cell: &[R, G, B, W],
         tail: &[],
         multi_cell: false,
+        kind: DmxKind::Flood,
     },
     DmxLayout {
         id: "dimmer-rgb-strobe",
@@ -345,6 +589,7 @@ pub const DMX_LAYOUTS: &[DmxLayout] = &[
         cell: &[R, G, B],
         tail: &[S],
         multi_cell: false,
+        kind: DmxKind::Flood,
     },
     DmxLayout {
         id: "rgbwa",
@@ -353,6 +598,7 @@ pub const DMX_LAYOUTS: &[DmxLayout] = &[
         cell: &[R, G, B, W, A],
         tail: &[],
         multi_cell: false,
+        kind: DmxKind::Flood,
     },
     DmxLayout {
         id: "dimmer-rgbw-strobe",
@@ -361,6 +607,7 @@ pub const DMX_LAYOUTS: &[DmxLayout] = &[
         cell: &[R, G, B, W],
         tail: &[S],
         multi_cell: false,
+        kind: DmxKind::Flood,
     },
     DmxLayout {
         id: "rgbwa-uv",
@@ -369,6 +616,7 @@ pub const DMX_LAYOUTS: &[DmxLayout] = &[
         cell: &[R, G, B, W, A, U],
         tail: &[],
         multi_cell: false,
+        kind: DmxKind::Flood,
     },
     DmxLayout {
         id: "dimmer-rgbw-strobe-mode",
@@ -377,6 +625,7 @@ pub const DMX_LAYOUTS: &[DmxLayout] = &[
         cell: &[R, G, B, W],
         tail: &[S, M],
         multi_cell: false,
+        kind: DmxKind::Flood,
     },
     DmxLayout {
         id: "dimmer-rgbwa-uv-strobe",
@@ -385,6 +634,7 @@ pub const DMX_LAYOUTS: &[DmxLayout] = &[
         cell: &[R, G, B, W, A, U],
         tail: &[S],
         multi_cell: false,
+        kind: DmxKind::Flood,
     },
     DmxLayout {
         id: "bar-rgb",
@@ -393,6 +643,7 @@ pub const DMX_LAYOUTS: &[DmxLayout] = &[
         cell: &[R, G, B],
         tail: &[],
         multi_cell: true,
+        kind: DmxKind::Flood,
     },
     DmxLayout {
         id: "bar-dimmer-strobe-rgb",
@@ -401,6 +652,7 @@ pub const DMX_LAYOUTS: &[DmxLayout] = &[
         cell: &[R, G, B],
         tail: &[],
         multi_cell: true,
+        kind: DmxKind::Flood,
     },
     DmxLayout {
         id: "bar-rgbw",
@@ -409,6 +661,61 @@ pub const DMX_LAYOUTS: &[DmxLayout] = &[
         cell: &[R, G, B, W],
         tail: &[],
         multi_cell: true,
+        kind: DmxKind::Flood,
+    },
+    DmxLayout {
+        id: "head-rgbw-16",
+        label: "Moving head, 11 channels: pan, pan fine, tilt, tilt fine, speed, dimmer, strobe, red, green, blue, white",
+        head: &[P, PF, T, TF, SP, D, S],
+        cell: &[R, G, B, W],
+        tail: &[],
+        multi_cell: false,
+        kind: DmxKind::Head,
+    },
+    DmxLayout {
+        id: "head-rgbw-16-split",
+        label: "Moving head, 11 channels: pan, tilt, pan fine, tilt fine, speed, dimmer, strobe, red, green, blue, white",
+        head: &[P, T, PF, TF, SP, D, S],
+        cell: &[R, G, B, W],
+        tail: &[],
+        multi_cell: false,
+        kind: DmxKind::Head,
+    },
+    DmxLayout {
+        id: "head-rgbw-8",
+        label: "Moving head, 8 channels: pan, tilt, speed, dimmer, red, green, blue, white",
+        head: &[P, T, SP, D],
+        cell: &[R, G, B, W],
+        tail: &[],
+        multi_cell: false,
+        kind: DmxKind::Head,
+    },
+    DmxLayout {
+        id: "head-spot-16",
+        label: "Moving head, 9 channels: pan, pan fine, tilt, tilt fine, speed, dimmer, strobe, color wheel, gobo",
+        head: &[P, PF, T, TF, SP, D, S, DmxRole::ColorWheel, DmxRole::Gobo],
+        cell: &[],
+        tail: &[],
+        multi_cell: false,
+        kind: DmxKind::Head,
+    },
+    DmxLayout {
+        id: "servo-8",
+        label: "Servos, 1 channel each: position",
+        head: &[],
+        cell: &[DmxRole::Servo],
+        tail: &[],
+        multi_cell: true,
+        kind: DmxKind::Servo,
+    },
+    DmxLayout {
+        id: "servo-16",
+        label: "Servos, 2 channels each: position, fine",
+        head: &[],
+        cell: &[DmxRole::Servo, DmxRole::ServoFine],
+        tail: &[],
+        multi_cell: true,
+        kind: DmxKind::Servo,
     },
 ];
 
@@ -420,6 +727,14 @@ pub fn dmx_layout(id: &str) -> Option<&'static DmxLayout> {
 /// Half of an amber value, as green holds it (amber stands for 255, 128, 0).
 fn half(a: u8) -> u8 {
     a.div_ceil(2)
+}
+
+/// The slot with a colour that `distance` puts nearest (the first of equals), if any has one.
+fn nearest_slot(slots: &[DmxSlot], distance: impl Fn(&DmxSlot) -> i32) -> Option<&DmxSlot> {
+    slots
+        .iter()
+        .filter(|s| s.color.is_some())
+        .min_by_key(|s| distance(s))
 }
 
 /// `value` times `num / den`, rounded, at most 255.
@@ -450,6 +765,23 @@ pub fn write_channels(channels: &[DmxChannel], cells: &[u8], out: &mut [u8]) {
     for (channel, byte) in channels.iter().zip(out.iter_mut()) {
         *byte = match channel.role {
             DmxRole::Dimmer => peak,
+            // What's left out of a white lamp: cyan takes out red, and so on.
+            DmxRole::Cyan => 255 - scale(cell_rgb(channel.cell)[0], gain),
+            DmxRole::Magenta => 255 - scale(cell_rgb(channel.cell)[1], gain),
+            DmxRole::Yellow => 255 - scale(cell_rgb(channel.cell)[2], gain),
+            // A wheel turns to the colour nearest what's drawn (at full), and stays put in the dark.
+            _ if channel.is_color_wheel() => {
+                if peak == 0 {
+                    channel.value
+                } else {
+                    let drawn = cell_rgb(0).map(|v| i32::from(scale(v, (255, u32::from(peak)))));
+                    nearest_slot(&channel.slots, |s| {
+                        let c = s.color.map_or([0; 3], |c| [c.r, c.g, c.b].map(i32::from));
+                        (0..3).map(|k| (c[k] - drawn[k]).pow(2)).sum::<i32>()
+                    })
+                    .map_or(channel.value, |s| s.value)
+                }
+            }
             role if role.per_cell() => {
                 let cell = channel.cell;
                 let [r, g, b] = cell_rgb(cell).map(|v| scale(v, gain));
@@ -488,9 +820,13 @@ pub fn write_channels(channels: &[DmxChannel], cells: &[u8], out: &mut [u8]) {
 pub fn emitted_colors(channels: &[DmxChannel], dmx: &[u8], cells: &mut [u8]) {
     let value = |i: usize| dmx.get(i).copied().unwrap_or(0);
     let dimmer = channels.iter().position(|c| c.role == DmxRole::Dimmer).map(value);
+    // Servos with no dimmer make no light of their own.
+    let dark = dimmer.is_none() && channels.iter().any(|c| c.role == DmxRole::Servo);
     for (cell, rgb) in cells.as_chunks_mut::<3>().0.iter_mut().enumerate() {
         let cell = cell as u32;
         let (mut r, mut g, mut b, mut lit) = (0u32, 0u32, 0u32, false);
+        // A lamp with colour taken out of it: white, less what its cyan, magenta and yellow hold.
+        let (mut cmy, mut taken) = (false, [0u32; 3]);
         for (i, c) in channels.iter().enumerate() {
             let v = u32::from(value(i));
             let mine = c.cell == cell;
@@ -500,13 +836,35 @@ pub fn emitted_colors(channels: &[DmxChannel], dmx: &[u8], cells: &mut [u8]) {
                 DmxRole::Blue if mine => (b, lit) = (b + v, true),
                 DmxRole::White if mine => (r, g, b, lit) = (r + v, g + v, b + v, true),
                 DmxRole::Amber if mine => (r, g, lit) = (r + v, g + u32::from(half(v as u8)), true),
+                DmxRole::Cyan if mine => (cmy, taken[0]) = (true, v),
+                DmxRole::Magenta if mine => (cmy, taken[1]) = (true, v),
+                DmxRole::Yellow if mine => (cmy, taken[2]) = (true, v),
                 // Ultraviolet glows a faint violet on what it lights.
                 DmxRole::Uv => (r, b, lit) = (r + v / 4, b + v / 2, true),
+                // A colour wheel shows the colour of the slot nearest its value.
+                _ if c.is_color_wheel() => {
+                    let slot = nearest_slot(&c.slots, |s| (i32::from(s.value) - v as i32).abs());
+                    if let Some(color) = slot.and_then(|s| s.color) {
+                        (r, g, b, lit) = (
+                            r + u32::from(color.r),
+                            g + u32::from(color.g),
+                            b + u32::from(color.b),
+                            true,
+                        );
+                    }
+                }
                 _ => {}
             }
         }
+        if cmy {
+            (r, g, b, lit) = (r + 255 - taken[0], g + 255 - taken[1], b + 255 - taken[2], true);
+        }
         let level = u32::from(dimmer.unwrap_or(255));
-        let (r, g, b) = if lit { (r, g, b) } else { (255, 255, 255) };
+        let (r, g, b) = match (lit, dark) {
+            (true, _) => (r, g, b),
+            (false, true) => (0, 0, 0),
+            (false, false) => (255, 255, 255),
+        };
         let out = |v: u32| ((v.min(255) * level + 127) / 255) as u8;
         *rgb = [out(r), out(g), out(b)];
     }
@@ -659,8 +1017,149 @@ mod tests {
             address: 1,
             channels: vec![],
             layout: None,
+            beam: None,
         };
         assert!(empty.problem(1).is_some());
+        let mut head = DmxFixture::from_layout(dmx_layout("head-rgbw-16").unwrap(), 1, 1);
+        assert_eq!(head.problem(1), None);
+        head.channels[0].motor.as_mut().unwrap().range_deg = 0.0;
+        assert!(head.problem(1).unwrap().contains("'Pan'"));
+        let mut head = DmxFixture::from_layout(dmx_layout("head-rgbw-16").unwrap(), 1, 1);
+        head.beam = Some(DmxBeam {
+            angle_deg: 0.0,
+            length: 6.0,
+        });
+        assert!(head.problem(1).unwrap().contains("1° to 120°"));
+        let mut spot = DmxFixture::from_layout(dmx_layout("head-spot-16").unwrap(), 1, 1);
+        spot.channels[7].slots = (0..65)
+            .map(|v| DmxSlot {
+                value: v,
+                color: None,
+                name: None,
+            })
+            .collect();
+        assert!(spot.problem(1).unwrap().contains("at most 64"));
+    }
+
+    #[test]
+    fn library_heads_rest_at_home_with_a_beam_and_servos_one_a_cell() {
+        let head = DmxFixture::from_layout(dmx_layout("head-rgbw-16").unwrap(), 1, 1);
+        assert!(head.is_head());
+        assert_eq!(head.beam, Some(DmxBeam::default()));
+        let held: Vec<u8> = head.channels.iter().map(|c| c.value).collect();
+        assert_eq!(
+            held,
+            vec![128, 0, 128, 0, 0, 0, 0, 0, 0, 0, 0],
+            "pan and tilt at Home"
+        );
+        let axes = head.axes();
+        assert_eq!(axes.len(), 2);
+        assert_eq!(
+            (axes[0].role, axes[0].coarse, axes[0].fine),
+            (DmxRole::Pan, 0, Some(1))
+        );
+        assert_eq!(
+            (axes[1].role, axes[1].coarse, axes[1].fine),
+            (DmxRole::Tilt, 2, Some(3))
+        );
+        assert_eq!(axes[0].motor, DmxMotor::centred(540.0));
+        assert_eq!(axes[1].motor, DmxMotor::centred(270.0));
+        // Both fine channels after both coarse ones: still each its own motor's.
+        let split = DmxFixture::from_layout(dmx_layout("head-rgbw-16-split").unwrap(), 1, 1);
+        let axes = split.axes();
+        assert_eq!((axes[0].coarse, axes[0].fine), (0, Some(2)));
+        assert_eq!((axes[1].coarse, axes[1].fine), (1, Some(3)));
+        assert_eq!(axes[0].values(90.0), (170, Some(170)));
+        let eight = DmxFixture::from_layout(dmx_layout("head-rgbw-8").unwrap(), 1, 1);
+        assert_eq!(eight.axes()[0].fine, None);
+        assert_eq!(eight.axes()[0].values(90.0), (170, None));
+
+        let servos = DmxFixture::from_layout(dmx_layout("servo-16").unwrap(), 3, 1);
+        assert!(!servos.is_head());
+        assert_eq!(servos.beam, None);
+        assert_eq!(servos.channels.len(), 6);
+        assert_eq!(servos.channels[2].name, "Servo 2");
+        assert_eq!(servos.channels[3].name, "Servo fine 2");
+        let axes = servos.axes();
+        assert_eq!(axes.len(), 3);
+        assert_eq!((axes[1].coarse, axes[1].fine), (2, Some(3)));
+        assert_eq!(servos.channels[2].value, 128, "at Home");
+        // A pan channel set up by hand, with no motor written: the usual pan.
+        let bare = DmxChannel {
+            motor: None,
+            ..DmxChannel::new(DmxRole::Pan)
+        };
+        assert_eq!(bare.motor(), Some(DmxMotor::centred(540.0)));
+        assert_eq!(DmxChannel::new(DmxRole::Red).motor(), None);
+    }
+
+    #[test]
+    fn cyan_magenta_and_yellow_are_what_the_colour_leaves_out() {
+        let channels = vec![
+            DmxChannel::new(DmxRole::Dimmer),
+            DmxChannel::new(DmxRole::Cyan),
+            DmxChannel::new(DmxRole::Magenta),
+            DmxChannel::new(DmxRole::Yellow),
+        ];
+        let mut out = [0; 4];
+        // Orange at half: dimmer half; the colour at full takes some green and all blue out.
+        write_channels(&channels, &[128, 64, 0], &mut out);
+        assert_eq!(out, [128, 0, 127, 255]);
+        let mut back = [0; 3];
+        emitted_colors(&channels, &out, &mut back);
+        assert_eq!(back, [128, 64, 0]);
+    }
+
+    #[test]
+    fn a_colour_wheel_turns_to_the_nearest_colour_and_keeps_still_in_the_dark() {
+        let slot = |value: u8, hex: &str| DmxSlot {
+            value,
+            color: crate::Rgb::from_hex(hex),
+            name: None,
+        };
+        let mut wheel = DmxChannel::new(DmxRole::ColorWheel).holding(40);
+        wheel.slots = vec![
+            slot(0, "#ffffff"),
+            slot(20, "#ff0000"),
+            slot(40, "#00ff00"),
+            slot(60, "#0000ff"),
+        ];
+        let channels = vec![DmxChannel::new(DmxRole::Dimmer), wheel];
+        let mut out = [0; 2];
+        write_channels(&channels, &[100, 10, 0], &mut out);
+        assert_eq!(
+            out,
+            [100, 20],
+            "dim red: the red slot, the dimmer at its brightness"
+        );
+        write_channels(&channels, &[0, 0, 0], &mut out);
+        assert_eq!(out, [0, 40], "dark: the wheel stays where it is");
+        let mut back = [0; 3];
+        emitted_colors(&channels, &[255, 23], &mut back);
+        assert_eq!(back, [255, 0, 0], "the slot nearest 23 is red");
+        emitted_colors(&channels, &[128, 55], &mut back);
+        assert_eq!(back, [0, 0, 128]);
+        // Without colours listed it's a held channel, and the head shows white.
+        let plain = vec![
+            DmxChannel::new(DmxRole::Dimmer),
+            DmxChannel::new(DmxRole::ColorWheel).holding(9),
+        ];
+        assert!(!plain[1].from_color());
+        write_channels(&plain, &[255, 0, 0], &mut out);
+        assert_eq!(out, [255, 9]);
+        emitted_colors(&plain, &out, &mut back);
+        assert_eq!(back, [255, 255, 255]);
+    }
+
+    #[test]
+    fn servos_make_no_light_and_hold_their_position() {
+        let servos = layout("servo-8", 2);
+        let mut out = [0; 2];
+        write_channels(&servos, &[255, 255, 255, 255, 255, 255], &mut out);
+        assert_eq!(out, [128, 128], "they rest at Home, whatever the colour");
+        let mut cells = [9; 6];
+        emitted_colors(&servos, &out, &mut cells);
+        assert_eq!(cells, [0; 6]);
     }
 
     #[test]

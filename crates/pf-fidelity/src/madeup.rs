@@ -1,4 +1,4 @@
-//! The made-up corpus: an xLights show folder and three short sequences written here, for CI to
+//! The made-up corpus: an xLights show folder and four short sequences written here, for CI to
 //! hold imports to. Everything in it is PixelFlow's own (made-up props, made-up sequences, a
 //! picture drawn here, and one of PixelFlow's own shader files), so it can be published with
 //! the code. No music: every sequence is an animation.
@@ -8,7 +8,8 @@
 //! xLights can make them (`corpus/README.md` says how), and the baseline and fingerprint files
 //! are written by the checks themselves (`crate::regress`, `crate::fingerprint`).
 //!
-//! The show (1,091 pixels, 3,273 channels on one DDP controller at a documentation address):
+//! The show (1,091 pixels and 24 DMX channels, 3,297 channels on one DDP controller at a
+//! documentation address):
 //!
 //! | Prop | Kind | Pixels |
 //! |---|---|---|
@@ -19,8 +20,12 @@
 //! | Canes | four candy canes of 15 | 60 |
 //! | Star | a five-pointed star | 50 |
 //! | Flake | a custom model (a snowflake on a 9 by 9 grid) | 29 |
+//! | Spot Left | a 16-bit moving head with red, green, blue and white (12 channels) | |
+//! | Spot Right | an 8-bit moving head with a color wheel, hung upside down (8 channels) | |
+//! | Arm | two 16-bit servos (4 channels) | |
 //!
-//! and two groups: Outlines (Line, Arches, Canes, Star) and Everything.
+//! and three groups: Outlines (Line, Arches, Canes, Star), Everything (the props of pixels) and
+//! Heads.
 
 use std::fmt::Write as _;
 
@@ -43,27 +48,32 @@ struct Model {
     /// Everything but the name and start channel, as xLights writes it.
     attributes: &'static str,
     pixels: u32,
-    /// What goes inside the element (submodels).
+    /// A DMX model's channels (0 for a model of pixels).
+    dmx: u32,
+    /// What goes inside the element (submodels, a moving head's motors, servos).
     inside: &'static str,
 }
 
-const MODELS: [Model; 7] = [
+const MODELS: [Model; 10] = [
     Model {
         name: "Matrix",
         attributes: r#"DisplayAs="Horiz Matrix" StringType="RGB Nodes" StartSide="B" Dir="L" parm1="16" parm2="32" parm3="1" WorldPosX="640.0" WorldPosY="380.0" WorldPosZ="0.0" ScaleX="8.0" ScaleY="8.0" ScaleZ="1.0""#,
         pixels: 512,
+        dmx: 0,
         inside: "",
     },
     Model {
         name: "Tree",
         attributes: r#"DisplayAs="Tree 360" StringType="RGB Nodes" StartSide="B" Dir="L" parm1="12" parm2="25" parm3="1" WorldPosX="230.0" WorldPosY="380.0" WorldPosZ="0.0" ScaleX="4.0" ScaleY="3.0" ScaleZ="4.0""#,
         pixels: 300,
+        dmx: 0,
         inside: "",
     },
     Model {
         name: "Arches",
         attributes: r#"DisplayAs="Arches" StringType="RGB Nodes" StartSide="B" Dir="L" parm1="3" parm2="20" parm3="1" Arc="180" WorldPosX="80.0" WorldPosY="90.0" WorldPosZ="0.0" X2="420.0" Y2="0.0" Z2="0.0" Height="1.0""#,
         pixels: 60,
+        dmx: 0,
         inside: r#"      <subModel name="Middle Arch" bufferstyle="Default" layout="horizontal" type="ranges" line0="21-40"/>
 "#,
     },
@@ -71,18 +81,21 @@ const MODELS: [Model; 7] = [
         name: "Line",
         attributes: r#"DisplayAs="Single Line" StringType="RGB Nodes" StartSide="B" Dir="L" parm1="1" parm2="80" parm3="1" WorldPosX="80.0" WorldPosY="660.0" WorldPosZ="0.0" X2="1120.0" Y2="0.0" Z2="0.0""#,
         pixels: 80,
+        dmx: 0,
         inside: "",
     },
     Model {
         name: "Canes",
         attributes: r#"DisplayAs="Candy Canes" StringType="RGB Nodes" StartSide="B" Dir="L" parm1="4" parm2="15" parm3="1" WorldPosX="760.0" WorldPosY="90.0" WorldPosZ="0.0" X2="440.0" Y2="0.0" Z2="0.0" Height="1.0""#,
         pixels: 60,
+        dmx: 0,
         inside: "",
     },
     Model {
         name: "Star",
         attributes: r#"DisplayAs="Star" StringType="RGB Nodes" StartSide="B" Dir="L" parm1="1" parm2="50" parm3="5" WorldPosX="1080.0" WorldPosY="420.0" WorldPosZ="0.0" ScaleX="6.0" ScaleY="6.0" ScaleZ="1.0""#,
         pixels: 50,
+        dmx: 0,
         inside: "",
     },
     Model {
@@ -94,19 +107,52 @@ const MODELS: [Model; 7] = [
             r#"""#
         ),
         pixels: 29,
+        dmx: 0,
         inside: "",
+    },
+    // A 16-bit moving head standing on the ground: pan and tilt with their fine channels, a
+    // dimmer, red, green, blue and white, and a shutter held open.
+    Model {
+        name: "Spot Left",
+        attributes: r#"DisplayAs="DmxMovingHeadAdv" DmxChannelCount="12" DmxFixture="MH1" DmxColorType="0" DmxDimmerChannel="6" DmxRedChannel="7" DmxGreenChannel="8" DmxBlueChannel="9" DmxWhiteChannel="10" DmxShutterChannel="11" DmxShutterOpen="255" DmxBeamWidth="20" WorldPosX="380.0" WorldPosY="40.0" WorldPosZ="0.0" ScaleX="1.0" ScaleY="1.0" ScaleZ="1.0""#,
+        pixels: 0,
+        dmx: 12,
+        inside: r#"      <PanMotor ChannelCoarse="1" ChannelFine="2" MinLimit="-180" MaxLimit="180" RangeOfMotion="540" OrientZero="0" OrientHome="270" SlewLimit="0" Reverse="0" UpsideDown="0"/>
+      <TiltMotor ChannelCoarse="3" ChannelFine="4" MinLimit="-90" MaxLimit="90" RangeOfMotion="270" OrientZero="0" OrientHome="135" SlewLimit="0" Reverse="0" UpsideDown="0"/>
+"#,
+    },
+    // An 8-bit moving head hung upside down, its color from a wheel of four colors.
+    Model {
+        name: "Spot Right",
+        attributes: r##"DisplayAs="DmxMovingHead" DmxStyle="Moving Head Top" DmxChannelCount="8" DmxFixture="MH2" DmxColorType="1" DmxColorWheelChannel="5" DmxDimmerChannel="6" DmxShutterChannel="7" DmxShutterOpen="255" DmxColorWheelColor0="#FFFFFF" DmxColorWheelDMX0="0" DmxColorWheelColor1="#FF0000" DmxColorWheelDMX1="16" DmxColorWheelColor2="#00FF00" DmxColorWheelDMX2="32" DmxColorWheelColor3="#0000FF" DmxColorWheelDMX3="48" WorldPosX="900.0" WorldPosY="700.0" WorldPosZ="0.0" ScaleX="1.0" ScaleY="1.0" ScaleZ="1.0""##,
+        pixels: 0,
+        dmx: 8,
+        inside: r#"      <PanMotor ChannelCoarse="1" ChannelFine="0" RangeOfMotion="540" OrientZero="0" OrientHome="270" SlewLimit="0" Reverse="0" UpsideDown="1"/>
+      <TiltMotor ChannelCoarse="2" ChannelFine="0" RangeOfMotion="270" OrientZero="0" OrientHome="135" SlewLimit="0" Reverse="1" UpsideDown="1"/>
+"#,
+    },
+    // Two 16-bit servos: the first over its whole travel, the second within limits, reversed.
+    Model {
+        name: "Arm",
+        attributes: r#"DisplayAs="DmxServo" DmxChannelCount="4" NumServos="2" Bits16="1" WorldPosX="1180.0" WorldPosY="40.0" WorldPosZ="0.0" ScaleX="1.0" ScaleY="1.0" ScaleZ="1.0""#,
+        pixels: 0,
+        dmx: 4,
+        inside: r#"      <Servo1 Channel="1" MinLimit="1" MaxLimit="65535" RangeOfMotion="180" Style="Rotate Z" Reverse="0"/>
+      <Servo2 Channel="3" MinLimit="16384" MaxLimit="49151" RangeOfMotion="180" Style="Rotate Z" Reverse="1"/>
+"#,
     },
 ];
 
 /// The controller's channels: exactly every model's, so that the `.fseq` xLights writes ends
 /// where the last prop does.
-const CHANNELS: u32 = 3_273;
+const CHANNELS: u32 = 3_297;
 
 fn layout() -> String {
     let mut xml = String::from(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
          <!-- PixelFlow's made-up fidelity corpus (crates/pf-fidelity/src/madeup.rs writes this\n     \
-         file): seven props of the common kinds on one controller, and two groups. -->\n\
+         file): seven props of the common kinds, two moving heads and two servos on one\n     \
+         controller, and three groups. -->\n\
          <xrgb>\n  <models type=\"rgb_effects\">\n",
     );
     let mut start = 1;
@@ -122,12 +168,13 @@ fn layout() -> String {
             xml.push_str(model.inside);
             xml.push_str("    </model>\n");
         }
-        start += model.pixels * 3;
+        start += model.pixels * 3 + model.dmx;
     }
     xml.push_str(
         "  </models>\n  <modelGroups type=\"rgb_effects\">\n    \
          <modelGroup name=\"Outlines\" models=\"Line,Arches,Canes,Star\" layout=\"minimalGrid\" GridSize=\"400\" LayoutGroup=\"Default\"/>\n    \
-         <modelGroup name=\"Everything\" models=\"Matrix,Tree,Arches,Line,Canes,Star,Flake\" layout=\"minimalGrid\" GridSize=\"400\" LayoutGroup=\"Default\"/>\n  \
+         <modelGroup name=\"Everything\" models=\"Matrix,Tree,Arches,Line,Canes,Star,Flake\" layout=\"minimalGrid\" GridSize=\"400\" LayoutGroup=\"Default\"/>\n    \
+         <modelGroup name=\"Heads\" models=\"Spot Left,Spot Right\" layout=\"minimalGrid\" GridSize=\"400\" LayoutGroup=\"Default\"/>\n  \
          </modelGroups>\n  <settings>\n    <previewWidth value=\"1280\"/>\n    <previewHeight value=\"720\"/>\n  </settings>\n</xrgb>\n",
     );
     xml
@@ -758,6 +805,95 @@ fn marks() -> Xsq {
     }
 }
 
+/// xLights' DMX effect: each channel `(n, value)` set by its slider, and those of `ramps` swept by
+/// a value curve from the first value to the second (0-255) over the effect.
+fn dmx(channels: &[(u32, u32)], ramps: &[(u32, u32, u32)]) -> String {
+    let mut parts: Vec<String> = channels
+        .iter()
+        .map(|(n, v)| format!("E_SLIDER_DMX{n}={v}"))
+        .collect();
+    // `RV=TRUE`: the curve's points are in the slider's own units (0-255), not shares of it.
+    for (n, from, to) in ramps {
+        parts.push(format!("E_SLIDER_DMX{n}={from}"));
+        parts.push(format!(
+            "E_VALUECURVE_DMX{n}=Active=TRUE|Id=ID_VALUECURVE_DMX{n}|Type=Ramp|Min=0.00|Max=255.00|P1={from}.00|P2={to}.00|RV=TRUE|"
+        ));
+    }
+    parts.join(",")
+}
+
+/// "Moving heads and servos": the DMX effect pointing two heads and turning two servos, over
+/// colors drawn on the heads by ordinary effects (red, green, blue and white on one, a color
+/// wheel on the other). 20 seconds of 50 ms frames.
+fn heads() -> Xsq {
+    let left = row(
+        "Spot Left",
+        vec![
+            vec![
+                fx(
+                    "DMX",
+                    0,
+                    10000,
+                    &dmx(&[(2, 0), (3, 96), (4, 0)], &[(1, 0, 255)]),
+                    palette(WHITE, ""),
+                ),
+                fx(
+                    "DMX",
+                    10000,
+                    20000,
+                    &dmx(&[(1, 200), (2, 128), (4, 0)], &[(3, 255, 0)]),
+                    palette(WHITE, ""),
+                ),
+            ],
+            vec![
+                fx("On", 0, 10000, ON, palette(&["#FF0000"], "")),
+                fx("Color Wash", 10000, 20000, &color_wash("2.0"), palette(COOL, "")),
+            ],
+        ],
+    );
+    let right = row(
+        "Spot Right",
+        vec![
+            vec![fx(
+                "DMX",
+                0,
+                20000,
+                &dmx(&[(2, 128)], &[(1, 255, 0)]),
+                palette(WHITE, ""),
+            )],
+            vec![fx("Color Wash", 0, 20000, &color_wash("2.0"), palette(WARM, ""))],
+        ],
+    );
+    let arm = row(
+        "Arm",
+        vec![vec![
+            fx(
+                "DMX",
+                0,
+                10000,
+                &dmx(&[(2, 0), (3, 64), (4, 0)], &[(1, 0, 255)]),
+                palette(WHITE, ""),
+            ),
+            fx(
+                "DMX",
+                10000,
+                20000,
+                &dmx(&[(1, 255), (2, 255), (4, 0)], &[(3, 0, 255)]),
+                palette(WHITE, ""),
+            ),
+        ]],
+    );
+    Xsq {
+        title: "Moving heads and servos",
+        about: "Moving heads and servos: the DMX effect pointing two heads and turning two servos,\n     \
+                over colors drawn on the heads by ordinary effects. 20 seconds of 50 ms frames.",
+        frame_ms: 50,
+        duration_ms: 20_000,
+        timing: Vec::new(),
+        rows: vec![left, right, arm],
+    }
+}
+
 /// The picture: 48 by 16, a rainbow from left to right that darkens toward the bottom, with a
 /// white frame and a white diagonal, so that where it is and which way up both show.
 fn picture() -> Vec<u8> {
@@ -807,15 +943,16 @@ fn manifest() -> String {
 }
 
 /// Each sequence's file name (without `.xsq`) and the label the reports give it.
-pub const SEQUENCES: [(&str, &str); 3] = [
+pub const SEQUENCES: [(&str, &str); 4] = [
     ("washes", "Washes and shapes"),
     ("chance", "Chance"),
     ("marks", "Marks, words, and pictures"),
+    ("heads", "Moving heads and servos"),
 ];
 
 /// Every file of the corpus that is made here, by its path in the corpus folder.
 pub fn files() -> Vec<(String, Vec<u8>)> {
-    let sequences = [washes(), chance(), marks()];
+    let sequences = [washes(), chance(), marks(), heads()];
     let mut files = vec![
         ("manifest.json".to_string(), manifest().into_bytes()),
         ("show/xlights_rgbeffects.xml".to_string(), layout().into_bytes()),
@@ -867,7 +1004,7 @@ mod tests {
 
     #[test]
     fn the_layout_has_every_channel_on_its_controller() {
-        let used: u32 = MODELS.iter().map(|m| m.pixels * 3).sum();
+        let used: u32 = MODELS.iter().map(|m| m.pixels * 3 + m.dmx).sum();
         assert_eq!(
             used, CHANNELS,
             "the models use {used} channels, the controller has {CHANNELS}"

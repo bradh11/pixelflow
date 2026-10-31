@@ -29,6 +29,7 @@ import type { PreviewProp } from "../api/types";
 import type { Size, View } from "./layoutMath";
 import { DOT_RADIUS, type HaloPlan, type PixelBox, coreDim, drawHalos, planHalos } from "./pixelGlow";
 import { FLOOD_STRENGTH, UNLIT_WASH, washAt, washRadius } from "./floodWash";
+import { ARM_COLOR, BEAM_STRENGTH, UNLIT_BEAM, armAt, armBox, armShape, beamAt, beamBox, beamShape, headDirection, servoDirection } from "./beams";
 
 export { DOT_RADIUS };
 
@@ -723,6 +724,59 @@ export function stampPixels(
     }
   };
 
+  /**
+   * Stamps a moving head's beam from its first cell, in its color (lit) or the unlit color faintly
+   * where it rests (not playing), and a servo's arm at each of its cells, over what's there (see
+   * beams.ts).
+   */
+  const stampMotion = (p: PreviewProp) => {
+    const motion = p.motion!;
+    const pts = p.points;
+    const placeX = (i: number) => (halfW + (pts[2 * i] - cx) * zoom) * ratio;
+    const placeY = (i: number) => (halfH - (pts[2 * i + 1] - cy) * zoom) * ratio;
+    const cells = pts.length >> 1;
+    const stretch = (x0: number, x1: number, y0: number, y1: number) => {
+      if (x0 >= x1 || y0 >= y1) return;
+      if (x0 < box.x0) box.x0 = x0;
+      if (y0 < box.y0) box.y0 = y0;
+      if (x1 > box.x1) box.x1 = x1;
+      if (y1 > box.y1) box.y1 = y1;
+    };
+    if (motion.beam && cells > 0) {
+      let rgb = unlit & 0xffffff;
+      let strength = UNLIT_BEAM;
+      const o = p.frameOffset;
+      if (frame) {
+        if (!(o + 2 < frame.length && (frame[o] | frame[o + 1] | frame[o + 2]) !== 0)) return;
+        rgb = (frame[o + 2] << 16) | (frame[o + 1] << 8) | frame[o];
+        strength = BEAM_STRENGTH;
+      }
+      const shape = beamShape(placeX(0), placeY(0), headDirection(motion, frame), motion.beam.length, motion.beam.angleDeg, zoom, ratio);
+      const [x0, x1, y0, y1] = beamBox(shape, width, height);
+      for (let py = y0; py < y1; py++) {
+        for (let px = x0; px < x1; px++) {
+          const alpha = Math.floor(strength * beamAt(shape, px, py) * 255 + 0.5);
+          if (alpha > 0) blend(pixels, py * width + px, rgb, alpha);
+        }
+      }
+      stretch(x0, x1, y0, y1);
+    }
+    const servos = motion.servos ?? [];
+    const armRgb = frame ? (ARM_COLOR[2] << 16) | (ARM_COLOR[1] << 8) | ARM_COLOR[0] : (selected.has(p.prop) ? picked : unlit) & 0xffffff;
+    for (let k = 0; k < servos.length && cells > 0; k++) {
+      const at = Math.min(k, cells - 1);
+      const arm = armShape(placeX(at), placeY(at), servoDirection(motion, k, frame), zoom, ratio);
+      const [x0, x1, y0, y1] = armBox(arm, width, height);
+      for (let py = y0; py < y1; py++) {
+        for (let px = x0; px < x1; px++) {
+          const alpha = Math.floor(armAt(arm, px, py) * 255 + 0.5);
+          if (alpha > 0) blend(pixels, py * width + px, armRgb, alpha);
+        }
+      }
+      stretch(x0, x1, y0, y1);
+    }
+  };
+
   let lights = 0;
   // Screen pixels across the image, and down it.
   const across = Math.ceil(width / screenPixel);
@@ -814,6 +868,8 @@ export function stampPixels(
 
   // Floods' washes go under every dot.
   for (const p of props) if (p.flood) stampWashes(p);
+  // Then heads' beams and servos' arms, also under every dot.
+  for (const p of props) if (p.motion) stampMotion(p);
   // Crowded props go under everything else: what's stamped over them covers them by the usual rules.
   if (anyCrowded) {
     if (nearest.length < width * height) nearest = new Uint16Array(width * height);

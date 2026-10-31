@@ -368,12 +368,13 @@ impl Runtime {
         self.transmit(transport, now);
     }
 
-    /// Sends black, even while backing off (unresolved controllers are never sent to).
+    /// Sends black, even while backing off (unresolved controllers are never sent to). The
+    /// channels that move a head or a servo stay where they were (see [`ControllerPlan::holds`]).
     fn send_black(&mut self, transport: &mut dyn Transport, now: Instant) {
         if self.health.state == ControllerState::Unresolved {
             return;
         }
-        self.buffer.fill(0);
+        self.plan.blacken(&mut self.buffer);
         self.transmit(transport, now);
     }
 
@@ -382,7 +383,7 @@ impl Runtime {
         if self.health.state == ControllerState::Unresolved || !matches!(self.packets, Packets::Sacn(_)) {
             return;
         }
-        self.buffer.fill(0);
+        self.plan.blacken(&mut self.buffer);
         self.packets.set_terminated(true);
         for _ in 0..TERMINATE_REPEATS {
             self.transmit(transport, now);
@@ -449,7 +450,9 @@ impl Runtime {
             return None;
         }
         let streams = self.streams();
-        let buffer = vec![0; self.plan.channel_count];
+        let mut buffer = self.buffer.clone();
+        buffer.resize(self.plan.channel_count, 0);
+        self.plan.blacken(&mut buffer);
         match (self.packets, &self.plan.wire) {
             (Packets::Sacn(_), Wire::Sacn { universes, multicast }) => {
                 let dropped: Vec<UniverseSpan> = universes
@@ -506,7 +509,7 @@ impl Runtime {
 /// Output a replaced plan no longer sends, being blacked out over the next few frames.
 struct Retiring {
     packets: Packets,
-    /// All zero.
+    /// Black: all zero but the channels that move a head or a servo, as they were last sent.
     buffer: Vec<u8>,
     passes: usize,
 }

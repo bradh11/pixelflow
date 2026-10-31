@@ -8,6 +8,7 @@ No color of its own. On a DMX fixture (a flood, a par, a bar of several cells) i
 
 - On a single flood or par: the strobe opened, a mode or macro picked, the dimmer held or swelled. Setting its dimmer and color channels lights it in that color on its own.
 - On a bar of cells it sets the bar's shared channels (its dimmer, its strobe); the cells' colors still come from what is drawn on them.
+- On a moving head it points the head: its pan and tilt channels (and their fine channels on a 16-bit head), swept with curves; its color still comes from what is drawn on it. On a servo it sets the servo's position. Move heads slowly and only where the show's owner has set them up to point.
 - On the whole house, or any group, it sets channel n of every fixture in the group, so it suits a group of floods of one kind; the props that aren't fixtures ignore it.
 - On a string, an arch, a matrix, or a tree it does nothing: they have no DMX channels.
 

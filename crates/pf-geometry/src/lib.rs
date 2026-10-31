@@ -25,7 +25,7 @@ use pf_model::{Generator, Prop, ShapeSource, Vec3};
 pub use cube::cube_cells;
 pub use icicles::icicle_column_gaps;
 pub use sphere::globe_point;
-pub use transform::apply_transform;
+pub use transform::{apply_transform, rotation_basis};
 
 /// Pixel positions in prop-local coordinates, in wiring order.
 pub fn local_positions(shape: &ShapeSource) -> Vec<Vec3> {

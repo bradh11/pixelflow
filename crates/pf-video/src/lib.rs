@@ -15,6 +15,7 @@
 //! ffmpeg is installed it can do the encoding instead (see [`ffmpeg`]).
 
 pub mod aac;
+mod beam;
 pub mod cisco;
 mod dots;
 mod export;

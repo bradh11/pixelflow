@@ -9,8 +9,14 @@ import { describe, expect, it } from "vitest";
 import { COLORS, fitDisplay } from "../../lib/flatPreview";
 import { type Size, boxOfPoints, unionBox } from "../../lib/layoutMath";
 import { type DotImage, packColor, stampPixels } from "../../lib/pixelBatches";
-import type { PreviewProp } from "../types";
+import type { DmxMotor, PreviewAxis, PreviewMotion, PreviewProp } from "../types";
 import { listJson, staleFile } from "./support";
+
+const UPRIGHT = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+/** Hung upside down: turned half round in the front plane. */
+const HUNG = [-1, 0, 0, 0, -1, 0, 0, 0, 1];
+/** Turned a quarter round to face the left. */
+const LEFTWARD = [0, 0, -1, 0, 1, 0, 1, 0, 0];
 
 const REGENERATE = "`PIXELFLOW_UPDATE_CONTRACTS=1 npx vitest run src/api/contracts` in app, then `cargo test --locked -p pf-video` in the repository's root (the export must draw the same)";
 
@@ -29,8 +35,37 @@ const run = (count: number, color: Color): Color[] => Array.from({ length: count
 
 /** A layout being made: its props (each one's pixels as x, y pairs, and where its colors are in the frame), and the frame. */
 class Layout {
-  props: { frameOffset: number; channelsPerPixel: number; points: number[]; flood?: boolean }[] = [];
+  props: { frameOffset: number; channelsPerPixel: number; points: number[]; flood?: boolean; motion?: PreviewMotion }[] = [];
   frame: number[] = [];
+
+  /** Adds a motor's values to the frame (as a fixture's channels are, after the cells): where they are, and how it turns. */
+  private axis(motor: DmxMotor, values: number[]): PreviewAxis {
+    const at = this.frame.length;
+    this.frame.push(...values);
+    return { at, ...(values.length > 1 ? { fineAt: at + 1 } : {}), rest: [values[0], values[1] ?? 0], motor };
+  }
+
+  /**
+   * Adds a moving head at `point` showing `color`, turned by `basis`, with its pan and tilt at
+   * these values (two for a 16-bit motor), its beam `angleDeg` wide and `length` long.
+   */
+  head(point: number[], color: Color, basis: number[], pan: number[], tilt: number[], angleDeg = 20, length = 1): this {
+    this.add(point, [color]);
+    const motion: PreviewMotion = {
+      basis,
+      beam: { pan: this.axis({ rangeDeg: 540, homeDeg: 270 }, pan), tilt: this.axis({ rangeDeg: 270, homeDeg: 135 }, tilt), angleDeg, length },
+    };
+    this.props[this.props.length - 1].motion = motion;
+    return this;
+  }
+
+  /** Adds servos with an arm at each point, each at these values on a 180° motor. */
+  servos(points: number[], values: number[][]): this {
+    this.add(points, run(points.length / 2, OFF));
+    const servos = values.map((v) => this.axis({ rangeDeg: 180, homeDeg: 90 }, v));
+    this.props[this.props.length - 1].motion = { basis: UPRIGHT, servos };
+    return this;
+  }
 
   /** Adds a prop with a color for each of its pixels (and a white channel too, with `channels` 4). */
   add(points: number[], colors: Color[], channels: 3 | 4 = 3): this {
@@ -163,6 +198,24 @@ const SCENES: Record<string, Scene> = {
       .flood(row(1, 0, 0, 0), [ORANGE])
       .flood(row(3, 1 / 4, 3 / 4, 1 / 8), [BLUE, OFF, [40, 200, 90]])
       .add(row(8, 1 / 8, -1 / 4, 3 / 8), [...run(4, RED), ...run(4, WHITE)]),
+  },
+  movingHeads: {
+    about:
+      "Moving heads and servos: a beam from each head's cell where its pan and tilt point it, in its color, widening and fading out to a round end, under every dot; a 16-bit head leaning right, an 8-bit head hung upside down, one pointing at the viewer (a pool of light), one turned to face the left, a dark one with no beam; and two servos' arms, at Home and turned 90°.",
+    size: { width: 112, height: 72 },
+    ratio: 1.28,
+    layout: new Layout()
+      // Pan 90° and tilt 45° toward the street (each 43690).
+      .head(row(1, 0, 0, 0), ORANGE, UPRIGHT, [170, 170], [170, 170], 20, 1)
+      // Hung, tilted 60° the other way: pointing down and away.
+      .head(row(1, 0, 3 / 2, 1), CYAN, HUNG, [128], [71], 30, 3 / 4)
+      // Tilted 90° toward the street at Home pan: straight at the viewer.
+      .head(row(1, 0, 3 / 4, 1 / 2), PURPLE, UPRIGHT, [128, 0], [213, 85], 24, 1)
+      // Facing left, tilted forward 45°.
+      .head(row(1, 0, 2, 0), GREEN, LEFTWARD, [128, 0], [170, 170], 16, 1)
+      .head(row(1, 0, 1, -1 / 4), OFF, UPRIGHT, [0, 0], [255, 255])
+      .servos(row(2, 1 / 2, -1 / 2, 1), [[128], [255]])
+      .add(row(6, 1 / 8, 1 / 4, -1 / 8), run(6, WHITE)),
   },
   closerThanAPixel: {
     about: "A string and a matrix with several pixels to a screen pixel: those in one screen pixel are merged into one light with their average color, the dots of ones that are off showing through.",

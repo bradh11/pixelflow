@@ -19,7 +19,7 @@
         "groups": [],
         "name": "Untitled Show",
         "props": [],
-        "schemaVersion": 14,
+        "schemaVersion": 15,
         "sequences": [],
         "settings": { "frameRate": 40 }
       },
@@ -174,7 +174,7 @@
             }
           }
         ],
-        "schemaVersion": 14,
+        "schemaVersion": 15,
         "sequences": [
           {
             "audio": "/fixture/Show/music/Carol.mp3",
@@ -347,7 +347,7 @@
               }
             }
           ],
-          "schemaVersion": 14,
+          "schemaVersion": 15,
           "sequences": [
             {
               "audio": "/fixture/Show/moved/Carol.mp3",
@@ -621,11 +621,23 @@
                 "channelsPerPixel": 1,
                 "colorOrder": "RGB",
                 "controllerChannel": 8,
-                "frameOffset": 282,
+                "frameOffset": 285,
                 "gamma": 1.0,
                 "pixels": 8,
                 "port": 1,
                 "prop": "11111111-0000-4000-8000-000000000090",
+                "reverse": false
+              },
+              {
+                "brightness": 100,
+                "channelsPerPixel": 1,
+                "colorOrder": "RGB",
+                "controllerChannel": 29,
+                "frameOffset": 293,
+                "gamma": 1.0,
+                "pixels": 9,
+                "port": 1,
+                "prop": "11111111-0000-4000-8000-000000000091",
                 "reverse": false
               }
             ]
@@ -652,11 +664,52 @@
               { "name": "Mode", "role": "fixed", "value": 32 },
               { "cell": 1, "name": "Red 2", "role": "red" }
             ],
-            "dmxOffset": 282,
+            "dmxOffset": 285,
             "prop": "11111111-0000-4000-8000-000000000090"
+          },
+          {
+            "address": 30,
+            "cells": 1,
+            "cellsOffset": 282,
+            "channels": [
+              {
+                "motor": {
+                  "homeDeg": 270.0,
+                  "maxDeg": 180.0,
+                  "minDeg": -180.0,
+                  "rangeDeg": 540.0,
+                  "reverse": true
+                },
+                "name": "Pan",
+                "role": "pan",
+                "value": 128
+              },
+              { "name": "Pan fine", "role": "panFine" },
+              {
+                "motor": { "homeDeg": 135.0, "rangeDeg": 270.0 },
+                "name": "Tilt",
+                "role": "tilt",
+                "value": 128
+              },
+              { "name": "Tilt fine", "role": "tiltFine" },
+              { "name": "Speed", "role": "speed" },
+              { "name": "Dimmer", "role": "dimmer" },
+              { "name": "Strobe", "role": "strobe" },
+              {
+                "name": "Color wheel",
+                "role": "colorWheel",
+                "slots": [
+                  { "color": "#ffffff", "name": "Open", "value": 0 },
+                  { "color": "#ff0000", "value": 16 }
+                ]
+              },
+              { "name": "Gobo", "role": "gobo", "slots": [{ "name": "Dots", "value": 8 }] }
+            ],
+            "dmxOffset": 293,
+            "prop": "11111111-0000-4000-8000-000000000091"
           }
         ],
-        "frameLen": 290,
+        "frameLen": 302,
         "props": [
           {
             "channelsPerPixel": 3,
@@ -765,6 +818,12 @@
             "frameOffset": 276,
             "nodes": 2,
             "prop": "11111111-0000-4000-8000-000000000090"
+          },
+          {
+            "channelsPerPixel": 3,
+            "frameOffset": 282,
+            "nodes": 1,
+            "prop": "11111111-0000-4000-8000-000000000091"
           }
         ]
       },
@@ -1000,6 +1059,15 @@
                     "gamma": null,
                     "nullPixels": 0,
                     "prop": "11111111-0000-4000-8000-000000000090",
+                    "reverse": false,
+                    "segment": null,
+                    "smartReceiver": null
+                  },
+                  {
+                    "brightness": null,
+                    "gamma": null,
+                    "nullPixels": 0,
+                    "prop": "11111111-0000-4000-8000-000000000091",
                     "reverse": false,
                     "segment": null,
                     "smartReceiver": null
@@ -1509,13 +1577,65 @@
               "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 },
               "scale": { "x": 1.0, "y": 1.0, "z": 1.0 }
             }
+          },
+          {
+            "colorOrder": "RGB",
+            "dmx": {
+              "address": 30,
+              "beam": { "angleDeg": 15.0, "length": 6.0 },
+              "channels": [
+                {
+                  "motor": {
+                    "homeDeg": 270.0,
+                    "maxDeg": 180.0,
+                    "minDeg": -180.0,
+                    "rangeDeg": 540.0,
+                    "reverse": true
+                  },
+                  "name": "Pan",
+                  "role": "pan",
+                  "value": 128
+                },
+                { "name": "Pan fine", "role": "panFine" },
+                {
+                  "motor": { "homeDeg": 135.0, "rangeDeg": 270.0 },
+                  "name": "Tilt",
+                  "role": "tilt",
+                  "value": 128
+                },
+                { "name": "Tilt fine", "role": "tiltFine" },
+                { "name": "Speed", "role": "speed" },
+                { "name": "Dimmer", "role": "dimmer" },
+                { "name": "Strobe", "role": "strobe" },
+                {
+                  "name": "Color wheel",
+                  "role": "colorWheel",
+                  "slots": [
+                    { "color": "#ffffff", "name": "Open", "value": 0 },
+                    { "color": "#ff0000", "value": 16 }
+                  ]
+                },
+                { "name": "Gobo", "role": "gobo", "slots": [{ "name": "Dots", "value": 8 }] }
+              ],
+              "layout": "head-spot-16"
+            },
+            "id": "11111111-0000-4000-8000-000000000091",
+            "name": "Spot",
+            "regions": [],
+            "shape": { "length": 3.0, "nodes": 1, "source": "generator", "type": "line" },
+            "tags": [],
+            "transform": {
+              "position": { "x": 91.0, "y": 0.0, "z": 0.0 },
+              "rotationDeg": { "x": 0.0, "y": 0.0, "z": 0.0 },
+              "scale": { "x": 1.0, "y": 1.0, "z": 1.0 }
+            }
           }
         ],
-        "schemaVersion": 14,
+        "schemaVersion": 15,
         "sequences": [],
         "settings": { "frameRate": 40 }
       },
-      "summary": { "controllers": 6, "pixels": 92, "props": 18, "universes": 5 }
+      "summary": { "controllers": 6, "pixels": 93, "props": 19, "universes": 5 }
     }
   }
 ]

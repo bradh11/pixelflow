@@ -23,6 +23,7 @@ vi.mock("../layout3d/threeScene", () => ({
       setPixels: (xyz) => fake.pixels.push(xyz.length / 3),
       updatePixels: () => {},
       setFloods: () => {},
+      setMotion: () => {},
       setColors: (rgb, lit) => fake.colors.push({ rgb: Array.from(rgb), lit }),
       setLook: () => {},
       setBackdrop: () => {},

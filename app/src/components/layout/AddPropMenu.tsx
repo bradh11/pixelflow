@@ -1,13 +1,20 @@
-import { ChevronDown, Lamp, Plus, Shapes } from "lucide-react";
+import { ChevronDown, Gauge, Lamp, LampDesk, Plus, Shapes } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { PreviewProp } from "../../api/types";
 import { PROP_KINDS } from "../../lib/shows";
-import { newFixture } from "../../lib/dmx";
+import { newFixture, newMovingHead, newServo } from "../../lib/dmx";
 import { addPropInView } from "../../state/addProp";
 import { Button } from "../ui";
 import { MORE_TOOLS, TOOLS } from "./LayoutToolbar";
 
 const ICONS = new Map([...TOOLS, ...MORE_TOOLS].map((t) => [t.tool, t.icon]));
+
+/** The DMX fixtures the menu adds, each set up in its properties. */
+const DMX_KINDS = [
+  { label: "DMX flood or bar", title: "A DMX flood, par, or bar: set its channels and address in its properties", Icon: Lamp, make: newFixture },
+  { label: "DMX moving head", title: "A moving head: set its channels, address, and how it pans and tilts in its properties", Icon: LampDesk, make: newMovingHead },
+  { label: "DMX servo", title: "A servo, or several: set their channels, address, and how far they turn in its properties", Icon: Gauge, make: newServo },
+];
 
 /**
  * "Add prop ▾": pick a kind and it lands in the middle of the canvas, selected. (To draw one where
@@ -86,20 +93,25 @@ export function AddPropMenu({ preview }: { preview: PreviewProp[] }) {
               );
             })}
           </div>
-          <button
-            type="button"
-            role="menuitem"
-            title="A DMX flood, par, or bar: set its channels and address in its properties"
-            className="mt-0.5 flex items-center gap-2 rounded border-t border-neutral-200 px-2 py-1.5 text-left hover:bg-neutral-100 focus:bg-neutral-100 dark:border-neutral-800 dark:hover:bg-neutral-800 dark:focus:bg-neutral-800"
-            onClick={() => {
-              setOpen(false);
-              trigger.current?.focus();
-              void addPropInView(newFixture, preview);
-            }}
-          >
-            <Lamp size={16} aria-hidden className="shrink-0 text-neutral-500" />
-            <span className="truncate">DMX flood or bar</span>
-          </button>
+          <div className="mt-0.5 grid grid-cols-2 gap-0.5 border-t border-neutral-200 pt-0.5 dark:border-neutral-800">
+            {DMX_KINDS.map(({ label, title, Icon, make }) => (
+              <button
+                key={label}
+                type="button"
+                role="menuitem"
+                title={title}
+                className="flex items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-neutral-100 focus:bg-neutral-100 dark:hover:bg-neutral-800 dark:focus:bg-neutral-800"
+                onClick={() => {
+                  setOpen(false);
+                  trigger.current?.focus();
+                  void addPropInView(make, preview);
+                }}
+              >
+                <Icon size={16} aria-hidden className="shrink-0 text-neutral-500" />
+                <span className="truncate">{label}</span>
+              </button>
+            ))}
+          </div>
           <p className="mt-1 border-t border-neutral-200 px-2 pt-1.5 pb-1 text-xs text-neutral-500 dark:border-neutral-800">
             Lands in the middle of the canvas. To draw a prop right where it goes, pick its tool on the toolbar and drag.
           </p>

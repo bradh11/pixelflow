@@ -1,8 +1,9 @@
-import { Camera, Play, RefreshCw, Square } from "lucide-react";
+import { Camera, Home, Play, RefreshCw, Square } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { errorMessage } from "../api/backend";
 import type { ControllerCheck, DmxFixture, OutputStatus, PatternKind, TargetSpec } from "../api/types";
 import { DMX_ROLE_LABELS, fromColor } from "../lib/dmx";
+import { type Axis, axes, axisDegrees, axisValues, limits } from "../lib/motion";
 import { ColorOrderPointer } from "../components/ColorOrderPointer";
 import { Button, Card, EmptyState, Field, Input, PageHeader, Select } from "../components/ui";
 import { thousands } from "../lib/format";
@@ -70,6 +71,58 @@ function ChannelSliders({ fixture, values, onChange }: { fixture: DmxFixture; va
       <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
         A DMX channel can strobe a light, run a macro, or move a head. Check what each one does in the fixture's manual before you send.
       </p>
+    </section>
+  );
+}
+
+/**
+ * A moving head's pan and tilt, or each servo, in degrees from Home, each within its limits, and
+ * a Home button: they set the motors' channels (and fine channels) below.
+ */
+function PositionSliders({ fixture, values, onChange }: { fixture: DmxFixture; values: number[]; onChange: (values: number[]) => void }) {
+  const found = axes(fixture.channels);
+  if (found.length === 0) return null;
+  const head = found.some((a) => a.role === "pan" || a.role === "tilt");
+  const moveTo = (positions: [Axis, number][]) => {
+    const next = [...values];
+    for (const [axis, degrees] of positions) {
+      const [coarse, fine] = axisValues(axis, degrees);
+      next[axis.coarse] = coarse;
+      if (axis.fine !== null && fine !== null) next[axis.fine] = fine;
+    }
+    onChange(next);
+  };
+  const nameOf = (axis: Axis) => (axis.role === "pan" ? "Pan" : axis.role === "tilt" ? "Tilt" : fixture.channels[axis.coarse].name || "Servo");
+  return (
+    <section aria-label={head ? "Pan and tilt" : "Servos"} className="mt-3 border-t border-neutral-200 pt-2 dark:border-neutral-800">
+      <div className="mb-1 flex items-center justify-between">
+        <h2 className="text-xs font-medium tracking-wide text-neutral-500 uppercase">{head ? "Pan and tilt" : "Servos"}</h2>
+        <Button className="px-2 py-1 text-xs" title="Back to Home: facing forward and pointing up (a servo to its Home)" onClick={() => moveTo(found.map((a) => [a, 0]))}>
+          <Home size={14} aria-hidden /> Home
+        </Button>
+      </div>
+      <div className="grid grid-cols-1 gap-x-4 gap-y-1 sm:grid-cols-2">
+        {found.map((axis) => {
+          const [lo, hi] = limits(axis.motor);
+          const at = axisDegrees(axis, values);
+          return (
+            <label key={axis.coarse} className="flex items-center gap-2 text-xs">
+              <span className="w-28 shrink-0 truncate">{nameOf(axis)}</span>
+              <input
+                type="range"
+                min={Math.floor(lo)}
+                max={Math.ceil(hi)}
+                step={0.5}
+                value={Math.round(at * 2) / 2}
+                aria-label={`${nameOf(axis)} (degrees from Home)`}
+                onChange={(e) => moveTo([[axis, Number(e.target.value)]])}
+                className="min-w-0 flex-1 accent-accent-500"
+              />
+              <span className="w-12 text-right tabular-nums">{Math.round(at)}°</span>
+            </label>
+          );
+        })}
+      </div>
     </section>
   );
 }
@@ -436,6 +489,7 @@ export function TestScreen() {
             ) : (
               <SendsTo destinations={destinations} checks={checks} onCheckAgain={() => setAgain((n) => n + 1)} />
             )}
+            {fixture && shownKind === "channels" && <PositionSliders fixture={fixture} values={handValues} onChange={setChannels} />}
             {fixture && shownKind === "channels" && <ChannelSliders fixture={fixture} values={handValues} onChange={setChannels} />}
             {!fixture && <ColorOrderPointer className="mt-2" propId={targetSpec.type === "prop" ? targetSpec.id : undefined} />}
             {elsewhere && (

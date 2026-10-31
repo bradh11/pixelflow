@@ -31,7 +31,7 @@ type Migration = fn(Value) -> Result<Value, ModelError>;
 /// `MIGRATIONS[i]` upgrades a document from schema version `i + 1` to `i + 2`.
 const MIGRATIONS: &[Migration] = &[
     v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8, v8_to_v9, v9_to_v10, v10_to_v11,
-    v11_to_v12, v12_to_v13, v13_to_v14,
+    v11_to_v12, v12_to_v13, v13_to_v14, v14_to_v15,
 ];
 
 /// Version 2 only adds the `falcon` adapter value, so version 1 documents are already valid.
@@ -144,6 +144,15 @@ fn v12_to_v13(doc: Value) -> Result<Value, ModelError> {
 /// controller was) and the `artNet` and `dmxUsb` protocols, so version 13 documents are already
 /// valid.
 fn v13_to_v14(doc: Value) -> Result<Value, ModelError> {
+    Ok(doc)
+}
+
+/// Version 15 only adds moving heads and servos: new DMX channel roles, a channel's `motor` and
+/// `slots`, and a fixture's `beam`, each optional. A version 14 pan or tilt channel held its
+/// value and nothing more; it reads the same way, with the usual motor for its role (which only
+/// matters to what moves it by degrees, and to how it is drawn). So version 14 documents are
+/// already valid.
+fn v14_to_v15(doc: Value) -> Result<Value, ModelError> {
     Ok(doc)
 }
 
@@ -283,28 +292,128 @@ mod tests {
     }
 
     #[test]
-    fn version_7_to_13_files_open_unchanged_and_save_as_version_14() {
+    fn version_7_to_14_files_open_unchanged_and_save_as_version_15() {
         // A show with no new prop shapes, saved now, then labelled as written by older versions:
         // 7 (full paths), 8 (relative paths and `savedIn`) and 9 (new prop shapes, none used here).
         let mut show = sample_show();
         show.sequences
             .push(crate::SequenceEntry::new("Medley", "Medley.fseq"));
         let text = show_file_to_json(&show, Some("/Shows/Home")).unwrap();
-        assert!(text.contains("\"schemaVersion\": 14"), "written as version 14");
+        assert!(text.contains("\"schemaVersion\": 15"), "written as version 15");
         assert!(
             !text.contains("\"dmx\""),
             "nothing DMX is written for a show without it"
         );
         assert!(!text.contains("\"kind\""), "nor a controller's kind");
-        for version in [7, 8, 9, 10, 11, 12, 13, 14] {
-            let old = text.replace("\"schemaVersion\": 14", &format!("\"schemaVersion\": {version}"));
+        for version in [7, 8, 9, 10, 11, 12, 13, 14, 15] {
+            let old = text.replace("\"schemaVersion\": 15", &format!("\"schemaVersion\": {version}"));
             let (read, saved_in) = show_file_from_json(&old).unwrap();
             assert_eq!(read, show, "version {version} reads as it was");
-            assert_eq!(read.schema_version, 14);
+            assert_eq!(read.schema_version, 15);
             assert_eq!(saved_in.as_deref(), Some("/Shows/Home"), "version {version}");
             let saved: Value = serde_json::from_str(&show_to_json(&read).unwrap()).unwrap();
-            assert_eq!(saved["schemaVersion"], 14);
+            assert_eq!(saved["schemaVersion"], 15);
         }
+    }
+
+    #[test]
+    fn version_14_fixtures_with_pan_and_tilt_read_as_they_were_and_save_as_15() {
+        // As version 14 wrote a flood and a head set up by hand: pan and tilt only held a value.
+        let text = r#"{
+          "schemaVersion": 14,
+          "name": "Heads",
+          "props": [{
+            "id": "6a1d1f5e-2b0c-4d5e-9f8a-1b2c3d4e5f60",
+            "name": "Spot",
+            "shape": { "source": "generator", "type": "line", "nodes": 1, "length": 0.5 },
+            "dmx": {
+              "address": 9,
+              "channels": [
+                { "name": "Pan", "role": "pan", "value": 100 },
+                { "name": "Tilt", "role": "tilt" },
+                { "name": "Dimmer", "role": "dimmer" },
+                { "name": "Wheel", "role": "colorWheel", "value": 30 }
+              ]
+            }
+          }]
+        }"#;
+        let show = show_from_json(text).unwrap();
+        assert_eq!(show.schema_version, 15);
+        let dmx = show.props[0].dmx.as_ref().unwrap();
+        assert_eq!(dmx.channels[0].value, 100, "held where it was");
+        assert_eq!(dmx.channels[0].motor, None, "nothing new is written in");
+        assert_eq!(
+            dmx.channels[0].motor(),
+            Some(crate::DmxMotor::centred(540.0)),
+            "the usual pan"
+        );
+        assert!(dmx.channels[3].slots.is_empty());
+        assert_eq!(dmx.beam, None);
+        assert!(dmx.is_head());
+        assert_eq!(dmx.beam(), Some(crate::DmxBeam::default()));
+        let saved: Value = serde_json::from_str(&show_to_json(&show).unwrap()).unwrap();
+        assert_eq!(saved["schemaVersion"], 15);
+        assert_eq!(
+            saved["props"][0]["dmx"]["channels"][0],
+            serde_json::json!({ "name": "Pan", "role": "pan", "value": 100 })
+        );
+    }
+
+    #[test]
+    fn moving_heads_and_servos_round_trip() {
+        let mut show = Show::new("Heads");
+        let mut head = Prop::new(
+            "Spot",
+            ShapeSource::Generator(Generator::Line {
+                nodes: 1,
+                length: 0.5,
+            }),
+        );
+        let mut fixture = crate::DmxFixture::from_layout(crate::dmx_layout("head-spot-16").unwrap(), 1, 20);
+        fixture.channels[2].motor = Some(crate::DmxMotor {
+            range_deg: 270.0,
+            home_deg: 100.0,
+            min_deg: Some(-90.0),
+            max_deg: Some(120.0),
+            reverse: true,
+        });
+        fixture.channels[7].slots = vec![
+            crate::DmxSlot {
+                value: 0,
+                color: Some(crate::Rgb::WHITE),
+                name: Some("Open".into()),
+            },
+            crate::DmxSlot {
+                value: 18,
+                color: Some(crate::Rgb::RED),
+                name: None,
+            },
+        ];
+        fixture.beam = Some(crate::DmxBeam {
+            angle_deg: 22.5,
+            length: 9.0,
+        });
+        head.dmx = Some(fixture);
+        let mut servos = Prop::new(
+            "Jaw",
+            ShapeSource::Generator(Generator::Line {
+                nodes: 2,
+                length: 0.5,
+            }),
+        );
+        servos.dmx = Some(crate::DmxFixture::from_layout(
+            crate::dmx_layout("servo-16").unwrap(),
+            2,
+            40,
+        ));
+        show.props.extend([head, servos]);
+        let text = show_to_json(&show).unwrap();
+        assert!(text.contains("\"rangeDeg\": 270.0"), "{text}");
+        assert!(text.contains("\"reverse\": true"));
+        assert!(text.contains("\"color\": \"#ff0000\""));
+        assert!(text.contains("\"angleDeg\": 22.5"));
+        assert!(text.contains("\"role\": \"servoFine\""));
+        assert_eq!(show_from_json(&text).unwrap(), show);
     }
 
     #[test]

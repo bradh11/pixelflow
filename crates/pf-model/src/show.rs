@@ -26,8 +26,10 @@ use std::path::Path;
 /// on it lay its own pixels out (`ownLayout`: one row along the wiring, or a cell for each
 /// pixel), as an xLights line, poly line, or custom model does; 14 = DMX: a prop can be a DMX
 /// fixture (`dmx`: its address and channels), a controller can drive DMX universes (`kind`), and
-/// controllers can receive Art-Net (`artNet`) or be a USB DMX interface (`dmxUsb`).
-pub const CURRENT_SCHEMA_VERSION: u32 = 14;
+/// controllers can receive Art-Net (`artNet`) or be a USB DMX interface (`dmxUsb`); 15 = moving
+/// heads and servos: a DMX channel can be a servo, a pan or tilt that turns as its `motor` says,
+/// cyan, magenta or yellow, or a speed, and a wheel can list its `slots`; a head has a `beam`.
+pub const CURRENT_SCHEMA_VERSION: u32 = 15;
 
 /// Show-wide settings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

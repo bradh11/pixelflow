@@ -1028,7 +1028,9 @@ impl PlaybackSession {
                     .to_string(),
             ));
         }
-        let plan = pf_output::build_passthrough_plan(&routes, channels, send_rate(header.step_ms));
+        let mut plan = pf_output::build_passthrough_plan(&routes, channels, send_rate(header.step_ms));
+        // Stopping never swings a head: black leaves the channels that move one as they were.
+        pf_output::hold_motors(&mut plan, map);
         let source = FileFrames {
             sequence,
             show: show.clone(),

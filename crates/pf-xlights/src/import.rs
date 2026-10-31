@@ -464,6 +464,7 @@ fn build_show_within(
     let mut odd_colors = Vec::new();
     let mut upright = Vec::new();
     let (mut floods, mut uncolored) = (Vec::new(), Vec::new());
+    let mut fixtures = FixtureNotes::default();
     let mut region_notes = crate::submodels::RegionNotes::default();
     for model in &layout.models {
         if !seen.insert(model.name.as_str()) {
@@ -514,17 +515,20 @@ fn build_show_within(
                 Vec3::new(x / n * LAYOUT_SCALE, y / n * LAYOUT_SCALE, 0.0)
             })
             .collect();
-        // A flood is one light, at the middle of its channels' dots.
-        let flood = crate::dmx::is_flood(model);
-        let points = if flood {
+        // A flood is one light, at the middle of its channels' dots; a moving head is one
+        // light there too, and servos a row of arms around it.
+        let dmx_kind = crate::dmx::kind(model);
+        let flood = dmx_kind == Some(crate::dmx::Kind::Flood);
+        let middle = {
             let n = points.len().max(1) as f32;
-            let sum = points.iter().fold(Vec3::ZERO, |sum, &p| sum + p);
-            vec![sum * (1.0 / n)]
-        } else {
-            points
+            points.iter().fold(Vec3::ZERO, |sum, &p| sum + p) * (1.0 / n)
         };
+        let points = if flood { vec![middle] } else { points };
+        if crate::dmx::has_no_equivalent(model) {
+            fixtures.no_equivalent.push(model.name.clone());
+        }
         // An editable shape when PixelFlow has one that lands every pixel where xLights does.
-        let found = if flood {
+        let found = if dmx_kind.is_some() {
             None
         } else {
             crate::shapes::editable(model, &points)
@@ -548,14 +552,31 @@ fn build_show_within(
         };
         let (order, exact) = color_order(model.text("StringType", "RGB Nodes"), g.channels_per_node);
         prop.color_order = order;
-        if flood {
+        if let Some(kind) = dmx_kind {
             prop.color_order = ColorOrder::Rgb;
-            let (fixture, colored) = crate::dmx::fixture(model, 1);
-            prop.dmx = Some(fixture);
-            floods.push(model.name.clone());
-            if !colored {
-                uncolored.push(model.name.clone());
+            let found = crate::dmx::fixture(model, kind, 1);
+            if kind != crate::dmx::Kind::Flood {
+                // A head or servos: a row of its cells at the middle, turned half round when
+                // hung upside down.
+                prop.shape = ShapeSource::Generator(pf_model::Generator::Line {
+                    nodes: found.cells,
+                    length: (found.cells as f32 * 0.25).max(0.5),
+                });
+                prop.transform = pf_model::Transform {
+                    position: middle,
+                    rotation_deg: Vec3::new(0.0, 0.0, if found.upside_down { 180.0 } else { 0.0 }),
+                    ..pf_model::Transform::default()
+                };
             }
+            if kind == crate::dmx::Kind::Flood {
+                floods.push(model.name.clone());
+                if !found.colored {
+                    uncolored.push(model.name.clone());
+                }
+            } else {
+                fixtures.add(model, kind, &found);
+            }
+            prop.dmx = Some(found.fixture);
         } else if !exact {
             odd_colors.push(model.name.clone());
         }
@@ -604,6 +625,7 @@ fn build_show_within(
             list(&uncolored)
         ));
     }
+    fixtures.into_notes(&mut notes);
     region_notes.into_notes(&mut notes);
 
     // Start channels.
@@ -829,6 +851,72 @@ fn dmx_address(targets: &[Target], start: u32) -> Option<u16> {
     };
     let size = u32::from(cfg.universe_size.channels());
     u16::try_from((start - target.start) % size + 1).ok()
+}
+
+/// What happened to the xLights moving heads, servos and other DMX models, for the report: each
+/// line starts with how it comes across (Matches, Close, No equivalent).
+#[derive(Debug, Default)]
+struct FixtureNotes {
+    heads: Vec<String>,
+    servos: Vec<String>,
+    hung: Vec<String>,
+    plain_wheels: Vec<String>,
+    unmoving: Vec<String>,
+    no_equivalent: Vec<String>,
+}
+
+impl FixtureNotes {
+    fn add(&mut self, model: &XmlModel, kind: crate::dmx::Kind, found: &crate::dmx::Imported) {
+        let name = || model.name.clone();
+        match kind {
+            crate::dmx::Kind::Head => self.heads.push(name()),
+            crate::dmx::Kind::Servo => self.servos.push(name()),
+            crate::dmx::Kind::Flood => {}
+        }
+        if found.upside_down {
+            self.hung.push(name());
+        }
+        if found.plain_wheel {
+            self.plain_wheels.push(name());
+        }
+        if found.unmoving {
+            self.unmoving.push(name());
+        }
+    }
+
+    fn into_notes(self, notes: &mut Vec<String>) {
+        let lines = [
+            (
+                &self.heads,
+                "Matches: these DMX moving heads became moving-head fixtures, wired on their controller at the channels xLights gives them, with their pan and tilt, color, dimmer and shutter channels",
+            ),
+            (
+                &self.servos,
+                "Matches: these DMX servos became servo fixtures, wired on their controller at the channels xLights gives them, each drawn as an arm that shows where it is",
+            ),
+            (
+                &self.hung,
+                "Close: these moving heads hang upside down, so PixelFlow turns them half round; it sends what xLights sends, but may draw their beams pointing another way",
+            ),
+            (
+                &self.plain_wheels,
+                "Close: the file lists no colors for these moving heads' color wheels, so PixelFlow draws their beams white until you list them on the Layout screen",
+            ),
+            (
+                &self.unmoving,
+                "Close: the file doesn't say which channels are the pan and tilt of these moving heads, so their beams point straight up until you set them on the Layout screen",
+            ),
+            (
+                &self.no_equivalent,
+                "No equivalent: PixelFlow has no fixture for these DMX models yet, so they stay rows of channel dots, not wired",
+            ),
+        ];
+        for (names, line) in lines {
+            if !names.is_empty() {
+                notes.push(format!("{line}: {}.", list(names)));
+            }
+        }
+    }
 }
 
 /// Wires `placed` (in channel order) onto `target`'s ports, each prop exactly at its xLights
@@ -1330,12 +1418,12 @@ mod tests {
 
     #[test]
     fn a_gap_that_isnt_whole_pixels_leaves_the_prop_unwired() {
-        // A 7-channel moving head (not wired), then A right after it, B right after A, and C one
+        // A 7-channel skull (not wired), then A right after it, B right after A, and C one
         // pixel past an even gap from the true end of the last wired channels.
         let dmx = with(
             XmlModel {
                 name: "Dmx".into(),
-                display_as: "DmxMovingHead".into(),
+                display_as: "DmxSkull".into(),
                 ..XmlModel::default()
             },
             &[("StartChannel", "!Falcon:1"), ("DmxChannelCount", "7")],
@@ -1348,6 +1436,10 @@ mod tests {
         ]);
         let result = build_show("t", &[falcon()], &layout, geometry);
         has_note(&result, "Dmx uses 1 channel(s) per pixel");
+        has_note(
+            &result,
+            "No equivalent: PixelFlow has no fixture for these DMX models yet, so they stay rows of channel dots, not wired: Dmx.",
+        );
         has_note(
             &result,
             "A isn't wired because the 7-channel gap before it on Falcon isn't a whole number",
@@ -1380,6 +1472,113 @@ mod tests {
                 })
                 .collect(),
         }
+    }
+
+    #[test]
+    fn moving_heads_and_servos_become_fixtures_wired_at_their_channels() {
+        // A made-up board on universe 10: 50 pixels, a 16-bit head hung upside down at channel
+        // 201, two 16-bit servos at 221, and a skull at 241.
+        let x = sacn("Board", &[(10, 512)]);
+        let mut head = with(
+            XmlModel {
+                name: "Spot".into(),
+                display_as: "DmxMovingHeadAdv".into(),
+                ..XmlModel::default()
+            },
+            &[
+                ("StartChannel", "#10:201"),
+                ("DmxChannelCount", "12"),
+                ("DmxColorType", "0"),
+                ("DmxDimmerChannel", "6"),
+                ("DmxRedChannel", "7"),
+                ("DmxGreenChannel", "8"),
+                ("DmxBlueChannel", "9"),
+                ("DmxWhiteChannel", "10"),
+            ],
+        );
+        for (part, coarse, fine) in [("PanMotor", "1", "2"), ("TiltMotor", "3", "4")] {
+            head.parts.insert(
+                part.into(),
+                [
+                    ("ChannelCoarse", coarse),
+                    ("ChannelFine", fine),
+                    ("UpsideDown", "1"),
+                ]
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+            );
+        }
+        let servos = with(
+            XmlModel {
+                name: "Jaw".into(),
+                display_as: "DmxServo".into(),
+                ..XmlModel::default()
+            },
+            &[
+                ("StartChannel", "#10:221"),
+                ("DmxChannelCount", "4"),
+                ("NumServos", "2"),
+                ("Bits16", "1"),
+            ],
+        );
+        let skull = with(
+            XmlModel {
+                name: "Skull".into(),
+                display_as: "DmxSkull".into(),
+                ..XmlModel::default()
+            },
+            &[("StartChannel", "#10:241"), ("DmxChannelCount", "16")],
+        );
+        let layout = layout(vec![model("Eaves", "#10:1", 50, None), head, servos, skull]);
+        let result = build_show("t", &[x], &layout, geometry);
+        has_note(
+            &result,
+            "Matches: these DMX moving heads became moving-head fixtures, wired on their controller at the channels xLights gives them, with their pan and tilt, color, dimmer and shutter channels: Spot.",
+        );
+        has_note(&result, "Matches: these DMX servos became servo fixtures");
+        has_note(&result, "Close: these moving heads hang upside down");
+        has_note(
+            &result,
+            "No equivalent: PixelFlow has no fixture for these DMX models yet",
+        );
+        assert_eq!(result.summary.wired, 3, "{:?}", result.notes);
+
+        let spot = result.show.props.iter().find(|p| p.name == "Spot").unwrap();
+        assert_eq!(spot.node_count(), 1);
+        assert_eq!(spot.transform.rotation_deg.z, 180.0, "hung upside down");
+        let dmx = spot.dmx.as_ref().unwrap();
+        assert_eq!(dmx.address, 201);
+        assert!(dmx.is_head());
+        assert_eq!(dmx.axes().len(), 2);
+        let jaw = result.show.props.iter().find(|p| p.name == "Jaw").unwrap();
+        assert_eq!(jaw.node_count(), 2, "an arm for each servo");
+        assert_eq!(jaw.dmx.as_ref().unwrap().address, 221);
+
+        let (map, report) = pf_mapping::map_show(&result.show);
+        for code in [
+            pf_model::IssueCode::UniverseCollision,
+            pf_model::IssueCode::DmxAddressMismatch,
+        ] {
+            assert!(!report.has_code(code), "{code:?}: {:?}", report.issues);
+        }
+        let at = |prop: PropId| map.locate(prop, 0)[0].address;
+        assert_eq!(
+            at(spot.id),
+            pf_mapping::ChannelAddress::Sacn {
+                universe: 10,
+                channel: 201
+            }
+        );
+        // As xLights sends a channel nothing sets, pan and tilt hold 0; red drawn on it lights it.
+        let fixture = map.fixture(spot.id).unwrap();
+        let mut frame = vec![0u8; map.frame_len];
+        frame[fixture.cells_offset] = 255;
+        map.write_fixtures(&mut frame);
+        assert_eq!(
+            &frame[fixture.dmx_offset..fixture.dmx_offset + 10],
+            &[0, 0, 0, 0, 0, 255, 255, 0, 0, 0]
+        );
     }
 
     #[test]

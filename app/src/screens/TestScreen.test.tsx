@@ -3,6 +3,8 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { demoShow } from "../api/demo";
 import { MemoryBackend } from "../api/memory";
+import { newMovingHead } from "../lib/dmx";
+import { newController } from "../lib/shows";
 import { currentSetupKey, useSetup } from "../state/setup";
 import { moreOpen } from "../components/ui";
 import { useLayoutEditor } from "../state/layoutEditor";
@@ -47,6 +49,34 @@ describe("test screen", () => {
     expect(pattern).toHaveAccessibleDescription(/A block of five lit pixels runs from the first pixel to the last/);
     await user.selectOptions(pattern, "cycle");
     expect(pattern).toHaveAccessibleDescription(/Red, then green, then blue, then white, one second each\. If the colors come in another order, the color order is wrong\./);
+  });
+
+  it("moves a moving head by its pan and tilt in degrees, sends nothing until Start, and goes Home", async () => {
+    const show = demoShow();
+    const head = newMovingHead(show);
+    head.name = "Lawn Spot";
+    const node = newController("Lawn DMX", "192.0.2.80", "sacn", 1);
+    node.kind = "dmx";
+    node.ports[0].slots.push({ prop: head.id, segment: null, nullPixels: 0, reverse: false, brightness: null, gamma: null, smartReceiver: null });
+    show.props.push(head);
+    show.controllers.push(node);
+    const { backend, user } = await setup(show);
+    await user.selectOptions(screen.getByRole("combobox", { name: "Target" }), `prop:${head.id}`);
+    await user.selectOptions(screen.getByRole("combobox", { name: "Pattern" }), "channels");
+    const pan = screen.getByRole("slider", { name: "Pan (degrees from Home)" });
+    expect(pan).toHaveValue("0");
+    expect(pan).toHaveAttribute("min", "-270");
+    fireEvent.change(pan, { target: { value: "90" } });
+    // Pan 90° of 540° from the middle: 43690, coarse 170 and fine 170.
+    expect(screen.getByRole("slider", { name: /^Pan \(channel/ })).toHaveValue("170");
+    expect(screen.getByRole("slider", { name: /^Pan fine/ })).toHaveValue("170");
+    expect(backend.calls).not.toContain("startOutput");
+
+    await user.click(screen.getByRole("button", { name: /^Start/ }));
+    await screen.findByText(/Sending/);
+    expect(backend.output.pattern?.channels?.slice(0, 4)).toEqual([170, 170, 128, 0]);
+    await user.click(screen.getByRole("button", { name: "Home" }));
+    await waitFor(() => expect(backend.output.pattern?.channels?.slice(0, 4)).toEqual([128, 0, 128, 0]));
   });
 
   it("remembers that the show has been tested, for the setup checklist", async () => {

@@ -51,9 +51,11 @@ import type {
   SerialPortChoice,
   PatternSpec,
   PreviewLinked,
+  PreviewMotion,
   PreviewSet,
   PreviewSet3d,
   PreviewSide,
+  Prop,
   RecentShow,
   Show,
   ShowSnapshot,
@@ -67,6 +69,7 @@ import type {
   DecodedCapture,
 } from "./types";
 import { deepView, frontView } from "../lib/geometry";
+import { previewMotionOf } from "../lib/beams";
 import { type SampleCapture, cameraOwners, ownerProps, planInMemory, sampleCapture } from "./memoryCameraMap";
 import { sequenceSeconds, slotCount, SLOT_SECONDS } from "../lib/cameraMap";
 import type { FrameSource } from "../lib/captureFrames";
@@ -1400,7 +1403,7 @@ export class MemoryBackend implements Backend {
       frameOffset: layout.props[i].frameOffset,
       channelsPerPixel: layout.props[i].channelsPerPixel,
       points: frontView(prop).slice(0, layout.props[i].nodes * 2),
-      ...(prop.dmx ? { flood: true } : {}),
+      ...moverOf(prop, layout),
     }));
     return { revision: this.revision, props };
   }
@@ -1413,7 +1416,7 @@ export class MemoryBackend implements Backend {
       frameOffset: layout.props[i].frameOffset,
       channelsPerPixel: layout.props[i].channelsPerPixel,
       xyz: deepView(prop).subarray(0, layout.props[i].nodes * 3),
-      ...(prop.dmx ? { flood: true } : {}),
+      ...moverOf(prop, layout),
     }));
     return { revision: this.revision, props };
   }
@@ -1637,7 +1640,7 @@ export interface PreviewWindowHandle {
 
 export function emptyShow(name: string): Show {
   return {
-    schemaVersion: 14,
+    schemaVersion: 15,
     name,
     settings: { frameRate: 40 },
     props: [],
@@ -1660,6 +1663,14 @@ function stoppedOutput(generation: number): OutputStatus {
     controllers: [],
     stopReason: null,
   };
+}
+
+/** How a DMX fixture is drawn in the previews, as the engine says: a flood's wash, or a moving head's or servos' motion. */
+function moverOf(prop: Prop, layout: ChannelMap): { flood?: true; motion?: PreviewMotion } {
+  if (!prop.dmx) return {};
+  const fixture = layout.fixtures.find((f) => f.prop === prop.id);
+  const motion = fixture ? previewMotionOf(prop, fixture) : undefined;
+  return motion ? { motion } : { flood: true };
 }
 
 /** Frame layout only (no controller mapping) — enough for the UI's pixel counts. */

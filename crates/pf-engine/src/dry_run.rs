@@ -43,13 +43,7 @@ pub fn preview_props_of(show: &Show) -> Vec<PreviewProp> {
                 .take(layout.nodes as usize)
                 .flat_map(|p| [p.x, p.y])
                 .collect();
-            Some(PreviewProp {
-                prop: prop.id,
-                frame_offset: layout.frame_offset,
-                channels_per_pixel: layout.channels_per_pixel,
-                points,
-                flood: prop.dmx.is_some(),
-            })
+            PreviewProp::of(prop, &map, points)
         })
         .collect()
 }

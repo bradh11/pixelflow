@@ -39,7 +39,7 @@ function PropItem({ prop, wiring }: { prop: Prop; wiring: PropWiring }) {
     <li>
       <button
         type="button"
-        aria-label={`${prop.name}, ${thousands(wiring.nodes)} pixels. ${status}`}
+        aria-label={`${prop.name}, ${plural(wiring.nodes, "pixel")}. ${status}`}
         title="Drag onto a port to wire it"
         className={`flex w-full cursor-grab touch-none items-start gap-1.5 rounded-md px-1.5 py-1.5 text-left select-none hover:bg-neutral-100 dark:hover:bg-neutral-800 ${
           dragging ? "bg-accent-50 dark:bg-accent-600/15" : ""

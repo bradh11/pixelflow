@@ -1,6 +1,6 @@
 import { AlertTriangle, CheckCircle2 } from "lucide-react";
 import { useEffect, useRef } from "react";
-import { plural, thousands } from "../lib/format";
+import { plural } from "../lib/format";
 import { useApp } from "../state/store";
 import { Button } from "./ui";
 
@@ -33,7 +33,7 @@ export function ImportReport() {
             <CheckCircle2 size={18} className="text-green-600" /> Imported {name}
           </h2>
           <p className="mt-1 text-sm text-neutral-500">
-            {plural(summary.props, "prop")} · {thousands(summary.pixels)} pixels · {plural(summary.controllers, "controller")}{" "}
+            {plural(summary.props, "prop")} · {plural(summary.pixels, "pixel")} · {plural(summary.controllers, "controller")}{" "}
             · {plural(summary.wired, "prop")} wired · {plural(summary.groups, "group")}
           </p>
         </div>
@@ -54,7 +54,8 @@ export function ImportReport() {
             </>
           )}
           <p className="mt-4 text-neutral-500">
-            The show isn't saved yet. Save it to keep it (it's then in your recent shows), and use Play to run a sequence on it.
+            The show isn't saved yet. Save it to keep it (it's then in your recent shows). Your sequences come next, one at a time: on
+            Sequence, choose Import xLights sequence….
           </p>
         </div>
         <div className="flex justify-end gap-2 border-t border-neutral-200 p-4 dark:border-neutral-800">

@@ -2,7 +2,7 @@
 // The app is opened on the demo show and walked through each screen (and the panels and menus
 // that open on them), checking whatever is on screen at each stop.
 
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
@@ -208,7 +208,7 @@ describe("every control has a name, and icon-only buttons have tooltips", { time
     await user.keyboard("{Escape}{Escape}");
 
     go("devices");
-    await user.click(screen.getByRole("button", { name: "Scan network" }));
+    await user.click(screen.getByRole("button", { name: "Find controllers" }));
     await screen.findAllByRole("row");
     found.push(...problems("devices, after a scan"));
     await user.click(screen.getByRole("button", { name: "Open Porch WLED" }));
@@ -247,7 +247,9 @@ describe("every control has a name, and icon-only buttons have tooltips", { time
     await user.click(screen.getByRole("button", { name: "Pop out the preview" }));
     await screen.findByText("Preview is in its own window");
     found.push(...problems("play, with the preview in its own window"));
-    await user.click(screen.getByRole("button", { name: "Bring it back" }));
+    // The note in the preview's place and the bar's button both bring it back.
+    expect(screen.getAllByRole("button", { name: "Bring the preview back" })).toHaveLength(2);
+    await user.click(within(screen.getByRole("region", { name: "Preview" })).getByRole("button", { name: "Bring the preview back" }));
     await user.click(screen.getByRole("button", { name: "Full screen" }));
     found.push(...problems("play, full screen"));
     await user.keyboard("{Escape}");
@@ -321,7 +323,7 @@ describe("every control has a name, and icon-only buttons have tooltips", { time
     expect(problems("sequence, preview beside")).toEqual([]);
   });
 
-  it("in the sequence dialogs, the Start page, and the Add a row picker", async () => {
+  it("in the sequence dialogs, the Start page, and the Add row picker", async () => {
     const { user } = await openApp();
     go("sequence");
     const found: string[] = [];
@@ -384,7 +386,7 @@ describe("every control has a name, and icon-only buttons have tooltips", { time
     await user.click(screen.getByRole("button", { name: "Close preview" }));
     await user.click(screen.getByRole("button", { name: "Close assistant" }));
     go("devices");
-    await user.click(screen.getByRole("button", { name: "Scan network" }));
+    await user.click(screen.getByRole("button", { name: "Find controllers" }));
     await screen.findAllByRole("row");
     await user.click(screen.getAllByRole("button", { name: /^Open FPP/ })[0]);
     await screen.findByRole("button", { name: "Play Chimes Medley 2020" });
@@ -416,5 +418,92 @@ describe("every control has a name, and icon-only buttons have tooltips", { time
     await openApp();
     act(() => useApp.getState().setPaletteOpen(true));
     expect(problems("command palette")).toEqual([]);
+  });
+});
+
+// A keyboard or screen reader user lands inside what opens, and back on its button when it closes.
+describe("the focus goes into what opens, and back to its button when it closes", { timeout: 30_000 }, () => {
+  it("the command palette, put away with Escape", async () => {
+    const { user } = await openApp();
+    go("layout");
+    const add = screen.getByRole("button", { name: "Add prop" });
+    add.focus();
+    await user.keyboard("{Meta>}k{/Meta}");
+    expect(screen.getByRole("dialog", { name: "Commands" })).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Type a command…")).toHaveFocus();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "Commands" })).not.toBeInTheDocument();
+    expect(add).toHaveFocus();
+  });
+
+  it("the Layout's Add prop and More shapes menus", async () => {
+    const { user } = await openApp();
+    go("layout");
+    const add = screen.getByRole("button", { name: "Add prop" });
+    await user.click(add);
+    expect(screen.getByRole("menuitem", { name: "Arch" })).toHaveFocus();
+    await user.keyboard("{Enter}");
+    expect(add).toHaveFocus();
+    const more = screen.getByRole("button", { name: "More shapes" });
+    await user.click(more);
+    expect(screen.getByRole("menu", { name: "More shapes" })).toContainElement(document.activeElement as HTMLElement);
+    await user.keyboard("{Escape}");
+    expect(more).toHaveFocus();
+  });
+
+  it("the Wiring screen's controller forms", async () => {
+    const { user } = await openApp();
+    go("wiring");
+    await user.click(screen.getByRole("button", { name: "Add controller" }));
+    expect(within(screen.getByRole("form", { name: "Add controller" })).getByRole("textbox", { name: "Name" })).toHaveFocus();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("form", { name: "Add controller" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add controller" })).toHaveFocus();
+    const edit = screen.getByRole("button", { name: "Edit Main FPP" });
+    await user.click(edit);
+    await user.keyboard("{Escape}");
+    expect(edit).toHaveFocus();
+  });
+
+  it("a controller found on the network, opened from its row", async () => {
+    const { user } = await openApp();
+    go("devices");
+    await user.click(screen.getByRole("button", { name: "Find controllers" }));
+    const open = await screen.findByRole("button", { name: "Open Porch WLED" });
+    await user.click(open);
+    await within(await screen.findByRole("dialog")).findByText(/Receives/);
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(open).toHaveFocus();
+  });
+
+  it("the Test screen's color order link, which lands on the prop's color order", async () => {
+    const { user } = await openApp();
+    go("test");
+    await user.selectOptions(screen.getByRole("combobox", { name: "Target" }), "Prop: Garage Arch");
+    await user.click(screen.getByRole("button", { name: /Open it on Layout/ }));
+    expect(useApp.getState().screen).toBe("layout");
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Color order" })).toHaveFocus());
+  });
+
+  it("the Sequence screen's timing track menu and New sequence window", async () => {
+    const { user } = await openApp();
+    go("sequence");
+    const menu = screen.getByRole("button", { name: "Beats menu" });
+    await user.click(menu);
+    expect(screen.getByRole("menu", { name: "Beats menu" })).toContainElement(document.activeElement as HTMLElement);
+    await user.keyboard("{Escape}");
+    expect(menu).toHaveFocus();
+    const add = screen.getByRole("button", { name: "New sequence" });
+    await user.click(add);
+    expect(within(screen.getByRole("dialog", { name: "New sequence" })).getByRole("button", { name: "Choose music…" })).toHaveFocus();
+    await user.keyboard("{Escape}");
+    expect(add).toHaveFocus();
+    // Created, the focus is left with the new sequence: Space then plays it, rather than pressing
+    // New sequence again.
+    await user.click(add);
+    await user.click(within(screen.getByRole("dialog", { name: "New sequence" })).getByRole("button", { name: "Create" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "New sequence" })).not.toBeInTheDocument());
+    expect(document.body).toHaveFocus();
   });
 });

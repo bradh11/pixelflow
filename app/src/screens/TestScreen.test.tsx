@@ -41,6 +41,14 @@ describe("test screen", () => {
     await waitFor(() => expect(backend.output.pattern?.color).toBe("0000ff"));
   });
 
+  it("says what the lights should do with each pattern, so a wrong result stands out", async () => {
+    const { user } = await setup();
+    const pattern = screen.getByRole("combobox", { name: "Pattern" });
+    expect(pattern).toHaveAccessibleDescription(/A block of five lit pixels runs from the first pixel to the last/);
+    await user.selectOptions(pattern, "cycle");
+    expect(pattern).toHaveAccessibleDescription(/Red, then green, then blue, then white, one second each\. If the colors come in another order, the color order is wrong\./);
+  });
+
   it("remembers that the show has been tested, for the setup checklist", async () => {
     const { user } = await setup();
     const key = currentSetupKey();
@@ -50,12 +58,14 @@ describe("test screen", () => {
     expect(useSetup.getState().tested).toContain(key);
   });
 
-  it("with no controllers, buttons go to find them or wire them", async () => {
-    await useApp.getState().connect(new MemoryBackend({ ...demoShow(), controllers: [] }));
+  it("with no controllers, buttons find them or go to wire them", async () => {
+    const backend = new MemoryBackend({ ...demoShow(), controllers: [] });
+    await useApp.getState().connect(backend);
     const user = userEvent.setup();
     render(<TestScreen />);
     await user.click(screen.getByRole("button", { name: "Find controllers" }));
     expect(useApp.getState().screen).toBe("devices");
+    expect(backend.calls).toContain("discoverDevices::network");
     await user.click(screen.getByRole("button", { name: "Go to Wiring" }));
     expect(useApp.getState().screen).toBe("wiring");
   });

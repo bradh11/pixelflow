@@ -140,12 +140,18 @@ export function DevicesScreen() {
     if (!host) return;
     setNotice(null);
     if (await scan([host])) {
-      const found = useApp.getState().discovery?.devices.some((d) => d.address === host && d.responding);
-      setNotice(found ? null : `No controller answered at ${host}. Check the address and that it's powered on.`);
+      const found = useApp.getState().discovery?.devices.find((d) => d.address === host && d.responding);
+      setNotice(
+        found
+          ? `Found ${found.name} at ${host}. Choose Open on its row to add it to your show.`
+          : `No controller answered at ${host}. Check the address and that it's powered on.`,
+      );
       if (found) setAddress("");
     }
   };
 
+  const firstTime = !scanning && !discovery;
+  const noneFound = discovery !== null && discovery.devices.length === 0 && discovery.silent.length === 0 && discovery.locked.length === 0;
   const inShow = (device: Device) => snapshot?.show.controllers.some((c) => c.address === device.address) ?? false;
 
   const dialogs = (
@@ -176,10 +182,13 @@ export function DevicesScreen() {
         title="Controllers"
         description="Find FPP, Falcon, and WLED controllers on your network and add them to your show. Nothing on a controller changes unless you send it a setup."
         actions={
-          <Button variant="primary" onClick={() => scan()} disabled={scanning}>
-            {scanning ? <Loader2 size={16} className="animate-spin" /> : <Radar size={16} />}
-            {discovery ? "Scan again" : "Scan network"}
-          </Button>
+          // An empty list has the button itself: one of them on the screen at a time.
+          !firstTime && !noneFound && (
+            <Button variant="primary" onClick={() => scan()} disabled={scanning}>
+              {scanning ? <Loader2 size={16} className="animate-spin" /> : <Radar size={16} />}
+              {discovery ? "Find controllers again" : "Find controllers"}
+            </Button>
+          )
         }
       />
       <form
@@ -210,24 +219,24 @@ export function DevicesScreen() {
           <Loader2 size={16} className="animate-spin" /> Looking for controllers… this takes a few seconds.
         </p>
       )}
-      {!scanning && !discovery && (
+      {firstTime && (
         <EmptyState title="Find your controllers">
           <p>Look for FPP, Falcon, and WLED controllers on your network, or check a specific address above.</p>
           <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
             <Button variant="primary" onClick={() => scan()}>
-              <Radar size={16} aria-hidden /> Scan my network
+              <Radar size={16} aria-hidden /> Find controllers
             </Button>
             <GoToScreen screen="wiring">Or add a controller by hand</GoToScreen>
           </div>
         </EmptyState>
       )}
-      {discovery && discovery.devices.length === 0 && discovery.silent.length === 0 && discovery.locked.length === 0 && (
+      {noneFound && (
         <EmptyState title="No controllers found">
           Make sure this computer is on the same network as your controllers. If your computer asks whether PixelFlow
           may accept incoming connections, allow it so controllers can answer. You can also check a specific address.
           <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
-            <Button onClick={() => scan()}>
-              <Radar size={16} aria-hidden /> Scan my network again
+            <Button onClick={() => scan()} disabled={scanning}>
+              {scanning ? <Loader2 size={16} className="animate-spin" aria-hidden /> : <Radar size={16} aria-hidden />} Find controllers again
             </Button>
             <GoToScreen screen="wiring">Or add a controller by hand</GoToScreen>
           </div>
@@ -270,7 +279,7 @@ export function DevicesScreen() {
               <AlertTriangle size={16} className="mt-0.5 shrink-0" />
               <span>
                 <strong>{peer.description || peer.address}</strong> ({peer.address}) isn't responding. {peer.listedBy} lists
-                it — check that it's powered on and connected, then scan again.
+                it — check that it's powered on and connected, then find controllers again.
               </span>
             </li>
           ))}
@@ -283,7 +292,7 @@ export function DevicesScreen() {
               <AlertTriangle size={16} className="mt-0.5 shrink-0" />
               <span>
                 <strong>{address}</strong> asks for a password, so PixelFlow can't read it. If it's an FPP, turn off its UI
-                and API password in FPP's settings, then scan again.
+                and API password in FPP's settings, then find controllers again.
               </span>
             </li>
           ))}

@@ -48,14 +48,21 @@ function AddControllerForm({ onDone }: { onDone: () => void }) {
   return (
     <Card className="mb-6">
       <form
+        aria-label="Add controller"
         className="grid grid-cols-2 gap-3 md:grid-cols-6"
         onSubmit={(e) => {
           e.preventDefault();
           void submit();
         }}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") {
+            e.stopPropagation();
+            onDone();
+          }
+        }}
       >
         <Field label="Name">
-          <Input value={name} onChange={(e) => setName(e.target.value)} />
+          <Input autoFocus value={name} onChange={(e) => setName(e.target.value)} />
         </Field>
         <Field label="Controller type">
           <Select
@@ -161,6 +168,14 @@ export function WiringScreen() {
   const layoutKey = useMemo(() => (props ? JSON.stringify(props) : ""), [props]);
   const preview = usePreviewProps(layoutKey);
   const [adding, setAdding] = useState(false);
+  // When the add form closes, the focus goes back to the Add controller button (the header's or
+  // the empty list's, whichever is showing).
+  const addButton = useRef<HTMLButtonElement>(null);
+  const wasAdding = useRef(false);
+  useEffect(() => {
+    if (wasAdding.current && !adding) addButton.current?.focus();
+    wasAdding.current = adding;
+  }, [adding]);
   const session = useWiring((s) => s.session);
   const boxRef = useRef<HTMLDivElement>(null);
   // Columns by the room the screen has (not the window's): the assistant or sidebar may take some.
@@ -212,8 +227,9 @@ export function WiringScreen() {
   return (
     <div ref={boxRef} className="mx-auto max-w-[120rem]">
       <ScreenHeader title="Wiring">
-        {!adding && !session && (
-          <Button variant="primary" onClick={() => setAdding(true)}>
+        {/* With no controllers, the empty list has this button: one of them on the screen at a time. */}
+        {!adding && !session && data.show.controllers.length > 0 && (
+          <Button ref={addButton} variant="primary" onClick={() => setAdding(true)}>
             <Plus size={16} /> Add controller
           </Button>
         )}
@@ -251,10 +267,10 @@ export function WiringScreen() {
               <EmptyState title="No controllers yet">
                 <p>Add your controller, then drag props onto its ports.</p>
                 <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
-                  <Button variant="primary" onClick={() => setAdding(true)}>
-                    <Plus size={16} aria-hidden /> Add a controller
+                  <Button ref={addButton} variant="primary" onClick={() => setAdding(true)}>
+                    <Plus size={16} aria-hidden /> Add controller
                   </Button>
-                  <GoToScreen screen="devices">Or find the controllers on your network</GoToScreen>
+                  <GoToScreen screen="devices">Or find controllers on your network</GoToScreen>
                 </div>
               </EmptyState>
             ) : (

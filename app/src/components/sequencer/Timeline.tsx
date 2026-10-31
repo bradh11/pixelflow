@@ -1340,7 +1340,7 @@ export function AddRowMenu({ doc, show, onClose }: { doc: Sequence; show: Show |
     <div
       ref={menu}
       role="dialog"
-      aria-label="Add a row"
+      aria-label="Add row"
       className="absolute bottom-2 left-2 z-30 flex max-h-96 w-64 flex-col rounded-lg border border-neutral-200 bg-white p-2 text-sm shadow-xl dark:border-neutral-800 dark:bg-neutral-900"
     >
       <button

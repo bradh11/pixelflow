@@ -34,7 +34,7 @@ way.
 3. Under **Pattern**, pick **Chase** and choose **Start**.
 4. Compare what the lights do with what **Sends to** and the table below it say.
 
-![The Test screen running a Chase on Main FPP · port 1. Under Sends to, the controller's address, protocol, universes, and channels, and whether its web page answers (in this made-up show it doesn't). Below, Sending Chase at 40 fps, and a table of each controller's State, Packets, and Errors.](images/test-screen.png)
+![The Test screen running a Chase on Main FPP · port 1, with a line saying what a chase should do. Under Sends to, the controller's address, protocol, universes, and channels, and whether its web page answers (in this made-up show it doesn't). Below, Sending Chase at 40 fps, and a table of each controller's State, Packets, and Errors.](images/test-screen.png)
 
 Under **Sends to**, each controller shows **Web page answering** or "Web page not answering — check it's
 powered on and on the same network as this computer". **Web page answering** only means something
@@ -90,13 +90,14 @@ The string expects red, green, and blue in a different order than PixelFlow send
 example, red shows as green.
 
 1. On **Test**, pick **Red / green / blue / white** as the **Pattern** and a port as the
-   **Target**. Choose **Start**. Each color shows for one second, in that order. Write down what
-   you see instead. The Test screen also has red, green, blue, and white buttons beside
-   **Color** for the patterns that use one color.
+   **Target**. Choose **Start**. Each color shows for one second, in that order (the line under
+   the controls says so too). Write down what you see instead. The Test screen also has red,
+   green, blue, and white buttons beside **Color** for the patterns that use one color.
 2. On **Layout**, select the prop. In the **Properties** panel, open **More: color order and
    scale** and change **Color order**. (The Wiring and Test screens each have a note with a link
-   to it; from Test, with one prop as the **Target**, the link selects that prop for you.) The choices are RGB, RBG, GRB, GBR, BRG, BGR, RGBW, and
-   GRBW. Run the test again.
+   to it. From Test, with one prop as the **Target**, **Open it on Layout** selects that prop and
+   puts you on its **Color order**, while the test keeps running.) The choices are RGB, RBG,
+   GRB, GBR, BRG, BGR, RGBW, and GRBW. Run the test again.
 
    ![A prop's Properties panel with More: color order and scale open: Color order (GRB here), Scale X, and Scale Y, under the prop's position and rotation.](images/layout-color-order.png)
 3. Common cases: a string that shows red as green and green as red is probably GRB. Choose the
@@ -183,12 +184,12 @@ PixelFlow looks for controllers on your network. It cannot find ones it can't re
    wording on your version of macOS. On Windows, allow PixelFlow when the firewall asks.
 5. **A password.** A controller that asks for a password can't be read. PixelFlow lists it as
    "asks for a password, so PixelFlow can't read it". For an FPP, turn off its UI and API password
-   in FPP's settings, then scan again.
+   in FPP's settings, then choose **Find controllers again**.
 6. **An FPP lists a controller that doesn't answer.** A message like "*name* (address) isn't
    responding. *FPP* lists it" means the FPP sends to it but it isn't answering. Check its power
-   and network cable, then choose **Scan again**.
+   and network cable, then choose **Find controllers again**.
 
-   ![The Controllers screen after a scan: the controllers found, each with Open, and under them the warning "Falcon_F16V5_Garage (192.0.2.21) isn't responding. FPP lists it — check that it's powered on and connected, then scan again."](images/controllers-scan.png)
+   ![The Controllers screen after a scan: the controllers found, each with Open, and under them the warning "Falcon_F16V5_Garage (192.0.2.21) isn't responding. FPP lists it — check that it's powered on and connected, then find controllers again."](images/controllers-scan.png)
 7. **Use the host name.** A host name such as `fpp.local` can work where scanning doesn't. Type
    it in the address box.
 8. **IPv6.** PixelFlow sends to controllers over IPv4 only. An address that is IPv6 produces an
@@ -344,13 +345,13 @@ screen. Things to try, in order:
 1. **Use the 2D view** while you edit. Press V on **Layout**, or choose **2D** on the sequence
    preview. The 3D view draws more.
 2. **Turn Glow down** to none, using the **Glow** control beside the **2D** and **3D** buttons. It is a preview-only effect, so turning it off can't change the lights.
-3. **Close the pop-out preview** if you don't need it: close its window, or choose **Bring it
-   back** where the preview was.
+3. **Close the pop-out preview** if you don't need it: close its window, or choose **Bring the
+   preview back** where the preview was.
 4. **Turn off Show on my lights** while you edit. Playing then sends only to the on-screen preview.
 5. **Make the preview smaller.** Drag the divider, or choose **Bigger preview** again to give
    the timeline its room back.
-6. **Show only the row you are working on.** Tick **Row only** above the sequence preview
-   (**Selected row only** when the preview is above the timeline).
+6. **Show only the row you are working on.** Tick **Selected row only** above the sequence
+   preview.
 7. **Close other apps,** especially ones that use a lot of the graphics chip.
 8. **A port that is too full** is not an app problem. On **Wiring**, a message such as "this port
    refreshes about 704 pixels in time" is about the controller's limit, not your computer.

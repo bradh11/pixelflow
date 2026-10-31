@@ -42,7 +42,7 @@ export function setupSteps(show: Show, done: SetupDone): SetupStep[] {
     {
       id: "controllers",
       label: "Find your controllers",
-      detail: show.controllers.length ? plural(show.controllers.length, "controller") : "Scan the network, or add one",
+      detail: show.controllers.length ? plural(show.controllers.length, "controller") : "Find them on your network, or add one",
       done: show.controllers.length > 0,
       screen: "devices",
     },

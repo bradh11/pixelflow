@@ -1,7 +1,7 @@
 import { Search, Trash2 } from "lucide-react";
 import { type KeyboardEvent, type MouseEvent, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Prop } from "../../api/types";
-import { thousands } from "../../lib/format";
+import { plural, thousands } from "../../lib/format";
 import { removeEdits, updateEdits } from "../../lib/layoutEdits";
 import { PROP_SORTS, type PropSort, listedProps, rangeSelect, wiringStatuses } from "../../lib/propList";
 import type { WiringStatus } from "../../lib/wiringMath";
@@ -106,7 +106,7 @@ const Row = memo(function Row({ prop, top, pixels, wiring, selected, active, ren
       role="option"
       id={rowId(prop.id)}
       aria-selected={selected}
-      title={`${prop.name}: ${shapeLabel(prop.shape)}, ${thousands(pixels)} pixels${wiring === "wired" ? "" : `, ${look.label.toLowerCase()}`}. Double-click to rename.`}
+      title={`${prop.name}: ${shapeLabel(prop.shape)}, ${plural(pixels, "pixel")}${wiring === "wired" ? "" : `, ${look.label.toLowerCase()}`}. Double-click to rename.`}
       onClick={(e) => onPick(prop.id, e)}
       onDoubleClick={() => onRename(prop.id)}
       onContextMenu={(e) => onMenu(prop.id, e)}

@@ -66,7 +66,7 @@ describe("the start page", () => {
     expect(house).toHaveTextContent("4 props · 1,234 pixels · 2 controllers");
     expect(house.querySelector("img")?.getAttribute("src")).toMatch(/^data:image\/svg\+xml/);
     // The other ways to start are still there.
-    for (const name of [/^new show/i, /^open…/i, /^import from xlights/i, /^try the demo show/i, /^find my controllers/i]) {
+    for (const name of [/^new show/i, /^open…/i, /^import xlights show/i, /^try the demo show/i, /^find controllers/i]) {
       expect(screen.getByRole("button", { name })).toBeEnabled();
     }
   });
@@ -158,7 +158,7 @@ describe("the show menu", () => {
     expect(items[0]).toHaveAttribute("aria-checked", "true");
     expect(items[1]).toHaveAttribute("aria-checked", "false");
     expect(items[0]).toHaveTextContent("Demo House");
-    for (const name of ["Open…", "New show", "Import from xLights…", "Rename…", "Save", "Save As…", "Close show"]) {
+    for (const name of ["Open…", "New show", "Import xLights show…", "Rename…", "Save", "Save As…", "Close show"]) {
       expect(within(menu).getByRole("menuitem", { name: new RegExp(`^${name}(⌘|⇧|$)`) })).toBeInTheDocument();
     }
     await user.click(within(recent).getByRole("menuitemradio", { name: /Shed/ }));
@@ -253,7 +253,7 @@ describe("the show menu", () => {
     const { backend, user } = await start();
     backend.nextShowFolder = "/xLights/Show";
     backend.xlightsImport = { show: emptyShow("My xLights Show"), summary: { props: 0, pixels: 0, controllers: 0, wired: 0, groups: 0 }, notes: [] };
-    await user.click(screen.getByRole("button", { name: /^import from xlights/i }));
+    await user.click(screen.getByRole("button", { name: /^import xlights show/i }));
     await waitFor(() => expect(welcome()).not.toBeInTheDocument());
     act(() => useApp.getState().dismissImportReport());
     await user.click(showMenuButton());

@@ -205,6 +205,20 @@ fn data(source: &Source) -> Option<(DataKey, Arc<[u8]>)> {
     }
 }
 
+/// The characters of `text` that `face` has no letter for (line breaks aside); `None` when its
+/// file can't be read.
+pub(crate) fn missing_letters(face: &FaceInfo, text: &str) -> Option<Vec<char>> {
+    let (_, bytes) = data(&face.source)?;
+    let parsed = Face::parse(&bytes, face.index).ok()?;
+    let mut missing: Vec<char> = Vec::new();
+    for c in text.chars().filter(|c| !c.is_control()) {
+        if parsed.glyph_index(c).is_none() && !missing.contains(&c) {
+            missing.push(c);
+        }
+    }
+    Some(missing)
+}
+
 /// `face` at `size` pixels, set up the first time and kept for the run.
 pub(crate) fn sized(
     face: &FaceInfo,

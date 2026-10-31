@@ -2442,6 +2442,7 @@ name = "pf-xlights"
 version = "0.1.0"
 dependencies = [
  "flate2",
+ "pf-fonts",
  "pf-geometry",
  "pf-mapping",
  "pf-model",

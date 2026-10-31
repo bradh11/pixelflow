@@ -73,6 +73,13 @@ pub fn style_of(name: &str, bold: bool, italic: bool) -> Option<(String, bool, b
     })
 }
 
+/// The characters of `text` that the family `name` (bold and/or italic, as [`sized`] would draw
+/// it) has no letter for; `None` when this computer doesn't have the family.
+pub fn missing_letters(name: &str, bold: bool, italic: bool, text: &str) -> Option<Vec<char>> {
+    let face = read(|lib| lib.find(name, bold, italic).map(|f| f.face.clone()))?;
+    sized::missing_letters(&face, text)
+}
+
 /// What [`sized`] has been asked for so far, by the name as asked: answered from here after the
 /// first time, so a frame costs one lookup. Cleared when fonts are added.
 type Asked = HashMap<String, Vec<(u32, bool, bool, Option<Arc<SizedFont>>)>>;
@@ -147,6 +154,15 @@ mod tests {
         assert!(installed("No Such Family For PixelFlow").is_none());
         assert!(sized("No Such Family For PixelFlow", 20.0, false, false).is_none());
         assert!(sized("PixelFlow Lib Test", f32::NAN, false, false).is_none());
+        // The tiny font has letters and digits, not accents.
+        assert_eq!(
+            missing_letters("PixelFlow Lib Test", false, false, "No\u{eb}l 2026\n"),
+            Some(vec!['\u{eb}'])
+        );
+        assert_eq!(
+            missing_letters("No Such Family For PixelFlow", false, false, "a"),
+            None
+        );
     }
 
     /// What kind of outlines a face's file holds: "OTTO" for CFF, anything else TrueType.

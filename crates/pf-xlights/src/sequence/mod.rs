@@ -23,8 +23,8 @@ pub use xsq::{
 
 use crate::XlightsError;
 use crate::vendor::Mapping;
-pub use effects::Fidelity;
 use effects::Tally;
+pub use effects::{FONT_NOT_ON_THIS_COMPUTER, Fidelity};
 pub use look::{ByVerdict, LookGroup, Verdict};
 use pf_model::{Generator, RenderStyle, ShapeSource, Show};
 use pf_sequence::{

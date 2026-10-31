@@ -183,6 +183,24 @@ pub fn render_fseq(show: &Path, xsq: &Path, ids: u64) -> Result<Vec<u8>, Fidelit
     }
 }
 
+/// Every Text effect of `seq` in PixelFlow's own pixel font, whatever font it names: which fonts
+/// a computer has differs from one to the next, and the fingerprint holds on every system. (How
+/// a font is drawn is held by `pf-fonts`' and `pf-render`'s own tests, in a font made there.)
+pub fn in_the_pixel_font(seq: &mut Sequence) {
+    for effect in seq
+        .rows
+        .iter_mut()
+        .flat_map(|r| &mut r.layers)
+        .flat_map(|l| &mut l.effects)
+    {
+        if let EffectParams::Text(p) = &mut effect.params {
+            p.font.clear();
+            p.bold = false;
+            p.italic = false;
+        }
+    }
+}
+
 /// A sequence as PixelFlow alone renders it, on the layout as it is compared: no reference is
 /// needed. What the PixelFlow-only check of the corpus fingerprints (`crate::fingerprint`).
 pub struct Alone {
@@ -210,6 +228,7 @@ pub fn render_alone(show: &Path, xsq: &Path, ids: u64) -> Result<Alone, Fidelity
     let mut import =
         pf_xlights::import_sequence_file(xsq, &comparison.show, |_: &Path, _: Option<&str>| None)?;
     fix_ids(&mut import, ids);
+    in_the_pixel_font(&mut import.sequence);
     let (frames, summary) = export(&comparison, &import.sequence, &AudioSource::none(), &pictures())?;
     let (slots, entries) = lay_out(&comparison, summary.channels, |_, _| true);
     let props = entries

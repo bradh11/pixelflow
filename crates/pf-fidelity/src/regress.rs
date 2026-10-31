@@ -29,6 +29,7 @@ use crate::compare::{Options, Request, compare};
 use crate::corpus::{Entry, Manifest, label_of};
 use crate::scorecard::{EffectScore, Scorecard};
 use crate::{FidelityError, look};
+use pf_xlights::FONT_NOT_ON_THIS_COMPUTER;
 use pf_xlights::sequence::Verdict;
 use serde::{Deserialize, Serialize};
 use std::fmt::Write as _;
@@ -267,6 +268,9 @@ pub struct Checked {
     pub unrendered: Vec<String>,
     /// How many effects were held to the baseline.
     pub held: usize,
+    /// Effects drawn in a font this computer doesn't have, so in the pixel font, and not held
+    /// here: the baseline is of the font itself. Each as the report lists it.
+    pub not_here: Vec<String>,
 }
 
 impl Checked {
@@ -326,6 +330,17 @@ pub fn check(baseline: Option<&Baseline>, cards: &[Scorecard], unrendered: &[Str
             continue;
         }
         for (b, e) in base.effects.iter().zip(&card.effects) {
+            if let Some(note) = e.notes.iter().find(|n| n.contains(FONT_NOT_ON_THIS_COMPUTER)) {
+                checked.not_here.push(format!(
+                    "{label} #{} ({} on {}, {:.1}–{:.1} s): {note}",
+                    e.index,
+                    e.kind,
+                    e.target,
+                    e.start_ms as f64 / 1000.0,
+                    e.end_ms as f64 / 1000.0
+                ));
+                continue;
+            }
             checked.held += 1;
             let (look, verdict) = seen(e);
             let range = b.range();
@@ -470,6 +485,13 @@ pub fn markdown(checked: &Checked, margin: f64) -> String {
                 m.now,
                 m.what
             );
+        }
+        out.push('\n');
+    }
+    if !checked.not_here.is_empty() {
+        out.push_str("Not held on this computer, which hasn't the font they're in:\n\n");
+        for line in &checked.not_here {
+            let _ = writeln!(out, "- {line}");
         }
         out.push('\n');
     }

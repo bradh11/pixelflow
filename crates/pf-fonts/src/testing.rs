@@ -4,7 +4,8 @@
 //! Its letters are plain shapes, in font units of a 1000-unit em, with an ascent of 800 and a
 //! descent of 200:
 //!
-//! - every letter and digit not named below: a box 100 to 500 across and 0 to 700 up, 600 wide;
+//! - every printable ASCII character not named below: a box 100 to 500 across and 0 to 700 up,
+//!   600 wide;
 //! - `I`: a bar 100 to 250 across, 350 wide;
 //! - `O`: a ring 100 to 600 across with a hole 250 to 450 across and 150 to 550 up, 700 wide;
 //! - `L`: an L, 600 wide;
@@ -75,7 +76,7 @@ fn glyph_for(c: char) -> Option<u16> {
         'V' => VEE,
         'L' => ELL,
         'g' => DESCENDER,
-        c if c.is_ascii_alphanumeric() => BOX,
+        c if c.is_ascii_graphic() => BOX,
         _ => return None,
     })
 }

@@ -135,10 +135,26 @@ fn setting(kind: EffectKind, key: &str, value: &Value, cx: &Context<'_>) -> Resu
                 ));
             }
         }
-        SettingValue::Face { .. } | SettingValue::Text { .. } | SettingValue::Font { .. } => {
+        SettingValue::Face { .. } | SettingValue::Text { .. } => {
             if !value.is_string() {
                 return Err(format!("{key} is text."));
             }
+        }
+        // A family this computer has, spelled as it spells it; "" is the pixel font.
+        SettingValue::Font { .. } => {
+            let name = value
+                .as_str()
+                .ok_or_else(|| format!("{key} is a font's family name, or \"\" for the pixel font."))?;
+            if name.trim().is_empty() {
+                return Ok(json!(""));
+            }
+            return match pf_fonts::installed(name) {
+                Some(family) => Ok(json!(family)),
+                None => Err(format!(
+                    "{key} is \"{name}\", which isn't on this computer. {}",
+                    fonts_here()
+                )),
+            };
         }
         SettingValue::Image { .. } => {
             let file = value
@@ -195,6 +211,37 @@ fn setting(kind: EffectKind, key: &str, value: &Value, cx: &Context<'_>) -> Resu
         }
     }
     Ok(value.clone())
+}
+
+/// Families most computers have, to name when a font asked for isn't on this one.
+const COMMON_FONTS: [&str; 14] = [
+    "Arial",
+    "Arial Black",
+    "Helvetica",
+    "Verdana",
+    "Tahoma",
+    "Trebuchet MS",
+    "Georgia",
+    "Times New Roman",
+    "Courier New",
+    "Impact",
+    "Comic Sans MS",
+    "Futura",
+    "DejaVu Sans",
+    "Liberation Sans",
+];
+
+/// The common families this computer has, as a sentence.
+fn fonts_here() -> String {
+    let here: Vec<String> = COMMON_FONTS
+        .iter()
+        .filter_map(|f| pf_fonts::installed(f))
+        .collect();
+    if here.is_empty() {
+        "\"\" is the pixel font.".to_string()
+    } else {
+        format!("Some that are: {}. \"\" is the pixel font.", here.join(", "))
+    }
 }
 
 /// One curve, checked: a setting the kind's curves can drive, a real shape, and its track by id.
@@ -442,6 +489,40 @@ mod tests {
             TimingTrack::new("Beats", TimingKind::Beats, vec![Mark::new(0, 500, "1")]),
             TimingTrack::new("Bars", TimingKind::Bars, Vec::new()),
         ]
+    }
+
+    #[test]
+    fn a_font_is_one_this_computer_has_spelled_as_it_spells_it() {
+        static ONCE: std::sync::Once = std::sync::Once::new();
+        ONCE.call_once(|| {
+            pf_fonts::add_font(pf_fonts::testing::tiny_font("PixelFlow Spec Sans", false, false));
+        });
+        let tracks = tracks();
+        let cx = Context {
+            tracks: &tracks,
+            pictures: None,
+        };
+        let text = |font: &str| {
+            parse(
+                &json!({ "kind": "text", "settings": { "text": "JOY", "font": font, "bold": true } }),
+                &cx,
+            )
+        };
+        let effect = text("pixelflow spec sans").unwrap();
+        let EffectParams::Text(p) = &effect.params else {
+            panic!("{:?}", effect.params)
+        };
+        assert_eq!((p.font.as_str(), p.bold), ("PixelFlow Spec Sans", true));
+        let EffectParams::Text(p) = &text("").unwrap().params else {
+            unreachable!()
+        };
+        assert_eq!(p.font, "");
+        let refused = text("PixelFlow Made Up Narrow").unwrap_err();
+        assert!(
+            refused.starts_with("font is \"PixelFlow Made Up Narrow\", which isn't on this computer.")
+                && refused.ends_with("\"\" is the pixel font."),
+            "{refused}"
+        );
     }
 
     #[test]

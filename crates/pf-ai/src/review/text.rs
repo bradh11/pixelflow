@@ -1,10 +1,13 @@
 //! Whether a Text effect's words can be read on the grid they're drawn on, from the way the
 //! renderer lays text out (`pf_render`'s Text): a 5×7 font (8 with descenders) scaled to the
-//! letter height, six dots from one letter to the next, and moving text crossing the grid at
-//! two and a half cells a second for each point of speed.
+//! letter height, six dots from one letter to the next, or a font on the computer measured at
+//! its size; and moving text crossing the grid at two and a half cells a second for each point
+//! of speed.
 
+use pf_fonts::SizedFont;
 use pf_sequence::{Effect, TextCountdown, TextMovement, TextOrientation, TextParams};
 use serde_json::{Map, Value};
+use std::sync::Arc;
 
 /// The fewest rows the font's letters need to keep their shapes.
 pub(super) const SMALLEST_LETTERS: u32 = 7;
@@ -23,6 +26,51 @@ const STILL_MS_A_LETTER: u64 = 60;
 /// How wide `letters` letters are at `size`, in cells.
 fn width(letters: usize, size: u32) -> f32 {
     (letters as f32 * ADVANCE - 1.0).max(0.0) * size as f32 / FONT_HEIGHT as f32
+}
+
+/// What the words are drawn in: the pixel font, or a font on this computer at the effect's size
+/// (a font the computer hasn't got is drawn in the pixel font, so it's measured as that).
+enum Lettering {
+    Pixel,
+    Font(String, Arc<SizedFont>),
+}
+
+impl Lettering {
+    fn of(text: &TextParams, size: u32) -> Self {
+        let name = text.font.trim();
+        match pf_fonts::sized(name, size as f32, text.bold, text.italic) {
+            Some(font) if !name.is_empty() => Lettering::Font(name.to_string(), font),
+            _ => Lettering::Pixel,
+        }
+    }
+
+    /// How wide `line` is at `size`, in cells.
+    fn width(&self, line: &str, size: u32) -> f32 {
+        match self {
+            Lettering::Pixel => width(line.chars().count(), size),
+            Lettering::Font(_, font) => {
+                let mut last: Option<Arc<pf_fonts::Glyph>> = None;
+                let mut across = 0.0;
+                for c in line.chars() {
+                    let glyph = font.glyph(c);
+                    if let Some(last) = &last {
+                        across += font.kerning(last, &glyph);
+                    }
+                    across += glyph.advance;
+                    last = Some(glyph);
+                }
+                across
+            }
+        }
+    }
+
+    /// How many rows a line takes at `size`.
+    fn height(&self, size: u32) -> u32 {
+        match self {
+            Lettering::Pixel => size,
+            Lettering::Font(_, font) => (font.ascent + font.descent).round().max(1.0) as u32,
+        }
+    }
 }
 
 /// The letters still `text` has, as reading counts them: every character but the line breaks.
@@ -161,34 +209,48 @@ pub(super) fn problem(text: &TextParams, effect: &Effect, columns: u32, rows: u3
     let lines: Vec<&str> = text.text.split('\n').collect();
     let longest = lines.iter().map(|l| l.chars().count()).max().unwrap_or(0);
     let letters: usize = lines.iter().map(|l| l.chars().count()).sum();
+    let lettering = Lettering::of(text, size);
     if size < SMALLEST_LETTERS {
-        return Some(format!(
-            "at a letter height of {size} the font loses dots; it needs {SMALLEST_LETTERS} or more (8 is its own size)."
-        ));
+        return Some(match &lettering {
+            Lettering::Pixel => format!(
+                "at a letter height of {size} the font loses dots; it needs {SMALLEST_LETTERS} or more (8 is its own size)."
+            ),
+            Lettering::Font(name, _) => format!(
+                "at a size of {size}, {name}'s letters are too few pixels to tell apart; it needs {SMALLEST_LETTERS} or more."
+            ),
+        });
     }
     let stacked = text.orientation != TextOrientation::Across;
+    let line_rows = lettering.height(size);
     let tall = if stacked {
-        letters as u32 * size
+        letters as u32 * line_rows
     } else {
-        lines.len() as u32 * size
+        lines.len() as u32 * line_rows
     };
     let moves_up = matches!(text.movement, TextMovement::Up | TextMovement::Down);
     if tall > rows && !moves_up {
-        return Some(if stacked {
-            format!("{letters} letters stacked at a height of {size} need {tall} rows, and it has {rows}.")
-        } else if lines.len() > 1 {
-            format!(
+        return Some(match (&lettering, stacked, lines.len() > 1) {
+            (_, true, _) => format!(
+                "{letters} letters stacked at a height of {size} need {tall} rows, and it has {rows}."
+            ),
+            (_, false, true) => format!(
                 "{} lines at a letter height of {size} need {tall} rows, and it has {rows}.",
                 lines.len()
-            )
-        } else {
-            format!("letters {size} tall don't fit its {rows} rows.")
+            ),
+            (Lettering::Pixel, false, false) => format!("letters {size} tall don't fit its {rows} rows."),
+            (Lettering::Font(name, _), false, false) => {
+                format!("{name} at a size of {size} takes {tall} rows, and it has {rows}.")
+            }
         });
     }
     let across = if stacked {
-        width(1, size)
+        text.text
+            .chars()
+            .filter(|c| *c != '\n')
+            .map(|c| lettering.width(&c.to_string(), size))
+            .fold(0.0, f32::max)
     } else {
-        width(longest, size)
+        lines.iter().map(|l| lettering.width(l, size)).fold(0.0, f32::max)
     };
     let seconds = effect.duration_ms() as f32 / 1000.0;
     let sideways = matches!(text.movement, TextMovement::Left | TextMovement::Right);
@@ -213,7 +275,13 @@ pub(super) fn problem(text: &TextParams, effect: &Effect, columns: u32, rows: u3
         return None;
     }
     if across > columns as f32 && !moves_up && text.movement != TextMovement::Vector {
-        let fit = ((columns as f32 * FONT_HEIGHT as f32 / size as f32 + 1.0) / ADVANCE).floor() as u32;
+        let fit = match &lettering {
+            Lettering::Pixel => {
+                ((columns as f32 * FONT_HEIGHT as f32 / size as f32 + 1.0) / ADVANCE).floor() as u32
+            }
+            // As many letters as fit at the widest line's own spacing.
+            Lettering::Font(..) => (columns as f32 * longest as f32 / across).floor() as u32,
+        };
         return Some(format!(
             "{longest} letters at a height of {size} are {:.0} columns wide, and it has {columns}: {fit} letters fit. Scroll it (movement left), make the letters smaller, or split the words over several effects.",
             across
@@ -251,7 +319,7 @@ pub(super) fn readable(text: &TextParams, effect: &Effect, columns: u32, rows: u
         settings.insert("size".into(), fixed.size.into());
     }
     if problem(&fixed, effect, columns, rows).is_some() {
-        let across = width(fixed.text.chars().count(), fixed.size);
+        let across = Lettering::of(&fixed, fixed.size).width(&fixed.text, fixed.size);
         let seconds = (effect.duration_ms() as f32 / 1000.0).max(0.1);
         let speed = ((columns as f32 + across) / (seconds * CELLS_A_SECOND)).ceil();
         fixed.speed = (speed as u32).clamp(1, 100);
@@ -399,6 +467,54 @@ mod tests {
         change(&mut params);
         let effect = Effect::new(EffectKind::Text, 0, ms).with_params(EffectParams::Text(params.clone()));
         (params, effect)
+    }
+
+    #[test]
+    fn words_in_a_computer_font_are_measured_in_that_font() {
+        // The tiny test font: at 20 pixels each box letter moves on 12 columns and a line takes
+        // 20 rows (the pixel font's letters at 20 would take 15 columns each).
+        static ONCE: std::sync::Once = std::sync::Once::new();
+        ONCE.call_once(|| {
+            pf_fonts::add_font(pf_fonts::testing::tiny_font(
+                "PixelFlow Review Sans",
+                false,
+                false,
+            ));
+        });
+        let font = |p: &mut TextParams| {
+            p.font = "PixelFlow Review Sans".into();
+            p.size = 20;
+        };
+        let (params, effect) = text("ABC", font, 4_000);
+        // 36 columns: it fits 40 standing still, where the pixel font's 42.5 wouldn't.
+        assert_eq!(problem(&params, &effect, 40, 24), None);
+        let pixel = TextParams {
+            font: String::new(),
+            ..params.clone()
+        };
+        let pixel_said = problem(&pixel, &effect, 40, 24).unwrap();
+        assert!(pixel_said.contains("42 columns wide"), "{pixel_said}");
+        let wide = problem(&params, &effect, 30, 24).unwrap();
+        assert!(
+            wide.contains("36 columns wide, and it has 30: 2 letters fit"),
+            "{wide}"
+        );
+        let tall = problem(&params, &effect, 40, 18).unwrap();
+        assert_eq!(
+            tall,
+            "PixelFlow Review Sans at a size of 20 takes 20 rows, and it has 18."
+        );
+        // A font this computer hasn't got is drawn, and so measured, in the pixel font.
+        let (missing, effect) = text(
+            "ABC",
+            |p| {
+                p.font = "PixelFlow Made Up Narrow".into();
+                p.size = 20;
+            },
+            4_000,
+        );
+        let missing_said = problem(&missing, &effect, 40, 24).unwrap();
+        assert!(missing_said.contains("42 columns wide"), "{missing_said}");
     }
 
     #[test]

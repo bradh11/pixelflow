@@ -12,6 +12,7 @@ mod devices;
 mod files;
 mod fpp_download;
 mod fpp_send;
+mod h264;
 mod house;
 mod layout;
 mod links;
@@ -330,6 +331,7 @@ pub fn run() {
                 app.path().app_cache_dir().ok(),
                 app.path().app_data_dir().ok(),
             ));
+            app.manage(h264::H264State::live(app.path().app_data_dir().ok()));
             app.manage(sync::SyncState::live());
             app.manage(vocals::VocalsState::default());
             let handle = app.handle().clone();

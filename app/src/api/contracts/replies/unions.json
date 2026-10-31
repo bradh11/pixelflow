@@ -338,6 +338,12 @@
     "value": ["rendering", "sound", "writing"]
   },
   {
+    "allOf": "video.H264State",
+    "name": "every video.H264State",
+    "ts": "(video.H264State)[]",
+    "value": ["unsupported", "missing", "off", "ready"]
+  },
+  {
     "allOf": "sequence.DrumHit['drum']",
     "name": "every sequence.DrumHit['drum']",
     "ts": "(sequence.DrumHit['drum'])[]",

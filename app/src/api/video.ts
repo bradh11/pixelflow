@@ -5,6 +5,9 @@ import { pickPath } from "./tauri";
 /** The event the engine sends while exporting a video. */
 export const VIDEO_PROGRESS_EVENT = "video-export-progress";
 
+/** The event the shell sends while Cisco's video encoder downloads. */
+export const H264_DOWNLOAD_PROGRESS_EVENT = "h264-download-progress";
+
 /** What the video export dialog can offer. */
 export interface VideoChoices {
   /** ffmpeg's H.264 encoder when ffmpeg is installed ("x264" or "VideoToolbox"), else null. */
@@ -57,6 +60,43 @@ export interface VideoSummary {
   notes: string[];
 }
 
+/**
+ * Whether Cisco's OpenH264 encoder can be used: Cisco makes none for this system (or PixelFlow
+ * has nowhere to keep it), not downloaded, downloaded but turned off, or downloaded and on.
+ */
+export type H264State = "unsupported" | "missing" | "off" | "ready";
+
+/**
+ * Cisco's OpenH264 video encoder, the built-in encoder for video export. PixelFlow doesn't ship
+ * it: it's downloaded from Cisco only when the user agrees (Cisco pays the H.264 patent licence
+ * for the copies it hands out itself), checked, and kept in PixelFlow's data folder.
+ */
+export interface H264Encoder {
+  state: H264State;
+  downloading: boolean;
+  /** Cisco's release used ("2.6.0"). */
+  version: string;
+  /** Cisco's server ("ciscobinary.openh264.org"). */
+  host: string;
+  /** Where it's downloaded from; null when Cisco makes none for this system. */
+  url: string | null;
+  /** The download's size in bytes, about. */
+  bytes: number;
+  /** What Cisco's licence asks be shown where it's turned on and off. */
+  attribution: string;
+  /** Cisco's licence for its binary, word for word. */
+  licence: string;
+  licenceUrl: string;
+  /** Why it can't be used on this computer, when it can't. */
+  problem: string | null;
+}
+
+/** How far the encoder's download has got. */
+export interface H264Progress {
+  received: number;
+  total: number;
+}
+
 /** Exporting the open sequence as an MP4 video of the preview with its music. */
 export interface VideoApi {
   videoExportChoices(): Promise<VideoChoices>;
@@ -65,6 +105,19 @@ export interface VideoApi {
   cancelVideoExport(): Promise<void>;
   /** Where to save the video (a native dialog); null when cancelled. */
   pickVideoPath(defaultName: string): Promise<string | null>;
+  /** Cisco's OpenH264 encoder: whether it's downloaded and on. */
+  h264Encoder(): Promise<H264Encoder>;
+  /**
+   * Downloads Cisco's encoder from Cisco's server (call only after the user has agreed), checks
+   * it, keeps it, and turns it on. Rejects with "Stopped." after cancelH264Download, keeping
+   * nothing, and with a sentence saying what to do when it fails.
+   */
+  downloadH264Encoder(onProgress?: (progress: H264Progress) => void): Promise<H264Encoder>;
+  cancelH264Download(): Promise<void>;
+  /** Turns Cisco's encoder on or off for video export (kept across runs). */
+  setH264EncoderEnabled(on: boolean): Promise<H264Encoder>;
+  /** Deletes Cisco's encoder from PixelFlow's data folder. */
+  removeH264Encoder(): Promise<H264Encoder>;
 }
 
 /** The real engine, in the Tauri desktop shell. */
@@ -84,4 +137,16 @@ export const tauriVideo: VideoApi = {
   },
   cancelVideoExport: () => invoke("cancel_video_export"),
   pickVideoPath: (defaultName) => pickPath("videoExport", defaultName),
+  h264Encoder: () => invoke("h264_encoder"),
+  downloadH264Encoder: async (onProgress) => {
+    const unlisten = onProgress ? await listen<H264Progress>(H264_DOWNLOAD_PROGRESS_EVENT, (event) => onProgress(event.payload)) : null;
+    try {
+      return await invoke<H264Encoder>("download_h264_encoder");
+    } finally {
+      unlisten?.();
+    }
+  },
+  cancelH264Download: () => invoke("cancel_h264_download"),
+  setH264EncoderEnabled: (on) => invoke("set_h264_encoder_enabled", { on }),
+  removeH264Encoder: () => invoke("remove_h264_encoder"),
 };

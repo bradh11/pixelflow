@@ -8,7 +8,7 @@ import { MemoryBackend } from "../../api/memory";
 import { MemorySequencer } from "../../api/memorySequencer";
 import { MemoryVideo } from "../../api/memoryVideo";
 import type { Sequence } from "../../api/sequence";
-import type { VideoProgress } from "../../api/video";
+import type { H264State, VideoProgress } from "../../api/video";
 import { useSequencer } from "../../state/sequencer";
 import { useApp } from "../../state/store";
 import { useView3d } from "../../state/view3d";
@@ -33,14 +33,18 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-/** The Sequence screen on the demo sequence (a minute, with music, on a show with a photo). */
-async function openScreen({ ffmpeg = null, stepMs = 0 }: { ffmpeg?: string | null; stepMs?: number } = {}) {
+/**
+ * The Sequence screen on the demo sequence (a minute, with music, on a show with a photo), with
+ * Cisco's encoder already downloaded unless `h264` says otherwise.
+ */
+async function openScreen({ ffmpeg = null, stepMs = 0, h264 = "ready" }: { ffmpeg?: string | null; stepMs?: number; h264?: H264State } = {}) {
   const show = demoShow();
   const backend = new MemoryBackend(show);
   backend.nextAudioPath = DEMO_MUSIC;
   const seq = new MemorySequencer(backend);
   seq.video.ffmpeg = ffmpeg;
   seq.video.stepMs = stepMs;
+  seq.video.h264State = h264;
   seq.files.set(DEMO_SEQUENCE_PATH, demoSequence(show, 60_000));
   await seq.openSequenceDoc(DEMO_SEQUENCE_PATH);
   await useApp.getState().connect(backend);
@@ -222,6 +226,104 @@ describe("Export video", () => {
     expect(await within(dialog).findByRole("alert")).toHaveTextContent("disk full");
   });
 
+  it("asks before downloading Cisco's encoder on the first export, shows the download, then exports", async () => {
+    const { seq, user, dialog } = await openScreen({ h264: "missing" });
+    seq.video.h264DownloadMs = 300;
+    // Before anything is asked: the dialog says the first export will ask.
+    expect(await within(dialog).findByText(/The first export asks before downloading it \(about 0\.5 MB\)/)).toBeInTheDocument();
+
+    // Asked: what, from where, how big, why, and Cisco's line. Cancel downloads nothing.
+    await user.click(within(dialog).getByRole("button", { name: "Export…" }));
+    expect(await within(dialog).findByRole("heading", { name: "Download Cisco's video encoder?" })).toBeInTheDocument();
+    expect(within(dialog).getByText(/downloads it once from Cisco's server \(ciscobinary\.openh264\.org, about 0\.5 MB\)/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/H\.264 patent licence Cisco pays for its own copies covers it/)).toBeInTheDocument();
+    expect(within(dialog).getByText("OpenH264 Video Codec provided by Cisco Systems, Inc.")).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Download and export" })).toHaveFocus();
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(within(dialog).getByLabelText("Size")).toBeInTheDocument();
+    expect(seq.calls).not.toContain("downloadH264Encoder");
+
+    // Escape goes back to the choices too.
+    await user.click(within(dialog).getByRole("button", { name: "Export…" }));
+    await within(dialog).findByRole("button", { name: "Download and export" });
+    await user.keyboard("{Escape}");
+    expect(within(dialog).getByLabelText("Size")).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Export video" })).toBeInTheDocument();
+
+    // Agreed: the download shows its progress (Escape waits), then the export carries straight on.
+    await user.click(within(dialog).getByRole("button", { name: "Export…" }));
+    await user.click(await within(dialog).findByRole("button", { name: "Download and export" }));
+    expect(await within(dialog).findByRole("progressbar", { name: "Downloading the encoder" })).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(screen.getByRole("dialog", { name: "Export video" })).toBeInTheDocument();
+    expect(await within(dialog).findByText("Saved Chimes Medley 2020.mp4 (1:00, 1080p).", {}, { timeout: 3000 })).toBeInTheDocument();
+    expect(seq.video.h264Downloads).toBe(1);
+    expect(seq.video.requests).toHaveLength(1);
+    await user.click(within(dialog).getByRole("button", { name: "Done" }));
+
+    // The next export doesn't ask again.
+    await user.click(screen.getByRole("button", { name: "More ways to export" }));
+    await user.click(screen.getByRole("menuitem", { name: "Export video…" }));
+    const again = await screen.findByRole("dialog", { name: "Export video" });
+    await waitFor(() => expect(within(again).getByRole("button", { name: "Export…" })).toBeEnabled());
+    await user.click(within(again).getByRole("button", { name: "Export…" }));
+    expect(await within(again).findByText(/^Saved /)).toBeInTheDocument();
+    expect(seq.video.h264Downloads).toBe(1);
+  });
+
+  it("says why a download failed, and tries again on request", async () => {
+    const { seq, user, dialog } = await openScreen({ h264: "missing" });
+    seq.video.h264Failure = "PixelFlow couldn't reach Cisco's server (ciscobinary.openh264.org). Check that this computer is online, then try again.";
+    await user.click(within(dialog).getByRole("button", { name: "Export…" }));
+    await user.click(await within(dialog).findByRole("button", { name: "Download and export" }));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("couldn't reach Cisco's server");
+    expect(seq.video.requests).toHaveLength(0);
+    await user.click(within(dialog).getByRole("button", { name: "Try again" }));
+    expect(await within(dialog).findByText(/^Saved /)).toBeInTheDocument();
+    expect(seq.video.h264Downloads).toBe(1);
+  });
+
+  it("stops a download that's cancelled, keeping and exporting nothing", async () => {
+    const { seq, user, dialog } = await openScreen({ h264: "missing" });
+    seq.video.h264DownloadMs = 2000;
+    await user.click(within(dialog).getByRole("button", { name: "Export…" }));
+    await user.click(await within(dialog).findByRole("button", { name: "Download and export" }));
+    await within(dialog).findByRole("progressbar", { name: "Downloading the encoder" });
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(await within(dialog).findByText("Download stopped. Nothing was kept.")).toBeInTheDocument();
+    expect(seq.video.h264State).toBe("missing");
+    expect(seq.video.requests).toHaveLength(0);
+  });
+
+  it("asks to turn Cisco's encoder back on when it was turned off", async () => {
+    const { seq, user, dialog } = await openScreen({ h264: "off" });
+    expect(await within(dialog).findByText(/turned off in Settings\. Exporting asks to turn it back on/)).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Export…" }));
+    expect(await within(dialog).findByRole("heading", { name: "Turn Cisco's video encoder back on?" })).toBeInTheDocument();
+    expect(within(dialog).getByText("OpenH264 Video Codec provided by Cisco Systems, Inc.")).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Turn on and export" }));
+    expect(await within(dialog).findByText(/^Saved /)).toBeInTheDocument();
+    expect(seq.video.h264State).toBe("ready");
+    expect(seq.calls).not.toContain("downloadH264Encoder");
+  });
+
+  it("says so when Cisco makes no encoder for this system", async () => {
+    const { seq, user, dialog } = await openScreen({ h264: "unsupported" });
+    await user.click(within(dialog).getByRole("button", { name: "Export…" }));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("Cisco doesn't make its OpenH264 encoder for this system");
+    expect(seq.video.requests).toHaveLength(0);
+  });
+
+  it("exports with ffmpeg without asking about Cisco's encoder", async () => {
+    const { seq, user, dialog } = await openScreen({ ffmpeg: "x264", h264: "missing" });
+    await user.selectOptions(within(dialog).getByLabelText("Encoder"), "ffmpeg (higher quality)");
+    expect(within(dialog).queryByText(/The first export asks/)).toBeNull();
+    await user.click(within(dialog).getByRole("button", { name: "Export…" }));
+    expect(await within(dialog).findByText(/^Saved /)).toBeInTheDocument();
+    expect(seq.calls).not.toContain("downloadH264Encoder");
+    expect(seq.video.h264State).toBe("missing");
+  });
+
   it("offers the photo only when the show has one", async () => {
     const { seq, user, dialog } = await openScreen();
     await user.click(within(dialog).getByRole("button", { name: "Close" }));
@@ -253,6 +355,7 @@ describe("video export helpers", () => {
       () => doc,
       () => false,
     );
+    video.h264State = "ready";
     const ok = { width: 1280, height: 720, fps: 30, startMs: 0, endMs: null, photo: false, pixelSize: 1, glow: 0, ffmpeg: false };
     const stages: string[] = [];
     const summary = await video.exportVideo("/v.mp4", ok, (p) => stages.push(p.stage));
@@ -262,5 +365,22 @@ describe("video export helpers", () => {
     await expect(video.exportVideo("/v.mp4", { ...ok, startMs: 10_000 })).rejects.toThrow("range to export is empty");
     await expect(video.exportVideo("/v.mp4", { ...ok, ffmpeg: true })).rejects.toThrow("ffmpeg isn't installed");
     expect(await video.videoExportChoices()).toEqual({ ffmpeg: null, photo: false });
+  });
+
+  it("the in-memory encoder starts not downloaded, as in a new install, and refuses the built-in export until it is", async () => {
+    const doc = { durationMs: 10_000, audio: null } as unknown as Sequence;
+    const video = new MemoryVideo(
+      () => doc,
+      () => false,
+    );
+    const ok = { width: 1280, height: 720, fps: 30, startMs: 0, endMs: null, photo: false, pixelSize: 1, glow: 0, ffmpeg: false };
+    expect((await video.h264Encoder()).state).toBe("missing");
+    await expect(video.exportVideo("/v.mp4", ok)).rejects.toThrow("isn't downloaded yet");
+    const seen: number[] = [];
+    expect((await video.downloadH264Encoder((p) => seen.push(p.received))).state).toBe("ready");
+    expect(seen.at(-1)).toBe(482_124);
+    expect((await video.setH264EncoderEnabled(false)).state).toBe("off");
+    await expect(video.exportVideo("/v.mp4", ok)).rejects.toThrow("turned off in Settings");
+    expect((await video.removeH264Encoder()).state).toBe("missing");
   });
 });

@@ -188,7 +188,9 @@ pub fn render(
         photo: false,
         pixel_size: PIXEL_SIZE,
         glow: 0.0,
-        ffmpeg: None,
+        // The harness runs from source, with OpenH264 compiled in (pf-ai's dev-dependencies).
+        encoder: pf_video::Encoder::compiled_in()
+            .ok_or("This build has no H.264 encoder: turn on pf-video's encoder-from-source feature.")?,
     };
     for folder in [video.parent(), sheet.parent()].into_iter().flatten() {
         std::fs::create_dir_all(folder).map_err(wrote(folder))?;

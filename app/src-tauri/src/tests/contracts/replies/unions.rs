@@ -165,6 +165,10 @@ fn union_members() {
         every!(pf_video::Stage: Rendering, Sound, Writing),
     );
     all(
+        "video.H264State",
+        every!(pf_video::cisco::State: Unsupported, Missing, Off, Ready),
+    );
+    all(
         "sequence.DrumHit['drum']",
         every!(pf_analysis::Drum: Kick, Snare, Hat, Crash),
     );

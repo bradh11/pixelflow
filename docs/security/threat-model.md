@@ -37,7 +37,7 @@ plain language: [privacy-and-data-flow.md](../privacy-and-data-flow.md).
 | **The author of a file the user opens** | A show (`.pixelflow.json`), a sequence (`.pfseq.json`, `.xsq`, `.fseq`), an xLights show folder, a vendor package (`.zip`, `.xsqz`), a picture, a song, a mapping or timing file, a shader file (`.fs`: a program, see section 9) | Yes. Sequences and props are bought, traded, and downloaded from strangers as a matter of course in this hobby. This is the main way in. |
 | **A device on the same network** | Whatever it answers to HTTP, mDNS, and FPP's discovery ping: a compromised controller, another gadget on the LAN, or a guest's laptop | Plausible. Controllers are unauthenticated and rarely updated. |
 | **Text the assistant reads** | Lyrics from LRCLIB, labels and names inside imported files, song tags | Yes, though it can only steer what the assistant proposes. |
-| **A network attacker between the app and the internet** | Traffic to the AI providers, LRCLIB, Hugging Face, GitHub | Limited by TLS. On the LAN, device traffic is plain HTTP and UDP by the devices' own design. |
+| **A network attacker between the app and the internet** | Traffic to the AI providers, LRCLIB, Hugging Face, GitHub, Cisco's OpenH264 server | Limited by TLS, and for the two downloads of code and models by a pinned SHA-256. On the LAN, device traffic is plain HTTP and UDP by the devices' own design. |
 | **A dependency** | Code that ships in the app | Addressed by the audit workflow and lockfiles; not otherwise modelled here. |
 | **Another program on the same computer, running as the user** | Everything the user can reach | Out of scope: it can already read the user's files and the keychain entries the user's session unlocks. |
 
@@ -45,7 +45,7 @@ plain language: [privacy-and-data-flow.md](../privacy-and-data-flow.md).
 
 ```
    files from other people ──┐                       ┌── internet: AI providers, LRCLIB,
-   (shows, sequences,        │                       │   Hugging Face, GitHub  (HTTPS)
+   (shows, sequences,        │                       │   Hugging Face, GitHub, Cisco (HTTPS)
     pictures, music, zips)   ▼                       │
                       ┌───────────────────────────────────────┐
    the user ───────▶  │  the window (React, in a webview)      │   only the app's own files load;
@@ -477,6 +477,7 @@ require. Internet traffic is HTTPS (rustls, Mozilla's root list, certificates ch
 | `api.openai.com` or `api.anthropic.com` | HTTPS | The conversation, the tool definitions, and whatever the model asks the tools for (see below); the key as a header | Sending a chat message; opening AI settings (model list) | A key the user entered |
 | `api.openai.com` (audio) | HTTPS | The song: the file as it is if under 25 MB, else mono 16 kHz WAV parts; its file name; the language; a hint of title, artist, and first line | "Find lyrics" with an OpenAI key | The user's separate agreement to send audio |
 | `huggingface.co` and its CDN | HTTPS | A request for one file | "Download" in lyric alignment settings | A confirmation; the file's SHA-256 is pinned (`crates/pf-align/src/store.rs:142`) |
+| `ciscobinary.openh264.org` | HTTPS only (`https_only`), at most 3 redirects | A request for one file (Cisco's OpenH264 library for this system, bzip2); `User-Agent: PixelFlow/<version>` | "Download and export" on the first video export with the built-in encoder, or turning the encoder on in Settings | A confirmation saying what, from where, how big, and why. The download is capped at 8 MB and unpacked by a pure-Rust decoder (`bzip2-rs`, no unsafe code) to at most the library's size; the library's SHA-256 is pinned per system (`crates/pf-video/src/cisco.rs`) and checked before it is kept and again before every load, and `openh264` checks it once more against its own list. It is then loaded into the app's process: native code from Cisco, with the app's rights. On macOS the app carries `com.apple.security.cs.disable-library-validation` so the hardened runtime lets it load a library Cisco signed. |
 | On Windows, a server the user chose a file on | SMB, by the OS | A sign-in attempt | Choosing a file on a network share in a dialog; after that, opening files that name paths in the same folder | The choice in the dialog. A server only a file names is never contacted (finding 14) |
 
 **What the model can see**, when it asks: the show's name and frame rate; props (names, shapes,

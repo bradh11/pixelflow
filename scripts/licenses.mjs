@@ -106,13 +106,24 @@ const EMBEDDED = [
   },
 ];
 
-// Fetched by the app when the user asks for it; not part of the installer.
+// Fetched by the app when the user asks for it; not part of the installer. One with a `file` has
+// its licence text printed in part 2 too.
 const DOWNLOADED = [
   {
     name: "wav2vec2-base-960h (speech model, ONNX conversion by the ONNX Community)",
     license: "Apache-2.0",
     url: "https://huggingface.co/onnx-community/wav2vec2-base-960h-ONNX",
     where: "downloaded from Hugging Face when the user turns on lyric alignment; not in the installer",
+  },
+  {
+    // Cisco's licence for its binary asks that all of its text be reproduced where licensing
+    // information is presented to the user: here, and in Settings, under Video export.
+    name: "OpenH264 Video Codec provided by Cisco Systems, Inc. (Cisco's OpenH264 2.6.0 binary)",
+    license: "BSD-2-Clause, with Cisco's AVC/H.264 patent licence terms",
+    url: "https://www.openh264.org/BINARY_LICENSE.txt",
+    where:
+      "downloaded from Cisco's server (ciscobinary.openh264.org) when the user agrees, the first time a video is exported with the built-in encoder (or turned on in Settings, under Video export); not in the installer. Cisco's licence for it is in part 2.",
+    file: "crates/pf-video/data/openh264-BINARY_LICENSE.txt",
   },
 ];
 
@@ -680,7 +691,7 @@ function notices(app, npm) {
   );
 
   out.push(`${RULE}\nPart 2. Licence texts shipped with the components\n${RULE}`);
-  for (const e of EMBEDDED) {
+  for (const e of [...EMBEDDED, ...DOWNLOADED.filter((d) => d.file)]) {
     out.push(`${e.name}\n${THIN}\n${cleanText(read(rel(e.file)))}`);
   }
   const groups = [...texts.values()].map((g) => {

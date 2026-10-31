@@ -7,6 +7,14 @@ rust-version.workspace = true
 publish.workspace = true
 license.workspace = true
 
+[features]
+# OpenH264 compiled into the program from the source inside `openh264-sys2`, for tests, CI and
+# developer tools that must work offline (the Assistant evaluation harness draws videos). Never in
+# the desktop app: Cisco's patent licence covers only the binary Cisco distributes, which the app
+# downloads at the user's request (`cisco`). `node scripts/encoder-check.mjs` fails if the app's
+# dependency tree turns this on.
+encoder-from-source = ["openh264/source"]
+
 [dependencies]
 pf-model.workspace = true
 pf-sequence.workspace = true
@@ -18,8 +26,13 @@ oxideav-aac.workspace = true
 image.workspace = true
 serde.workspace = true
 thiserror.workspace = true
+ureq = { workspace = true, features = ["rustls"] }
+sha2.workspace = true
+bzip2-rs.workspace = true
 
 [dev-dependencies]
+# The tests and examples encode with OpenH264 compiled from source, so they run offline.
+pf-video = { path = ".", features = ["encoder-from-source"] }
 tempfile.workspace = true
 pf-analysis.workspace = true
 pf-geometry.workspace = true

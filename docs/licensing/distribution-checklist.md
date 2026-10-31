@@ -306,11 +306,11 @@ and `scripts/licenses.mjs --check` fails if a shipped package ever offers no com
 ## 6. Patent-licensed codecs
 
 A software licence (BSD, MIT, MPL, GPL) covers copyright. It does not grant rights under patents
-that someone else holds over a format. PixelFlow contains:
+that someone else holds over a format. PixelFlow contains or uses:
 
 | Codec | Where | Used for |
 |---|---|---|
-| H.264 (AVC) encoder | OpenH264, compiled from source by `openh264-sys2`, used by `pf-video` | Video export |
+| H.264 (AVC) encoder | **Not in PixelFlow.** Cisco's OpenH264 binary, downloaded by the user's copy of the app from Cisco when the user agrees, and loaded by `pf-video`. (`openh264-sys2` compiles it from source only for tests and developer tools.) | Video export |
 | AAC-LC encoder | `oxideav-aac`, used by `pf-video` | The sound in exported videos |
 | AAC-LC decoder | `symphonia-codec-aac` | Playing and analysing `.m4a` music |
 | MP3 decoder | `symphonia-bundle-mp3` | Playing and analysing `.mp3` music |
@@ -322,13 +322,15 @@ Facts:
   code, in which case the team is responsible for paying all applicable license fees, or the
   team can use the binary module distributed by Cisco, in which case Cisco will cover the MPEG
   LA licensing fees", and, asked whether Cisco covers a product built from the source, "No."
-  PixelFlow builds OpenH264 from source, so Cisco's arrangement does not cover it.
-- Cisco's conditions for its binary (from its `BINARY_LICENSE.txt`): the binary is downloaded
-  separately to the user's device, not bundled into the product beforehand; the user can turn it
-  off; the product shows "OpenH264 Video Codec provided by Cisco Systems, Inc." where that
-  control is; and the licence text is reproduced with the product's licensing information. The
-  `openh264` crate has a `libloading` feature for using that binary in place of the compiled-in
-  source.
+  So PixelFlow's installers contain no H.264 encoder, and the app uses Cisco's binary (below).
+- Cisco's conditions for its binary (from its `BINARY_LICENSE.txt`, version 1.0, a copy of which
+  is `crates/pf-video/data/openh264-BINARY_LICENSE.txt`): the binary is downloaded separately to
+  the user's device, not bundled into the product beforehand; the user can turn it off and on
+  again; the product shows "OpenH264 Video Codec provided by Cisco Systems, Inc." where that
+  control is; and the licence text is reproduced with the product's licensing information.
+- Cisco's patent licence for its binary is for "the personal use of a consumer or other uses in
+  which it does not receive remuneration" (its notice, in the same file). A user who is paid
+  for their videos is outside it, as with any product that carries that notice.
 - **AVC and AAC** patents are licensed through pools run by Via Licensing Alliance (which now
   includes MPEG LA). Whether a given distributor needs a licence, and what it costs at a given
   volume, are for that organisation and a lawyer to say.
@@ -359,10 +361,42 @@ Facts:
   no such promise. This is the one place where patents and the GPL meet, and a lawyer should be
   asked before any patent licence is signed.
 
-What a distributor can do, without a recommendation:
+### H.264: decided
+
+The owner chose Cisco's binary, as Firefox does: **PixelFlow's builds contain no H.264 encoder.
+The first time someone exports a video with the built-in encoder, the app asks, then downloads
+Cisco's own OpenH264 binary from Cisco's server, checks it, keeps it, and loads it at run time.**
+How each of Cisco's terms is met:
+
+| Cisco's term | How PixelFlow meets it |
+|---|---|
+| Use the binary Cisco distributes, not one built from the source (FAQ) | The app's builds load OpenH264 only at run time (`openh264`'s `libloading` feature). `node scripts/encoder-check.mjs` (run by `make lint` and `make build`) fails if the app's normal or release builds would compile it from source. The pinned files are Cisco's OpenH264 2.6.0 for macOS (Apple silicon and Intel), Windows x64, and Linux x64 and ARM64, from `ciscobinary.openh264.org`, the server Cisco's release notes list. |
+| 1. Downloaded separately to the end user's device, not combined with the product before | The user's own copy of the app downloads Cisco's `.bz2` over HTTPS straight from Cisco's server onto the user's computer and keeps it, unpacked and otherwise unchanged, in the app's data folder. Its SHA-256 is pinned in `crates/pf-video/src/cisco.rs` and checked before it is kept and every time before it is loaded; the file is byte for byte Cisco's (its MD5 is the one Cisco publishes beside it). |
+| 2. The user can enable, disable, and re-enable it | Nothing is downloaded without the user's click: the export dialog asks first (**Download and export** or **Cancel**). **Settings**, **Video export**, **Use Cisco's OpenH264 video encoder** turns it off and on again (kept across runs), and **Remove the encoder** deletes it. Turned off, an export asks before turning it back on. |
+| 3. Show "OpenH264 Video Codec provided by Cisco Systems, Inc." where the user controls it | That line is under the control in Settings, and in the export dialog's question. |
+| 4. Reproduce the licence text, and this condition, where licensing information is shown | Cisco's `BINARY_LICENSE.txt` is in full in `THIRD-PARTY-NOTICES.txt` (inside the app; **About**, **Third-party notices**) and under **Cisco's licence for the encoder** in Settings. |
+
+Two things the owner should know:
+
+- **When it is downloaded.** Cisco's FAQ says products that use the binary "must download it at
+  the time the product or project is installed on the user's computer or device". The binary
+  licence's own condition is that it is "separately downloaded to an end user's device". PixelFlow
+  downloads it on the user's click, at the first export (or from Settings, which someone can do
+  right after installing), as Firefox fetches it after installing. That reading is the owner's;
+  a lawyer, or Cisco, can confirm it.
+- **macOS.** Cisco signs its library with its own Developer ID, so the app is signed with the
+  entitlement `com.apple.security.cs.disable-library-validation`
+  (`app/src-tauri/Entitlements.plist`); without it the hardened runtime refuses a library signed
+  by another team. Firefox has the same entitlement for the same reason. It lets the app load
+  libraries other teams signed; PixelFlow loads only Cisco's file, after checking its SHA-256.
+
+AAC is not covered by any of this and is still open (below).
+
+What a distributor can do, without a recommendation (for H.264 the owner chose the second; for
+AAC nothing is chosen yet):
 
 - [ ] Ship as it is, as many open-source projects do, knowing the above.
-- [ ] Use Cisco's OpenH264 binary under its conditions (covers H.264 only, not AAC), fetched by
+- [x] Use Cisco's OpenH264 binary under its conditions (covers H.264 only, not AAC), fetched by
       the user's copy of the app, not put in the installer.
 - [ ] Encode with the operating system's own encoders (macOS VideoToolbox, Windows Media
       Foundation), which the OS vendor has licensed. Not available the same way on Linux.
@@ -407,6 +441,9 @@ Not redistribution, but part of offering the app. Details are in
       agreement with the provider.
 - [ ] **LRCLIB, Hugging Face, GitHub's API.** Each has terms of use for automated clients.
       PixelFlow identifies itself to LRCLIB and GitHub with a `User-Agent`.
+- [x] **Cisco's OpenH264 server** (`ciscobinary.openh264.org`). One download of Cisco's binary,
+      at the user's request, under Cisco's licence for it (item 6). PixelFlow identifies itself
+      with a `User-Agent`.
 
 ## 10. Donations
 
@@ -420,7 +457,8 @@ Not redistribution, but part of offering the app. Details are in
 
 ## Summary of open decisions
 
-1. What to do about H.264 and AAC (item 6).
+1. What to do about AAC (item 6). H.264 is decided: Cisco's own binary, downloaded by the app
+   at the user's request (item 6, "H.264: decided").
 2. Whether to ship an AppImage (item 8).
 3. Whether to attach the dependencies' source to each release (item 1).
 4. The pixel font's origin (item 5).

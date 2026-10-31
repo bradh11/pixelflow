@@ -30,13 +30,13 @@ export function useDisplayAspect(): number {
 }
 
 /** "Selected row only": the preview shows just the pixels of the row being worked on. */
-export function RowOnlyToggle({ short = false }: { short?: boolean }) {
+export function RowOnlyToggle() {
   const rowOnly = usePreviewWindow((s) => s.rowOnly);
   const setRowOnly = usePreviewWindow((s) => s.setRowOnly);
   return (
-    <label className="flex items-center gap-1.5 text-xs text-neutral-600 dark:text-neutral-300" title="Show only the pixels of the row being worked on">
+    <label className="flex items-center gap-1.5 text-xs whitespace-nowrap text-neutral-600 dark:text-neutral-300" title="Show only the pixels of the row being worked on">
       <input type="checkbox" checked={rowOnly} onChange={(e) => setRowOnly(e.target.checked)} />
-      {short ? "Row only" : "Selected row only"}
+      Selected row only
     </label>
   );
 }
@@ -78,7 +78,7 @@ export function SequencePreview({
           {/* Beside the timeline the column is narrow, at the window's edge. */}
           <GlowControl iconOnly={place === "side"} align={place === "side" ? "right" : "left"} />
         </span>
-        <RowOnlyToggle short={place === "side"} />
+        <RowOnlyToggle />
         <span className="ml-auto inline-flex items-center gap-0.5">
           {onExpand && (
             <button

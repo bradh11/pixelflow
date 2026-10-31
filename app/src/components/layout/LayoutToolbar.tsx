@@ -148,6 +148,11 @@ function MoreShapes({ tool, setTool, in3d }: { tool: Tool; setTool: (t: Tool) =>
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   const picked = MORE_TOOLS.find((t) => t.tool === tool);
+  /** Closes the menu, with the focus back on its button. */
+  const done = () => {
+    setOpen(false);
+    box.current?.querySelector<HTMLButtonElement>("button")?.focus();
+  };
   useEffect(() => {
     if (!open) return;
     box.current?.querySelector<HTMLButtonElement>("[role=menuitem]")?.focus();
@@ -155,7 +160,7 @@ function MoreShapes({ tool, setTool, in3d }: { tool: Tool; setTool: (t: Tool) =>
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
-        setOpen(false);
+        done();
       }
     };
     const onDown = (e: PointerEvent) => {
@@ -199,7 +204,7 @@ function MoreShapes({ tool, setTool, in3d }: { tool: Tool; setTool: (t: Tool) =>
                 t === tool ? "text-accent-600 dark:text-accent-400" : ""
               }`}
               onClick={() => {
-                setOpen(false);
+                done();
                 setTool(t);
               }}
             >

@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronRight, Pencil, Plus, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { ChannelMap, Controller, Prop, Show } from "../../api/types";
 import { plural, thousands } from "../../lib/format";
 import { type NodeCounts, type PropWiring, addPortEdits, capacityOptions, portCapacity, portPixels } from "../../lib/wiringMath";
@@ -68,6 +68,7 @@ export function ControllerCard({ controller, data }: { controller: Controller; d
   const edit = useApp((s) => s.edit);
   const collapsed = useWiring((s) => s.collapsed.includes(controller.id));
   const [editing, setEditing] = useState(false);
+  const editButton = useRef<HTMLButtonElement>(null);
   const [renaming, setRenaming] = useState(false);
   const pixels = controller.ports.reduce((sum, p) => sum + portPixels(p, data.nodes), 0);
   const options = capacityOptions(data.show, controller, data.cpp);
@@ -113,6 +114,7 @@ export function ControllerCard({ controller, data }: { controller: Controller; d
         </span>
         <div className="ml-auto flex gap-1">
           <Button
+            ref={editButton}
             variant="ghost"
             aria-label={`Edit ${controller.name}`}
             title="Change the name, address, or protocol"
@@ -137,7 +139,15 @@ export function ControllerCard({ controller, data }: { controller: Controller; d
           </Button>
         </div>
       </header>
-      {editing && <ControllerEditForm controller={controller} onDone={() => setEditing(false)} />}
+      {editing && (
+        <ControllerEditForm
+          controller={controller}
+          onDone={() => {
+            setEditing(false);
+            editButton.current?.focus();
+          }}
+        />
+      )}
       {!collapsed &&
         (controller.ports.length === 0 ? (
           <p className="border-t border-neutral-200 px-3 py-3 text-sm text-neutral-500 dark:border-neutral-800">

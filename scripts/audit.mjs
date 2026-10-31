@@ -60,11 +60,6 @@ export const KNOWN_NOTICES = [
     reason:
       "zvariant_derive is unmaintained: zbus 6 provides its derive macros. A build-time macro of zvariant, Linux only, through zbus 5 in keyring's Secret Service store (zbus-secret-service-keyring-store, secret-service); PixelFlow does not use it. Goes away when that store moves to zbus 6: keyring 4.2.0, zbus-secret-service-keyring-store 1.0.1 and secret-service 5.2.0 are the newest and all still use zbus 5.",
   },
-  {
-    id: "RUSTSEC-2026-0386",
-    reason:
-      "tokio's safe AsyncFd constructors (new, with_interest, try_new, try_with_interest) are unsound. tokio is Tauri's async runtime in the desktop app, and in the engine's lock file only for WebAssembly (wasm-bindgen-futures, through cpal). Nothing calls AsyncFd: not PixelFlow, and no crate in either lock file but tokio itself. Fixed in tokio 1.53.3 (and 1.54); `cargo update -p tokio` takes it.",
-  },
 ];
 
 const CVSS3 = {

@@ -65,7 +65,7 @@ export function PoppedOutNote({ children, tall = false }: { children?: ReactNode
       </span>
       {children}
       <Button className={tall ? undefined : "ml-auto"} onClick={() => void bringBack()}>
-        Bring it back
+        Bring the preview back
       </Button>
     </section>
   );

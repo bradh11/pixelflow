@@ -19,7 +19,7 @@ async function openDevices() {
   render(<App />);
   await user.click(screen.getByRole("button", { name: /^new show/i }));
   await user.click(screen.getByRole("button", { name: "Controllers" }));
-  await user.click(screen.getByRole("button", { name: "Scan network" }));
+  await user.click(screen.getByRole("button", { name: "Find controllers" }));
   return { backend, user };
 }
 

@@ -34,7 +34,7 @@ import {
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { errorMessage } from "../api/backend";
 import type { VendorInspection, VendorItem, VendorMapping, VendorPropType, VendorSuggestion, VendorTarget } from "../api/types";
-import { fileName, plural, shownPath, thousands } from "../lib/format";
+import { fileName, plural, shownPath } from "../lib/format";
 import { autoMapping, itemTree, mappingStats, targetsOf, withLoaded } from "../lib/vendorMapping";
 import { useSequencer } from "../state/sequencer";
 import { useApp } from "../state/store";
@@ -87,7 +87,7 @@ function TypeIcon({ type, group }: { type: VendorPropType; group: boolean }) {
 /** "tree · 800 lights", "group of arches", "submodel". */
 function describe(kind: VendorItem["kind"], type: VendorPropType, pixels: number): string {
   const what = kind === "group" ? (type === "other" ? "group" : `group · ${TYPE_NAMES[type]}`) : kind === "model" ? TYPE_NAMES[type] : kind;
-  return pixels > 0 ? `${what} · ${thousands(pixels)} lights` : what;
+  return pixels > 0 ? `${what} · ${plural(pixels, "light")}` : what;
 }
 
 /** Picks the props, groups, and submodels an item's effects go to: a search box over the show's. */
@@ -275,7 +275,13 @@ function ItemRow({
                 Use {offer.targets.join(", ")}?
               </Button>
             )}
-            <Button variant="ghost" className="px-1.5 py-0.5 text-xs" aria-label={`Map ${item.label}`} aria-expanded={picking} onClick={() => onPick(!picking)}>
+            <Button
+              variant="ghost"
+              className="px-1.5 py-0.5 text-xs"
+              aria-label={`${mapped ? "Add" : "Choose"} a prop or group for ${item.label}`}
+              aria-expanded={picking}
+              onClick={() => onPick(!picking)}
+            >
               <Plus size={12} aria-hidden /> {mapped ? "Add" : "Choose"}
             </Button>
           </div>

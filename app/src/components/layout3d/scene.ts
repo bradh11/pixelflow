@@ -7,35 +7,58 @@ import type { Backend } from "../../api/backend";
 import type { Size } from "../../lib/layoutMath";
 import type { Box3, GizmoHandle, LightLook, Orbit, Ray, V3 } from "../../lib/layout3d";
 import type { PreviewProp3d } from "../../api/types";
-import { ARM_LENGTH, headDirection, servoDirection } from "../../lib/beams";
+import { ARM_LENGTH, GRAZING, beamLight, beamWidth, groundReach, headDirection, servoDirection, spread } from "../../lib/beams";
+
+type Rgb = readonly [number, number, number];
 
 /**
- * A moving head's beam (from `origin`, pointing `dir`, `length` long and `angleDeg` wide, in
- * `color`: `lit` while something plays, otherwise where it rests) or a servo's arm (from `origin`,
- * pointing `dir`, `length` long), in layout units.
+ * What the 3D view draws for moving heads and servos, in layout units: a lit head's beam (from
+ * `origin`, pointing `dir`, `length` long, `angleDeg` wide, in its hue `color` as bright as
+ * `level`; `lands`: it stops at the ground, at full), the pool of light where a beam meets the
+ * ground (centred `at`, `radius` across and `stretch` along `heading`, the beam's way across the
+ * ground), the dashed outline of where a selected head points while nothing plays (`aim`, never
+ * light), or a servo's arm (from `origin`, pointing `dir`, `length` long).
  */
 export type Motion3d =
-  | { kind: "beam"; origin: V3; dir: V3; length: number; angleDeg: number; color: [number, number, number]; lit: boolean }
+  | { kind: "beam"; origin: V3; dir: V3; length: number; angleDeg: number; color: Rgb; level: number; lands: boolean }
+  | { kind: "pool"; at: V3; heading: { x: number; z: number }; radius: number; stretch: number; color: Rgb; level: number }
+  | { kind: "aim"; origin: V3; dir: V3; length: number; angleDeg: number; color: Rgb }
   | { kind: "arm"; origin: V3; dir: V3; length: number };
 
-/** The color a beam is drawn in where its head rests, while nothing plays. */
-const RESTING: [number, number, number] = [150, 150, 165];
-
-/** The props' beams and arms as they point with `frame` (null: at rest), from their cells in 3D. */
-export function motionOf(props: PreviewProp3d[], frame: Uint8Array | null): Motion3d[] {
+/**
+ * The props' beams, pools and arms as they point with `frame`, from their cells in 3D. While
+ * nothing plays (`frame` null) no light shows: a head in `aiming` (selected on the Layout screen)
+ * shows its aim instead, in `aimColor`.
+ */
+export function motionOf(props: PreviewProp3d[], frame: Uint8Array | null, aiming: ReadonlySet<string> = new Set(), aimColor: Rgb = [167, 139, 250]): Motion3d[] {
   const out: Motion3d[] = [];
   for (const p of props) {
     const motion = p.motion;
     const cells = Math.floor(p.xyz.length / 3);
     if (!motion || cells === 0) continue;
     const at = (k: number) => ({ x: p.xyz[3 * k], y: p.xyz[3 * k + 1], z: p.xyz[3 * k + 2] });
-    if (motion.beam) {
-      const o = p.frameOffset;
-      const lit = !!frame && o + 2 < frame.length && (frame[o] | frame[o + 1] | frame[o + 2]) !== 0;
-      if (lit || !frame) {
-        const [x, y, z] = headDirection(motion, frame);
-        const color: [number, number, number] = lit ? [frame![o], frame![o + 1], frame![o + 2]] : RESTING;
-        out.push({ kind: "beam", origin: at(0), dir: { x, y, z }, length: motion.beam.length, angleDeg: motion.beam.angleDeg, color, lit });
+    const beam = motion.beam;
+    const o = p.frameOffset;
+    const light = frame && o + 2 < frame.length ? beamLight(frame[o], frame[o + 1], frame[o + 2]) : null;
+    if (beam && (light || (!frame && aiming.has(p.prop)))) {
+      const d = headDirection(motion, frame);
+      const dir = { x: d[0], y: d[1], z: d[2] };
+      const origin = at(0);
+      const angleDeg = beamWidth(motion, frame);
+      const landed = groundReach(origin.y, d, beam.length);
+      const length = landed ?? beam.length;
+      if (!light) {
+        out.push({ kind: "aim", origin, dir, length, angleDeg, color: aimColor });
+      } else {
+        const color: Rgb = [light.rgb & 255, (light.rgb >> 8) & 255, (light.rgb >> 16) & 255];
+        out.push({ kind: "beam", origin, dir, length, angleDeg, color, level: light.level, lands: landed !== null });
+        if (landed !== null) {
+          const radius = Math.max(length * spread(angleDeg), 0.02);
+          const h = Math.sqrt(d[0] * d[0] + d[2] * d[2]);
+          const heading = h > 0 ? { x: d[0] / h, z: d[2] / h } : { x: 1, z: 0 };
+          const ground = { x: origin.x + d[0] * length, y: 0, z: origin.z + d[2] * length };
+          out.push({ kind: "pool", at: ground, heading, radius, stretch: radius / Math.max(-d[1], GRAZING), color, level: light.level });
+        }
       }
     }
     (motion.servos ?? []).forEach((_, k) => {

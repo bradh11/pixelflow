@@ -2,16 +2,20 @@ import { describe, expect, it } from "vitest";
 import type { DmxChannel, Show } from "../api/types";
 import {
   DMX_LAYOUTS,
+  USUAL_SHUTTER,
   channelsForColors,
   emittedColors,
   fixtureFromLayout,
   fixtureProblem,
+  flashes,
   layoutChannels,
   layoutOf,
   newFixture,
   newMovingHead,
   newServo,
   nextFreeAddress,
+  shutterAt,
+  shutterOpen,
 } from "./dmx";
 
 const layout = (id: string) => DMX_LAYOUTS.find((l) => l.id === id)!;
@@ -100,5 +104,36 @@ describe("DMX fixtures in the window", () => {
     expect(newFixture(show).name).toBe("Flood 2");
     expect(fixtureProblem({ address: 510, channels: first.dmx!.channels }, 1)).toContain("past 512");
     expect(fixtureProblem(first.dmx!, 1)).toBeNull();
+  });
+
+  it("show a fixture's light while its shutter is open or flashing (the same cases as crates/pf-model/src/shutter.rs)", () => {
+    expect(shutterAt(USUAL_SHUTTER, 9)).toEqual({ kind: "open" });
+    expect(shutterAt(USUAL_SHUTTER, 10)).toEqual({ kind: "strobe", hz: 1 });
+    expect(shutterAt(USUAL_SHUTTER, 255)).toEqual({ kind: "strobe", hz: 20 });
+    const head: DmxChannel["shutter"] = [
+      { from: 0, does: "closed" },
+      { from: 8, does: "open" },
+      { from: 16, does: "strobe" },
+      { from: 132, does: "open" },
+    ];
+    expect([3, 8, 16, 131, 200].map((v) => shutterAt(head!, v))).toEqual([
+      { kind: "closed" },
+      { kind: "open" },
+      { kind: "strobe", hz: 1 },
+      { kind: "strobe", hz: 20 },
+      { kind: "open" },
+    ]);
+    expect(shutterAt([{ from: 20, does: "closed" }], 5)).toEqual({ kind: "open" });
+    // Once a second at 40 frames a second: one frame in 40; ten a second: every fourth; twenty or more: every other.
+    const lit = (hz: number, frames: number) => Array.from({ length: frames }, (_, n) => n * 25).filter((t) => flashes(hz, t, 25));
+    expect(lit(1, 120)).toEqual([0, 1000, 2000]);
+    expect(lit(10, 40)).toHaveLength(10);
+    expect(lit(35, 6)).toEqual([0, 50, 100]);
+    const flood = layoutChannels(layout("dimmer-rgb-strobe"), 1);
+    expect(shutterOpen(flood, [255, 255, 0, 0, 0], 25, 25)).toBe(true);
+    expect(shutterOpen(flood, [255, 255, 0, 0, 255], 25, 25)).toBe(false);
+    expect(shutterOpen(flood, [255, 255, 0, 0, 255], 0, 25)).toBe(true);
+    flood[4] = { ...flood[4], shutter: [{ from: 9, does: "closed" }, { from: 3, does: "open" }] };
+    expect(fixtureProblem({ address: 1, channels: flood }, 1)).toContain("Strobe");
   });
 });

@@ -105,18 +105,32 @@ fn a_colour_drawn_on_a_flood_becomes_its_channels() {
 fn the_dmx_effect_sets_channels_over_the_colour_and_draws_no_colour() {
     let show = show();
     let mut seq = Sequence::new("s", 1000);
-    // Red on the flood, and on a layer above it the strobe (channel 6) opened.
+    // Red on the flood, and on a layer above it the mode (channel 7) set.
     seq.rows.push(row(
         Target::Prop(show.props[0].id),
-        vec![vec![on(Rgb::RED)], vec![dmx(&[(6, 180)])]],
+        vec![vec![on(Rgb::RED)], vec![dmx(&[(7, 90)])]],
     ));
     let frame = render(&show, &seq, 500);
-    assert_eq!(flood_channels(&frame), &[255, 255, 0, 0, 0, 180, 200]);
+    assert_eq!(flood_channels(&frame), &[255, 255, 0, 0, 0, 0, 90]);
     assert_eq!(
         &frame[..3],
         &[255, 0, 0],
         "the red still shows: the DMX effect covers nothing"
     );
+
+    // The strobe (channel 6) set fastest: the previews show a flash every other frame, from
+    // the frame's moment alone, while the channels stay as set.
+    let mut seq = Sequence::new("s", 1000);
+    seq.rows.push(row(
+        Target::Prop(show.props[0].id),
+        vec![vec![on(Rgb::RED)], vec![dmx(&[(6, 255)])]],
+    ));
+    let flash = render(&show, &seq, 500);
+    let between = render(&show, &seq, 525);
+    assert_eq!(&flash[..3], &[255, 0, 0], "a flash");
+    assert_eq!(&between[..3], &[0, 0, 0], "between flashes");
+    assert_eq!(flood_channels(&flash), flood_channels(&between));
+    assert_eq!(flood_channels(&flash)[5], 255);
 
     // Alone on a row, it leaves the colour drawn below it on an earlier row.
     let mut seq = Sequence::new("s", 1000);

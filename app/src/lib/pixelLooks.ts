@@ -9,7 +9,7 @@ import type { LightLook, Rgb, Rgba } from "./layout3d";
 import { type PixelColors, packColor } from "./pixelBatches";
 
 export interface PixelLook {
-  colors: Required<PixelColors>;
+  colors: Required<Omit<PixelColors, "aim">> & Pick<PixelColors, "aim">;
   /** The smallest and the largest radius a view's dot gets, in screen pixels: in between, it's `DOT_RADIUS` of a layout unit. */
   radius: readonly [number, number];
 }
@@ -17,7 +17,7 @@ export interface PixelLook {
 export const PREVIEW_LOOK: PixelLook = { colors: COLORS, radius: DOT_RADII };
 
 export const LAYOUT_LOOK: PixelLook = {
-  colors: { unlit: "rgba(220, 220, 220, 0.7)", selected: "#a78bfa", dark: "rgba(90, 90, 90, 0.6)" },
+  colors: { unlit: "rgba(220, 220, 220, 0.7)", selected: "#a78bfa", dark: "rgba(90, 90, 90, 0.6)", aim: "rgba(167, 139, 250, 0.85)" },
   radius: [1.3, 4.5],
 };
 

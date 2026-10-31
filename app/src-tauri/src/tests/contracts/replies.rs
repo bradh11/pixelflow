@@ -213,8 +213,8 @@ pub(crate) fn flood() -> Value {
 }
 
 /// A 16-bit moving head (prop 91) at address 30: pan and tilt with their fine channels, each
-/// turning as its motor says, a speed, a dimmer, a colour wheel and a gobo wheel with their slots,
-/// and its beam.
+/// turning as its motor says, a speed, a dimmer, a shutter with its ranges, a colour wheel and a
+/// gobo wheel with their slots, a zoom, and its beam.
 pub(crate) fn head() -> Value {
     let mut head = strip(91, "Spot", 1);
     head["dmx"] = json!({ "address": 30, "layout": "head-spot-16", "beam": { "angleDeg": 15.0, "length": 6.0 }, "channels": [
@@ -225,10 +225,12 @@ pub(crate) fn head() -> Value {
         { "name": "Tilt fine", "role": "tiltFine" },
         { "name": "Speed", "role": "speed" },
         { "name": "Dimmer", "role": "dimmer" },
-        { "name": "Strobe", "role": "strobe" },
+        { "name": "Strobe", "role": "strobe", "value": 8, "shutter": [
+            { "from": 0, "does": "closed" }, { "from": 8, "does": "open" }, { "from": 16, "does": "strobe" } ] },
         { "name": "Color wheel", "role": "colorWheel",
           "slots": [{ "value": 0, "color": "#ffffff", "name": "Open" }, { "value": 16, "color": "#ff0000" }] },
         { "name": "Gobo", "role": "gobo", "slots": [{ "value": 8, "name": "Dots" }] },
+        { "name": "Zoom", "role": "zoom", "value": 64, "zoom": { "fromDeg": 4.0, "toDeg": 40.0 } },
     ] });
     head
 }

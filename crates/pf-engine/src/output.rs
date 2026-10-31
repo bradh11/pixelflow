@@ -274,7 +274,9 @@ impl Fixtures {
         }
     }
 
-    fn write(&self, frame: &mut [u8]) {
+    /// Writes each fixture's channels, and what it shows at `at` (nothing while its shutter is
+    /// shut).
+    fn write(&self, frame: &mut [u8], at: pf_model::Moment) {
         for (i, fixture) in self.fixtures.iter().enumerate() {
             match &self.by_hand {
                 Some((place, values)) if *place == i => {
@@ -284,14 +286,26 @@ impl Fixtures {
                 }
                 _ => fixture.write(frame, &[]),
             }
+            fixture.show_shutter(frame, at);
         }
     }
 }
 
-/// Paints `pattern` at `t` seconds, then the fixtures' channels.
-fn paint(pattern: &Pattern, t: f32, targets: &[TargetRange], fixtures: &Fixtures, frame: &mut [u8]) {
+/// Paints `pattern` at `t` seconds, then the fixtures' channels, for a frame shown for `period`.
+fn paint(
+    pattern: &Pattern,
+    t: f32,
+    period: Duration,
+    targets: &[TargetRange],
+    fixtures: &Fixtures,
+    frame: &mut [u8],
+) {
     render(pattern, t, targets, frame);
-    fixtures.write(frame);
+    let frame_ms = u32::try_from(period.as_millis()).unwrap_or(u32::MAX);
+    fixtures.write(
+        frame,
+        pf_model::Moment::new((f64::from(t) * 1000.0) as u64, frame_ms),
+    );
 }
 
 /// The content thread: paints the pattern into the frame buffer once per frame period.
@@ -318,6 +332,7 @@ impl Painter {
                     paint(
                         &self.pattern,
                         self.started.elapsed().as_secs_f32(),
+                        self.period,
                         &self.targets,
                         &self.fixtures,
                         frame,
@@ -357,7 +372,7 @@ impl OutputSession {
         let by_hand = Arc::new(Mutex::new(pattern_spec.channels.clone()));
         let fixtures = Fixtures::new(map, &pattern_spec, &target, &by_hand);
         // Publish the first frame before output starts so controllers never see a black frame first.
-        paint(&pattern, 0.0, &targets, &fixtures, writer.frame_mut());
+        paint(&pattern, 0.0, period, &targets, &fixtures, writer.frame_mut());
         let preview = Arc::new(Mutex::new(writer.frame_mut().to_vec()));
         writer.publish();
         let handle = pf_output::start_output(plan, settings, reader, transport);
@@ -427,6 +442,7 @@ impl OutputSession {
         paint(
             &self.painting,
             self.started.elapsed().as_secs_f32(),
+            period,
             &targets,
             &fixtures,
             writer.frame_mut(),

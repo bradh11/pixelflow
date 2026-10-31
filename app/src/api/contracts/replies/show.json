@@ -19,7 +19,7 @@
         "groups": [],
         "name": "Untitled Show",
         "props": [],
-        "schemaVersion": 15,
+        "schemaVersion": 16,
         "sequences": [],
         "settings": { "frameRate": 40 }
       },
@@ -174,7 +174,7 @@
             }
           }
         ],
-        "schemaVersion": 15,
+        "schemaVersion": 16,
         "sequences": [
           {
             "audio": "/fixture/Show/music/Carol.mp3",
@@ -347,7 +347,7 @@
               }
             }
           ],
-          "schemaVersion": 15,
+          "schemaVersion": 16,
           "sequences": [
             {
               "audio": "/fixture/Show/moved/Carol.mp3",
@@ -635,7 +635,7 @@
                 "controllerChannel": 29,
                 "frameOffset": 293,
                 "gamma": 1.0,
-                "pixels": 9,
+                "pixels": 10,
                 "port": 1,
                 "prop": "11111111-0000-4000-8000-000000000091",
                 "reverse": false
@@ -694,7 +694,16 @@
               { "name": "Tilt fine", "role": "tiltFine" },
               { "name": "Speed", "role": "speed" },
               { "name": "Dimmer", "role": "dimmer" },
-              { "name": "Strobe", "role": "strobe" },
+              {
+                "name": "Strobe",
+                "role": "strobe",
+                "shutter": [
+                  { "does": "closed", "from": 0 },
+                  { "does": "open", "from": 8 },
+                  { "does": "strobe", "from": 16 }
+                ],
+                "value": 8
+              },
               {
                 "name": "Color wheel",
                 "role": "colorWheel",
@@ -703,13 +712,14 @@
                   { "color": "#ff0000", "value": 16 }
                 ]
               },
-              { "name": "Gobo", "role": "gobo", "slots": [{ "name": "Dots", "value": 8 }] }
+              { "name": "Gobo", "role": "gobo", "slots": [{ "name": "Dots", "value": 8 }] },
+              { "name": "Zoom", "role": "zoom", "value": 64, "zoom": { "fromDeg": 4.0, "toDeg": 40.0 } }
             ],
             "dmxOffset": 293,
             "prop": "11111111-0000-4000-8000-000000000091"
           }
         ],
-        "frameLen": 302,
+        "frameLen": 303,
         "props": [
           {
             "channelsPerPixel": 3,
@@ -1606,7 +1616,16 @@
                 { "name": "Tilt fine", "role": "tiltFine" },
                 { "name": "Speed", "role": "speed" },
                 { "name": "Dimmer", "role": "dimmer" },
-                { "name": "Strobe", "role": "strobe" },
+                {
+                  "name": "Strobe",
+                  "role": "strobe",
+                  "shutter": [
+                    { "does": "closed", "from": 0 },
+                    { "does": "open", "from": 8 },
+                    { "does": "strobe", "from": 16 }
+                  ],
+                  "value": 8
+                },
                 {
                   "name": "Color wheel",
                   "role": "colorWheel",
@@ -1615,7 +1634,8 @@
                     { "color": "#ff0000", "value": 16 }
                   ]
                 },
-                { "name": "Gobo", "role": "gobo", "slots": [{ "name": "Dots", "value": 8 }] }
+                { "name": "Gobo", "role": "gobo", "slots": [{ "name": "Dots", "value": 8 }] },
+                { "name": "Zoom", "role": "zoom", "value": 64, "zoom": { "fromDeg": 4.0, "toDeg": 40.0 } }
               ],
               "layout": "head-spot-16"
             },
@@ -1631,7 +1651,7 @@
             }
           }
         ],
-        "schemaVersion": 15,
+        "schemaVersion": 16,
         "sequences": [],
         "settings": { "frameRate": 40 }
       },

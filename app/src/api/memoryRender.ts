@@ -7,7 +7,7 @@ import { frontView } from "../lib/geometry";
 import { channelsPerPixel, nodeCount } from "../lib/shows";
 import { facePartColor, faceParts, facesOf, phonemeAt, targetNodes } from "../lib/submodels";
 import { curveValue, effectAt } from "../lib/curves";
-import { channelsForColors, emittedColors } from "../lib/dmx";
+import { channelsForColors, emittedColors, shutterOpen } from "../lib/dmx";
 import { mapFixtures } from "./memoryMapping";
 import type { DancerCharacter, Effect, Sequence, Sweep, TimingTrack } from "./sequence";
 import type { FaceDefinition, FixtureLayout, Prop, Show } from "./types";
@@ -649,16 +649,16 @@ export function renderSequenceFrame(doc: Sequence, show: Show, ms: number): Uint
       }
     }
   }
-  writeFixtures(frame, fixtures, dmxPlaying, ms);
+  writeFixtures(frame, fixtures, dmxPlaying, ms, doc.frameMs);
   return frame;
 }
 
 /**
  * Each fixture's channels from the color drawn on its cells, then the channels the DMX effects
- * playing set (a later one over an earlier), and the color those channels make back on its cells,
- * as the engine does.
+ * playing set (a later one over an earlier), and the color those channels make back on its cells
+ * (none while its shutter is shut at `ms`, a frame shown for `frameMs`), as the engine does.
  */
-function writeFixtures(frame: Uint8Array, fixtures: FixtureLayout[], playing: { effect: Effect; props: Set<string> }[], ms: number) {
+function writeFixtures(frame: Uint8Array, fixtures: FixtureLayout[], playing: { effect: Effect; props: Set<string> }[], ms: number, frameMs: number) {
   for (const f of fixtures) {
     const cells = frame.subarray(f.cellsOffset, f.cellsOffset + f.cells * 3);
     const values = channelsForColors(f.channels, cells);
@@ -673,6 +673,7 @@ function writeFixtures(frame: Uint8Array, fixtures: FixtureLayout[], playing: { 
       for (const [key, curve] of Object.entries(effect.curves ?? {})) if (key.startsWith("channels.")) set(key.slice(9), curveValue(curve, t));
     }
     frame.set(values, f.dmxOffset);
-    emittedColors(f.channels, values, f.cells).forEach((rgb, i) => cells.set(rgb, i * 3));
+    if (shutterOpen(f.channels, values, ms, frameMs)) emittedColors(f.channels, values, f.cells).forEach((rgb, i) => cells.set(rgb, i * 3));
+    else cells.fill(0);
   }
 }

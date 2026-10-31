@@ -29,7 +29,7 @@ use std::path::Path;
 /// controllers can receive Art-Net (`artNet`) or be a USB DMX interface (`dmxUsb`); 15 = moving
 /// heads and servos: a DMX channel can be a servo, a pan or tilt that turns as its `motor` says,
 /// cyan, magenta or yellow, or a speed, and a wheel can list its `slots`; a head has a `beam`.
-pub const CURRENT_SCHEMA_VERSION: u32 = 15;
+pub const CURRENT_SCHEMA_VERSION: u32 = 16;
 
 /// Show-wide settings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

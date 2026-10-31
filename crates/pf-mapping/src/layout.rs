@@ -134,6 +134,18 @@ impl FixtureLayout {
         }
         pf_model::emitted_colors(&self.channels, dmx, cells);
     }
+
+    /// Puts its cells out when its shutter is closed at `at`, or its strobe is between flashes
+    /// (see `pf_model::shutter_open`): what the fixture shows then. Its channels are left as
+    /// they are. Allocation-free; a fixture outside `frame` is left alone.
+    pub fn show_shutter(&self, frame: &mut [u8], at: pf_model::Moment) {
+        let Some((cells, dmx)) = self.parts(frame) else {
+            return;
+        };
+        if !pf_model::shutter_open(&self.channels, dmx, at) {
+            cells.fill(0);
+        }
+    }
 }
 
 /// A run of consecutive prop pixels copied from the frame buffer to consecutive

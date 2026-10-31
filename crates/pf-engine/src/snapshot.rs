@@ -3,7 +3,7 @@
 use crate::files::MissingFile;
 use pf_mapping::ChannelMap;
 use pf_model::{Issue, PropId, Show};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// Headline numbers for the show.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -53,7 +53,116 @@ pub struct PreviewProp {
     pub channels_per_pixel: u8,
     /// x, y pairs (x, y, z triples in the 3D preview), one per pixel, in wiring order.
     pub points: Vec<f32>,
-    /// A DMX fixture: each of its pixels (cells) is a flood, drawn as a wash of its color.
+    /// A DMX flood: each of its pixels (cells) is drawn as a wash of its color.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub flood: bool,
+    /// A moving head's beam or servos' arms, pointed by channels in the frame.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub motion: Option<PreviewMotion>,
+}
+
+/// How a moving head or servos move, for the previews: where their motors' values are in a live
+/// frame, and how each turns. A head's beam starts at its first cell; servo `k` turns at cell `k`
+/// (the last cell for any beyond).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreviewMotion {
+    /// The fixture's own frame in the layout (see `pf_model::Basis`): the prop's rotation, its
+    /// numbers widened from the engine's so the window reads exactly the same ones.
+    pub basis: pf_model::Basis,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub beam: Option<PreviewBeam>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub servos: Vec<PreviewAxis>,
+}
+
+/// A moving head's beam: its pan and tilt (each left out when the head has none), its width in
+/// degrees and how far it is drawn, in layout units.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreviewBeam {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pan: Option<PreviewAxis>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tilt: Option<PreviewAxis>,
+    pub angle_deg: f64,
+    pub length: f64,
+}
+
+/// One motor in a live frame: where its value is (and its fine value, for a 16-bit motor), the
+/// values it rests at when nothing plays, and how it turns.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreviewAxis {
+    pub at: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fine_at: Option<usize>,
+    pub rest: [u8; 2],
+    pub motor: pf_model::DmxMotor,
+}
+
+impl PreviewAxis {
+    /// Where it points, in degrees from Home, with the frame `frame` (`None`: at rest).
+    pub fn degrees(&self, frame: Option<&[u8]>) -> f64 {
+        let at = |i: usize, rest: u8| frame.map_or(rest, |f| f.get(i).copied().unwrap_or(0));
+        let coarse = at(self.at, self.rest[0]);
+        let fine = self.fine_at.map(|i| at(i, self.rest[1]));
+        self.motor.degrees(coarse, fine)
+    }
+}
+
+impl PreviewProp {
+    /// A prop's preview entry: its pixels' `points` and, from the channel map, where its colors
+    /// are and how a moving head or servos move.
+    pub fn of(prop: &pf_model::Prop, map: &pf_mapping::ChannelMap, points: Vec<f32>) -> Option<Self> {
+        let layout = map.prop_layout(prop.id)?;
+        let motion = prop
+            .dmx
+            .as_ref()
+            .zip(map.fixture(prop.id))
+            .and_then(|(dmx, fixture)| motion_of(prop, dmx, fixture));
+        Some(Self {
+            prop: prop.id,
+            frame_offset: layout.frame_offset,
+            channels_per_pixel: layout.channels_per_pixel,
+            points,
+            flood: prop.dmx.is_some() && motion.is_none(),
+            motion,
+        })
+    }
+}
+
+/// How a fixture moves in the previews, if it has motors.
+fn motion_of(
+    prop: &pf_model::Prop,
+    dmx: &pf_model::DmxFixture,
+    fixture: &pf_mapping::FixtureLayout,
+) -> Option<PreviewMotion> {
+    let axes = dmx.axes();
+    if axes.is_empty() {
+        return None;
+    }
+    let held = |i: usize| dmx.channels.get(i).map_or(0, |c| c.value);
+    let preview = |axis: &pf_model::DmxAxis| PreviewAxis {
+        at: fixture.dmx_offset + axis.coarse,
+        fine_at: axis.fine.map(|f| fixture.dmx_offset + f),
+        rest: [held(axis.coarse), axis.fine.map_or(0, held)],
+        motor: axis.motor,
+    };
+    let of_role = |role: pf_model::DmxRole| axes.iter().find(|a| a.role == role).map(preview);
+    let beam = dmx.beam().map(|b| PreviewBeam {
+        pan: of_role(pf_model::DmxRole::Pan),
+        tilt: of_role(pf_model::DmxRole::Tilt),
+        angle_deg: f64::from(b.angle_deg),
+        length: f64::from(b.length),
+    });
+    Some(PreviewMotion {
+        basis: pf_geometry::rotation_basis(&prop.transform).map(f64::from),
+        beam,
+        servos: axes
+            .iter()
+            .filter(|a| a.role == pf_model::DmxRole::Servo)
+            .map(preview)
+            .collect(),
+    })
 }

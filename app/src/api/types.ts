@@ -1332,8 +1332,30 @@ export interface PreviewProp {
   channelsPerPixel: number;
   /** x, y pairs, one per pixel, in wiring order. */
   points: ArrayLike<number>;
-  /** A DMX fixture: each pixel (cell) is a flood, drawn as a wash of its color. */
+  /** A DMX flood: each pixel (cell) is drawn as a wash of its color. */
   flood?: boolean;
+  /** A moving head's beam, or servos' arms, pointed by channels in the frame. */
+  motion?: PreviewMotion;
+}
+
+/** One motor in a live frame: where its value is (and its fine value), the values it rests at when nothing plays, and how it turns. */
+export interface PreviewAxis {
+  at: number;
+  fineAt?: number;
+  rest: [number, number];
+  motor: DmxMotor;
+}
+
+/**
+ * How a moving head or servos move in the previews (`PreviewMotion` in crates/pf-engine): the
+ * fixture's frame in the layout (`basis`, the prop's rotation: its right, up and front as the
+ * columns of a row-major 3 × 3 matrix), a head's beam from its first cell, and servo `k`'s arm at
+ * cell `k`.
+ */
+export interface PreviewMotion {
+  basis: number[];
+  beam?: { pan?: PreviewAxis; tilt?: PreviewAxis; angleDeg: number; length: number };
+  servos?: PreviewAxis[];
 }
 
 /** Every prop's pixel positions, and the show revision they were worked out for. */
@@ -1349,8 +1371,10 @@ export interface PreviewProp3d {
   channelsPerPixel: number;
   /** x, y, z triples, one per pixel, in wiring order. */
   xyz: Float32Array;
-  /** A DMX fixture: each pixel (cell) is a flood. */
+  /** A DMX flood: each pixel (cell) is drawn as a wash of its color. */
   flood?: boolean;
+  /** A moving head's beam, or servos' arms. */
+  motion?: PreviewMotion;
 }
 
 /** Every prop's pixel positions in 3D, and the show revision they were worked out for. */

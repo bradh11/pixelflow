@@ -6,9 +6,11 @@
 import { frontView } from "../lib/geometry";
 import { channelsPerPixel, nodeCount } from "../lib/shows";
 import { facePartColor, faceParts, facesOf, phonemeAt, targetNodes } from "../lib/submodels";
-import { effectAt } from "../lib/curves";
+import { curveValue, effectAt } from "../lib/curves";
+import { channelsForColors, emittedColors } from "../lib/dmx";
+import { mapFixtures } from "./memoryMapping";
 import type { DancerCharacter, Effect, Sequence, Sweep, TimingTrack } from "./sequence";
-import type { FaceDefinition, Prop, Show } from "./types";
+import type { FaceDefinition, FixtureLayout, Prop, Show } from "./types";
 
 type Rgb = [number, number, number];
 
@@ -573,11 +575,22 @@ export function renderSequenceFrame(doc: Sequence, show: Show, ms: number): Uint
     layout.set(prop.id, { prop, offset: length, nodes, cpp, points: frontView(prop) });
     length += nodes * cpp;
   }
-  const frame = new Uint8Array(length);
+  // DMX fixtures' channels go after every prop's pixels, as the engine lays them out.
+  const fixtures = mapFixtures(show, length);
+  const dmxLength = fixtures.reduce((n, f) => n + f.channels.length, 0);
+  const frame = new Uint8Array(length + dmxLength);
   if (ms < 0 || ms >= doc.durationMs) return frame;
+  /** The DMX effects playing, in the order they apply: rows first to last, each row's layers bottom up. */
+  const dmxPlaying: { effect: Effect; props: Set<string> }[] = [];
   for (const row of doc.rows) {
     const active = row.layers.map((layer) => {
       const effect = layer.effects.find((e) => e.startMs <= ms && ms < e.endMs);
+      // A DMX effect draws no color: it sets fixtures' channels once the frame is drawn.
+      if (effect?.params.kind === "dmx") {
+        const props = new Set(targetNodes(show, row.target, (prop) => layout.get(prop.id)?.nodes ?? 0, (prop) => layout.get(prop.id)?.points ?? []).map((l) => l.prop));
+        dmxPlaying.push({ effect, props });
+        return null;
+      }
       // Settings that change over the effect, at this moment.
       return effect ? effectAt(effect, ms) : null;
     });
@@ -636,5 +649,30 @@ export function renderSequenceFrame(doc: Sequence, show: Show, ms: number): Uint
       }
     }
   }
+  writeFixtures(frame, fixtures, dmxPlaying, ms);
   return frame;
+}
+
+/**
+ * Each fixture's channels from the color drawn on its cells, then the channels the DMX effects
+ * playing set (a later one over an earlier), and the color those channels make back on its cells,
+ * as the engine does.
+ */
+function writeFixtures(frame: Uint8Array, fixtures: FixtureLayout[], playing: { effect: Effect; props: Set<string> }[], ms: number) {
+  for (const f of fixtures) {
+    const cells = frame.subarray(f.cellsOffset, f.cellsOffset + f.cells * 3);
+    const values = channelsForColors(f.channels, cells);
+    for (const { effect, props } of playing) {
+      if (!props.has(f.prop) || effect.params.kind !== "dmx") continue;
+      const t = Math.min(1, Math.max(0, (ms - effect.startMs) / Math.max(1, effect.endMs - effect.startMs)));
+      const set = (key: string, value: number) => {
+        const n = Number(key);
+        if (Number.isInteger(n) && n >= 1 && n <= values.length) values[n - 1] = Math.min(255, Math.max(0, Math.round(value)));
+      };
+      for (const [key, value] of Object.entries(effect.params.channels ?? {})) set(key, value);
+      for (const [key, curve] of Object.entries(effect.curves ?? {})) if (key.startsWith("channels.")) set(key.slice(9), curveValue(curve, t));
+    }
+    frame.set(values, f.dmxOffset);
+    emittedColors(f.channels, values, f.cells).forEach((rgb, i) => cells.set(rgb, i * 3));
+  }
 }

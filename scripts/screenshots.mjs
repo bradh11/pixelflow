@@ -419,6 +419,26 @@ const SHOTS = [
     },
   },
   {
+    name: "dmx-head-effect",
+    file: "dmx-head-effect.png",
+    usedBy: "dmx",
+    async run(ui) {
+      await pointHeadWithDmxEffect(ui);
+      return ui.window();
+    },
+  },
+  {
+    name: "dmx-head-3d",
+    file: "dmx-head-3d.png",
+    usedBy: "dmx",
+    async run(ui) {
+      await pointHeadWithDmxEffect(ui);
+      await ui.click("3D", { exact: true });
+      await ui.settle(2500);
+      return ui.window();
+    },
+  },
+  {
     name: "dmx-test-channels",
     file: "dmx-test-channels.png",
     usedBy: "dmx",
@@ -506,6 +526,29 @@ async function wireToDmxNode(ui, props) {
 }
 
 /** Adds a DMX flood on the Layout screen, on the lawn, and leaves it selected. */
+/** Adds a moving head and a DMX effect on it pointing it up and to the right, lit blue, with the preview above the timeline. */
+async function pointHeadWithDmxEffect(ui) {
+  await addHead(ui, { x: -6, y: 0.3 });
+  await ui.screen("Sequence");
+  // With the preview above the timeline, it's big enough to see the beam.
+  await ui.click("Preview above the timeline");
+  await ui.click("Add row");
+  await ui.click("Lawn Spot", { sel: "[role=option], [role=menuitem], li button, button" });
+  await ui.seek(8000);
+  await ui.activeRow("Lawn Spot");
+  await ui.js(`find("DMX effect", { exact: true }).focus(); return 1`);
+  await ui.key("Enter");
+  await ui.settle(800);
+  const names = { 1: "Pan", 3: "Tilt", 6: "Dimmer", 10: "Blue" };
+  // Pan 60° right and tilt 60° toward the street: up, right and out from the house.
+  for (const [channel, value] of [["1", "156"], ["3", "184"], ["6", "255"], ["10", "255"]]) {
+    await ui.choose("Channel to set", channel);
+    await ui.click("Set this channel");
+    await ui.type(`${channel} · ${names[channel]} value`, value, { enter: true });
+  }
+  await ui.settle(800);
+}
+
 /** Adds a 16-bit moving head on the lawn on the Layout screen, selected. */
 async function addHead(ui, { name = "Lawn Spot", x = -5, y = 0.4, address = 20 } = {}) {
   await ui.screen("Layout");

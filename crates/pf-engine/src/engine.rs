@@ -1026,13 +1026,7 @@ impl Engine {
                     .take(layout.nodes as usize)
                     .flat_map(&coords)
                     .collect();
-                Some(PreviewProp {
-                    prop: prop.id,
-                    frame_offset: layout.frame_offset,
-                    channels_per_pixel: layout.channels_per_pixel,
-                    points,
-                    flood: prop.dmx.is_some(),
-                })
+                PreviewProp::of(prop, &map, points)
             })
             .collect()
     }

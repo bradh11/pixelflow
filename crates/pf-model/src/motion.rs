@@ -257,13 +257,12 @@ fn cos_series(t: f64) -> f64 {
 
 /// The fixture's own frame in the layout: where its right, up and front (toward the street)
 /// point, as three columns of a row-major 3 × 3 matrix.
-pub type Basis = [f32; 9];
+pub type Basis = [f64; 9];
 
 /// The frame of a fixture that isn't turned.
 pub const UPRIGHT: Basis = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0];
 
-fn turn(basis: &Basis, v: [f64; 3]) -> [f64; 3] {
-    let b = basis.map(f64::from);
+fn turn(b: &Basis, v: [f64; 3]) -> [f64; 3] {
     [
         b[0] * v[0] + b[1] * v[1] + b[2] * v[2],
         b[3] * v[0] + b[4] * v[1] + b[5] * v[2],

@@ -38,6 +38,19 @@ describe("raw pixel positions", () => {
     expect(() => decodePreview({} as ArrayBuffer)).toThrow(/damaged/);
   });
 
+  it("reads a moving head's motion after the positions (the shell's `a_moving_heads_motion_follows_the_positions`)", () => {
+    const motion = { basis: [1, 0, 0, 0, 1, 0, 0, 0, 1], beam: { pan: { at: 7, fineAt: 8, rest: [128, 0], motor: { rangeDeg: 540, homeDeg: 270 } }, angleDeg: 15, length: 6 } };
+    const text = new TextEncoder().encode(JSON.stringify([[0, motion]]));
+    const base = new Uint8Array(packed());
+    const bytes = new Uint8Array(base.length + 4 + text.length);
+    bytes.set(base);
+    new DataView(bytes.buffer).setUint32(base.length, text.length, true);
+    bytes.set(text, base.length + 4);
+    const { props } = decodePreview(bytes);
+    expect(props[0].motion).toEqual(motion);
+    expect(() => decodePreview(bytes.slice(0, bytes.length - 1))).toThrow(/damaged/);
+  });
+
   it("reads a show with no props", () => {
     const data = new ArrayBuffer(16);
     new DataView(data).setUint32(0, 1, true);

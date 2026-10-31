@@ -6,6 +6,45 @@
 import type { Backend } from "../../api/backend";
 import type { Size } from "../../lib/layoutMath";
 import type { Box3, GizmoHandle, LightLook, Orbit, Ray, V3 } from "../../lib/layout3d";
+import type { PreviewProp3d } from "../../api/types";
+import { ARM_LENGTH, headDirection, servoDirection } from "../../lib/beams";
+
+/**
+ * A moving head's beam (from `origin`, pointing `dir`, `length` long and `angleDeg` wide, in
+ * `color`: `lit` while something plays, otherwise where it rests) or a servo's arm (from `origin`,
+ * pointing `dir`, `length` long), in layout units.
+ */
+export type Motion3d =
+  | { kind: "beam"; origin: V3; dir: V3; length: number; angleDeg: number; color: [number, number, number]; lit: boolean }
+  | { kind: "arm"; origin: V3; dir: V3; length: number };
+
+/** The color a beam is drawn in where its head rests, while nothing plays. */
+const RESTING: [number, number, number] = [150, 150, 165];
+
+/** The props' beams and arms as they point with `frame` (null: at rest), from their cells in 3D. */
+export function motionOf(props: PreviewProp3d[], frame: Uint8Array | null): Motion3d[] {
+  const out: Motion3d[] = [];
+  for (const p of props) {
+    const motion = p.motion;
+    const cells = Math.floor(p.xyz.length / 3);
+    if (!motion || cells === 0) continue;
+    const at = (k: number) => ({ x: p.xyz[3 * k], y: p.xyz[3 * k + 1], z: p.xyz[3 * k + 2] });
+    if (motion.beam) {
+      const o = p.frameOffset;
+      const lit = !!frame && o + 2 < frame.length && (frame[o] | frame[o + 1] | frame[o + 2]) !== 0;
+      if (lit || !frame) {
+        const [x, y, z] = headDirection(motion, frame);
+        const color: [number, number, number] = lit ? [frame![o], frame![o + 1], frame![o + 2]] : RESTING;
+        out.push({ kind: "beam", origin: at(0), dir: { x, y, z }, length: motion.beam.length, angleDeg: motion.beam.angleDeg, color, lit });
+      }
+    }
+    (motion.servos ?? []).forEach((_, k) => {
+      const [x, y, z] = servoDirection(motion, k, frame);
+      out.push({ kind: "arm", origin: at(Math.min(k, cells - 1)), dir: { x, y, z }, length: ARM_LENGTH });
+    });
+  }
+  return out;
+}
 
 /** The house model's placement (layout units and degrees). */
 export interface ModelPlacement {
@@ -25,6 +64,8 @@ export interface Scene3d {
   setPixels(xyz: Float32Array, spread: Float32Array): void;
   /** Which pixels (1 each, in `setPixels`' order) are DMX floods' cells, drawn with a wash of their color round them (after `setPixels`). */
   setFloods(floods: Uint8Array): void;
+  /** Moving heads' beams and servos' arms, as they point now (see lib/beams.ts); none to clear them. */
+  setMotion(motion: Motion3d[]): void;
   /** Changes the positions of `xyz.length / 3` pixels from pixel `start` on (after `setPixels`). */
   updatePixels(start: number, xyz: Float32Array): void;
   /**

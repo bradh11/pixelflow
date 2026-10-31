@@ -50,6 +50,7 @@ import {
   InterleavedBufferAttribute,
   LessDepth,
   Line,
+  LineSegments,
   LineBasicMaterial,
   type Material,
   Mesh,
@@ -97,6 +98,7 @@ import {
   pixelsPerUnit,
 } from "../../lib/layout3d";
 import { DOT_RADIUS, FAINT, FILL, FINE_FROM, SMALLEST } from "../../lib/pixelBatches";
+import { ARM_COLOR, BEAM_FADE, BEAM_STRENGTH, UNLIT_BEAM, spread } from "../../lib/beams";
 import { FLOOD_RADIUS, FLOOD_STRENGTH, SMALLEST_WASH, UNLIT_WASH } from "../../lib/floodWash";
 import { GLOW_STEPS, GLOW_STRENGTH, GLOW_WIDTH, glowStep } from "../../lib/pixelGlow";
 import type { Scene3d } from "./scene";
@@ -370,6 +372,34 @@ const WASH_FRAGMENT = /* glsl */ `
     if (r2 >= 1.0) discard;
     float t = 1.0 - r2;
     gl_FragColor = vec4(vColor.rgb, vColor.a * t * t);
+  }
+`;
+
+// A moving head's beam: a cone from the head opening along its direction (lib/beams.ts), as solid
+// as the flat previews' beam along its middle (BEAM_STRENGTH, losing BEAM_FADE of it by the far
+// end), softening toward its edges as seen from the camera.
+const BEAM_VERTEX = /* glsl */ `
+  varying float vAlong;
+  varying vec3 vNormal;
+  varying vec3 vView;
+  void main() {
+    vAlong = -position.y;
+    vec4 seen = modelViewMatrix * vec4(position, 1.0);
+    vNormal = normalize(normalMatrix * normal);
+    vView = normalize(-seen.xyz);
+    gl_Position = projectionMatrix * seen;
+  }
+`;
+
+const BEAM_FRAGMENT = /* glsl */ `
+  uniform vec3 color;
+  uniform float strength;
+  varying float vAlong;
+  varying vec3 vNormal;
+  varying vec3 vView;
+  void main() {
+    float facing = abs(dot(normalize(vNormal), normalize(vView)));
+    gl_FragColor = vec4(color, strength * (1.0 - ${glsl(BEAM_FADE)} * clamp(vAlong, 0.0, 1.0)) * facing * facing);
   }
 `;
 
@@ -660,6 +690,18 @@ export function createThreeScene(canvas: HTMLCanvasElement, makeRenderer: (canva
   washScene.add(washes);
   let anyFloods = false;
 
+  // Moving heads' beams and servos' arms, over the scene (behind the house model where it stands
+  // in front of them) and under the dots. A beam's cone has its point at the origin and opens
+  // along -y, one unit long and one wide: each is placed, turned and stretched to its own.
+  const motionScene = new Scene();
+  const beamCone = new ConeGeometry(1, 1, 32, 1, true);
+  beamCone.translate(0, -0.5, 0);
+  const beamMeshes: Mesh<ConeGeometry, ShaderMaterial>[] = [];
+  const arms = new LineSegments(new BufferGeometry(), new LineBasicMaterial({ color: new Color(ARM_COLOR[0] / 255, ARM_COLOR[1] / 255, ARM_COLOR[2] / 255) }));
+  arms.frustumCulled = false;
+  motionScene.add(arms);
+  let anyMotion = false;
+
   // The halos: the lit pixels alone, drawn into a picture a screen pixel to each of its own.
   // The points share their geometry with the dots'.
   const haloScene = new Scene();
@@ -824,6 +866,46 @@ export function createThreeScene(canvas: HTMLCanvasElement, makeRenderer: (canva
       for (let i = 0; i < Math.min(count, floods.length); i++) flags[i] = floods[i];
       pixelGeometry.setAttribute("flood", new BufferAttribute(flags, 1));
       anyFloods = floods.some((f) => f > 0);
+    },
+
+    setMotion(items) {
+      const beams = items.filter((m) => m.kind === "beam");
+      while (beamMeshes.length < beams.length) {
+        const mesh = new Mesh(
+          beamCone,
+          new ShaderMaterial({
+            uniforms: { color: { value: new Color() }, strength: { value: 0 } },
+            vertexShader: BEAM_VERTEX,
+            fragmentShader: BEAM_FRAGMENT,
+            transparent: true,
+            depthWrite: false,
+            side: DoubleSide,
+          }),
+        );
+        mesh.frustumCulled = false;
+        motionScene.add(mesh);
+        beamMeshes.push(mesh);
+      }
+      const down = new Vector3(0, -1, 0);
+      beamMeshes.forEach((mesh, i) => {
+        const beam = beams[i];
+        const dir = beam ? new Vector3(beam.dir.x, beam.dir.y, beam.dir.z) : null;
+        mesh.visible = !!beam && !!dir && dir.lengthSq() > 0;
+        if (!beam || !dir || !mesh.visible) return;
+        const width = beam.length * spread(beam.angleDeg);
+        mesh.position.set(beam.origin.x, beam.origin.y, beam.origin.z);
+        mesh.quaternion.setFromUnitVectors(down, dir.normalize());
+        mesh.scale.set(width, beam.length, width);
+        mesh.material.uniforms.color.value.setRGB(beam.color[0] / 255, beam.color[1] / 255, beam.color[2] / 255);
+        mesh.material.uniforms.strength.value = beam.lit ? BEAM_STRENGTH : UNLIT_BEAM;
+      });
+      const ends = items.flatMap((m) =>
+        m.kind === "arm" ? [m.origin.x, m.origin.y, m.origin.z, m.origin.x + m.dir.x * m.length, m.origin.y + m.dir.y * m.length, m.origin.z + m.dir.z * m.length] : [],
+      );
+      arms.geometry.dispose();
+      arms.geometry = new BufferGeometry();
+      arms.geometry.setAttribute("position", new BufferAttribute(new Float32Array(ends), 3));
+      anyMotion = items.length > 0;
     },
 
     updatePixels(start, xyz) {
@@ -992,6 +1074,8 @@ export function createThreeScene(canvas: HTMLCanvasElement, makeRenderer: (canva
       renderer.autoClear = false;
       // Floods' washes over the scene, under the dots.
       if (anyFloods) renderer.render(washScene, camera);
+      // Heads' beams and servos' arms, the same.
+      if (anyMotion) renderer.render(motionScene, camera);
       // The lights go over the finished scene, with the depth buffer to themselves.
       renderer.clearDepth();
       renderer.render(lightScene, camera);
@@ -1010,6 +1094,8 @@ export function createThreeScene(canvas: HTMLCanvasElement, makeRenderer: (canva
       disposeTree(lightScene);
       disposeTree(haloScene);
       disposeTree(washScene);
+      disposeTree(motionScene);
+      beamCone.dispose();
       disposeTree(hidingScene);
       occluder.dispose();
       hidingTarget.dispose();

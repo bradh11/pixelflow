@@ -215,6 +215,9 @@ const FLOOD_BIT: u32 = 0x100;
 /// - one 48-byte entry per prop: its id as 36 ASCII characters, frame offset `u32`, channels
 ///   per pixel `u32` (with [`FLOOD_BIT`] set for a DMX fixture), pixel count `u32`
 /// - then every prop's coordinates as `f32`, props in the same order
+/// - then, when any prop is a moving head or servos, the byte length `u32` of a JSON list of
+///   `[prop's place in the list, its motion]` pairs, and that JSON text (heads are few; their
+///   motion is small)
 pub(crate) fn encode_preview(revision: u64, props: &[PreviewProp], dims: Dims) -> Vec<u8> {
     let floats: usize = props.iter().map(|p| p.points.len()).sum();
     let mut out = Vec::with_capacity(PREVIEW_HEADER + PREVIEW_ENTRY * props.len() + 4 * floats);
@@ -233,6 +236,17 @@ pub(crate) fn encode_preview(revision: u64, props: &[PreviewProp], dims: Dims) -
         for v in &p.points {
             out.extend_from_slice(&v.to_le_bytes());
         }
+    }
+    let motions: Vec<(usize, &pf_engine::PreviewMotion)> = props
+        .iter()
+        .enumerate()
+        .filter_map(|(i, p)| p.motion.as_ref().map(|m| (i, m)))
+        .collect();
+    if !motions.is_empty() {
+        // Plain numbers and lists: writing them can't fail.
+        let text = serde_json::to_vec(&motions).unwrap_or_default();
+        out.extend_from_slice(&(text.len() as u32).to_le_bytes());
+        out.extend_from_slice(&text);
     }
     out
 }
@@ -320,6 +334,7 @@ mod tests {
             channels_per_pixel: 3,
             points: vec![1.5, -2.0, 3.0, 4.25],
             flood: false,
+            motion: None,
         }];
         let bytes = encode_preview(7, &props, Dims::Flat);
         assert_eq!(bytes.len(), 16 + 48 + 4 * 4);
@@ -344,6 +359,7 @@ mod tests {
             channels_per_pixel: 4,
             points: vec![1.0, 2.0, -3.5, 4.0, 5.0, 6.25],
             flood: true,
+            motion: None,
         }];
         let bytes = encode_preview(9, &props, Dims::Deep);
         assert_eq!(bytes.len(), 16 + 48 + 6 * 4);
@@ -357,5 +373,49 @@ mod tests {
         assert_eq!(&bytes[60..64], &2u32.to_le_bytes(), "two pixels, not three");
         assert_eq!(&bytes[72..76], &(-3.5f32).to_le_bytes());
         assert_eq!(&bytes[84..88], &6.25f32.to_le_bytes());
+    }
+
+    #[test]
+    fn a_moving_heads_motion_follows_the_positions() {
+        let id: pf_model::PropId = serde_json::from_str("\"11111111-0000-4000-8000-000000000001\"").unwrap();
+        let axis = pf_engine::PreviewAxis {
+            at: 7,
+            fine_at: Some(8),
+            rest: [128, 0],
+            motor: pf_model::DmxMotor::centred(540.0),
+        };
+        let props = [PreviewProp {
+            prop: id,
+            frame_offset: 0,
+            channels_per_pixel: 3,
+            points: vec![1.0, 2.0],
+            flood: false,
+            motion: Some(pf_engine::PreviewMotion {
+                basis: pf_model::UPRIGHT,
+                beam: Some(pf_engine::PreviewBeam {
+                    pan: Some(axis),
+                    tilt: None,
+                    angle_deg: 15.0,
+                    length: 6.0,
+                }),
+                servos: Vec::new(),
+            }),
+        }];
+        let bytes = encode_preview(1, &props, Dims::Flat);
+        let at = 16 + 48 + 2 * 4;
+        let len = u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap()) as usize;
+        assert_eq!(bytes.len(), at + 4 + len);
+        let motions: serde_json::Value = serde_json::from_slice(&bytes[at + 4..]).unwrap();
+        assert_eq!(
+            motions,
+            serde_json::json!([[0, {
+                "basis": [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+                "beam": {
+                    "pan": { "at": 7, "fineAt": 8, "rest": [128, 0], "motor": { "rangeDeg": 540.0, "homeDeg": 270.0 } },
+                    "angleDeg": 15.0,
+                    "length": 6.0
+                }
+            }]])
+        );
     }
 }

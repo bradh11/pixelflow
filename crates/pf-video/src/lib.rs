@@ -13,6 +13,7 @@
 //! instead (see [`ffmpeg`]).
 
 pub mod aac;
+mod beam;
 mod dots;
 mod export;
 pub mod ffmpeg;

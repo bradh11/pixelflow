@@ -2,7 +2,7 @@
 // src-tauri/src/layout.rs). A big show's positions as JSON would be megabytes of text to parse
 // after every edit; these are read in place.
 
-import type { PreviewProp, PreviewProp3d, PreviewSet, PreviewSet3d } from "./types";
+import type { PreviewMotion, PreviewProp, PreviewProp3d, PreviewSet, PreviewSet3d } from "./types";
 
 const HEADER = 16;
 const ENTRY = 48;
@@ -26,6 +26,7 @@ interface Entry {
   frameOffset: number;
   channelsPerPixel: number;
   flood?: boolean;
+  motion?: PreviewMotion;
 }
 
 /** Set in an entry's channels per pixel when the prop is a flood (a DMX fixture's cells). */
@@ -65,7 +66,21 @@ function decode(bytes: Bytes, format: 1 | 2): { revision: number; entries: (Entr
     entries.push(entry);
     pixels += entry.pixels;
   }
-  if (data.byteLength !== floatsAt + pixels * per * 4) throw damaged();
+  const motionAt = floatsAt + pixels * per * 4;
+  if (data.byteLength < motionAt) throw damaged();
+  // After the positions, when any prop is a moving head or servos: their motion, as JSON.
+  if (data.byteLength > motionAt) {
+    if (data.byteLength < motionAt + 4) throw damaged();
+    const length = view.getUint32(motionAt, true);
+    if (data.byteLength !== motionAt + 4 + length) throw damaged();
+    let motions: [number, PreviewMotion][];
+    try {
+      motions = JSON.parse(new TextDecoder().decode(new Uint8Array(data, motionAt + 4, length))) as [number, PreviewMotion][];
+    } catch {
+      throw damaged();
+    }
+    for (const [i, motion] of motions) if (entries[i]) entries[i].motion = motion;
+  }
 
   // Read in place on little-endian machines (all of them, in practice); copied otherwise.
   let floats: Float32Array;

@@ -10,24 +10,28 @@
 //!
 //! The choice, made in October 2026 for the Text effect's fonts:
 //!
-//! | Option | Licence | What comes with it | TrueType, CFF, collections |
-//! |---|---|---|---|
-//! | `ttf-parser` alone (with only `std`) | MIT OR Apache-2.0 | nothing else | yes, yes, yes |
-//! | `fontdue` | MIT OR Apache-2.0 OR Zlib | `ttf-parser`, `hashbrown`, `foldhash`, `equivalent`, `allocator-api2`, `core_maths`, `libm` | yes, yes (through `ttf-parser`), yes |
-//! | `ab_glyph` | Apache-2.0 | `ttf-parser`, `owned_ttf_parser`, `ab_glyph_rasterizer`, `core_maths`, `libm` | yes, yes, yes |
-//! | `swash` | Apache-2.0 OR MIT | `skrifa`, `read-fonts`, `font-types`, `zeno`, `yazi`, `bytemuck` (and its derive macro, so `syn` at build time) | yes, yes, yes |
-//! | `fontdb` (finding fonts only) | MIT | `ttf-parser`, `memmap2`, `libc`, `log`, `slotmap`, `tinyvec` | not applicable |
+//! | Option | Licence | What comes with it | TrueType, CFF, collections | Kept up |
+//! |---|---|---|---|---|
+//! | `ttf-parser` alone (with only `std`) | MIT OR Apache-2.0 | nothing else | yes, yes, yes | no: its author declared it unmaintained in June 2026 (RUSTSEC-2026-0192) |
+//! | `fontdue` | MIT OR Apache-2.0 OR Zlib | `ttf-parser`, `hashbrown`, `foldhash`, `equivalent`, `allocator-api2`, `core_maths`, `libm` | yes, yes (through `ttf-parser`), yes | reads fonts through `ttf-parser` |
+//! | `ab_glyph` | Apache-2.0 | `ttf-parser`, `owned_ttf_parser`, `ab_glyph_rasterizer`, `core_maths`, `libm` | yes, yes, yes | reads fonts through `ttf-parser` |
+//! | `swash` | Apache-2.0 OR MIT | `skrifa`, `read-fonts`, `font-types`, `zeno`, `yazi`, `bytemuck` (and its derive macro, so `syn` at build time) | yes, yes, yes | yes |
+//! | `skrifa` alone (what `swash` reads fonts with) | MIT OR Apache-2.0 | `read-fonts`, `font-types`, `bytemuck` and its derive macro: four crates new to PixelFlow | yes, yes, yes | yes (Google Fonts' "fontations") |
+//! | `fontdb` (finding fonts only) | MIT | `ttf-parser`, `memmap2`, `libc`, `log`, `slotmap`, `tinyvec` | not applicable | reads fonts through `ttf-parser` |
 //!
-//! All are pure Rust and permissively licensed, and every one of them reads fonts through either
-//! `ttf-parser` or a parser of the same size. What they add on top is a rasterizer (a few hundred
-//! lines) and, for `swash`, shaping and hinting that light displays don't need. `fontdb` finds
-//! fonts by name, but brings six crates and maps files into memory where reading the two small
-//! name tables of each font file is all that's needed.
+//! All are pure Rust and permissively licensed. Every one of them but `swash` and `skrifa` reads
+//! fonts through `ttf-parser`. What they add on top is a rasterizer (a few hundred lines) and,
+//! for `swash`, shaping and hinting that light displays don't need. `fontdb` finds fonts by
+//! name, but brings six crates and maps files into memory where reading the two small name
+//! tables of each font file is all that's needed.
 //!
-//! So PixelFlow uses `ttf-parser` (one crate, no dependencies of its own, no unsafe code, kept by
-//! the HarfBuzz project) for the font formats, which are the hard part: TrueType and CFF
-//! outlines, `.ttc` and `.otc` collections. Finding fonts ([`find`]) and drawing their outlines
-//! ([`raster`]) are PixelFlow's own, written for this.
+//! So PixelFlow uses `ttf-parser` (one crate, no dependencies of its own, no unsafe code) for the
+//! font formats, which are the hard part: TrueType and CFF outlines, `.ttc` and `.otc`
+//! collections. Finding fonts (`find.rs`) and drawing their outlines (`raster.rs`) are PixelFlow's
+//! own, written for this. `ttf-parser` gets no more fixes: the kept-up parser, `skrifa`, brings
+//! four crates where the limit for this change was two, so moving to it is left to a decision.
+//! Only `find.rs` (the name table) and `sized.rs` (outlines, advances, kerning) use the parser,
+//! so moving is a change to those two files.
 
 mod find;
 mod raster;

@@ -57,7 +57,7 @@ import type {
   ShaderInfo,
 } from "./sequencer";
 import * as marks from "./timingMarks";
-import type { VideoProgress, VideoRequest } from "./video";
+import type { H264Progress, VideoProgress, VideoRequest } from "./video";
 import { formatMs } from "./timingMarks";
 import { wordPhonemes } from "../lib/submodels";
 
@@ -1470,5 +1470,27 @@ export class MemorySequencer implements SequencerApi {
 
   pickVideoPath(defaultName: string) {
     return this.video.pickVideoPath(defaultName);
+  }
+
+  h264Encoder() {
+    return this.video.h264Encoder();
+  }
+
+  downloadH264Encoder(onProgress?: (progress: H264Progress) => void) {
+    this.calls.push("downloadH264Encoder");
+    return this.video.downloadH264Encoder(onProgress);
+  }
+
+  cancelH264Download() {
+    return this.video.cancelH264Download();
+  }
+
+  setH264EncoderEnabled(on: boolean) {
+    return this.video.setH264EncoderEnabled(on);
+  }
+
+  removeH264Encoder() {
+    this.calls.push("removeH264Encoder");
+    return this.video.removeH264Encoder();
   }
 }

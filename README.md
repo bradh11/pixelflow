@@ -24,7 +24,9 @@ drawing a video export makes).*
 - **Sequence:** a timeline with effects, beat and section detection from the music, lyric timing,
   and singing faces.
 - **Play:** play a sequence on screen and on your lights, send it to an FPP for unattended
-  playback, or export a video.
+  playback, or export a video. The first video export asks to download Cisco's OpenH264 encoder
+  from Cisco (PixelFlow doesn't come with one: Cisco pays the H.264 patent licence for the
+  copies it hands out itself), or uses your own ffmpeg.
 - **xLights import:** bring in a show folder and its sequences, and map a vendor's sequence onto
   your own props.
 - **Assistant:** bring your own Anthropic or OpenAI key and ask for changes to layouts and
@@ -57,7 +59,9 @@ published. Until then, build it from source.
 
 On every system: [Rust](https://rustup.rs) (the version is pinned in `rust-toolchain.toml`, and
 rustup installs it for you), [Node.js](https://nodejs.org) 22 or newer, [pnpm](https://pnpm.io),
-and a C++ compiler (the video export builds its H.264 encoder from source).
+and a C and C++ compiler. Some dependencies build C code, and the engine's tests and developer
+tools build an H.264 encoder from source so they work offline. The app itself has none built in:
+the first video export downloads Cisco's (see [Your data](docs/privacy-and-data-flow.md)).
 
 | System | Also needed |
 |---|---|

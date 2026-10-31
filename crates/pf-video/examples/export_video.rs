@@ -9,7 +9,7 @@ use anyhow::{Context, bail};
 use pf_engine::Engine;
 use pf_model::Rgb;
 use pf_sequence::{Effect, EffectKind, Layer, Row, Target};
-use pf_video::{VideoOptions, export_video};
+use pf_video::{Encoder, VideoOptions, export_video};
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -88,10 +88,10 @@ fn main() -> anyhow::Result<()> {
         Some(start_ms + (value("--seconds").unwrap_or(20.0) * 1000.0) as u64)
     };
     let fps = value("--fps").map_or(30, |f| f as u32);
-    let ffmpeg = if flag("--ffmpeg") {
-        Some(pf_video::ffmpeg::find().context("no ffmpeg with H.264 found")?)
+    let encoder = if flag("--ffmpeg") {
+        Encoder::Ffmpeg(pf_video::ffmpeg::find().context("no ffmpeg with H.264 found")?)
     } else {
-        None
+        Encoder::OpenH264FromSource
     };
     let (width, height) = if flag("--720") { (1280, 720) } else { (1920, 1080) };
     let options = VideoOptions {
@@ -103,7 +103,7 @@ fn main() -> anyhow::Result<()> {
         photo: !flag("--no-photo"),
         pixel_size: 1.0,
         glow: 0.0,
-        ffmpeg,
+        encoder,
     };
     println!(
         "pixels: {}",

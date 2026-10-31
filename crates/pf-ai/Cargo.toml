@@ -37,6 +37,8 @@ test-fixtures = []
 
 [dev-dependencies]
 pf-ai = { path = ".", features = ["test-fixtures"] }
+# The evaluation harness (an example) draws its videos offline, with OpenH264 compiled in.
+pf-video = { workspace = true, features = ["encoder-from-source"] }
 jsonschema = { version = "=0.58.5", default-features = false }
 tempfile.workspace = true
 pf-output.workspace = true

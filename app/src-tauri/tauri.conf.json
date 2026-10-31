@@ -35,6 +35,9 @@
       "resources/THIRD-PARTY-NOTICES.txt": "THIRD-PARTY-NOTICES.txt",
       "../../LICENSE": "LICENSE.txt",
       "../../NOTICE": "NOTICE.txt"
+    },
+    "macOS": {
+      "entitlements": "Entitlements.plist"
     }
   }
 }

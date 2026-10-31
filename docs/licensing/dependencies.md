@@ -94,7 +94,7 @@ code that is not Rust and has its own terms.
 
 | Package | What it brings | Licence of that code | Platforms |
 |---|---|---|---|
-| `openh264-sys2` (feature `source`) | Cisco's OpenH264 encoder, compiled from the C++ source inside the crate (`upstream/`) | BSD-2-Clause. **Patents are a separate matter:** see the distribution checklist. | all |
+| `openh264-sys2` (feature `libloading`) | The app has no H.264 encoder of its own: it loads Cisco's OpenH264 binary at run time (`libloading`), which the user's copy downloads from Cisco when the user agrees (the next table). The crate's `source` feature, which compiles the C++ source inside it (`upstream/`), is turned on only for tests and developer tools (`pf-video`'s `encoder-from-source`); `node scripts/encoder-check.mjs` fails if the app's builds turn it on. | BSD-2-Clause. **Patents are a separate matter:** see the distribution checklist, item 6. | all |
 | `zstd-sys` | The zstd library, compiled from the C source inside the crate | Offered under BSD-3-Clause **or** GPL-2.0, at the recipient's choice (`zstd/LICENSE`, `zstd/COPYING`). Both texts are in the notices, with a note. | all |
 | `ring` | Cryptography, partly C and assembly derived from BoringSSL and OpenSSL | `Apache-2.0 AND ISC`, with the notices in its `LICENSE` files | all |
 | `oxideav-aac` | An AAC-LC encoder, in Rust | MIT. Patents are a separate matter, as for H.264. | all |
@@ -114,6 +114,7 @@ The inventory reads package manifests, so it cannot see these. They are listed b
 |---|---|---|---|
 | CMU Pronouncing Dictionary | `crates/pf-lexicon/data/cmudict.zst`, compiled into the binary | BSD-style, two clauses (`cmudict-LICENSE.txt` beside it) | yes |
 | wav2vec2-base-960h speech model (ONNX conversion) | Downloaded from Hugging Face when the user turns on lyric alignment; URL and SHA-256 pinned in `crates/pf-align/src/store.rs` | Apache-2.0 | no: fetched by the user's copy of the app |
+| Cisco's OpenH264 2.6.0 binary ("OpenH264 Video Codec provided by Cisco Systems, Inc.") | Downloaded from Cisco's server (`ciscobinary.openh264.org`) when the user agrees, for the first video export with the built-in encoder; URL and SHA-256 per platform pinned in `crates/pf-video/src/cisco.rs` | BSD-2-Clause, with Cisco's AVC/H.264 patent licence conditions. Cisco's `BINARY_LICENSE.txt` (`crates/pf-video/data/`) is reproduced in the notices and in Settings, as its condition 4 asks. | no: fetched by the user's copy of the app |
 | Tailwind CSS | A development dependency, but the stylesheet it generates (including its "preflight" reset) is in the bundle | MIT | its output is |
 | Vite and Rolldown | Development dependencies; a few lines of module-loading helper code end up in the bundle | MIT | a few lines |
 | Lucide icons | In (c) as `lucide-react`; its licence file notes that some icons derive from Feather (MIT) | ISC, with an MIT part | yes |
@@ -142,8 +143,8 @@ Code and data taken from xLights and other projects' **source** are a different 
 
 | Scope | Third-party packages | Shipped | Build-time only | Tests only | Not used on desktop targets |
 | --- | --- | --- | --- | --- | --- |
-| (a) Engine workspace (`Cargo.toml`) | 430 | 303 | 41 | 35 | 51 |
-| (b) Desktop app (`app/src-tauri/Cargo.toml`) | 641 | 460 | 96 | 1 | 84 |
+| (a) Engine workspace (`Cargo.toml`) | 432 | 305 | 41 | 35 | 51 |
+| (b) Desktop app (`app/src-tauri/Cargo.toml`) | 643 | 462 | 96 | 1 | 84 |
 | (c) App UI, production (`app/package.json`) | 34 | 34 | 0 | 0 | 0 |
 
 "Shipped" means linked into a binary for macOS, Windows, or Linux. "Build-time only" covers build scripts and procedural macros, which run while compiling and are not in the binary. "Not used on desktop targets" are packages the lockfile lists for other platforms (Android, iOS, WebAssembly).
@@ -154,7 +155,7 @@ All 26 of PixelFlow's own packages state `GPL-3.0-only`: the GNU General Public 
 
 ## Shipped packages against PixelFlow's licence (`GPL-3.0-only`)
 
-Of the 510 packages shipped (engine, app, and UI together), 492 offer a licence the Free Software Foundation's licence list names as compatible with the GNU GPL, version 3. Where a package offers a choice, one compatible option is enough.
+Of the 512 packages shipped (engine, app, and UI together), 494 offer a licence the Free Software Foundation's licence list names as compatible with the GNU GPL, version 3. Where a package offers a choice, one compatible option is enough.
 
 **Shipped under a permissive licence that list does not name (read, and nothing in it limits distribution under the GPL; not confirmed by anyone with authority)** (18):
 
@@ -183,18 +184,18 @@ Of the 510 packages shipped (engine, app, and UI together), 492 offer a licence 
 
 | Licence (as the package states it) | Packages | Flag |
 | --- | --- | --- |
-| `Apache-2.0 OR MIT` | 206 |  |
+| `Apache-2.0 OR MIT` | 207 |  |
 | `MIT` | 35 |  |
 | `MPL-2.0` | 14 | copyleft |
 | `Apache-2.0 OR MIT OR Zlib` | 13 |  |
 | `MIT OR Unlicense` | 7 |  |
 | `BSD-3-Clause` | 4 |  |
 | `Apache-2.0 OR BSD-2-Clause OR MIT` | 3 |  |
+| `ISC` | 3 |  |
 | `Apache-2.0` | 2 |  |
 | `Apache-2.0 OR Apache-2.0 WITH LLVM-exception OR MIT` | 2 |  |
 | `Apache-2.0 OR BSD-3-Clause` | 2 |  |
 | `BSD-2-Clause` | 2 |  |
-| `ISC` | 2 |  |
 | `Zlib` | 2 |  |
 | `(Apache-2.0 OR MIT) AND BSD-3-Clause` | 1 |  |
 | `(MIT OR Apache-2.0) AND Unicode-3.0` | 1 | own terms |
@@ -210,16 +211,16 @@ Of the 510 packages shipped (engine, app, and UI together), 492 offer a licence 
 
 | Licence (as the package states it) | Packages | Flag |
 | --- | --- | --- |
-| `Apache-2.0 OR MIT` | 278 |  |
+| `Apache-2.0 OR MIT` | 279 |  |
 | `MIT` | 82 |  |
 | `Apache-2.0 OR MIT OR Zlib` | 20 |  |
 | `MPL-2.0` | 18 | copyleft |
 | `Unicode-3.0` | 15 | own terms |
 | `MIT OR Unlicense` | 11 |  |
 | `BSD-3-Clause` | 6 |  |
+| `ISC` | 4 |  |
 | `Apache-2.0` | 3 |  |
 | `Apache-2.0 OR BSD-2-Clause OR MIT` | 3 |  |
-| `ISC` | 3 |  |
 | `Apache-2.0 OR Apache-2.0 WITH LLVM-exception OR MIT` | 2 |  |
 | `Apache-2.0 OR BSD-3-Clause` | 2 |  |
 | `BSD-2-Clause` | 2 |  |
@@ -409,6 +410,7 @@ Across both Cargo workspaces (every use, not only shipped) and the app UI's prod
 | `byteorder` | 1.5.0 | `Unlicense OR MIT` | shipped (all) | shipped (all) |
 | `byteorder-lite` | 0.1.0 | `Unlicense OR MIT` | shipped (all) | shipped (all) |
 | `bytes` | 1.12.1 | `MIT` | shipped (all) | shipped (all) |
+| `bzip2-rs` | 0.1.2 | `MIT OR Apache-2.0` | shipped (all) | shipped (all) |
 | `cairo-rs` | 0.18.5 | `MIT` |  | shipped (Linux) |
 | `cairo-sys-rs` | 0.18.2 | `MIT` |  | shipped (Linux) |
 | `camino` | 1.2.6 | `MIT OR Apache-2.0` |  | shipped (all) |
@@ -622,6 +624,7 @@ Across both Cargo workspaces (every use, not only shipped) and the app UI's prod
 | `libc` | 0.2.190 | `MIT OR Apache-2.0` | shipped (macOS, Linux) | shipped (all) |
 | `libdbus-sys` | 0.2.7 | `Apache-2.0 OR MIT` |  | shipped (Linux) |
 | `libloading` | 0.7.4 | `ISC` |  | shipped (Linux) |
+| `libloading` | 0.8.9 | `ISC` | shipped (all) | shipped (all) |
 | `libm` | 0.2.16 | `MIT` | shipped (all) | shipped (all) |
 | `libredox` | 0.1.25 | `MIT` |  | not on desktop |
 | `linux-raw-sys` | 0.12.1 | `Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT` | shipped (Linux) | shipped (Linux) |

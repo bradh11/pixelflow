@@ -1,10 +1,12 @@
 //! Exporting the open sequence as an MP4 video (see `pf_video`): what the export dialog can
-//! offer, the export itself with its progress, and cancelling it.
+//! offer, the export itself with its progress, and cancelling it. The built-in encoder is Cisco's
+//! OpenH264, downloaded only after the user agrees (see `h264`).
 
+use crate::h264::H264State;
 use crate::progress::Throttle;
 use crate::{AppState, PathArg, Reply};
 use pf_engine::SequenceExport;
-use pf_video::{Ffmpeg, Progress, Stage, VideoError, VideoOptions, VideoSummary};
+use pf_video::{Encoder, Ffmpeg, Progress, Stage, VideoError, VideoOptions, VideoSummary};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::OnceLock;
@@ -45,7 +47,7 @@ pub(crate) struct VideoRequest {
     /// How much each lit dot glows, 0 (crisp dots, when the dialog doesn't say) to 1.
     #[serde(default)]
     pub glow: f32,
-    /// Encode with ffmpeg (when it's installed).
+    /// Encode with ffmpeg (when it's installed), not the built-in encoder.
     pub ffmpeg: bool,
 }
 
@@ -85,24 +87,29 @@ fn photo_allowed(state: &AppState, background: &Option<pf_model::Background>) ->
 
 /// Exports the open sequence as an MP4 at `path`, sending [`VIDEO_PROGRESS_EVENT`] events as it
 /// goes; [`cancel_video_export`] stops it (the reply is then "The export was cancelled." and no
-/// file is written). Rendering runs off the engine lock, so the app stays responsive.
+/// file is written). Rendering runs off the engine lock, so the app stays responsive. The
+/// built-in encoder must be downloaded and on first (the window asks before it's downloaded).
 #[tauri::command]
 pub(crate) async fn export_video<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, AppState>,
+    h264: State<'_, H264State>,
     path: PathArg,
     request: VideoRequest,
 ) -> Reply<VideoSummary> {
     let job = state.engine().sequence_export().map_err(crate::message)?;
     let photo = request.photo && photo_allowed(&state, &job.show().background);
-    let mut options = options_for(&request)?;
+    let encoder = if request.ffmpeg {
+        tauri::async_runtime::spawn_blocking(ffmpeg)
+            .await
+            .unwrap_or(None)
+            .map(Encoder::Ffmpeg)
+            .ok_or("ffmpeg isn't installed any more. Export with the built-in encoder instead.")?
+    } else {
+        h264.encoder().map_err(|e| e.to_string())?
+    };
+    let mut options = options_for(&request, encoder)?;
     options.photo = photo;
-    if request.ffmpeg {
-        options.ffmpeg = tauri::async_runtime::spawn_blocking(ffmpeg).await.unwrap_or(None);
-        if options.ffmpeg.is_none() {
-            return Err("ffmpeg isn't installed any more. Export with the built-in encoder instead.".into());
-        }
-    }
     let started = state.video_cancels.load(Ordering::Acquire);
     tauri::async_runtime::spawn_blocking(move || {
         let cancels = &app.state::<AppState>().video_cancels;
@@ -110,6 +117,9 @@ pub(crate) async fn export_video<R: Runtime>(
             // A window that's gone can't show progress; the export carries on.
             let _ = app.emit(VIDEO_PROGRESS_EVENT, progress);
         });
+        if let Err(error) = &result {
+            app.state::<H264State>().after_export(error);
+        }
         if let Ok(summary) = &result {
             log::info!(
                 "exported a {}p{} video of {} frames in {} ms",
@@ -134,7 +144,7 @@ pub(crate) async fn cancel_video_export(state: State<'_, AppState>) -> Reply<()>
 }
 
 /// The export's options from the dialog's request, refusing sizes and rates it doesn't offer.
-fn options_for(request: &VideoRequest) -> Reply<VideoOptions> {
+fn options_for(request: &VideoRequest, encoder: Encoder) -> Reply<VideoOptions> {
     if !matches!((request.width, request.height), (1280, 720) | (1920, 1080)) {
         return Err("Videos are 720p (1280×720) or 1080p (1920×1080).".into());
     }
@@ -156,7 +166,7 @@ fn options_for(request: &VideoRequest) -> Reply<VideoOptions> {
         photo: request.photo,
         pixel_size: request.pixel_size,
         glow: request.glow,
-        ffmpeg: None,
+        encoder,
     })
 }
 
@@ -216,6 +226,11 @@ mod tests {
         engine.sequence_export().unwrap()
     }
 
+    /// OpenH264 compiled into the tests.
+    fn compiled() -> Encoder {
+        Encoder::compiled_in().unwrap()
+    }
+
     fn request() -> VideoRequest {
         VideoRequest {
             width: 1280,
@@ -236,7 +251,7 @@ mod tests {
         let job = job(dir.path());
         let path = dir.path().join("Song.mp4");
         let mut reports = Vec::new();
-        let options = options_for(&request()).unwrap();
+        let options = options_for(&request(), compiled()).unwrap();
         let summary =
             run_video_export(&job, &options, &path, &AtomicU64::new(0), 0, |p| reports.push(p)).unwrap();
         assert_eq!((summary.frames, summary.height), (30, 720));
@@ -259,7 +274,7 @@ mod tests {
         let job = job(dir.path());
         let path = dir.path().join("Song.mp4");
         let cancels = AtomicU64::new(0);
-        let options = options_for(&request()).unwrap();
+        let options = options_for(&request(), compiled()).unwrap();
         let err = run_video_export(&job, &options, &path, &cancels, 0, |p| {
             if p.fraction.unwrap_or(0.0) > 0.0 {
                 cancels.fetch_add(1, Ordering::AcqRel);
@@ -279,14 +294,14 @@ mod tests {
 
     #[test]
     fn only_offered_sizes_and_rates() {
-        assert!(options_for(&request()).is_ok());
+        assert!(options_for(&request(), compiled()).is_ok());
         let hd = VideoRequest {
             width: 1920,
             height: 1080,
             fps: 60,
             ..request()
         };
-        assert_eq!(options_for(&hd).unwrap().fps, 60);
+        assert_eq!(options_for(&hd, compiled()).unwrap().fps, 60);
         for bad in [
             VideoRequest {
                 width: 4000,
@@ -310,7 +325,7 @@ mod tests {
                 ..request()
             },
         ] {
-            assert!(options_for(&bad).is_err(), "{bad:?}");
+            assert!(options_for(&bad, compiled()).is_err(), "{bad:?}");
         }
     }
 

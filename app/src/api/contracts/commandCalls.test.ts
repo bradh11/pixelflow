@@ -460,6 +460,11 @@ async function callTheSequencer(sequencer: SequencerApi) {
   await sequencer.exportVideo(`${DIR}/Carol.mp4`, { width: 1280, height: 720, fps: 30, startMs: 0, endMs: null, photo: false, pixelSize: 1, glow: 0, ffmpeg: false });
   await sequencer.cancelVideoExport();
   await sequencer.pickVideoPath("Carol.mp4");
+  await sequencer.h264Encoder();
+  await sequencer.downloadH264Encoder(() => {});
+  await sequencer.cancelH264Download();
+  await sequencer.setH264EncoderEnabled(false);
+  await sequencer.removeH264Encoder();
 }
 
 async function callTheAssistant(assistant: AssistantApi) {

@@ -22,6 +22,7 @@ an FPP and choose **Open FPP's web page**.
 - [Lyrics are wrong or in the wrong language](#lyrics-are-wrong-or-in-the-wrong-language)
 - [The app is slow with a big show](#the-app-is-slow-with-a-big-show)
 - [A file is "on a network share"](#a-file-is-on-a-network-share)
+- [The video encoder won't download](#the-video-encoder-wont-download)
 
 ## A quick way to find the problem
 
@@ -381,3 +382,42 @@ that isn't yours. See [A note on shows from other people](privacy-and-data-flow.
    choose the files from that drive, or keep the files in the show's own folder.
 3. **If you don't know the server,** don't choose anything on it. Pick your own copy of the
    file with **Locate…** instead.
+
+## The video encoder won't download
+
+PixelFlow doesn't come with an H.264 video encoder. The first time you export a video with the
+built-in encoder, it asks to download Cisco's OpenH264 encoder (about 0.5 MB) from Cisco's own
+server, `ciscobinary.openh264.org`: Cisco pays the H.264 patent licence for the copies it hands
+out itself. If the download fails, the window says why. Choose **Try again** once you've checked
+what it says:
+
+1. **"PixelFlow couldn't reach Cisco's server."** This computer is offline, or something blocks
+   `ciscobinary.openh264.org`. Check you can open other websites, then try again.
+2. **"Cisco's server took too long to answer"** or **"answered with an error (HTTP …)"**. Cisco's
+   server is busy or down. Try again later.
+3. **"The proxy this computer uses … stopped the download."** PixelFlow uses the proxy named in
+   the `HTTPS_PROXY` (or `ALL_PROXY`) environment variable; it doesn't read the proxy set in your
+   system's network settings. Check that address, or try another network.
+4. **"The connection to Cisco's server couldn't be checked as secure."** Something between you
+   and Cisco (a school or office network filter, an antivirus that inspects web traffic) is
+   changing the secure connection. PixelFlow trusts only the usual public certificate
+   authorities, so it won't download through it. Try another network.
+5. **"The file from Cisco isn't the one PixelFlow expects."** The download was damaged or
+   changed on the way, and was thrown away. Try again; if it keeps happening, something on your
+   network is changing downloads. Use another network.
+6. **"PixelFlow couldn't keep the encoder in …"** The disk is full, or PixelFlow's data folder
+   can't be written to. Free some space, or check that folder's permissions, then try again.
+7. **"Cisco doesn't make its OpenH264 encoder for this system."** Cisco publishes it for macOS
+   (Apple silicon and Intel), Windows (64-bit), and Linux (x86-64 and ARM64) only. Install
+   ffmpeg and choose it under **Encoder** in the export window instead.
+8. **"Cisco's OpenH264 encoder … isn't the file that was checked when it was downloaded."**
+   The encoder in PixelFlow's data folder changed since it was downloaded, so PixelFlow didn't
+   use it and removed it. Export again: it asks to download it again.
+9. **It's turned off.** If you turned it off in **Settings**, **Video export**, the export
+   window asks to turn it back on. To start over, choose **Remove the encoder** there, then
+   export again.
+
+![Settings, Video export: Use Cisco's OpenH264 video encoder, not downloaded yet, with the line "OpenH264 Video Codec provided by Cisco Systems, Inc." and Cisco's licence for the encoder.](images/settings-video-encoder.png)
+
+If you'd rather not download it at all, install ffmpeg: the export window then offers it under
+**Encoder**, and nothing is downloaded.

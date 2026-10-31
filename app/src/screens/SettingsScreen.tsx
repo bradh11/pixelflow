@@ -2,6 +2,7 @@ import { Keyboard, Sparkles } from "lucide-react";
 import type { ReactNode } from "react";
 import { providerName } from "../api/assistant";
 import { AboutDetails } from "../components/About";
+import { VideoEncoderSettings } from "../components/CiscoEncoder";
 import { PreviewSyncSettings } from "../components/PreviewSyncSettings";
 import { Button, Card, PageHeader } from "../components/ui";
 import { hintFor } from "../lib/shortcuts";
@@ -43,9 +44,9 @@ function Toggle({ label, hint, checked, onChange }: { label: string; hint: strin
 }
 
 /**
- * Settings for this computer: the theme, the AI provider, playback, and the layout editor. Each is
- * kept where it already lives (on this computer, or with the AI key in the credential store), and
- * applies at once.
+ * Settings for this computer: the theme, the AI provider, playback, the layout editor, and video
+ * export's encoder. Each is kept where it already lives (on this computer, or with the AI key in
+ * the credential store), and applies at once.
  */
 export function SettingsScreen() {
   const themeChoice = useApp((s) => s.themeChoice);
@@ -131,6 +132,10 @@ export function SettingsScreen() {
           checked={smartGuides}
           onChange={(on) => useLayoutEditor.getState().setSmartGuides(on)}
         />
+      </Section>
+
+      <Section title="Video export" description="The encoder the built-in video export uses.">
+        <VideoEncoderSettings />
       </Section>
 
       <Section title="About">

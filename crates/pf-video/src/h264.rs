@@ -1,6 +1,7 @@
-//! H.264 video with OpenH264 (Cisco's encoder, BSD licensed, built from source), as MP4 wants it:
-//! each frame one sample of length-prefixed NAL units, with the stream's parameter sets kept
-//! apart for the file's header.
+//! H.264 video with OpenH264 (Cisco's encoder, BSD licensed), as MP4 wants it: each frame one
+//! sample of length-prefixed NAL units, with the stream's parameter sets kept apart for the
+//! file's header. The encoder comes from the library it's given: Cisco's own binary, checked and
+//! loaded by [`crate::cisco::load`], or (tests and developer tools only) one compiled from source.
 
 use crate::VideoError;
 use crate::yuv::Yuv;
@@ -33,7 +34,8 @@ pub struct H264 {
 }
 
 impl H264 {
-    pub fn new(width: u32, height: u32, fps: u32) -> Result<Self, VideoError> {
+    /// An encoder from `api`'s library, for frames of `width` × `height` at `fps`.
+    pub fn new(api: OpenH264API, width: u32, height: u32, fps: u32) -> Result<Self, VideoError> {
         let config = EncoderConfig::new()
             .bitrate(BitRate::from_bps(bitrate(width, height, fps)))
             .max_frame_rate(FrameRate::from_hz(fps as f32))
@@ -44,7 +46,7 @@ impl H264 {
             // A keyframe every two seconds, so players can jump around the video.
             .intra_frame_period(IntraFramePeriod::from_num_frames(fps * 2))
             .vui(VuiConfig::bt709());
-        let encoder = Encoder::with_api_config(OpenH264API::from_source(), config)
+        let encoder = Encoder::with_api_config(api, config)
             .map_err(|e| VideoError::Encode(format!("The video encoder couldn't start: {e}")))?;
         Ok(Self {
             encoder,
@@ -120,7 +122,7 @@ mod tests {
 
     #[test]
     fn frames_come_out_length_prefixed_with_a_keyframe_first() {
-        let mut encoder = H264::new(64, 48, 30).unwrap();
+        let mut encoder = H264::new(OpenH264API::from_source(), 64, 48, 30).unwrap();
         let mut canvas = Canvas::new(64, 48);
         let mut samples = Vec::new();
         for n in 0..4u16 {

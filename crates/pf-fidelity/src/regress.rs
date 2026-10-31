@@ -24,6 +24,13 @@
 //! be raised on purpose. A sequence whose effects aren't the ones the baseline
 //! lists (an effect more or less, another kind, another place) can't be held to it at all, and
 //! fails until the baseline is made again.
+//!
+//! **DMX fixtures** are held the same way, by their score (how many frames of 100 a fixture
+//! shows the same on, [`crate::dmx`]) and their verdict: a fixture fails when its score is more
+//! than [`MARGIN`] under the lowest the baseline measured, when it earns a worse verdict than the
+//! worst the baseline saw even with [`MARGIN`] more frames of 100 the same, or when it was
+//! compared in the baseline and isn't now. A baseline made before fixtures were compared has
+//! none for them: they aren't held until it is made again, and the check says so.
 
 use crate::compare::{Options, Request, compare};
 use crate::corpus::{Entry, Manifest, label_of};
@@ -62,6 +69,34 @@ pub struct SequenceBase {
     pub label: String,
     pub looks: Vec<Option<f64>>,
     pub effects: Vec<EffectBase>,
+    /// Its DMX fixtures, each in each scoring. `None` in a baseline made before fixtures were
+    /// compared: they aren't held to it until it is made again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fixtures: Option<Vec<FixtureBase>>,
+}
+
+/// One DMX fixture: which it is, and in each scoring its score (`None` where it wasn't
+/// compared) and the verdict it earned.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FixtureBase {
+    pub name: String,
+    pub scores: Vec<Option<f64>>,
+    pub verdicts: Vec<Option<Verdict>>,
+}
+
+/// The lowest and highest of `scores`.
+fn range_of(scores: &[Option<f64>]) -> Option<(f64, f64)> {
+    let mut all = scores.iter().flatten().copied();
+    let first = all.next()?;
+    Some(all.fold((first, first), |(low, high), s| (low.min(s), high.max(s))))
+}
+
+/// The worst and the best of `verdicts`.
+fn worst_and_best(verdicts: &[Option<Verdict>]) -> Option<(Verdict, Verdict)> {
+    let worst = verdicts.iter().flatten().max().copied()?;
+    let best = verdicts.iter().flatten().min().copied()?;
+    Some((worst, best))
 }
 
 /// One effect: which it is, and in each scoring the look it got (`None` where it wasn't
@@ -79,24 +114,14 @@ pub struct EffectBase {
 }
 
 impl EffectBase {
-    fn scores(&self) -> impl Iterator<Item = f64> + '_ {
-        self.looks.iter().flatten().copied()
-    }
-
     /// The lowest and highest look of the scorings.
     pub fn range(&self) -> Option<(f64, f64)> {
-        let low = self
-            .scores()
-            .fold(None, |m: Option<f64>, s| Some(m.map_or(s, |m| m.min(s))))?;
-        let high = self.scores().fold(low, f64::max);
-        Some((low, high))
+        range_of(&self.looks)
     }
 
     /// The worst and best verdict it was judged to earn.
     pub fn verdicts(&self) -> Option<(Verdict, Verdict)> {
-        let worst = self.verdicts.iter().flatten().max().copied()?;
-        let best = self.verdicts.iter().flatten().min().copied()?;
-        Some((worst, best))
+        worst_and_best(&self.verdicts)
     }
 
     fn judged_always(&self) -> bool {
@@ -128,6 +153,11 @@ fn seen(effect: &EffectScore) -> (Option<f64>, Option<Verdict>) {
         (None, Some(little)) => (Some(little.score), None),
         (None, None) => (None, None),
     }
+}
+
+/// A score to the hundredth, as the baseline keeps it.
+fn hundredths(score: f64) -> f64 {
+    (score * 100.0).round() / 100.0
 }
 
 /// The sequences of the manifest that have an xLights reference, and the labels of those that
@@ -184,13 +214,27 @@ pub fn measure(
                         verdicts: Vec::new(),
                     })
                     .collect(),
+                fixtures: Some(
+                    card.fixtures
+                        .iter()
+                        .map(|f| FixtureBase {
+                            name: f.name.clone(),
+                            scores: Vec::new(),
+                            verdicts: Vec::new(),
+                        })
+                        .collect(),
+                ),
             });
             base.looks.push(card.look.score);
             // The effects are the same in every scoring: only their ids differ.
             for (b, e) in base.effects.iter_mut().zip(&card.effects) {
                 let (look, verdict) = seen(e);
-                b.looks.push(look.map(|s| (s * 100.0).round() / 100.0));
+                b.looks.push(look.map(hundredths));
                 b.verdicts.push(verdict);
+            }
+            for (b, f) in base.fixtures.iter_mut().flatten().zip(&card.fixtures) {
+                b.scores.push(f.score.map(hundredths));
+                b.verdicts.push(f.verdict);
             }
             done(&card.sequence.label, set as u32 + 1);
         }
@@ -253,6 +297,18 @@ pub enum Move {
     Unjudged,
 }
 
+/// One DMX fixture that moved.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FixtureMoved {
+    pub sequence: String,
+    pub fixture: String,
+    /// The baseline: its scores' range and its worst verdict.
+    pub was: String,
+    pub now: String,
+    pub what: String,
+    pub how: Move,
+}
+
 /// A sequence's label, its look now, and the lowest and highest the baseline measured.
 pub type SequenceLook = (String, Option<f64>, Option<(f64, f64)>);
 
@@ -271,11 +327,20 @@ pub struct Checked {
     /// Effects drawn in a font this computer doesn't have, so in the pixel font, and not held
     /// here: the baseline is of the font itself. Each as the report lists it.
     pub not_here: Vec<String>,
+    /// DMX fixtures that moved.
+    pub fixtures_moved: Vec<FixtureMoved>,
+    /// How many DMX fixtures were held to the baseline.
+    pub fixtures_held: usize,
+    /// Sequences with DMX fixtures whose baseline was made before fixtures were compared: their
+    /// fixtures aren't held until it is made again.
+    pub fixtures_unheld: Vec<String>,
 }
 
 impl Checked {
     pub fn passed(&self) -> bool {
-        self.broken.is_empty() && !self.moved.iter().any(|m| m.how == Move::Worse)
+        self.broken.is_empty()
+            && !self.moved.iter().any(|m| m.how == Move::Worse)
+            && !self.fixtures_moved.iter().any(|m| m.how == Move::Worse)
     }
 }
 
@@ -318,6 +383,7 @@ pub fn check(baseline: Option<&Baseline>, cards: &[Scorecard], unrendered: &[Str
             Some(r.map_or((s, s), |(a, b)| (a.min(s), b.max(s))))
         });
         checked.looks.push((label.clone(), card.look.score, range));
+        check_fixtures(base, card, margin, &mut checked);
         if base.effects.len() != card.effects.len()
             || !base.effects.iter().zip(&card.effects).all(|(b, e)| b.is(e))
         {
@@ -427,6 +493,98 @@ pub fn check(baseline: Option<&Baseline>, cards: &[Scorecard], unrendered: &[Str
     checked
 }
 
+/// Holds a sequence's DMX fixtures to the baseline's, as effects are held: by score, with
+/// `margin` points to spare, and by verdict, with as many more frames of 100 the same.
+fn check_fixtures(base: &SequenceBase, card: &Scorecard, margin: f64, checked: &mut Checked) {
+    let label = &card.sequence.label;
+    let Some(kept) = &base.fixtures else {
+        if !card.fixtures.is_empty() {
+            checked.fixtures_unheld.push(label.clone());
+        }
+        return;
+    };
+    if kept.len() != card.fixtures.len() || !kept.iter().zip(&card.fixtures).all(|(b, f)| b.name == f.name) {
+        checked.broken.push(format!(
+            "{label}: its DMX fixtures aren't the ones the baseline lists ({} now, {} then): a layout \
+             that brings them in otherwise is a change to accept on purpose",
+            card.fixtures.len(),
+            kept.len()
+        ));
+        return;
+    }
+    for (b, f) in kept.iter().zip(&card.fixtures) {
+        checked.fixtures_held += 1;
+        let (score, verdict) = (f.score, f.verdict);
+        let range = range_of(&b.scores);
+        let verdicts = worst_and_best(&b.verdicts);
+        let was = match (range, verdicts) {
+            (Some((low, high)), Some((worst, _))) => {
+                format!("{low:.1}–{high:.1}, at worst {}", verdict_word(Some(worst)))
+            }
+            _ => "not compared".to_string(),
+        };
+        let now = match (score, verdict) {
+            (Some(score), verdict) => format!("{score:.1}, {}", verdict_word(verdict)),
+            (None, _) => "not compared".to_string(),
+        };
+        let mut worse = Vec::new();
+        let mut better = Vec::new();
+        match (score, range) {
+            (None, Some(_)) => worse.push("no longer compared".to_string()),
+            (Some(score), Some((low, high))) => {
+                if score < low - margin {
+                    worse.push(format!(
+                        "the same on {:.1} fewer frames of 100 than the fewest measured",
+                        low - score
+                    ));
+                } else if score > high + margin {
+                    better.push(format!(
+                        "the same on {:.1} more frames of 100 than the most measured",
+                        score - high
+                    ));
+                }
+            }
+            _ => {}
+        }
+        if let (Some(v), Some(score), Some((worst, best))) = (verdict, score, verdicts) {
+            // The verdict it would earn with `margin` more frames of 100 the same: a part on a
+            // verdict's line, a frame either side of it on another system, never fails.
+            let slack = f.verdict_with(margin / 100.0).unwrap_or(v);
+            if slack > worst {
+                worse.push(format!(
+                    "{} where the baseline is at worst {}",
+                    verdict_word(Some(v)),
+                    verdict_word(Some(worst))
+                ));
+            } else if v < best && score > range.map_or(f64::MAX, |r| r.1) {
+                better.push(format!(
+                    "{} where the baseline is at best {}",
+                    verdict_word(Some(v)),
+                    verdict_word(Some(best))
+                ));
+            }
+        }
+        if let Some(differs) = f.differs.as_deref().filter(|_| !worse.is_empty()) {
+            worse.push(differs.to_string());
+        }
+        let (what, how) = if !worse.is_empty() {
+            (worse.join("; "), Move::Worse)
+        } else if !better.is_empty() {
+            (better.join("; "), Move::Better)
+        } else {
+            continue;
+        };
+        checked.fixtures_moved.push(FixtureMoved {
+            sequence: label.clone(),
+            fixture: f.name.clone(),
+            was,
+            now,
+            what,
+            how,
+        });
+    }
+}
+
 /// A report of a check, in Markdown.
 pub fn markdown(checked: &Checked, margin: f64) -> String {
     let mut out = String::from("## The corpus next to xLights' renders\n\n");
@@ -446,6 +604,14 @@ pub fn markdown(checked: &Checked, margin: f64) -> String {
              was measured at, or earns a worse verdict.\n",
             checked.held
         );
+        if checked.fixtures_held > 0 {
+            let _ = writeln!(
+                out,
+                "{} DMX fixtures held to it too: none is the same on more than {margin} fewer frames of 100 than \
+                 the fewest it was measured at, or earns a worse verdict.\n",
+                checked.fixtures_held
+            );
+        }
     }
     if !checked.broken.is_empty() {
         out.push_str("What can't be held to the baseline:\n\n");
@@ -487,6 +653,39 @@ pub fn markdown(checked: &Checked, margin: f64) -> String {
             );
         }
         out.push('\n');
+    }
+    for (how, title) in [
+        (
+            Move::Worse,
+            "DMX fixtures worse than the baseline (these fail the check)",
+        ),
+        (
+            Move::Better,
+            "DMX fixtures better than the baseline (accept it on purpose to raise the bar)",
+        ),
+    ] {
+        let rows: Vec<&FixtureMoved> = checked.fixtures_moved.iter().filter(|m| m.how == how).collect();
+        if rows.is_empty() {
+            continue;
+        }
+        let _ = writeln!(out, "{title}:\n");
+        out.push_str("| Sequence | Fixture | Baseline | Now | What moved |\n|---|---|---|---|---|\n");
+        for m in rows {
+            let _ = writeln!(
+                out,
+                "| {} | {} | {} | {} | {} |",
+                m.sequence, m.fixture, m.was, m.now, m.what
+            );
+        }
+        out.push('\n');
+    }
+    if !checked.fixtures_unheld.is_empty() {
+        let _ = writeln!(
+            out,
+            "DMX fixtures not held to anything: the baseline was made before fixtures were compared ({}). \
+             Make it again with `pf-fidelity regress --accept`.\n",
+            checked.fixtures_unheld.join(", ")
+        );
     }
     if !checked.not_here.is_empty() {
         out.push_str("Not held on this computer, which hasn't the font they're in:\n\n");

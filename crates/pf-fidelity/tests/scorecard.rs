@@ -767,7 +767,7 @@ fn a_manifest_runs_every_sequence_and_keeps_going_past_one_it_cant_compare() {
 fn a_scorecard_is_json_with_every_effect_and_its_importers_label() {
     let card = score(Reference::default());
     let json = serde_json::to_value(&card).unwrap();
-    assert_eq!(json["schema"], 4);
+    assert_eq!(json["schema"], 5);
     assert_eq!(json["sequence"]["import"]["effects"], 6);
     assert_eq!(json["coverage"]["pixelsMeasured"], 35);
     let effects = json["effects"].as_array().unwrap();
@@ -799,6 +799,15 @@ fn a_scorecard_is_json_with_every_effect_and_its_importers_label() {
     assert_eq!(green["solo"]["mae"], 0.0);
     assert_eq!(green["solo"]["pixelSeconds"], 10.0);
     assert!(json["method"]["limits"]["tolerance"].is_number());
+    // The show has no DMX fixtures: none to compare, and the report doesn't mention them.
+    assert_eq!(json["fixtures"].as_array().map(Vec::len), Some(0));
+    assert_eq!(
+        (&json["dmx"]["judged"], &json["dmx"]["of"]),
+        (&0.into(), &0.into())
+    );
+    assert!(json["dmx"]["verdict"].is_null());
+    assert_eq!(json["method"]["fixtures"]["turnDeg"], 2.0);
+    assert!(!sequence_markdown(&card).contains("DMX fixtures"));
 }
 
 #[test]

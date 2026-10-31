@@ -1,12 +1,15 @@
 //! The scorecards as markdown, for reading: how the import looks first, the pixel-for-pixel
 //! diagnostics last.
 
+use crate::dmx::PartKind;
 use crate::look::{Chance, Component, Components};
 use crate::metrics::Scores;
 use crate::scorecard::{
-    AuditEntry, Basis, ByVerdict, Class, CorpusCard, EffectScore, ExactKind, Improve, KindScore, LabelAudit,
-    LabelCheck, LabelMiss, LookSummary, Music, Ranked, SaysLittle, Scorecard, Source, Verdict,
+    AuditEntry, Basis, ByVerdict, Class, CorpusCard, EffectScore, ExactKind, FixtureScore, FixtureSummary,
+    Improve, KindScore, LabelAudit, LabelCheck, LabelMiss, LookSummary, Music, Ranked, SaysLittle, Scorecard,
+    Source, Verdict,
 };
+use pf_model::DmxKind;
 use std::fmt::Write as _;
 
 /// Most effects listed in a table before it's cut short.
@@ -174,6 +177,95 @@ fn look_summary(out: &mut String, look: &LookSummary, by_moment: &LookSummary) {
             let _ = writeln!(out, "|{}", "---|".repeat(Component::ALL.len()));
             let _ = writeln!(out, "| {} |", component_cells(components).join(" | "));
         }
+    }
+}
+
+/// What the DMX fixtures' section holds them to, before it says how they compare.
+fn fixtures_intro(out: &mut String) {
+    let _ = writeln!(
+        out,
+        "Floods, moving heads, and servos have channels, not pixels, so the look score doesn't see \
+         them. Each is held against xLights' channels frame by frame: where it points (each pan, \
+         tilt, and servo, in degrees), the light it shows (whichever channels make it), and what it \
+         holds (strobe, mode, gobo, speed). A head's aim and what it holds count only while either \
+         render lights it. \"Score\" is how many frames of 100 it shows the same on in every part.\n"
+    );
+}
+
+/// The fixtures as a whole, in a sentence or two.
+pub fn fixtures_headline(summary: &FixtureSummary) -> String {
+    let Some(verdict) = summary.verdict else {
+        return format!(
+            "None of the {} DMX fixtures could be compared: the reference hasn't got their channels.",
+            summary.of
+        );
+    };
+    let counts = &summary.fixtures;
+    let mut line = format!(
+        "**The fixtures {}.** {} of {} compared: {} {}, {} close, {} different.",
+        verdict.phrase(true),
+        summary.judged,
+        summary.of,
+        counts.matches,
+        if counts.matches == 1 { "matches" } else { "match" },
+        counts.close,
+        counts.different
+    );
+    if let Some(differs) = &summary.differs {
+        let _ = write!(line, " {differs}.");
+    }
+    line
+}
+
+fn fixture_kind(kind: DmxKind) -> &'static str {
+    match kind {
+        DmxKind::Head => "moving head",
+        DmxKind::Servo => "servos",
+        DmxKind::Flood => "flood",
+    }
+}
+
+/// A sequence's DMX fixtures: how they compare as a whole, and each.
+fn fixtures(out: &mut String, summary: &FixtureSummary, fixtures: &[FixtureScore]) {
+    fixtures_intro(out);
+    let _ = writeln!(out, "{}\n", fixtures_headline(summary));
+    let _ = writeln!(
+        out,
+        "| Fixture | Kind | Channels | Frames | Looks | Score | Where it points (most off) | Light off | Held values off | What a viewer would notice |"
+    );
+    let _ = writeln!(out, "|---|---|---|---|---|---|---|---|---|---|");
+    for f in fixtures {
+        let off = |kind: PartKind| {
+            f.parts
+                .iter()
+                .find(|p| p.kind == kind)
+                .map_or_else(|| "–".to_string(), |p| pct(p.near + p.far))
+        };
+        let motors: Vec<String> = f
+            .parts
+            .iter()
+            .filter(|p| p.kind == PartKind::Motor)
+            .map(|p| format!("{} {}°", cell(&p.name), maybe(p.most, num)))
+            .collect();
+        let aim = match (motors.is_empty(), f.kind, f.verdict) {
+            (false, _, _) => motors.join(", "),
+            (true, DmxKind::Head, Some(_)) => "dark throughout".to_string(),
+            _ => "–".to_string(),
+        };
+        let _ = writeln!(
+            out,
+            "| {} | {} | {} | {} | {} | {} | {aim} | {} | {} | {} |",
+            cell(&f.name),
+            fixture_kind(f.kind),
+            f.channels
+                .map_or_else(|| "–".to_string(), |(a, b)| format!("{a}–{b}")),
+            f.frames,
+            f.verdict.map_or("not compared", Verdict::title),
+            maybe(f.score, whole),
+            off(PartKind::Light),
+            off(PartKind::Held),
+            f.differs.as_deref().map_or_else(|| "–".to_string(), cell),
+        );
     }
 }
 
@@ -830,6 +922,11 @@ pub fn sequence_markdown(card: &Scorecard) -> String {
     let _ = writeln!(o, "## How it looks\n");
     look_summary(o, &card.look, &card.look_by_moment);
 
+    if card.dmx.of > 0 {
+        let _ = writeln!(o, "\n## DMX fixtures\n");
+        fixtures(o, &card.dmx, &card.fixtures);
+    }
+
     let _ = writeln!(o, "\n## What to improve first\n");
     let _ = writeln!(
         o,
@@ -885,6 +982,13 @@ pub fn sequence_markdown(card: &Scorecard) -> String {
     );
     if !coverage.unmeasured_props.is_empty() {
         let _ = writeln!(o, "- Not measured: {}.", coverage.unmeasured_props.join(", "));
+    }
+    if card.dmx.of > 0 {
+        let _ = writeln!(
+            o,
+            "- {} of {} DMX fixtures are compared by their channels (\"DMX fixtures\"), not by pixels.",
+            card.dmx.judged, card.dmx.of
+        );
     }
     let _ = writeln!(
         o,
@@ -1143,6 +1247,30 @@ pub fn corpus_markdown(card: &CorpusCard) -> String {
         let _ = writeln!(o, "\nNot compared:\n");
         for f in &card.failures {
             let _ = writeln!(o, "- {}: {}", f.label, f.error);
+        }
+    }
+    if card.dmx.of > 0 {
+        let _ = writeln!(o, "\n## DMX fixtures\n");
+        fixtures_intro(o);
+        let _ = writeln!(o, "{}\n", fixtures_headline(&card.dmx));
+        let _ = writeln!(
+            o,
+            "| Sequence | Compared | Matches / close / different | Looks | What a viewer would notice |"
+        );
+        let _ = writeln!(o, "|---|---|---|---|---|");
+        for s in card.sequences.iter().filter(|s| s.dmx.of > 0) {
+            let _ = writeln!(
+                o,
+                "| {} | {} of {} | {} / {} / {} | {} | {} |",
+                cell(&s.label),
+                s.dmx.judged,
+                s.dmx.of,
+                s.dmx.fixtures.matches,
+                s.dmx.fixtures.close,
+                s.dmx.fixtures.different,
+                s.dmx.verdict.map_or("not compared", Verdict::title),
+                s.dmx.differs.as_deref().map_or_else(|| "–".to_string(), cell),
+            );
         }
     }
     let _ = writeln!(o, "\n## What to improve first\n");

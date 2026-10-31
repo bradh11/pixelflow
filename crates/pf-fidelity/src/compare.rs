@@ -6,6 +6,7 @@
 //! what PixelFlow would write against what xLights wrote, channel for channel.
 
 use crate::chance::{self, Chance};
+use crate::dmx::{self, FixtureScore, Track};
 use crate::layout::{ComparisonShow, comparison_show};
 use crate::look::{Grid, Look, LookStats, Parts, Scratch, next_to_seeds};
 use crate::metrics::{Limits, PIXELFLOW, Sample, Stats, XLIGHTS};
@@ -14,7 +15,7 @@ use crate::scorecard::{
     ReferenceInfo, Scorecard, SequenceInfo, Source, Timing,
 };
 use crate::{FidelityError, TOOL};
-use pf_model::{PropId, Show};
+use pf_model::{DmxChannel, PropId, Show};
 use pf_render::export::{ExportError, ExportSummary, export_fseq, export_layout};
 use pf_render::{AudioSource, Pictures, SceneGeometry};
 use pf_sequence::{Effect, EffectParams, Sequence, Target, TendrilMovement};
@@ -307,6 +308,18 @@ pub struct EffectEntry {
     pub expected: Verdict,
 }
 
+/// One DMX fixture and where its channels are in both files: compared channel by channel
+/// ([`crate::dmx`]), not pixel by pixel.
+#[derive(Debug, Clone)]
+struct FixtureEntry {
+    name: String,
+    channels: Vec<DmxChannel>,
+    /// The cells its light shows on.
+    cells: usize,
+    /// Its first channel, counting from 0, where both files hold all of its channels.
+    first: Option<usize>,
+}
+
 /// What of the reference isn't compared (see `Prepared::dark_runs`).
 struct LeftOut {
     /// For each prop, the frames it's left out on.
@@ -340,6 +353,7 @@ pub struct Prepared {
     /// By place in the show-wide pixel list; `None` where either side has no data.
     slots: Vec<Option<Slot>>,
     props: Vec<PropEntry>,
+    fixtures: Vec<FixtureEntry>,
     effects: Vec<EffectEntry>,
     music: Music,
     notes: Vec<String>,
@@ -453,11 +467,13 @@ impl Prepared {
         }
 
         let stored = reference.stored_ranges();
-        let (slots, mut props) = lay_out(&comparison, summary.channels, |first, channels| {
+        let holds = |first: u64, channels: u64| {
             stored
                 .iter()
                 .any(|r| u64::from(r.start) <= first && first + channels <= u64::from(r.end))
-        });
+        };
+        let (slots, mut props) = lay_out(&comparison, summary.channels, holds);
+        let fixtures = fixtures_of(&comparison, summary.channels, holds);
         let geometry = SceneGeometry::new(show, &comparison.map);
         for (entry, layout) in props.iter_mut().zip(&comparison.map.props) {
             let buffer = geometry.buffer(Target::Prop(layout.prop));
@@ -594,6 +610,7 @@ impl Prepared {
             reference,
             slots,
             props,
+            fixtures,
             effects,
             music,
             notes,
@@ -810,6 +827,14 @@ impl Prepared {
         // Each effect's share of the pixel-frames it was lit on: a pixel under three effects
         // counts a third for each.
         let mut shares = vec![0f64; self.effects.len()];
+        // Each DMX fixture's channels on both sides, frame by frame, up to where the reference
+        // was cut short (what it holds from then on may be unfinished).
+        let mut tracks: Vec<Track> = self
+            .fixtures
+            .iter()
+            .map(|f| Track::new(f.channels.len()))
+            .collect();
+        let cut_at = cut_short.map(|(first, _)| first);
         // Frames from each effect's start to the first one a side lights its pixels on; kept
         // only for effects that start on dark pixels.
         let mut onsets: Vec<Option<[Option<u32>; 2]>> = vec![None; self.effects.len()];
@@ -867,6 +892,9 @@ impl Prepared {
             let Some(theirs_at) = self.reference_frame(frame) else {
                 missing += 1;
                 was_lit.fill([false; 2]);
+                for track in &mut tracks {
+                    track.push(None);
+                }
                 continue;
             };
             compared += 1;
@@ -878,6 +906,16 @@ impl Prepared {
                 .map_err(FidelityError::ReferenceFrame)?;
             decode(&self.slots, &ours, &mut colors[PIXELFLOW]);
             decode(&self.slots, &theirs, &mut colors[XLIGHTS]);
+            for (fixture, track) in self.fixtures.iter().zip(&mut tracks) {
+                let both = fixture
+                    .first
+                    .filter(|_| cut_at.is_none_or(|cut| frame < cut))
+                    .and_then(|first| {
+                        let at = first..first + fixture.channels.len();
+                        Some((ours.get(at.clone())?, theirs.get(at)?))
+                    });
+                track.push(both);
+            }
             if active.iter().any(|&i| !seeding[i].is_empty()) {
                 for (frames, drawn) in self.others.iter_mut().zip(&mut drawn_by) {
                     frames
@@ -1144,6 +1182,18 @@ impl Prepared {
             })
             .collect();
 
+        let fixtures: Vec<FixtureScore> = self
+            .fixtures
+            .iter()
+            .zip(&tracks)
+            .map(|(fixture, track)| FixtureScore {
+                channels: fixture
+                    .first
+                    .map(|first| (first as u32 + 1, (first + fixture.channels.len()) as u32)),
+                ..dmx::judge(&fixture.name, &fixture.channels, fixture.cells, track, limits.lit)
+            })
+            .collect();
+
         let offsets: Vec<OffsetError> = offsets
             .into_iter()
             .filter(|(_, (_, n))| *n > 0)
@@ -1218,10 +1268,13 @@ impl Prepared {
             pixels_measured: measurable.len(),
             pixels_on_controllers: measured_on(Source::Controller),
             pixels_on_stand_ins: measured_on(Source::StandIn),
+            // A fixture compared by its channels is measured, though it has no pixels.
             unmeasured_props: self
                 .props
                 .iter()
-                .filter(|p| p.measured == 0)
+                .filter(|p| {
+                    p.measured == 0 && !fixtures.iter().any(|f| f.name == p.name && f.channels.is_some())
+                })
                 .map(|p| p.name.clone())
                 .collect(),
             effects: effects.len(),
@@ -1318,6 +1371,7 @@ impl Prepared {
                 by_moment: self.options.by_moment,
                 other_seeds: self.others.len(),
                 little: crate::look::LITTLE,
+                fixtures: dmx::Lines::default(),
                 set_aside: self.comparison.set_aside,
                 stand_in_controllers: self.comparison.stand_ins.len(),
             },
@@ -1326,6 +1380,7 @@ impl Prepared {
             overall.scores(),
             unattributed.scores(),
             props,
+            fixtures,
             effects,
             notes,
         ))
@@ -1435,4 +1490,44 @@ fn lay_out(
         }
     }
     (slots, props)
+}
+
+/// Finds every DMX fixture's channels in PixelFlow's export (`exported` channels), where the
+/// reference holds them too (`stored`, as for [`lay_out`]): all of a fixture's channels, from
+/// where the first of the spans sending it puts them.
+fn fixtures_of(
+    comparison: &ComparisonShow,
+    exported: u32,
+    stored: impl Fn(u64, u64) -> bool,
+) -> Vec<FixtureEntry> {
+    let (show, map) = (&comparison.show, &comparison.map);
+    let blocks = export_layout(show, map).blocks;
+    map.fixtures
+        .iter()
+        .map(|fixture| {
+            let width = fixture.footprint();
+            let first = blocks.iter().find_map(|block| {
+                let at = show.controllers.iter().position(|c| c.id == block.controller)?;
+                let span = map.controllers[at].spans.iter().find(|s| {
+                    s.prop == fixture.prop
+                        && s.channels_per_pixel == 1
+                        && s.frame_offset == fixture.dmx_offset
+                })?;
+                if span.controller_channel + width > block.count as usize {
+                    return None;
+                }
+                let first = u64::from(block.start) - 1 + span.controller_channel as u64;
+                (first + width as u64 <= u64::from(exported) && stored(first, width as u64))
+                    .then_some(first as usize)
+            });
+            FixtureEntry {
+                name: show
+                    .prop(fixture.prop)
+                    .map_or_else(String::new, |p| p.name.clone()),
+                channels: fixture.channels.clone(),
+                cells: fixture.cells as usize,
+                first,
+            }
+        })
+        .collect()
 }

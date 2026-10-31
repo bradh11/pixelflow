@@ -16,6 +16,8 @@
 //! - [`scorecard`] is what comes out: how much of the sequence matches, is close, is different,
 //!   or has no equivalent; what to improve first and which part of its look is off; and how the
 //!   importer's labels held up.
+//! - [`dmx`] holds DMX fixtures (floods, moving heads, servos), which have channels rather than
+//!   pixels, to xLights' channels: where each points, the light it shows, and what it holds.
 //! - [`labels`] holds the importer's table of expected looks against a scorecard.
 //! - [`metrics`] is the pixel-for-pixel arithmetic the scorecard keeps as diagnostics: error,
 //!   tolerance, lit agreement, brightness correlation, hue, and distributions.
@@ -33,6 +35,7 @@ pub mod calibrate;
 pub mod chance;
 pub mod compare;
 pub mod corpus;
+pub mod dmx;
 pub mod fingerprint;
 pub mod labels;
 pub mod layout;

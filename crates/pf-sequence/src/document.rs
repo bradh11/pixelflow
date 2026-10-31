@@ -29,8 +29,9 @@ use serde::{Deserialize, Serialize};
 /// whose curves can change one of those (`inputs.<name>`); 15 = the DMX effect, which sets
 /// fixtures' channels by number (`channels`), and whose curves can change one (`channels.<n>`);
 /// 16 = Text can be drawn in a font on the computer, by family name, bold or italic (`font`,
-/// `bold`, `italic`).
-pub const CURRENT_SCHEMA_VERSION: u32 = 16;
+/// `bold`, `italic`); 17 = the Moving Head and Servo effects, which point moving heads and turn
+/// servos (`movingHead`, `servo`).
+pub const CURRENT_SCHEMA_VERSION: u32 = 17;
 
 fn default_frame_ms() -> u32 {
     25

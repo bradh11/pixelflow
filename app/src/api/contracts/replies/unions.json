@@ -207,7 +207,9 @@
       "fill",
       "fireworks",
       "shader",
-      "dmx"
+      "dmx",
+      "movingHead",
+      "servo"
     ]
   },
   {
@@ -1226,7 +1228,36 @@
         "speed": 1.0,
         "zoom": 0.0
       },
-      { "channels": {}, "kind": "dmx" }
+      { "channels": {}, "kind": "dmx" },
+      {
+        "color": "first",
+        "delay": 0.0,
+        "dimmer": 100.0,
+        "fanPan": 0.0,
+        "fanTilt": 0.0,
+        "fans": 1,
+        "height": 45.0,
+        "kind": "movingHead",
+        "mirror": false,
+        "pan": 0.0,
+        "pattern": "still",
+        "seed": 1,
+        "speed": 0.25,
+        "strobe": 0.0,
+        "tilt": 0.0,
+        "width": 90.0
+      },
+      {
+        "delay": 0.0,
+        "fan": 0.0,
+        "kind": "servo",
+        "pattern": "still",
+        "position": 0.0,
+        "servo": 0,
+        "size": 90.0,
+        "speed": 0.5,
+        "steps": 4
+      }
     ]
   },
   {

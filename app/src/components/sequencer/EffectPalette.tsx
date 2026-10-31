@@ -8,6 +8,8 @@ import {
   Blinds,
   Braces,
   SlidersHorizontal,
+  Spotlight,
+  Cog,
   CircleDot,
   CloudLightning,
   CloudSnow,
@@ -92,6 +94,8 @@ export const EFFECT_ICONS: Record<EffectKind, LucideIcon> = {
   fireworks: PartyPopper,
   shader: Braces,
   dmx: SlidersHorizontal,
+  movingHead: Spotlight,
+  servo: Cog,
 };
 
 /** Drags this far (screen pixels) before a press on the palette becomes a drag. */

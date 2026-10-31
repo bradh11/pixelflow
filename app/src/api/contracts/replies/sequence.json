@@ -37,7 +37,7 @@
             }
           }
         ],
-        "schemaVersion": 16,
+        "schemaVersion": 17,
         "timingTracks": []
       }
     }
@@ -1153,6 +1153,69 @@
             "index": 41,
             "layer": 0,
             "row": "44444444-0000-4000-8000-000000000001"
+          },
+          {
+            "effect": {
+              "blend": "normal",
+              "blur": 0,
+              "endMs": 43000,
+              "fadeInMs": 0,
+              "fadeOutMs": 0,
+              "id": "55555555-0000-4000-8000-000000000043",
+              "palette": { "colors": ["#ff0000", "#00ff00"] },
+              "params": {
+                "color": "first",
+                "delay": 0.0,
+                "dimmer": 100.0,
+                "fanPan": 0.0,
+                "fanTilt": 0.0,
+                "fans": 1,
+                "height": 45.0,
+                "kind": "movingHead",
+                "mirror": false,
+                "pan": 0.0,
+                "pattern": "still",
+                "seed": 1,
+                "speed": 0.25,
+                "strobe": 0.0,
+                "tilt": 0.0,
+                "width": 90.0
+              },
+              "sparkleColor": "#ffffff",
+              "sparkles": 0,
+              "startMs": 42000
+            },
+            "index": 42,
+            "layer": 0,
+            "row": "44444444-0000-4000-8000-000000000001"
+          },
+          {
+            "effect": {
+              "blend": "normal",
+              "blur": 0,
+              "endMs": 44000,
+              "fadeInMs": 0,
+              "fadeOutMs": 0,
+              "id": "55555555-0000-4000-8000-000000000044",
+              "palette": { "colors": ["#ff0000", "#00ff00"] },
+              "params": {
+                "delay": 0.0,
+                "fan": 0.0,
+                "kind": "servo",
+                "pattern": "still",
+                "position": 0.0,
+                "servo": 0,
+                "size": 90.0,
+                "speed": 0.5,
+                "steps": 4
+              },
+              "sparkleColor": "#ffffff",
+              "sparkles": 0,
+              "startMs": 43000
+            },
+            "index": 43,
+            "layer": 0,
+            "row": "44444444-0000-4000-8000-000000000001"
           }
         ],
         "info": null,
@@ -1187,6 +1250,18 @@
         {
           "effect": "55555555-0000-4000-8000-000000000042",
           "message": "The DMX effect at 0:41.000 on 'Strip' (layer 1) starts after the sequence ends (0:40.000), so it never shows.",
+          "row": "44444444-0000-4000-8000-000000000001",
+          "severity": "warning"
+        },
+        {
+          "effect": "55555555-0000-4000-8000-000000000043",
+          "message": "The Moving Head effect at 0:42.000 on 'Strip' (layer 1) starts after the sequence ends (0:40.000), so it never shows.",
+          "row": "44444444-0000-4000-8000-000000000001",
+          "severity": "warning"
+        },
+        {
+          "effect": "55555555-0000-4000-8000-000000000044",
+          "message": "The Servo effect at 0:43.000 on 'Strip' (layer 1) starts after the sequence ends (0:40.000), so it never shows.",
           "row": "44444444-0000-4000-8000-000000000001",
           "severity": "warning"
         }
@@ -1636,7 +1711,7 @@
             "target": { "group": "22222222-0000-4000-8000-000000000001" }
           }
         ],
-        "schemaVersion": 16,
+        "schemaVersion": 17,
         "timingTracks": [
           {
             "id": "66666666-0000-4000-8000-000000000002",
@@ -1922,7 +1997,7 @@
             "target": { "group": "22222222-0000-4000-8000-000000000001" }
           }
         ],
-        "schemaVersion": 16,
+        "schemaVersion": 17,
         "timingTracks": [
           {
             "id": "66666666-0000-4000-8000-000000000002",

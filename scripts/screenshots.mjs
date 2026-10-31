@@ -435,6 +435,23 @@ const SHOTS = [
     },
   },
   {
+    name: "dmx-test-head",
+    file: "dmx-test-head.png",
+    usedBy: "dmx",
+    async run(ui) {
+      await addHead(ui);
+      await wireToDmxNode(ui, ["Lawn Spot"]);
+      await ui.screen("Test");
+      await ui.choose("Target", "Prop: Lawn Spot");
+      await ui.choose("Pattern", "DMX channels by hand");
+      for (const [axis, degrees] of [["Pan degrees", 90], ["Tilt degrees", 45]]) await ui.slide(axis, degrees);
+      for (const [channel, value] of [["Dimmer", 255], ["Blue", 255]]) await ui.slide(channel, value);
+      const top = await ui.box("Test", { sel: "h1,h2", pad: 0 });
+      const card = await ui.parentBoxOf("Target", { sel: "label", up: 3 });
+      return padded({ x: top.x, y: top.y, width: card.x + card.width - top.x, height: card.y + card.height - top.y }, 16);
+    },
+  },
+  {
     name: "shader-settings",
     file: "shader-settings.png",
     usedBy: "shaders",

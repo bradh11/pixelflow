@@ -87,9 +87,9 @@ wheel, or cyan, magenta and yellow, usually with a dimmer and a shutter.
 
 ![A moving head on the lawn on the Layout screen, selected. Its properties show DMX moving head: Channels, Start address 20, and Pan and tilt open: Pan and Tilt, each 16-bit, with Turns, Home at, two limits and Reversed; Hung upside down; Beam width 15 and Beam drawn 6.](images/dmx-moving-head.png)
 
-A head rests where its pan and tilt channels hold their values: a head made from the library
-rests at Home. Positions are always in degrees from Home, so they mean the same on any head,
-16-bit or 8-bit, standing or hung.
+A head rests where its pan and tilt channels hold their values: a head made from the library, or
+imported from xLights, rests at Home. Positions are always in degrees from Home, so they mean the
+same on any head, 16-bit or 8-bit, standing or hung.
 
 A color wheel lists its colors under **Color wheel: its colors**: each color, and the value that
 turns the wheel to it, from the manual. With its colors listed, effects that draw color on the
@@ -182,7 +182,8 @@ them, beside its pixels. The import report says how each kind comes across:
   become moving heads with their pan and tilt (and fine channels), how far each turns, where
   Home is, their limits and whether each is reversed, their colors (red, green, blue and white, a
   color wheel with its colors, or cyan, magenta and yellow), dimmer, shutter and gobo channels,
-  and their beam width. Their pan and tilt hold 0, as xLights sends a channel nothing sets.
+  and their beam width. Where nothing moves them, they rest at Home (xLights sends their pan and
+  tilt 0 there, which on most heads is a corner of their travel).
 - **Servos** (`DmxServo`, `DmxServo3d`): "Matches". Each servo keeps its channels (16-bit or 8-bit)
   and its limits, with Home between them, and is drawn as an arm.
 - "Close", for a head that hangs upside down (PixelFlow turns it half round; it sends what xLights

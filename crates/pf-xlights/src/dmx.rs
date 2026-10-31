@@ -20,6 +20,7 @@
 //!   16-bit scale, `RangeOfMotion` in degrees, `Reverse`); one after another from channel 1 when
 //!   the file doesn't say. A cell each, where its arm is drawn.
 //!
+//! A head's pan and tilt rest at Home when nothing moves them, as PixelFlow's own heads do.
 //! Every other channel holds 0, as xLights sends a channel nothing sets. Skulls and other DMX
 //! models stay as they were (a row of channel dots, not wired).
 
@@ -238,6 +239,10 @@ pub(crate) fn fixture(model: &XmlModel, kind: Kind, address: u16) -> Imported {
             }
             out.cells = placed.max(1);
         }
+    }
+    if kind == Kind::Head {
+        // Where nothing moves it, a head rests at Home (xLights would send its pan and tilt 0).
+        pf_model::rest_motors_at(&mut channels, 0.0);
     }
     out.fixture.channels = channels;
     out
@@ -490,7 +495,10 @@ mod tests {
             "no limits in the file"
         );
         assert_eq!(f.channels[10].value, 8, "the shutter held open");
-        assert_eq!(f.channels[0].value, 0, "pan holds 0, as xLights sends it");
+        // At rest, Home: pan 270° of 540° is the middle (128, 0); the reversed tilt's Home, 135°
+        // of 270°, is the middle too.
+        let held: Vec<u8> = f.channels[..4].iter().map(|c| c.value).collect();
+        assert_eq!(held, [128, 0, 128, 0], "pan and tilt rest at Home");
         assert_eq!(f.beam.unwrap().angle_deg, 25.0);
         assert!(found.colored && found.upside_down && !found.unmoving);
         assert_eq!(f.problem(1), None);

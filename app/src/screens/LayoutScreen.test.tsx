@@ -529,6 +529,50 @@ describe("LayoutScreen", () => {
     expect(items[0]).toHaveFocus();
   });
 
+  it("adds a moving head from the menu, at Home, and sets up how it pans, hangs, and spreads its beam", async () => {
+    const user = await setup(showWith(line("Gutter", 0, 0)));
+    await user.click(screen.getByRole("button", { name: "Add prop" }));
+    await user.click(within(screen.getByRole("menu", { name: "Add prop" })).getByRole("menuitem", { name: "DMX moving head" }));
+    const head = backend.show.props[1];
+    expect(head.name).toBe("Moving Head 1");
+    expect(head.dmx?.layout).toBe("head-rgbw-16");
+    expect(head.dmx?.channels.slice(0, 4).map((c) => c.value ?? 0)).toEqual([128, 0, 128, 0]);
+    const panel = screen.getByRole("region", { name: "DMX moving head" });
+    await user.click(within(panel).getByRole("button", { name: "Pan and tilt" }));
+    expect(within(panel).getByText(/Pan/, { selector: "legend" })).toBeInTheDocument();
+
+    // A pan of 630° with Home in the middle: the head still rests at Home.
+    const turns = within(panel).getAllByRole("textbox", { name: "Turns (°)" })[0];
+    await user.clear(turns);
+    await user.type(turns, "630{Enter}");
+    await waitFor(() => expect(backend.show.props[1].dmx?.channels[0].motor?.rangeDeg).toBe(630));
+    const home = within(panel).getAllByRole("textbox", { name: "Home at (°)" })[0];
+    await user.clear(home);
+    await user.type(home, "315{Enter}");
+    await waitFor(() => expect(backend.show.props[1].dmx?.channels[0].motor).toEqual({ rangeDeg: 630, homeDeg: 315 }));
+    expect(backend.show.props[1].dmx?.channels.slice(0, 2).map((c) => c.value ?? 0)).toEqual([128, 0]);
+
+    await user.click(within(panel).getByRole("checkbox", { name: "Hung upside down" }));
+    await waitFor(() => expect(backend.show.props[1].transform.rotationDeg.z).toBe(180));
+    const width = within(panel).getByRole("textbox", { name: "Beam width (°)" });
+    await user.clear(width);
+    await user.type(width, "25{Enter}");
+    await waitFor(() => expect(backend.show.props[1].dmx?.beam).toEqual({ angleDeg: 25, length: 6 }));
+  });
+
+  it("adds servos from the menu and lists a color wheel's colors on a head that has one", async () => {
+    const user = await setup(showWith(line("Gutter", 0, 0)));
+    await user.click(screen.getByRole("button", { name: "Add prop" }));
+    await user.click(within(screen.getByRole("menu", { name: "Add prop" })).getByRole("menuitem", { name: "DMX servo" }));
+    expect(backend.show.props[1].dmx?.channels.map((c) => c.role)).toEqual(["servo", "servoFine"]);
+    expect(screen.getByText("Servo", { selector: "p,span,div" })).toBeInTheDocument();
+    await user.selectOptions(screen.getByRole("combobox", { name: "Channel layout" }), "head-spot-16");
+    await waitFor(() => expect(backend.show.props[1].dmx?.layout).toBe("head-spot-16"));
+    await user.click(screen.getByRole("button", { name: /Color wheel: its colors/ }));
+    await user.click(screen.getByRole("button", { name: "Add a color" }));
+    await waitFor(() => expect(backend.show.props[1].dmx?.channels[7].slots).toEqual([{ value: 0, color: "#ffffff" }]));
+  });
+
   it("closes the Add prop menu when focus leaves it", async () => {
     const user = await setup(showWith(line("Gutter", 0, 0)));
     await user.click(screen.getByRole("button", { name: "Add prop" }));

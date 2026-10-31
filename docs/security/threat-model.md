@@ -512,12 +512,22 @@ DMX adds two output paths and a new kind of risk.
 - **What the data can do.** A DMX channel is not a light level: it can be a strobe rate, a macro
   that starts a fixture's own program, a moving head's position, or a fog machine. A show from
   someone else could hold mode or strobe values (held channel values and DMX effects) that make a
-  fixture strobe or move. The safeguards are the existing ones (nothing is sent until the user
-  starts a test or playback; Stop sends black), the Test screen's warning by its channel sliders,
-  and the user page (`docs/dmx.md`), which says to know what is on each address. Brightness and
-  gamma on a DMX controller's port are not applied (they would turn one mode into another).
+  fixture strobe or move, and a moving head's or servo's channels point it anywhere its motors
+  reach. The safeguards are the existing ones (nothing is sent until the user starts a test or
+  playback, Send or Play), the Test screen's warning by its channel sliders, and the user page
+  (`docs/dmx.md`), which says to know what is on each address and to keep clear of a head's
+  reach. Black (Stop, the end of playback, a retired controller, rendered and `.fseq` output alike)
+  zeroes every channel except a fixture's pan, tilt and servo channels and their fine channels,
+  which keep their last values (`ControllerPlan::holds` in `crates/pf-output/src/plan.rs`), so a
+  stop never swings a machine. A motor's limits in the show clamp positions PixelFlow works out in
+  degrees (the Test screen's sliders); a DMX effect's raw values are sent as they are. Brightness
+  and gamma on a DMX controller's port are not applied (they would turn one mode into another).
 - **Limits.** A fixture has at most 512 channels and names of at most 40 characters, checked when
-  a show is opened; a DMX effect sets channels 1 to 512 only.
+  a show is opened; a motor turns at most 1080° with Home within its travel and limits either side
+  of it, a wheel lists at most 64 slots, and a beam is 1° to 120° wide and 0.5 to 100 long, and a
+  fixture that breaks one is reported and takes no channels. A DMX effect sets channels 1 to 512
+  only. The preview's motion record (sent after the
+  positions as JSON) is checked for its length before it is read.
 
 **Listening:** only during a scan: UDP 32320 on all interfaces for three seconds, and the mDNS
 library's sockets on 5353. No TCP listener.

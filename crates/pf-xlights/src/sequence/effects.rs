@@ -5315,4 +5315,18 @@ mod tests {
         };
         assert!(at(0) < 10.0 && at(999) > 245.0, "{curve:?}");
     }
+
+    #[test]
+    fn moving_head_and_servo_effects_are_left_out_until_pixelflow_has_them() {
+        let s = Settings::parse("E_TEXTCTRL_MH1_Settings=Pan: 10.0;Tilt: 20.0,E_SLIDER_Servo=50");
+        for name in ["Moving Head", "Servo"] {
+            assert!(
+                translate(name, &s, &palette(&[Rgb::RED]), 1000, 25).is_none(),
+                "{name}"
+            );
+        }
+        let mut tally = Tally::default();
+        assert_eq!(tally.record("Moving Head", &Fidelity::Skipped, 1000), None);
+        assert!(tally.skipped_note().unwrap().ends_with("Moving Head (1)."));
+    }
 }

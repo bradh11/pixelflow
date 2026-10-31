@@ -43,7 +43,7 @@ import { useApp } from "../../state/store";
 import { type CameraAction, loadShowView, saveShowView, useView3d } from "../../state/view3d";
 import { type LayoutCanvasHandle, SelectionAnnouncer } from "../layout/LayoutCanvas";
 import { type PhotoImage, useLiveFrame } from "../layout/useLayoutData";
-import { type Scene3d, type SceneFactory, loadThreeScene, readModel } from "./scene";
+import { type Scene3d, type SceneFactory, loadThreeScene, motionOf, readModel } from "./scene";
 import { View3dControls } from "./View3dControls";
 
 /** How close (screen pixels) a click must be to a pixel to pick its prop. */
@@ -309,6 +309,7 @@ export function Layout3dView({ preview, show, photo, storageKey, editable = fals
     const selected = new Set(editable ? useLayoutEditor.getState().selected : []);
     fillColors(latest.current.preview.props, f ?? null, selected, (editable ? EDITING : LOOKING).selected, up.colors);
     scene.setColors(up.colors, !!f);
+    scene.setMotion(motionOf(latest.current.preview.props, f ?? null));
   };
 
   const syncBackdrop = () => {

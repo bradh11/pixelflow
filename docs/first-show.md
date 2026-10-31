@@ -223,7 +223,7 @@ your show are marked **In show**.
    string**, **Matrix**, or **Mega tree**. It lands in the middle of the canvas. Or pick a tool on
    the toolbar and drag on the canvas to draw the prop where it belongs.
 
-   ![The Add prop menu open below the Add prop button: Arch, Line / string, Poly line (bends), Matrix, Mega tree, Star, Circle, Wreath, Candy canes, Icicles, Window frame, Spinner, Sphere, Cube, Custom grid, and DMX flood or bar.](images/layout-add-prop.png)
+   ![The Add prop menu open below the Add prop button: Arch, Line / string, Poly line (bends), Matrix, Mega tree, Star, Circle, Wreath, Candy canes, Icicles, Window frame, Spinner, Sphere, Cube, Custom grid, then DMX flood or bar, DMX moving head, and DMX servo.](images/layout-add-prop.png)
 
 3. Select a prop to see its **Properties** panel. Set its pixel count, name, and position there.
 4. **Photo behind the props:** choose **Photo** on the toolbar (the picture button), then

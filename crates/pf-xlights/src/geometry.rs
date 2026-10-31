@@ -186,7 +186,18 @@ fn dispatch(cx: &mut Ctx) -> Raw {
     if t.starts_with("Dmx") {
         return dmx(
             cx,
-            matches!(t.as_str(), "DmxGeneral" | "DmxFloodlight" | "DmxFloodArea"),
+            matches!(
+                t.as_str(),
+                "DmxGeneral"
+                    | "DmxFloodlight"
+                    | "DmxFloodArea"
+                    | "DmxMovingHeadAdv"
+                    | "DmxMovingHead"
+                    | "DmxMovingHead3D"
+                    | "DmxServo"
+                    | "DmxServo3d"
+                    | "DmxServo3D"
+            ),
         );
     }
     if t.contains("Matrix") {
@@ -214,17 +225,20 @@ fn dispatch(cx: &mut Ctx) -> Raw {
 }
 
 /// DMX fixtures: `DmxChannelCount` single-channel nodes (`DmxModel::InitModel`), shown as a small
-/// row at the model position since their real look comes from a 3D fixture drawing. A flood
-/// (`flood`) becomes a DMX fixture on import (see `dmx.rs`); the others stay as these dots.
-fn dmx(cx: &mut Ctx, flood: bool) -> Raw {
+/// row at the model position since their real look comes from a 3D fixture drawing. A flood, a
+/// moving head or servos (`fixture`) become a DMX fixture on import (see `dmx.rs`); the others
+/// (skulls and the like) stay as these dots.
+fn dmx(cx: &mut Ctx, fixture: bool) -> Raw {
     cx.cpn = 1;
     let n = cx.parm("DmxChannelCount", "parm1", "1").max(0);
     if cx.over_cap(n) {
         cx.capped_block(|_| n);
         return Raw::empty();
     }
-    if !flood {
-        cx.note("DMX fixture shown as a row of channel dots at its position; PixelFlow doesn't drive moving heads and servos yet");
+    if !fixture {
+        cx.note(
+            "DMX model shown as a row of channel dots at its position; PixelFlow has no fixture for it yet",
+        );
     }
     let start = cx.string_starts(1, n, &[])[0];
     row_at_position(cx, n, |i| start + i)

@@ -626,6 +626,18 @@ pub(crate) struct Dots {
     /// `wash_reach` (picture pixels).
     washes: Vec<crate::flood::Wash>,
     wash_reach: f64,
+    /// Moving heads and servos: a beam or arms each, under every dot, after the washes.
+    movers: Vec<Mover>,
+    view: View,
+}
+
+/// A moving head or servos: its cells placed in the picture, where its color is in a show frame,
+/// and how it moves (see `beam.rs`).
+#[derive(Debug, Clone)]
+struct Mover {
+    cells: Vec<(f64, f64)>,
+    offset: usize,
+    motion: pf_engine::PreviewMotion,
 }
 
 impl Dots {
@@ -665,6 +677,25 @@ impl Dots {
             drawn: None,
             washes: crate::flood::washes(props, view),
             wash_reach: crate::flood::wash_reach(view),
+            movers: props
+                .iter()
+                .filter_map(|p| {
+                    let motion = p.motion.clone()?;
+                    let cells = p
+                        .points
+                        .as_chunks::<2>()
+                        .0
+                        .iter()
+                        .map(|xy| view.place(f64::from(xy[0]), f64::from(xy[1])))
+                        .collect();
+                    Some(Mover {
+                        cells,
+                        offset: p.frame_offset,
+                        motion,
+                    })
+                })
+                .collect(),
+            view: *view,
         };
         let mut washed = Reach::NOWHERE;
         for wash in &dots.washes {
@@ -860,6 +891,16 @@ impl Dots {
 
         dots.crowded = crowded.within(width, height);
         dots.drawn = apart.with(crowded).with(washed).within(width, height);
+        // A beam can point anywhere: with any, each frame starts from an empty picture.
+        if !dots.movers.is_empty() {
+            dots.drawn = Reach {
+                x0: 0,
+                y0: 0,
+                x1: width as i32,
+                y1: height as i32,
+            }
+            .within(width, height);
+        }
         dots
     }
 
@@ -927,6 +968,47 @@ impl Dots {
                     let alpha = (level * 255.0 + 0.5).floor() as u32;
                     if alpha > 0 {
                         blend(&mut layer.pixels[py * self.width + px], rgb, alpha);
+                    }
+                }
+            }
+        }
+
+        // Then heads' beams and servos' arms, also under every dot (see `beam.rs`).
+        for mover in &self.movers {
+            let Some(&(ax, ay)) = mover.cells.first() else {
+                continue;
+            };
+            if let Some(beam) = &mover.motion.beam
+                && let Some([r, g, b]) = color_at(mover.offset)
+            {
+                let direction = crate::beam::head_direction(&mover.motion, frame);
+                let shape =
+                    crate::beam::beam_shape(ax, ay, direction, beam.length, beam.angle_deg, &self.view);
+                let rgb = pack(r.into(), g.into(), b.into(), 0);
+                let (x0, x1, y0, y1) = shape.bounds(self.width, self.height);
+                for py in y0..y1 {
+                    for px in x0..x1 {
+                        let alpha =
+                            (crate::beam::BEAM_STRENGTH * shape.at(px, py) * 255.0 + 0.5).floor() as u32;
+                        if alpha > 0 {
+                            blend(&mut layer.pixels[py * self.width + px], rgb, alpha);
+                        }
+                    }
+                }
+            }
+            let [r, g, b] = crate::beam::ARM_COLOR;
+            let rgb = pack(r.into(), g.into(), b.into(), 0);
+            for k in 0..mover.motion.servos.len() {
+                let (ax, ay) = mover.cells[k.min(mover.cells.len() - 1)];
+                let direction = crate::beam::servo_direction(&mover.motion, k, frame);
+                let arm = crate::beam::arm_shape(ax, ay, direction, &self.view);
+                let (x0, x1, y0, y1) = arm.bounds(self.width, self.height);
+                for py in y0..y1 {
+                    for px in x0..x1 {
+                        let alpha = (arm.at(px, py) * 255.0 + 0.5).floor() as u32;
+                        if alpha > 0 {
+                            blend(&mut layer.pixels[py * self.width + px], rgb, alpha);
+                        }
                     }
                 }
             }

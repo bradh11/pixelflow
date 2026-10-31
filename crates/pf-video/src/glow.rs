@@ -407,6 +407,7 @@ mod tests {
             channels_per_pixel: 3,
             points: points.to_vec(),
             flood: false,
+            motion: None,
         }
     }
 

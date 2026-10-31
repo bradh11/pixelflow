@@ -643,18 +643,24 @@ The seven sequences "What it found" is about belong to a real show and can never
 So the repository keeps a corpus of its own, `crates/pf-fidelity/corpus`, made up for the
 purpose and PixelFlow's to publish: a show folder of seven props of the common kinds (a 32 by 16
 matrix, a 360° tree, three arches with a submodel, a line, four candy canes, a star, and a custom
-model; 1,091 pixels on one controller), two groups, and four sequences with no music.
+model; 1,091 pixels), two DMX moving heads and two servos, all on one controller, three groups,
+and five sequences with no music.
 
 | Sequence | Length | What it holds |
 |---|---|---|
 | Washes and shapes | 24 s of 50 ms frames | Shockwave, Color Wash, Plasma, Fan, Pinwheel, Spirals, Butterfly, Morph, Bars, Twinkle, On, Fill; two layers on the tree blended Additive, Average, and Max; fades in and out; value curves on a Fan's revolutions, a Butterfly's speed, a Fill's position, and a blur; a group drawn per prop; an effect on a submodel; sparkles |
 | Chance | 20 s of 25 ms frames | Snowflakes, Fireworks, Circles, Shape, Fire, Twinkle, and sparkles: what no two renders draw alike |
 | Marks, words, and pictures | 20 s of 50 ms frames | A timing track and Shapes it sets off, Text, a picture standing and scrolling, PixelFlow's own Prism shader on a group and on the tree, a Shockwave whose size follows a curve, a Color Wash cycling three colors |
+| Moving heads and servos | 20 s of 50 ms frames | The DMX effect sweeping two heads' pan and tilt and turning two servos, with curves; an On and Color Washes giving the heads their color (red, green, blue and white on one, a color wheel on the other) |
 | Words in the computer's fonts | 16 s of 50 ms frames | Text in Arial, Times New Roman, Verdana, and Courier New (fonts every Mac and Windows computer has), bold and italic, still and moving, on the matrix and around the tree |
 
-42 effects in all, covering the kinds the real corpus uses most. `src/madeup.rs` writes every
-file (`cargo run -p pf-fidelity -- corpus-files`), and a test fails when the files and the
-module disagree. Nothing in it comes from anyone's show, and nothing was downloaded: the
+The heads and servos are DMX fixtures: the look score doesn't judge them (it reads pixels), but
+their channels are in xLights' renders, so the references hold what xLights sends them. A test
+holds PixelFlow's own render of them to the channels the sequence sets.
+
+50 effects in all, covering the kinds the real corpus uses most, and DMX fixtures.
+`src/madeup.rs` writes every file (`cargo run -p pf-fidelity -- corpus-files`), and a test fails
+when the files and the module disagree. Nothing in it comes from anyone's show, and nothing was downloaded: the
 picture is drawn by the module, and the shader is PixelFlow's own.
 
 CI's `fidelity corpus` job (Linux) builds the tool and runs two checks, which take a few

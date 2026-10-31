@@ -20,6 +20,7 @@ import { fileName, shownPath, thousands } from "../../lib/format";
 import { alignEdits, distributeEdits, duplicateEdits, portsWithPropsAfter, removeEdits, updateEdits, wiringOf } from "../../lib/layoutEdits";
 import { type Align, tidy } from "../../lib/layoutMath";
 import { nodeCount, shapeLabel } from "../../lib/shows";
+import { fixtureSummary } from "../../lib/dmx";
 import { useLayoutEditor } from "../../state/layoutEditor";
 import { useApp } from "../../state/store";
 import { useView3d } from "../../state/view3d";
@@ -299,7 +300,7 @@ function OnePropPanel({ prop, points }: { prop: Prop; points: ArrayLike<number> 
           />
         </label>
         <p className="mt-2 text-sm text-neutral-600 dark:text-neutral-400">
-          {prop.dmx ? `DMX fixture · ${nodeCount(shape) === 1 ? "1 cell" : `${nodeCount(shape)} cells`}` : `${shapeLabel(shape)} · ${thousands(nodeCount(shape))} pixels`}
+          {prop.dmx ? fixtureSummary(prop.dmx, nodeCount(shape)) : `${shapeLabel(shape)} · ${thousands(nodeCount(shape))} pixels`}
         </p>
         {/* Where it's wired, up top: it's the next thing to check after placing a prop. */}
         <p className="mt-1 flex flex-wrap items-center gap-x-1.5 text-sm" data-testid="prop-wiring">

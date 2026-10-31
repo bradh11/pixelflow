@@ -212,12 +212,34 @@ pub(crate) fn flood() -> Value {
     flood
 }
 
+/// A 16-bit moving head (prop 91) at address 30: pan and tilt with their fine channels, each
+/// turning as its motor says, a speed, a dimmer, a colour wheel and a gobo wheel with their slots,
+/// and its beam.
+pub(crate) fn head() -> Value {
+    let mut head = strip(91, "Spot", 1);
+    head["dmx"] = json!({ "address": 30, "layout": "head-spot-16", "beam": { "angleDeg": 15.0, "length": 6.0 }, "channels": [
+        { "name": "Pan", "role": "pan", "value": 128,
+          "motor": { "rangeDeg": 540.0, "homeDeg": 270.0, "minDeg": -180.0, "maxDeg": 180.0, "reverse": true } },
+        { "name": "Pan fine", "role": "panFine" },
+        { "name": "Tilt", "role": "tilt", "value": 128, "motor": { "rangeDeg": 270.0, "homeDeg": 135.0 } },
+        { "name": "Tilt fine", "role": "tiltFine" },
+        { "name": "Speed", "role": "speed" },
+        { "name": "Dimmer", "role": "dimmer" },
+        { "name": "Strobe", "role": "strobe" },
+        { "name": "Color wheel", "role": "colorWheel",
+          "slots": [{ "value": 0, "color": "#ffffff", "name": "Open" }, { "value": 16, "color": "#ff0000" }] },
+        { "name": "Gobo", "role": "gobo", "slots": [{ "value": 8, "name": "Dots" }] },
+    ] });
+    head
+}
+
 /// A show with every shape, groups, a controller of each protocol, and wiring with every
-/// setting, as the window's own edits would build it; and a DMX flood on a DMX node.
+/// setting, as the window's own edits would build it; and a DMX flood and a moving head on a DMX
+/// node.
 fn full_show_edits() -> Vec<Value> {
     let mut edits: Vec<Value> = every_shape()
         .into_iter()
-        .chain([flood()])
+        .chain([flood(), head()])
         .map(|prop| json!({ "type": "addProp", "prop": prop }))
         .collect();
     let mut node = controller(
@@ -225,7 +247,7 @@ fn full_show_edits() -> Vec<Value> {
         "Floods",
         "192.0.2.13",
         json!({ "type": "artNet", "startUniverse": null, "universeSize": 512, "allowPixelStraddle": false }),
-        json!([port(1, json!([slot(90)]))]),
+        json!([port(1, json!([slot(90), slot(91)]))]),
     );
     node["kind"] = json!("dmx");
     let mut usb = controller(

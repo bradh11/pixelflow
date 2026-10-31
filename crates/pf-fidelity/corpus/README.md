@@ -8,10 +8,11 @@ music: every sequence is an animation.
 
 | File | What it is |
 |---|---|
-| `show/xlights_rgbeffects.xml`, `show/xlights_networks.xml` | The layout: a matrix, a tree, arches with a submodel, a line, candy canes, a star, and a custom model (1,091 pixels), two groups, one controller at a documentation address |
+| `show/xlights_rgbeffects.xml`, `show/xlights_networks.xml` | The layout: a matrix, a tree, arches with a submodel, a line, candy canes, a star, and a custom model (1,091 pixels), two DMX moving heads (one 16-bit with red, green, blue and white; one 8-bit with a color wheel, hung upside down) and two 16-bit servos (24 channels), three groups, one controller at a documentation address |
 | `show/washes.xsq` | Washes and shapes: effects that keep time, layers and blends, fades, value curves, a group drawn per prop, a submodel (24 s, 50 ms frames) |
 | `show/chance.xsq` | Chance: snow, fireworks, circles, shapes, fire, twinkles, sparkles (20 s, 25 ms frames) |
 | `show/marks.xsq` | Marks, words, and pictures: a timing track and shapes it sets off, text, a picture, a shader (20 s, 50 ms frames) |
+| `show/heads.xsq` | Moving heads and servos: the DMX effect pointing the heads and turning the servos, over colors drawn on the heads by an On and color washes (20 s, 50 ms frames) |
 | `show/words.xsq` | Words in the computer's fonts: Text in Arial, Times New Roman, Verdana, and Courier New, bold and italic, still and moving (16 s, 50 ms frames) |
 | `show/*.fseq` | **xLights' renders of the four** (the references). Not here until they are rendered: see below |
 | `manifest.json` | The four, for `pf-fidelity` |
@@ -38,13 +39,14 @@ whenever the corpus changes. It takes a few minutes and doesn't touch your own s
 2. In xLights, make that folder the show folder, the way you would switch to another show. If
    xLights offers to convert or upgrade anything, accept for this folder.
 
-3. **Tools → Batch Render**, tick `washes.xsq`, `chance.xsq`, `marks.xsq`, and `words.xsq`, and
-   render. (Or open each sequence, **Render All**, and **File → Save**.) Each `.fseq` is saved
-   beside its sequence, or in the FSEQ folder your preferences name.
+3. **Tools → Batch Render**, tick `washes.xsq`, `chance.xsq`, `marks.xsq`, `heads.xsq`, and
+   `words.xsq`, and render. (Or open each sequence, **Render All**, and **File → Save**.) Each
+   `.fseq` is saved beside its sequence, or in the FSEQ folder your preferences name.
 
 4. Look at the matrix and the tree in `marks.xsq` once: the picture should be a rainbow with a
    white frame, and the shader a flowing rainbow. Yellow or nothing there means xLights didn't
-   find a file; tell whoever asked for the render. In `words.xsq` the words should be in Arial,
+   find a file; tell whoever asked for the render. In `heads.xsq`, the two heads should sweep
+   across while lit, and the servos turn. In `words.xsq` the words should be in Arial,
    Times New Roman, Verdana, and Courier New, as the effects name them.
 
 5. Don't save any change to the layout or the controllers. Then switch xLights back to your own

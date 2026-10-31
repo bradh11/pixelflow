@@ -10,6 +10,9 @@ pub struct XmlModel {
     /// The `DisplayAs` type, e.g. "Single Line", "Arches", "Tree 360".
     pub display_as: String,
     pub attrs: BTreeMap<String, String>,
+    /// Attributes of the other child elements, by element name (the first of each): where a DMX
+    /// model keeps its motors (`PanMotor`, `TiltMotor`) and servos (`Servo1`, `Servo2`, …).
+    pub parts: BTreeMap<String, BTreeMap<String, String>>,
     /// Attributes of the `<ControllerConnection>` child, if any.
     pub connection: BTreeMap<String, String>,
     /// Attributes of each `<subModel>` child, in file order.

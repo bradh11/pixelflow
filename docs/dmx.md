@@ -1,14 +1,16 @@
-# DMX floods, pars, and bars
+# DMX floods, pars, bars, moving heads, and servos
 
 PixelFlow drives DMX fixtures alongside your pixels: RGB, RGBW, RGBA and RGBWA floods and pars,
-usually with a master dimmer and often a strobe, and bars of several separately colored cells.
-You color them with the same effects as any prop, and PixelFlow turns that color into the
-fixture's channels.
+usually with a master dimmer and often a strobe, bars of several separately colored cells,
+moving heads that pan and tilt, and servos. You color them with the same effects as any prop, and
+PixelFlow turns that color into the fixture's channels; the DMX effect points a head or turns a
+servo.
 
 > **Safety first.** A DMX universe can drive things that flash or move: a strobe channel is a real
-> strobe, a macro channel can start a light show of its own, and the same universe can carry a
-> moving head or a fog machine. Before you send anything, know what is on each address of the
-> universe, and read each fixture's manual for what its channels do. Keep strobes short.
+> strobe, a macro channel can start a light show of its own, a moving head swings round, and the
+> same universe can carry a fog machine. Before you send anything, know what is on each address of
+> the universe, read each fixture's manual for what its channels do, and keep people and things
+> out of a head's reach. Keep strobes short.
 
 ## Adding a fixture
 
@@ -16,7 +18,7 @@ fixture's channels.
    canvas; drag it to where the light is (a flood on the lawn washing the house front, a par at
    the foot of a tree).
 
-   ![The Add prop menu open, with DMX flood or bar at the foot of it, under the shapes.](images/layout-add-prop.png)
+   ![The Add prop menu open, with DMX flood or bar, DMX moving head, and DMX servo at the foot of it, under the shapes.](images/layout-add-prop.png)
 2. In its properties, under **DMX fixture**:
    - **Channels**: pick the layout from the fixture's manual. The library covers the common ones,
      named by their channels: 3 channels (red, green, blue), 4 (dimmer, red, green, blue), 4 (red,
@@ -25,10 +27,11 @@ fixture's channels.
    - **Start address**: the address set on the fixture (its DIP switches or menu), 1 to 512.
    - **Cells**, for a bar: how many separately colored sections it has.
    - **Each channel**: for a fixture the library doesn't have, set each channel's name and what it
-     does: dimmer, red, green, blue, white, amber, UV, strobe, mode (a value held), and the
-     moving-head roles (pan, tilt, their fine channels, color wheel, gobo), which hold their value
-     for now. A channel that isn't a color holds the value you give it, unless a DMX effect sets
-     it: put the mode channel at the value the manual gives for "DMX control".
+     does: dimmer, red, green, blue, white, amber, cyan, magenta, yellow, UV, strobe, mode (a
+     value held), and the moving-head and servo roles (pan, tilt, servo, their fine channels,
+     speed, color wheel, gobo; see [Moving heads](#moving-heads) and [Servos](#servos)). A channel
+     that isn't a color holds the value you give it, unless a DMX effect sets it: put the mode
+     channel at the value the manual gives for "DMX control".
 
 Several fixtures share one universe: give each its own start address, after the last channel of
 the one before. The Wiring screen warns when two overlap.
@@ -47,10 +50,80 @@ the one before. The Wiring screen warns when two overlap.
   goes to the white LEDs, which make a whiter white.
 - **Amber** stands for orange (255, 128, 0): after white, as much of the color as is orange goes
   to amber.
-- **UV, strobe and mode** channels hold their value.
+- **Cyan, magenta and yellow**, on a fixture that mixes color by taking it out of a white lamp,
+  are what the color leaves out: cyan is 255 less the red, and so on.
+- **A color wheel** with its colors listed turns to the one nearest the color drawn (the dimmer
+  carries the brightness). Where nothing is drawn, it stays where it is. Without its colors
+  listed, it holds its value like a mode channel.
+- **UV, strobe, mode, speed and gobo** channels hold their value.
 
-The previews show the color the channels make, as a soft wash around the fixture: the same
-wash, from the same numbers, in the 2D previews, the 3D view and an exported video.
+The previews show the color the channels make, as a soft wash around a flood: the same wash,
+from the same numbers, in the 2D previews, the 3D view and an exported video. A moving head shows
+a beam instead (see below).
+
+## Moving heads
+
+A moving head is a fixture with a pan channel (it turns round) and a tilt channel (it leans), each
+with a fine channel when it is a 16-bit head, and its light: red, green, blue and white, a color
+wheel, or cyan, magenta and yellow, usually with a dimmer and a shutter.
+
+1. On **Layout**, choose **Add prop ▾ → DMX moving head**: a common 16-bit head with pan, pan
+   fine, tilt, tilt fine, speed, dimmer, strobe, red, green, blue and white. Drag it to where it
+   stands.
+2. Under **DMX moving head**, pick its **Channels** from the library (16-bit and 8-bit heads, and
+   a spot with a color wheel and a gobo), or set **Each channel** from its manual, and its
+   **Start address**.
+3. Open **Pan and tilt** and set how it moves, from its manual:
+   - **Turns**: how many degrees it pans (or tilts) as the channel goes from 0 to 255 (the manual's
+     "pan 540°, tilt 270°").
+   - **Home at**: where Home is, in degrees from the 0 end. Home is the head facing forward (toward
+     the street) and pointing straight up. It is the middle of the travel on most heads.
+   - **Limits**: how far it may turn each way from Home (left and right for pan, back and forward
+     for tilt), to keep it off a wall or out of the neighbors' windows.
+   - **Reversed**: it turns the other way as the value rises.
+   - **Hung upside down**: it hangs from its base (turned half round in the front plane). To point
+     it another way, turn the prop on Layout.
+   - **Beam width** (the fixture's beam angle) and **Beam drawn** (how far the previews draw it).
+
+![A moving head on the lawn on the Layout screen, selected. Its properties show DMX moving head: Channels, Start address 20, and Pan and tilt open: Pan and Tilt, each 16-bit, with Turns, Home at, two limits and Reversed; Hung upside down; Beam width 15 and Beam drawn 6.](images/dmx-moving-head.png)
+
+A head rests where its pan and tilt channels hold their values: a head made from the library
+rests at Home. Positions are always in degrees from Home, so they mean the same on any head,
+16-bit or 8-bit, standing or hung.
+
+A color wheel lists its colors under **Color wheel: its colors**: each color, and the value that
+turns the wheel to it, from the manual. With its colors listed, effects that draw color on the
+head turn the wheel.
+
+## Servos
+
+**Add prop ▾ → DMX servo** adds one 16-bit servo (two channels: its position, then fine). Pick
+**Servos, 1 channel each** for 8-bit ones, and set **Servos** to how many share the fixture: each
+is drawn as an arm at its own place. Under **Servos**, each one's settings are a head's: how far
+it turns, where Home is, its limits, and whether it is reversed. Servos make no light of their
+own.
+
+## Pointing a head with the DMX effect
+
+The DMX effect (below) points a head: set its pan and tilt channels, and its fine channels for a
+smooth move on a 16-bit head, and sweep them with curves. Its color comes from what is drawn on
+it, on a layer below, or from its dimmer and color channels set in the same effect. The previews
+draw the head's beam where it points, in its color; a servo's arm turns.
+
+![The Sequence screen with a DMX effect on the Lawn Spot moving head: 1 · Pan 156, 3 · Tilt 184, 6 · Dimmer 255 and 10 · Blue 255. The preview above the timeline shows a blue beam rising from the head to the right.](images/dmx-head-effect.png)
+
+## In the previews
+
+- **A moving head** shows a beam from where it stands, where its pan and tilt point it: in its
+  color, widening to its beam angle and fading toward its end. Pointing straight at you, it is a
+  pool of light round the head. When nothing plays, a faint beam shows where it rests.
+- **A servo** shows an arm that turns with it, up at Home.
+- The 2D previews and an exported video draw them alike, from the same numbers; the 3D view draws
+  the beam as a cone, which the house model hides where it stands in front of it.
+
+![The same moment in the 3D view: a blue cone rising from the head, out from the house.](images/dmx-head-3d.png)
+
+The previews don't show a shutter or a strobe: a head whose shutter is closed is still drawn lit.
 
 ## The DMX effect
 
@@ -98,10 +171,28 @@ with null channels before it if there's a gap. It takes its channels where it fa
 (never split between two universes), and the Wiring screen warns when that isn't the start
 address set on the fixture.
 
-An xLights show's DMX floods (`DmxGeneral`, `DmxFloodlight`, `DmxFloodArea`) import as fixtures,
-with their color channels and their shutter, wired on their controller at the channels xLights
-gives them, beside its pixels. Moving heads and servos import as rows of channel dots, not wired:
-PixelFlow doesn't drive them yet.
+## From xLights
+
+An xLights show's DMX fixtures import wired on their controller at the channels xLights gives
+them, beside its pixels. The import report says how each kind comes across:
+
+- **Floods** (`DmxGeneral`, `DmxFloodlight`, `DmxFloodArea`) become fixtures with their color
+  channels and their shutter, held open.
+- **Moving heads** (`DmxMovingHeadAdv`, `DmxMovingHead`, `DmxMovingHead3D`): "Matches". They
+  become moving heads with their pan and tilt (and fine channels), how far each turns, where
+  Home is, their limits and whether each is reversed, their colors (red, green, blue and white, a
+  color wheel with its colors, or cyan, magenta and yellow), dimmer, shutter and gobo channels,
+  and their beam width. Their pan and tilt hold 0, as xLights sends a channel nothing sets.
+- **Servos** (`DmxServo`, `DmxServo3d`): "Matches". Each servo keeps its channels (16-bit or 8-bit)
+  and its limits, with Home between them, and is drawn as an arm.
+- "Close", for a head that hangs upside down (PixelFlow turns it half round; it sends what xLights
+  sends, but may draw the beam another way), a color wheel whose colors the file doesn't list (the
+  beam is drawn white), or a head whose file doesn't say which channels are its pan and tilt.
+- "No equivalent": skulls and other DMX models stay rows of channel dots, not wired.
+
+A sequence's DMX effects come across as DMX effects, so they point the heads as in xLights.
+xLights' Moving Head and Servo effects have no PixelFlow effect yet: the report lists them as left
+out.
 
 ## Testing
 
@@ -111,6 +202,17 @@ color, like a pixel. The same rules apply as for every test, over the network or
 sent (and no USB interface is opened) until you press Start, and Stop sends black.
 
 ![The Test screen with Prop: Lawn Flood as the Target and DMX channels by hand as the Pattern: it sends to Lawn DMX, universe 0, channels 1 to 7, and has a slider for each channel (Dimmer, Red, Green, Blue, White, Strobe, Mode), with a warning to check in the fixture's manual what each channel does.](images/dmx-test-channels.png)
+
+On a moving head, **Pan and tilt** above the channels moves it in degrees from Home, each within
+its limits, and **Home** sends it back there; servos get a slider each. They set the pan and tilt
+channels and their fine channels for you.
+
+![The Test screen with Prop: Lawn Spot as the Target: Pan and tilt, with Pan at 90° and Tilt at 45° and a Home button, above the channels, where Pan and Pan fine show 170 and 170.](images/dmx-test-head.png)
+
+**Stopping never swings a head.** Black (Stop, the end of playback, or a controller no longer sent
+to) puts out every light, but leaves the channels that move a head or a servo where they were, so
+it stays pointing where it was. This holds for a sequence played straight through from its
+`.fseq` too.
 
 ## USB DMX interfaces
 

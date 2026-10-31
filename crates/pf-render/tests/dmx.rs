@@ -192,3 +192,40 @@ fn a_bar_shows_each_cell_and_frames_are_the_same_on_any_number_of_threads() {
         );
     }
 }
+
+#[test]
+fn the_dmx_effect_moves_a_head_while_the_colour_drawn_lights_it() {
+    // A 16-bit head at Home, lit green by an On, its pan swept by a curve and its tilt set.
+    let mut show = Show::new("heads");
+    show.props.push(fixture("Spot", "head-rgbw-16", 1, 0.0));
+    let mut seq = Sequence::new("s", 1000);
+    let mut sweep = dmx(&[(3, 200)]);
+    sweep.curves.insert("channels.1".into(), Curve::ramp(0.0, 255.0));
+    seq.rows.push(row(
+        Target::Prop(show.props[0].id),
+        vec![vec![sweep], vec![on(Rgb::GREEN)]],
+    ));
+    // The head's cell (3 bytes), then its 11 channels.
+    let channels = |t: u64| render(&show, &seq, t)[3..14].to_vec();
+    let start = channels(0);
+    let end = channels(975);
+    assert_eq!(start[2], 200, "tilt as set");
+    assert_eq!(start[1], 0, "pan fine at Home's");
+    assert!(
+        start[0] < 10 && end[0] > 240,
+        "pan swept: {} then {}",
+        start[0],
+        end[0]
+    );
+    assert_eq!(
+        &start[5..],
+        &[255, 0, 0, 255, 0, 0],
+        "the dimmer, and green, from the On"
+    );
+    // With nothing setting them, pan and tilt rest at Home.
+    let mut still = Sequence::new("s", 1000);
+    still
+        .rows
+        .push(row(Target::Prop(show.props[0].id), vec![vec![on(Rgb::GREEN)]]));
+    assert_eq!(&render(&show, &still, 0)[3..7], &[128, 0, 128, 0]);
+}

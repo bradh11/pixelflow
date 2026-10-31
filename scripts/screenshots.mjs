@@ -26,8 +26,10 @@
 // written as they are. Uses nothing but Node itself: no package to install.
 //
 // Options: --out <folder> (default docs/images), --url <address> to use a UI dev server already
-// running instead of starting one, --port <n> for the one it starts (default 5199), and
-// --chrome-port <n> to drive a Chrome already started with --remote-debugging-port=<n>.
+// running instead of starting one, --port <n> for the one it starts (default 5199),
+// --chrome-port <n> to drive a Chrome already started with --remote-debugging-port=<n>, and
+// --width <n> to see the screens in a narrower window than 1440 (for checking a layout; the
+// guides' pictures are taken at 1440).
 
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, renameSync, statSync } from "node:fs";
@@ -37,7 +39,7 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const APP = path.join(ROOT, "app");
-const WIDTH = 1440;
+const WIDTH = Number(option("width") ?? 1440);
 const HEIGHT = 900;
 /** The widest a picture is written, in pixels. */
 const MAX_WIDTH = 1600;
@@ -376,6 +378,17 @@ const SHOTS = [
     },
   },
   {
+    name: "dmx-moving-head",
+    file: "dmx-moving-head.png",
+    usedBy: "dmx",
+    async run(ui) {
+      await addHead(ui);
+      await ui.click("Pan and tilt");
+      await ui.scrollTo("DMX moving head", "[aria-label=Properties]", "start");
+      return ui.window();
+    },
+  },
+  {
     name: "dmx-wiring",
     file: "dmx-wiring.png",
     usedBy: "dmx",
@@ -434,6 +447,26 @@ const SHOTS = [
     },
   },
   {
+    name: "dmx-head-effect",
+    file: "dmx-head-effect.png",
+    usedBy: "dmx",
+    async run(ui) {
+      await pointHeadWithDmxEffect(ui);
+      return ui.window();
+    },
+  },
+  {
+    name: "dmx-head-3d",
+    file: "dmx-head-3d.png",
+    usedBy: "dmx",
+    async run(ui) {
+      await pointHeadWithDmxEffect(ui);
+      await ui.click("3D", { exact: true });
+      await ui.settle(2500);
+      return ui.window();
+    },
+  },
+  {
     name: "dmx-test-channels",
     file: "dmx-test-channels.png",
     usedBy: "dmx",
@@ -444,6 +477,23 @@ const SHOTS = [
       await ui.choose("Target", "Prop: Lawn Flood");
       await ui.choose("Pattern", "DMX channels by hand");
       for (const [channel, value] of [["Dimmer", 255], ["Red", 255], ["Green", 96]]) await ui.slide(channel, value);
+      const top = await ui.box("Test", { sel: "h1,h2", pad: 0 });
+      const card = await ui.parentBoxOf("Target", { sel: "label", up: 3 });
+      return padded({ x: top.x, y: top.y, width: card.x + card.width - top.x, height: card.y + card.height - top.y }, 16);
+    },
+  },
+  {
+    name: "dmx-test-head",
+    file: "dmx-test-head.png",
+    usedBy: "dmx",
+    async run(ui) {
+      await addHead(ui);
+      await wireToDmxNode(ui, ["Lawn Spot"]);
+      await ui.screen("Test");
+      await ui.choose("Target", "Prop: Lawn Spot");
+      await ui.choose("Pattern", "DMX channels by hand");
+      for (const [axis, degrees] of [["Pan degrees", 90], ["Tilt degrees", 45]]) await ui.slide(axis, degrees);
+      for (const [channel, value] of [["Dimmer", 255], ["Blue", 255]]) await ui.slide(channel, value);
       const top = await ui.box("Test", { sel: "h1,h2", pad: 0 });
       const card = await ui.parentBoxOf("Target", { sel: "label", up: 3 });
       return padded({ x: top.x, y: top.y, width: card.x + card.width - top.x, height: card.y + card.height - top.y }, 16);
@@ -504,6 +554,42 @@ async function wireToDmxNode(ui, props) {
 }
 
 /** Adds a DMX flood on the Layout screen, on the lawn, and leaves it selected. */
+/** Adds a moving head and a DMX effect on it pointing it up and to the right, lit blue, with the preview above the timeline. */
+async function pointHeadWithDmxEffect(ui) {
+  await addHead(ui, { x: -6, y: 0.3 });
+  await ui.screen("Sequence");
+  // With the preview above the timeline, it's big enough to see the beam.
+  await ui.click("Preview above the timeline");
+  await ui.click("Add row");
+  await ui.click("Lawn Spot", { sel: "[role=option], [role=menuitem], li button, button" });
+  await ui.seek(8000);
+  await ui.activeRow("Lawn Spot");
+  await ui.js(`find("DMX effect", { exact: true }).focus(); return 1`);
+  await ui.key("Enter");
+  await ui.settle(800);
+  const names = { 1: "Pan", 3: "Tilt", 6: "Dimmer", 10: "Blue" };
+  // Pan 60° right and tilt 60° toward the street: up, right and out from the house.
+  for (const [channel, value] of [["1", "156"], ["3", "184"], ["6", "255"], ["10", "255"]]) {
+    await ui.choose("Channel to set", channel);
+    await ui.click("Set this channel");
+    await ui.type(`${channel} · ${names[channel]} value`, value, { enter: true });
+  }
+  await ui.settle(800);
+}
+
+/** Adds a 16-bit moving head on the lawn on the Layout screen, selected. */
+async function addHead(ui, { name = "Lawn Spot", x = -5, y = 0.4, address = 20 } = {}) {
+  await ui.screen("Layout");
+  await ui.click("Add prop");
+  await ui.click("DMX moving head");
+  await ui.settle(500);
+  await ui.type("Name", name, { enter: true });
+  await ui.type("Start address", String(address), { enter: true });
+  await ui.type("Position X", String(x), { enter: true });
+  await ui.type("Position Y", String(y), { enter: true });
+  await ui.settle(400);
+}
+
 async function addFlood(ui, { name = "Lawn Flood", x = -9, y = 0.6, address = 1, layout = "7 channels" } = {}) {
   await ui.screen("Layout");
   await ui.click("Add prop");

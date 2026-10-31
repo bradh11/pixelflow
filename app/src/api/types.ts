@@ -272,7 +272,40 @@ export type DmxRole =
   | "tiltFine"
   | "colorWheel"
   | "gobo"
-  | "other";
+  | "other"
+  | "cyan"
+  | "magenta"
+  | "yellow"
+  | "servo"
+  | "servoFine"
+  | "speed";
+
+/** How a motor (a head's pan or tilt, or a servo) turns with its value (see crates/pf-model/src/motion.rs). */
+export interface DmxMotor {
+  /** Degrees it turns as its value goes from 0 to its highest. */
+  rangeDeg: number;
+  /** Where Home is, in degrees from the value-0 end. */
+  homeDeg: number;
+  /** The farthest it may turn from Home one way (0 or less); missing, the end of its travel. */
+  minDeg?: number;
+  /** The farthest it may turn from Home the other way (0 or more); missing, the end of its travel. */
+  maxDeg?: number;
+  /** It turns the other way as its value rises. */
+  reverse?: boolean;
+}
+
+/** A slot of a colour wheel or gobo wheel: the value that selects it, and its colour (`#rrggbb`) or name. */
+export interface DmxSlot {
+  value: number;
+  color?: string;
+  name?: string;
+}
+
+/** A moving head's beam as the previews draw it: how wide (degrees) and how long (layout units). */
+export interface DmxBeam {
+  angleDeg: number;
+  length: number;
+}
 
 /** One channel of a DMX fixture, in the order the fixture takes them. */
 export interface DmxChannel {
@@ -282,6 +315,10 @@ export interface DmxChannel {
   cell?: number;
   /** The value it holds when nothing sets it (0 when missing); colour and dimmer channels follow the colour. */
   value?: number;
+  /** How a pan, tilt or servo channel turns (missing: the usual for its role). */
+  motor?: DmxMotor;
+  /** A colour wheel's colours, or a gobo wheel's gobos. */
+  slots?: DmxSlot[];
 }
 
 /** What makes a prop a DMX fixture: its start address (1-512) and its channels. */
@@ -290,6 +327,8 @@ export interface DmxFixture {
   channels: DmxChannel[];
   /** The library layout it was made from (see `DMX_LAYOUTS`), when it was. */
   layout?: string;
+  /** A moving head's beam (missing: the usual, for a head). */
+  beam?: DmxBeam;
 }
 
 export interface Prop {
@@ -1293,8 +1332,30 @@ export interface PreviewProp {
   channelsPerPixel: number;
   /** x, y pairs, one per pixel, in wiring order. */
   points: ArrayLike<number>;
-  /** A DMX fixture: each pixel (cell) is a flood, drawn as a wash of its color. */
+  /** A DMX flood: each pixel (cell) is drawn as a wash of its color. */
   flood?: boolean;
+  /** A moving head's beam, or servos' arms, pointed by channels in the frame. */
+  motion?: PreviewMotion;
+}
+
+/** One motor in a live frame: where its value is (and its fine value), the values it rests at when nothing plays, and how it turns. */
+export interface PreviewAxis {
+  at: number;
+  fineAt?: number;
+  rest: [number, number];
+  motor: DmxMotor;
+}
+
+/**
+ * How a moving head or servos move in the previews (`PreviewMotion` in crates/pf-engine): the
+ * fixture's frame in the layout (`basis`, the prop's rotation: its right, up and front as the
+ * columns of a row-major 3 × 3 matrix), a head's beam from its first cell, and servo `k`'s arm at
+ * cell `k`.
+ */
+export interface PreviewMotion {
+  basis: number[];
+  beam?: { pan?: PreviewAxis; tilt?: PreviewAxis; angleDeg: number; length: number };
+  servos?: PreviewAxis[];
 }
 
 /** Every prop's pixel positions, and the show revision they were worked out for. */
@@ -1310,8 +1371,10 @@ export interface PreviewProp3d {
   channelsPerPixel: number;
   /** x, y, z triples, one per pixel, in wiring order. */
   xyz: Float32Array;
-  /** A DMX fixture: each pixel (cell) is a flood. */
+  /** A DMX flood: each pixel (cell) is drawn as a wash of its color. */
   flood?: boolean;
+  /** A moving head's beam, or servos' arms. */
+  motion?: PreviewMotion;
 }
 
 /** Every prop's pixel positions in 3D, and the show revision they were worked out for. */

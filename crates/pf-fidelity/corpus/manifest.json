@@ -2,5 +2,6 @@
   { "label": "Washes and shapes", "show": "show", "xsq": "show/washes.xsq", "fseq": "show/washes.fseq" },
   { "label": "Chance", "show": "show", "xsq": "show/chance.xsq", "fseq": "show/chance.fseq" },
   { "label": "Marks, words, and pictures", "show": "show", "xsq": "show/marks.xsq", "fseq": "show/marks.fseq" },
+  { "label": "Moving heads and servos", "show": "show", "xsq": "show/heads.xsq", "fseq": "show/heads.fseq" },
   { "label": "Words in the computer's fonts", "show": "show", "xsq": "show/words.xsq", "fseq": "show/words.fseq" }
 ] }

@@ -9,7 +9,8 @@
       "blue"
     ],
     "tail": [],
-    "multiCell": false
+    "multiCell": false,
+    "kind": "flood"
   },
   {
     "id": "dimmer-rgb",
@@ -23,7 +24,8 @@
       "blue"
     ],
     "tail": [],
-    "multiCell": false
+    "multiCell": false,
+    "kind": "flood"
   },
   {
     "id": "rgbw",
@@ -36,7 +38,8 @@
       "white"
     ],
     "tail": [],
-    "multiCell": false
+    "multiCell": false,
+    "kind": "flood"
   },
   {
     "id": "dimmer-rgb-strobe",
@@ -52,7 +55,8 @@
     "tail": [
       "strobe"
     ],
-    "multiCell": false
+    "multiCell": false,
+    "kind": "flood"
   },
   {
     "id": "rgbwa",
@@ -66,7 +70,8 @@
       "amber"
     ],
     "tail": [],
-    "multiCell": false
+    "multiCell": false,
+    "kind": "flood"
   },
   {
     "id": "dimmer-rgbw-strobe",
@@ -83,7 +88,8 @@
     "tail": [
       "strobe"
     ],
-    "multiCell": false
+    "multiCell": false,
+    "kind": "flood"
   },
   {
     "id": "rgbwa-uv",
@@ -98,7 +104,8 @@
       "uv"
     ],
     "tail": [],
-    "multiCell": false
+    "multiCell": false,
+    "kind": "flood"
   },
   {
     "id": "dimmer-rgbw-strobe-mode",
@@ -116,7 +123,8 @@
       "strobe",
       "fixed"
     ],
-    "multiCell": false
+    "multiCell": false,
+    "kind": "flood"
   },
   {
     "id": "dimmer-rgbwa-uv-strobe",
@@ -135,7 +143,8 @@
     "tail": [
       "strobe"
     ],
-    "multiCell": false
+    "multiCell": false,
+    "kind": "flood"
   },
   {
     "id": "bar-rgb",
@@ -147,7 +156,8 @@
       "blue"
     ],
     "tail": [],
-    "multiCell": true
+    "multiCell": true,
+    "kind": "flood"
   },
   {
     "id": "bar-dimmer-strobe-rgb",
@@ -162,7 +172,8 @@
       "blue"
     ],
     "tail": [],
-    "multiCell": true
+    "multiCell": true,
+    "kind": "flood"
   },
   {
     "id": "bar-rgbw",
@@ -175,6 +186,112 @@
       "white"
     ],
     "tail": [],
-    "multiCell": true
+    "multiCell": true,
+    "kind": "flood"
+  },
+  {
+    "id": "head-rgbw-16",
+    "label": "Moving head, 11 channels: pan, pan fine, tilt, tilt fine, speed, dimmer, strobe, red, green, blue, white",
+    "head": [
+      "pan",
+      "panFine",
+      "tilt",
+      "tiltFine",
+      "speed",
+      "dimmer",
+      "strobe"
+    ],
+    "cell": [
+      "red",
+      "green",
+      "blue",
+      "white"
+    ],
+    "tail": [],
+    "multiCell": false,
+    "kind": "head"
+  },
+  {
+    "id": "head-rgbw-16-split",
+    "label": "Moving head, 11 channels: pan, tilt, pan fine, tilt fine, speed, dimmer, strobe, red, green, blue, white",
+    "head": [
+      "pan",
+      "tilt",
+      "panFine",
+      "tiltFine",
+      "speed",
+      "dimmer",
+      "strobe"
+    ],
+    "cell": [
+      "red",
+      "green",
+      "blue",
+      "white"
+    ],
+    "tail": [],
+    "multiCell": false,
+    "kind": "head"
+  },
+  {
+    "id": "head-rgbw-8",
+    "label": "Moving head, 8 channels: pan, tilt, speed, dimmer, red, green, blue, white",
+    "head": [
+      "pan",
+      "tilt",
+      "speed",
+      "dimmer"
+    ],
+    "cell": [
+      "red",
+      "green",
+      "blue",
+      "white"
+    ],
+    "tail": [],
+    "multiCell": false,
+    "kind": "head"
+  },
+  {
+    "id": "head-spot-16",
+    "label": "Moving head, 9 channels: pan, pan fine, tilt, tilt fine, speed, dimmer, strobe, color wheel, gobo",
+    "head": [
+      "pan",
+      "panFine",
+      "tilt",
+      "tiltFine",
+      "speed",
+      "dimmer",
+      "strobe",
+      "colorWheel",
+      "gobo"
+    ],
+    "cell": [],
+    "tail": [],
+    "multiCell": false,
+    "kind": "head"
+  },
+  {
+    "id": "servo-8",
+    "label": "Servos, 1 channel each: position",
+    "head": [],
+    "cell": [
+      "servo"
+    ],
+    "tail": [],
+    "multiCell": true,
+    "kind": "servo"
+  },
+  {
+    "id": "servo-16",
+    "label": "Servos, 2 channels each: position, fine",
+    "head": [],
+    "cell": [
+      "servo",
+      "servoFine"
+    ],
+    "tail": [],
+    "multiCell": true,
+    "kind": "servo"
   }
 ]

@@ -41,8 +41,8 @@ describe("first run", () => {
   it("offers start, open, xLights import, and discovery", async () => {
     await startApp();
     expect(screen.getByRole("heading", { name: "Welcome to PixelFlow" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /import from xlights/i })).toBeEnabled();
-    expect(screen.getByRole("button", { name: /find my controllers/i })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /^import xlights show/i })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /^find controllers/i })).toBeEnabled();
   });
 
   it("start fresh opens an empty show", async () => {

@@ -161,8 +161,7 @@ cargo run -p pf-cli -- discover --host 10.0.0.50  # also check an address direct
 cargo run -p pf-cli -- device 10.0.0.50           # one controller's setup and what importing adds
 ```
 
-In the app, use **Find my controllers** on the welcome screen or **Scan network** on the
-**Controllers** screen.
+In the app, use **Find controllers** on the welcome screen or on the **Controllers** screen.
 
 Discovery listens for FPP's MultiSync ping and mDNS, checks the web page of every address on
 the /24 around each of your private network addresses, and asks each FPP which controllers it sends to. If a firewall
@@ -212,7 +211,7 @@ and Play, and the lights live (a rendered sequence playing, a test pattern) on L
 other screens. On Layout the canvas stays as it is, since it's the editor; the window is a
 second, look-only view, so you can edit in 2D and watch in 3D. It only looks: 2D or 3D and glow
 can be changed there, and play or pause asked for, but nothing else. Close it, or choose
-**Bring it back**, and the preview returns to where it was. PixelFlow remembers that it was
+**Bring the preview back**, and it returns to where it was. PixelFlow remembers that it was
 popped out, and where its window was.
 
 ### Control an FPP

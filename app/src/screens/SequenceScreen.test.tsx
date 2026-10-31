@@ -107,8 +107,8 @@ describe("sequence screen", () => {
     expect(useSequencer.getState()).toMatchObject({ dirty: false, canUndo: false });
     expect(screen.getByRole("button", { name: "Undo (sequence)" })).toBeDisabled();
     // Started empty, it needs rows: add every prop at once, first in the picker.
-    await user.click(screen.getByRole("button", { name: "Add a row" }));
-    const picker = screen.getByRole("dialog", { name: "Add a row" });
+    await user.click(screen.getByRole("button", { name: "Add row" }));
+    const picker = screen.getByRole("dialog", { name: "Add row" });
     expect(within(picker).getAllByRole("button")[0]).toHaveAccessibleName("Add every prop (4)");
     await user.click(within(picker).getByRole("button", { name: "Add every prop (4)" }));
     await waitFor(() => expect(useSequencer.getState().doc?.rows).toHaveLength(4));
@@ -116,6 +116,14 @@ describe("sequence screen", () => {
     await user.click(within(banner as HTMLElement).getByRole("button", { name: "Detect beats" }));
     await waitFor(() => expect(useSequencer.getState().doc?.timingTracks.map((t) => t.name)).toEqual(["Beats", "Bars", "Sections", "Accents", "Moments", "Drums"]));
     expect(screen.getByRole("group", { name: "Timing track Beats" })).toBeInTheDocument();
+  });
+
+  it("says where a new sequence's rows come from when the show has no props yet", async () => {
+    const { user, backend } = await openScreen(false);
+    await act(() => useApp.getState().apply(backend.show.props.map((p) => ({ type: "removeProp" as const, id: p.id }))));
+    await user.click(screen.getByText("Start from a song.").closest("button")!);
+    const dialog = screen.getByRole("dialog", { name: "New sequence" });
+    expect(within(dialog).getByText("This show has no props yet: draw them on Layout, then add a row for each with Add row.")).toBeInTheDocument();
   });
 
   it("starts a new sequence with a row for every group and prop, in layout order, as xLights does", async () => {
@@ -984,10 +992,10 @@ describe("sequence screen", () => {
     const { user } = await openScreen();
     const add = screen.getByRole("button", { name: "Add row" });
     await user.click(add);
-    const menu = screen.getByRole("dialog", { name: "Add a row" });
+    const menu = screen.getByRole("dialog", { name: "Add row" });
     expect(within(menu).getAllByRole("button").find((b) => !(b as HTMLButtonElement).disabled)).toHaveFocus();
     await user.keyboard("{Escape}");
-    expect(screen.queryByRole("dialog", { name: "Add a row" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Add row" })).not.toBeInTheDocument();
     expect(add).toHaveFocus();
   });
 

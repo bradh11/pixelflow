@@ -110,8 +110,8 @@ const SHOTS = [
     usedBy: "first-show, troubleshooting",
     async run(ui) {
       await ui.screen("Controllers");
-      await ui.click("Scan network");
-      await ui.waitForText("Scan again", { timeoutMs: 20000 });
+      await ui.click("Find controllers");
+      await ui.waitForText("Find controllers again", { timeoutMs: 20000 });
       await ui.settle(500);
       const top = await ui.box("Controllers", { sel: "h1,h2", pad: 0 });
       const bottom = await ui.box("isn't responding", { pad: 0 });
@@ -124,7 +124,7 @@ const SHOTS = [
     usedBy: "README, first-show, troubleshooting",
     async run(ui) {
       await ui.screen("Controllers");
-      await ui.click("Scan network");
+      await ui.click("Find controllers");
       await ui.click("Open FPP", { exact: true, timeoutMs: 20000 });
       await ui.waitForText("Set up my show from this FPP");
       await ui.settle(800);
@@ -137,7 +137,7 @@ const SHOTS = [
     usedBy: "hardware-acceptance",
     async run(ui) {
       await ui.screen("Controllers");
-      await ui.click("Scan network");
+      await ui.click("Find controllers");
       await ui.click("Send setup to this controller: Main FPP", { timeoutMs: 20000 });
       await ui.settle(1500);
       return ui.box("[role=dialog]");
@@ -286,8 +286,8 @@ const SHOTS = [
     async run(ui) {
       // The FPPs found on the network are offered first.
       await ui.screen("Controllers");
-      await ui.click("Scan network");
-      await ui.waitForText("Scan again", { timeoutMs: 20000 });
+      await ui.click("Find controllers");
+      await ui.waitForText("Find controllers again", { timeoutMs: 20000 });
       await ui.screen("Sequence");
       await ui.click("Send to FPP…");
       await ui.settle(1500);
@@ -344,7 +344,7 @@ const SHOTS = [
       // The window says where the song's music will go, next to the show: a folder with no one's name in it.
       await ui.js(`const { useApp } = await import("/src/state/store.ts"); useApp.getState().backend.path = "/Shows/Demo House/Demo House.pixelflow.json"; return 1`);
       await ui.screen("Sequence");
-      await ui.click("Import from xLights…");
+      await ui.click("Import xLights sequence…");
       await ui.click("Auto-map", { timeoutMs: 20000 });
       await ui.settle(800);
       return ui.box("[role=dialog]");

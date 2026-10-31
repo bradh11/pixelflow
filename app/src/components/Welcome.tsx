@@ -85,7 +85,7 @@ export function Welcome() {
             <Choice icon={<FolderOpen size={20} />} title="Open…" description="A PixelFlow show file." onClick={() => void openShow()} disabled={busy} />
             <Choice
               icon={<Upload size={20} />}
-              title="Import from xLights…"
+              title="Import xLights show…"
               description="Choose your xLights show folder (the one with xlights_rgbeffects.xml)."
               onClick={() => void importXlights()}
               disabled={busy}
@@ -99,7 +99,7 @@ export function Welcome() {
             />
             <Choice
               icon={<Network size={20} />}
-              title="Find my controllers"
+              title="Find controllers"
               description="Starts a new show and finds your FPP, Falcon, and WLED controllers."
               onClick={() => void discover()}
               disabled={busy}

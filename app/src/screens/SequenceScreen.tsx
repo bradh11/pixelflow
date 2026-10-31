@@ -228,7 +228,7 @@ function Workspace() {
               <p>Each row lights one prop or a group of props. Drag effects onto a row to make it light up.</p>
               <div className="mt-3">
                 <Button variant="primary" onClick={() => setAdding(true)}>
-                  Add a row
+                  Add row
                 </Button>
               </div>
             </EmptyState>
@@ -388,16 +388,16 @@ function Toolbar({ onNew, onOpen }: { onNew: () => void; onOpen: () => void }) {
       <ToolButton label="New sequence" onClick={onNew}>
         <FilePlus size={16} /> <span className="hidden @min-[1200px]:inline">New sequence</span>
       </ToolButton>
-      <ToolButton label="Open sequence" onClick={onOpen}>
-        <FolderOpen size={16} /> <span className="hidden @min-[1200px]:inline">Open sequence</span>
+      <ToolButton label="Open sequence…" onClick={onOpen}>
+        <FolderOpen size={16} /> <span className="hidden @min-[1200px]:inline">Open sequence…</span>
       </ToolButton>
       {/* Asks about unsaved changes like New and Open do (the import goes through the same question). */}
       <ToolButton
-        label="Import from xLights…"
+        label="Import xLights sequence…"
         hint="Import an xLights sequence (.xsq), or a vendor's package (.zip), onto this show's props and groups"
         onClick={() => void useApp.getState().importXlightsSequence()}
       >
-        <FileInput size={16} /> <span className="hidden @min-[1200px]:inline">Import from xLights</span>
+        <FileInput size={16} /> <span className="hidden @min-[1200px]:inline">Import xLights sequence…</span>
       </ToolButton>
       <ToolButton label="Save" hint={`Save the sequence, and the show if it changed (${hintFor("save")})`} onClick={() => void saveSequenceAndShow()} disabled={s.name === null}>
         <Save size={16} />
@@ -843,7 +843,7 @@ function Start({ onNew, onOpen }: { onNew: () => void; onOpen: (path?: string) =
           </button>
           <button type="button" onClick={() => void onOpen()} className="flex flex-col items-start gap-1 rounded-lg border border-neutral-200 p-4 text-left hover:border-accent-500 dark:border-neutral-800">
             <FolderOpen size={20} className="text-accent-600 dark:text-accent-400" />
-            <span className="font-medium">Open a sequence</span>
+            <span className="font-medium">Open sequence…</span>
             <span className="text-sm text-neutral-500">A .pfseq.json file you saved.</span>
           </button>
           <button
@@ -852,7 +852,7 @@ function Start({ onNew, onOpen }: { onNew: () => void; onOpen: (path?: string) =
             className="col-span-2 flex flex-col items-start gap-1 rounded-lg border border-neutral-200 p-4 text-left hover:border-accent-500 dark:border-neutral-800"
           >
             <FileInput size={20} className="text-accent-600 dark:text-accent-400" />
-            <span className="font-medium">Import an xLights sequence</span>
+            <span className="font-medium">Import xLights sequence…</span>
             <span className="text-sm text-neutral-500">An .xsq file, or a vendor&apos;s .zip package mapped onto this show&apos;s props and groups.</span>
           </button>
         </div>
@@ -864,9 +864,14 @@ function Start({ onNew, onOpen }: { onNew: () => void; onOpen: (path?: string) =
 }
 
 function Modal({ label, children }: { label: string; children: React.ReactNode }) {
+  const box = useRef<HTMLDivElement>(null);
+  // Takes the focus: its first control.
+  useEffect(() => {
+    box.current?.querySelector<HTMLElement>("button:not(:disabled), input, select, textarea")?.focus();
+  }, []);
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40">
-      <div role="dialog" aria-modal="true" aria-label={label} className="w-[28rem] rounded-lg border border-neutral-200 bg-white p-5 shadow-xl dark:border-neutral-800 dark:bg-neutral-900">
+      <div ref={box} role="dialog" aria-modal="true" aria-label={label} className="w-[28rem] rounded-lg border border-neutral-200 bg-white p-5 shadow-xl dark:border-neutral-800 dark:bg-neutral-900">
         {children}
       </div>
     </div>
@@ -914,11 +919,19 @@ function NewSequenceDialog({ onClose }: { onClose: () => void }) {
     if (ok) onClose();
   };
 
+  // Called off, the focus goes back to what opened the window. Created, it is left with the new
+  // sequence, so Space plays it rather than pressing New sequence again.
+  const opener = useRef(document.activeElement instanceof HTMLElement ? document.activeElement : null);
+  const cancel = useRef(onClose);
+  cancel.current = () => {
+    onClose();
+    if (opener.current?.isConnected) opener.current.focus();
+  };
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && cancel.current();
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, []);
 
   return (
     <Modal label="New sequence">
@@ -954,7 +967,10 @@ function NewSequenceDialog({ onClose }: { onClose: () => void }) {
               {rowCount > MAX_ROWS
                 ? `A row for the first ${MAX_ROWS.toLocaleString("en-US")} props and groups (of ${rowCount.toLocaleString("en-US")})`
                 : `A row for every prop and group (${rowCount.toLocaleString("en-US")})`}
-              <span className="block text-xs text-neutral-500">In layout order, groups first, as xLights does. Remove the ones you don&apos;t need.
+              <span className="block text-xs text-neutral-500">
+                {rowCount === 0
+                  ? "This show has no props yet: draw them on Layout, then add a row for each with Add row."
+                  : "In layout order, groups first, as xLights does. Remove the ones you don't need."}
                 {rowCount > MAX_ROWS && ` A sequence holds at most ${MAX_ROWS.toLocaleString("en-US")} rows; add the rest by hand where you need them.`}</span>
             </span>
           </label>
@@ -969,7 +985,7 @@ function NewSequenceDialog({ onClose }: { onClose: () => void }) {
         <p className="text-xs text-neutral-500">Frames are 25 ms apart (40 per second).</p>
       </div>
       <div className="mt-5 flex justify-end gap-2">
-        <Button variant="ghost" onClick={onClose}>
+        <Button variant="ghost" onClick={() => cancel.current()}>
           Cancel
         </Button>
         <Button variant="primary" onClick={() => void create()} disabled={reading}>

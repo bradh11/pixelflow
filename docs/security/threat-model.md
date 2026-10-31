@@ -149,7 +149,7 @@ user has to take first.
   no depth limit (`roxmltree` 0.21.1, `tokenizer.rs:584`, `:639`, `:683`).
 - **So:** a page of nested tags overflowed the stack, which Rust cannot catch: the app exits.
   Reproduced: 600 KB of `<a>` aborts a 2 MB thread with "has overflowed its stack". Any device on
-  the swept network could do it whenever the user pressed "Find my controllers".
+  the swept network could do it whenever the user pressed "Find controllers".
 - **Fix:** a controller's status is read through a bounded parse: 256 KiB, 32 levels, 50,000
   nodes, checked before parsing (`crates/pf-devices/src/xml.rs:65`), the same guard the xLights
   importer already had (`crates/pf-xlights/src/xml.rs:13`). Tests in `xml.rs` and

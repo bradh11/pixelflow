@@ -85,7 +85,7 @@ function NameField({ onDone }: { onDone: () => void }) {
 
 /**
  * The show menu, on the show's name in the top bar: the recent shows (this one marked), Open…,
- * New show, Import from xLights…, Rename…, Save, Save As…, and Close show.
+ * New show, Import xLights show…, Rename…, Save, Save As…, and Close show.
  */
 export function ShowMenu() {
   const snapshot = useApp((s) => s.snapshot);
@@ -243,7 +243,7 @@ export function ShowMenu() {
             <Item shortcut={hintFor("new")} onSelect={run(app.newShow)}>
               New show
             </Item>
-            <Item onSelect={run(app.importXlights)}>Import from xLights…</Item>
+            <Item onSelect={run(app.importXlights)}>Import xLights show…</Item>
             <Separator />
             <Item onSelect={() => app.setRenaming(true)}>Rename…</Item>
             <Item shortcut={hintFor("save")} onSelect={run(app.save)}>

@@ -158,13 +158,16 @@ function TrackMenu({
   const box = useRef<HTMLDivElement>(null);
   const close = useRef(onClose);
   close.current = onClose;
-  // The menu takes the focus; Escape or a click elsewhere closes it.
+  // What had the focus as the menu opened (its button), before the menu takes it.
+  const opener = useRef(document.activeElement instanceof HTMLElement ? document.activeElement : null);
+  // The menu takes the focus; Escape (which gives it back) or a click elsewhere closes it.
   useEffect(() => {
     box.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
         close.current();
+        if (opener.current?.isConnected) opener.current.focus();
       }
     };
     const onDown = (e: PointerEvent) => {

@@ -1,5 +1,5 @@
 import { Command } from "cmdk";
-import { useEffect } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { fileName } from "../lib/format";
 import { hintFor } from "../lib/shortcuts";
 import { PROP_KINDS } from "../lib/shows";
@@ -32,14 +32,29 @@ export function CommandPalette() {
   const in3d = useView3d((s) => s.mode === "3d");
   const poppedOut = usePreviewWindow((s) => s.poppedOut);
 
+  // It takes the focus when it opens. Put away (Escape, or a click beside it), it gives the focus
+  // back to where it was; a command that runs takes it wherever the command goes.
+  const opener = useRef<HTMLElement | null>(null);
+  const input = useRef<HTMLInputElement>(null);
+  useLayoutEffect(() => {
+    if (!open) return;
+    opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    input.current?.focus();
+  }, [open]);
+  const dismiss = useRef(() => {});
+  dismiss.current = () => {
+    setOpen(false);
+    if (opener.current?.isConnected) opener.current.focus();
+  };
+
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key === "Escape") dismiss.current();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, setOpen]);
+  }, [open]);
 
   useEffect(() => {
     if (open) void useApp.getState().refreshRecent();
@@ -66,7 +81,7 @@ export function CommandPalette() {
     { id: "clear-recent", label: "Clear recent shows", run: state.clearRecent },
     { id: "demo", label: "Try the demo show", run: state.openSample },
     { id: "camera-map", label: "Map pixels with a camera…", run: () => state.setScreen("cameraMap") },
-    { id: "import-xlights", label: "Import from xLights…", run: state.importXlights },
+    { id: "import-xlights", label: "Import xLights show…", run: state.importXlights },
     { id: "import-xlights-sequence", label: "Import xLights sequence…", run: state.importXlightsSequence },
     { id: "import-xlights-sequence-folder", label: "Import xLights sequence from a folder…", run: state.importXlightsSequenceFolder },
     { id: "save", label: "Save", shortcut: hintFor("save"), run: () => saveFocused(false) },
@@ -108,7 +123,7 @@ export function CommandPalette() {
     ...(sequenceHasMusic ? [{ id: "detect-beats", label: "Detect beats (find the beats, bars, sections, accents, moments, and drums)", run: () => useSequencer.getState().detectBeats() }] : []),
     {
       id: "scan",
-      label: "Scan the network for controllers",
+      label: "Find controllers (scan the network)",
       run: () => {
         state.setScreen("devices");
         return state.scan();
@@ -140,14 +155,17 @@ export function CommandPalette() {
   ];
 
   return (
-    <div className="fixed inset-0 z-40 flex items-start justify-center bg-black/40 pt-[15vh]" onClick={() => setOpen(false)}>
+    <div className="fixed inset-0 z-40 flex items-start justify-center bg-black/40 pt-[15vh]" onClick={() => dismiss.current()}>
       <Command
         label="Commands"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Commands"
         onClick={(e) => e.stopPropagation()}
         className="w-full max-w-lg overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-2xl dark:border-neutral-800 dark:bg-neutral-900"
       >
         <Command.Input
-          autoFocus
+          ref={input}
           placeholder="Type a command…"
           className="w-full border-b border-neutral-200 bg-transparent px-4 py-3 text-sm outline-none dark:border-neutral-800"
         />

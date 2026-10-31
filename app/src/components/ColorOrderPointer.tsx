@@ -5,10 +5,22 @@ import { setMoreOpen } from "./ui";
 
 /** The Layout section that holds a prop's color order (see PropertiesPanel). */
 export const COLOR_ORDER_SECTION = "layout-prop";
+/** The id of the color order box in the Layout's properties. */
+export const COLOR_ORDER_FIELD = "prop-color-order";
+
+/** Brings the color order box into view and gives it the focus, once the Layout screen shows it. */
+function revealColorOrder(frames = 30) {
+  const field = document.getElementById(COLOR_ORDER_FIELD);
+  if (field) {
+    field.scrollIntoView?.({ block: "center" });
+    field.focus();
+  } else if (frames > 0) requestAnimationFrame(() => revealColorOrder(frames - 1));
+}
 
 /**
  * A pointer to where a prop's color order is set, for screens where people look for it (Wiring,
- * Test). With `propId` the link also selects that prop and opens the section.
+ * Test). With `propId` the link also selects that prop, opens the section, and puts the focus on
+ * the color order itself.
  */
 export function ColorOrderPointer({ propId, className = "" }: { propId?: string; className?: string }) {
   const open = () => {
@@ -17,6 +29,7 @@ export function ColorOrderPointer({ propId, className = "" }: { propId?: string;
       setMoreOpen(COLOR_ORDER_SECTION, true);
     }
     useApp.getState().setScreen("layout");
+    if (propId) requestAnimationFrame(() => revealColorOrder());
   };
   return (
     <p className={`text-xs text-neutral-500 dark:text-neutral-400 ${className}`}>

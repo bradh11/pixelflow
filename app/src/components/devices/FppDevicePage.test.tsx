@@ -34,7 +34,7 @@ async function openPage(setup?: (backend: MemoryBackend) => void) {
   const user = userEvent.setup();
   render(<App />);
   act(() => useApp.getState().setScreen("devices"));
-  await user.click(screen.getByRole("button", { name: "Scan network" }));
+  await user.click(screen.getByRole("button", { name: "Find controllers" }));
   await user.click(await screen.findByRole("button", { name: "Open FPP" }));
   await screen.findByRole("heading", { name: "FPP" });
   return { backend, user };
@@ -284,7 +284,7 @@ describe("an FPP's page", () => {
       const user = userEvent.setup();
       render(<App />);
       act(() => useApp.getState().setScreen("devices"));
-      await user.click(screen.getByRole("button", { name: "Scan network" }));
+      await user.click(screen.getByRole("button", { name: "Find controllers" }));
       expect(await screen.findByText("Update available")).toBeInTheDocument();
     });
   });

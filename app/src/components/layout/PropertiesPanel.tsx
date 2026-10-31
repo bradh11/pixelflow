@@ -32,7 +32,7 @@ import { DmxSection } from "./DmxSection";
 import { isPoly } from "../../lib/polylineMath";
 import { SHAPE_FIELDS, type ShapeField, fieldValue, parseNumbers, withField } from "./shapeFields";
 import { MissingFileNotice, useMissingFile } from "../MissingFiles";
-import { COLOR_ORDER_SECTION } from "../ColorOrderPointer";
+import { COLOR_ORDER_FIELD, COLOR_ORDER_SECTION } from "../ColorOrderPointer";
 import { Button, Input, More, Select } from "../ui";
 import { hintFor } from "../../lib/shortcuts";
 
@@ -359,6 +359,7 @@ function OnePropPanel({ prop, points }: { prop: Prop; points: ArrayLike<number> 
           <label className="flex flex-col gap-1 text-xs">
             <span className="text-neutral-500 dark:text-neutral-400">Color order</span>
             <Select
+              id={COLOR_ORDER_FIELD}
               value={prop.colorOrder}
               onChange={(e) => {
                 const colorOrder = e.target.value as ColorOrder;

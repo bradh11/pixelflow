@@ -1,7 +1,7 @@
 import { Unplug, X } from "lucide-react";
 import { type KeyboardEvent, useEffect, useRef } from "react";
 import type { PortSlot } from "../../api/types";
-import { thousands } from "../../lib/format";
+import { plural } from "../../lib/format";
 import { type SlotRef, findPort, moveSlotEdits, unwireEdits, updateSlotEdits } from "../../lib/wiringMath";
 import { useApp } from "../../state/store";
 import { useWiring } from "../../state/wiring";
@@ -103,7 +103,7 @@ export function SlotSettings({ selected, data }: { selected: SlotRef; data: Wiri
           <legend className="mb-1 text-xs text-neutral-500 dark:text-neutral-400">Pixels on this port</legend>
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={segment === null} onChange={(e) => change({ segment: e.target.checked ? null : { start: 0, end: nodes } })} />
-            The whole prop ({thousands(nodes)} pixels)
+            The whole prop ({plural(nodes, "pixel")})
           </label>
           {segment && (
             <div className="grid grid-cols-2 gap-2">

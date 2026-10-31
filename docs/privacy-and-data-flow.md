@@ -13,7 +13,7 @@ and when.
   reports, and it doesn't check in with anyone when it starts.
 - **Your files stay where you put them.** Nothing is uploaded unless you use a feature below
   that says so.
-- **It scans your network only when you ask.** "Find my controllers" (or **Scan network** on
+- **It scans your network only when you ask.** **Find controllers** (on the welcome screen or
   the **Controllers** screen) looks at your local network; nothing is scanned in the background.
 - **The assistant is off until you add your own key.** When you use it, parts of your show go to
   the AI company you chose (Anthropic or OpenAI), under your own account with them.
@@ -45,8 +45,8 @@ is somewhere else.
 
 ### Finding your controllers
 
-When you choose **Find my controllers** on the welcome screen, or **Scan network** on
-**Controllers**, and only then, PixelFlow:
+When you choose **Find controllers** on the welcome screen or on **Controllers**, and only
+then, PixelFlow:
 
 1. sends a short "who's there?" message that FPP-compatible devices answer. It carries the
    word "PixelFlow" and nothing about you or your computer;

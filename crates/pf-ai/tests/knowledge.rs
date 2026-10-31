@@ -690,6 +690,88 @@ fn a_guide_that_falls_behind_its_effect_is_told_what_to_write() {
 }
 
 #[test]
+fn looks_for_heads_and_servos_are_tried_on_heads_and_servos() {
+    // They draw no pixels and the stage has no fixtures: each look is tried on a group of the
+    // fixtures it acts on, suits only the house, and must point, light, or turn something.
+    let stage = Stage::new();
+    for kind in [EffectKind::MovingHead, EffectKind::Servo, EffectKind::Dmx] {
+        let source = library::effect_source(kind);
+        assert_eq!(
+            check::effect_problems(kind, Some(source), &stage),
+            Vec::<String>::new(),
+            "{kind:?}"
+        );
+    }
+    let head = library::effect_source(EffectKind::MovingHead);
+    let problems =
+        |kind: EffectKind, source: &str| check::effect_problems(kind, Some(source), &stage).join("\n");
+    // Only the house holds fixtures.
+    let said = problems(
+        EffectKind::MovingHead,
+        &head.replace(
+            "{\"name\": \"Sky sweep\", \"suits\": [\"house\"]",
+            "{\"name\": \"Sky sweep\", \"suits\": [\"house\", \"string\"]",
+        ),
+    );
+    assert!(
+        said.contains("the look \"Sky sweep\" says it suits the string, but the Moving Head effect only sets DMX fixtures' channels: it does nothing on a string")
+            && !said.contains("on the house"),
+        "{said}"
+    );
+    // A head held at Home and lit black does nothing.
+    let said = problems(
+        EffectKind::MovingHead,
+        &head.replace(
+            "\"settings\": {\"tilt\": 35, \"pattern\": \"wander\", \"width\": 140, \"height\": 40, \"speed\": 0.1}, \"colors\": [\"#4060ff\"]",
+            "\"settings\": {}, \"colors\": [\"#000000\"]",
+        ),
+    );
+    assert_eq!(
+        said,
+        "crates/pf-ai/guides/effects/movingHead.md: the look \"Searchlights\" changes nothing on a group of moving heads in its first four seconds. Change it so it does."
+    );
+    // Left to be lit by what is drawn on it, a head this effect doesn't move does nothing.
+    let said = problems(
+        EffectKind::MovingHead,
+        &head.replace(
+            "\"tilt\": 40, \"pattern\": \"eight\", \"width\": 70, \"height\": 30, \"speed\": 0.2, \"fanPan\": 20, ",
+            "",
+        ),
+    );
+    assert!(
+        said.contains("\"Figure eights, lit from below\" changes nothing on a group of moving heads"),
+        "{said}"
+    );
+    // A servo held at Home doesn't turn.
+    let servo = library::effect_source(EffectKind::Servo);
+    let said = problems(
+        EffectKind::Servo,
+        &servo.replace(
+            "{\"pattern\": \"wave\", \"size\": 60, \"speed\": 1}",
+            "{\"pattern\": \"still\"}",
+        ),
+    );
+    assert_eq!(
+        said,
+        "crates/pf-ai/guides/effects/servo.md: the look \"Friendly wave\" changes nothing on a group of servos in its first four seconds. Change it so it does."
+    );
+    // They aren't effects that need columns and rows: the review leaves them be on a fixture,
+    // which is a single run of cells.
+    for kind in [EffectKind::MovingHead, EffectKind::Servo, EffectKind::Dmx] {
+        assert_eq!(knowledge::suits_a_run(kind), None, "{kind:?}");
+    }
+    let range = knowledge::topic_text("range").unwrap();
+    let grid_only = range
+        .split("These are:\n\n")
+        .nth(1)
+        .and_then(|rest| rest.lines().next())
+        .unwrap();
+    for key in ["`dmx`", "`movingHead`", "`servo`"] {
+        assert!(!grid_only.contains(key), "{grid_only}");
+    }
+}
+
+#[test]
 fn the_instructions_point_at_the_guides_and_the_method_at_every_topic() {
     // The standing instructions carry the method in brief and say where the rest is: the tool,
     // the method's own topic, and the topic for each thing a designer decides.

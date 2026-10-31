@@ -472,3 +472,71 @@ fn a_matrix_effect_on_an_arch_is_named_and_on_the_matrix_it_is_fine() {
     show.put("Matrix", 1, Effect::new(EffectKind::Fan, 24_000, 32_000));
     assert_eq!(show.review().criteria.fit, 100);
 }
+
+#[test]
+fn heads_and_servos_are_judged_by_what_they_do() {
+    let mut show = Show::new();
+    show.a_look_per_section();
+    // A moving head and a fixture of two servos on the lawn, each on a row of its own.
+    for (name, layout, cells, x) in [
+        ("Lawn Head", "head-rgbw-16", 1, -6.0),
+        ("Waving Arms", "servo-16", 2, 6.0),
+    ] {
+        let mut prop = pf_model::Prop::new(
+            name,
+            pf_model::ShapeSource::Generator(pf_model::Generator::Line {
+                nodes: cells,
+                length: 0.5,
+            }),
+        );
+        prop.transform.position.x = x;
+        let layout = pf_model::dmx_layout(layout).unwrap();
+        prop.dmx = Some(pf_model::DmxFixture::from_layout(layout, cells, 1));
+        show.doc
+            .rows
+            .push(pf_sequence::Row::new(pf_sequence::Target::Prop(prop.id)));
+        show.stage.show.props.push(prop);
+    }
+    // The head sweeps and lights for the whole song; the arms wave.
+    let sweep = pf_sequence::MovingHeadParams {
+        tilt: 40.0,
+        pattern: pf_sequence::HeadPattern::Sweep,
+        ..Default::default()
+    };
+    show.put(
+        "Lawn Head",
+        0,
+        Effect::new(EffectKind::MovingHead, 0, SONG_MS)
+            .with_params(EffectParams::MovingHead(sweep))
+            .with_palette(vec![BLUE]),
+    );
+    let wave = pf_sequence::ServoParams {
+        pattern: pf_sequence::ServoPattern::Wave,
+        ..Default::default()
+    };
+    show.put(
+        "Waving Arms",
+        0,
+        Effect::new(EffectKind::Servo, 0, SONG_MS).with_params(EffectParams::Servo(wave)),
+    );
+    let review = show.review();
+    // A head is one cell, but a Moving Head effect on it isn't a slice of anything; and servos
+    // play by moving, so they aren't props that never light.
+    assert_eq!(review.criteria.fit, 100, "{review:#?}");
+    assert_eq!(review.criteria.props, Some(100), "{review:#?}");
+    // On a roofline they do nothing, and the review says so.
+    show.put("Roofline", 1, Effect::new(EffectKind::MovingHead, 24_000, 28_000));
+    show.put("Roofline", 1, Effect::new(EffectKind::Servo, 32_000, 36_000));
+    let review = show.review();
+    assert!(review.criteria.fit < 100, "{review:#?}");
+    find(
+        &review,
+        "Roofline isn't a moving head, so a Moving Head effect does nothing there (at 0:24.000).",
+    );
+    let servos = find(
+        &review,
+        "Roofline has no servos, so a Servo effect does nothing there (at 0:32.000).",
+    );
+    let hint = servos.hint.as_deref().unwrap();
+    assert!(hint.contains("\"kinds\": [\"servo\"]"), "{hint}");
+}

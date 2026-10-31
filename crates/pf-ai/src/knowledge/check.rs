@@ -3,6 +3,10 @@
 //! none it doesn't; and each of its looks is a real effect that draws on every target it was
 //! written for. Each problem is said in words that tell a writer what to write.
 //!
+//! The effects that set DMX channels (DMX, Moving Head, Servo) draw no pixels, and the stage has
+//! no fixtures, so their looks are tried on a group of the fixtures each acts on instead (floods,
+//! moving heads, servos): a look must suit only the house, and light, point or turn them.
+//!
 //! The tests run this on the guides compiled into the app; the `guide_sheets` example runs it on
 //! a folder of guides as they are on disk, for someone in the middle of writing one.
 
@@ -180,12 +184,9 @@ fn look_effect(look: &Look, stage: &Stage) -> Result<pf_sequence::Effect, String
     Ok(effect)
 }
 
-/// Whether `effect` lights anything on `suit`'s target at any of the moments it's tried. A DMX
-/// effect, which acts only on DMX fixtures (the stage has none), is tried on a group of floods.
+/// Whether `effect` lights anything on `suit`'s target at any of the moments it's tried. (The
+/// effects that set DMX channels are tried on fixtures instead: see [`works_fixtures`].)
 fn draws(effect: &pf_sequence::Effect, suit: Suit, stage: &Stage) -> bool {
-    if effect.kind() == EffectKind::Dmx {
-        return lights_floods(effect);
-    }
     let doc = stage.with_effects(suit, std::slice::from_ref(effect));
     let times: Vec<u64> = TRY_AT_MS.iter().map(|t| TRY_FROM_MS + t).collect();
     let pixels = stage.pixels(suit);
@@ -201,38 +202,66 @@ fn draws(effect: &pf_sequence::Effect, suit: Suit, stage: &Stage) -> bool {
         })
 }
 
-/// Whether `effect` lights a group of two floods (dimmer, red, green, blue and strobe channels)
-/// at any of the moments it's tried.
-fn lights_floods(effect: &pf_sequence::Effect) -> bool {
+/// The fixtures an effect that sets DMX channels is tried on (the stage has none): a group of
+/// fixtures of one library layout, each with so many cells. What the group is called in a
+/// look's problems, too.
+fn fixtures_for(kind: EffectKind) -> (&'static str, &'static str, usize, u32) {
+    match kind {
+        // Three, so a fan has a middle and two sides.
+        EffectKind::MovingHead => ("moving heads", "head-rgbw-16", 3, 1),
+        EffectKind::Servo => ("servos", "servo-16", 2, 2),
+        _ => ("floods", "dimmer-rgb-strobe", 2, 1),
+    }
+}
+
+/// Whether `effect`, one of the effects that set DMX channels (`EffectKind::sets_channels`), does
+/// something to the fixtures it acts on at any of the moments it's tried: a DMX effect lights a
+/// group of two floods (dimmer, red, green, blue and strobe channels); a Moving Head effect points
+/// or lights a group of three moving heads, and a Servo effect turns a group of two fixtures of
+/// two servos, away from where they rest with nothing playing.
+fn works_fixtures(effect: &pf_sequence::Effect) -> bool {
     use pf_model::{DmxFixture, Generator, Group, Prop, ShapeSource, Show, dmx_layout};
-    let mut show = Show::new("Floods");
-    for (n, address) in [(0.0, 1), (2.0, 6)] {
-        let mut flood = Prop::new(
-            format!("Flood {address}"),
+    let (name, layout, count, cells) = fixtures_for(effect.kind());
+    let layout = dmx_layout(layout).expect("a library layout");
+    let mut show = Show::new(name);
+    let mut address = 1;
+    for n in 0..count {
+        let mut fixture = Prop::new(
+            format!("Fixture {}", n + 1),
             ShapeSource::Generator(Generator::Line {
-                nodes: 1,
+                nodes: cells,
                 length: 0.5,
             }),
         );
-        flood.transform.position.x = n;
-        let layout = dmx_layout("dimmer-rgb-strobe").expect("a library layout");
-        flood.dmx = Some(DmxFixture::from_layout(layout, 1, address));
-        show.props.push(flood);
+        fixture.transform.position.x = 2.0 * n as f32;
+        let dmx = DmxFixture::from_layout(layout, cells, address);
+        address += dmx.footprint() as u16;
+        fixture.dmx = Some(dmx);
+        show.props.push(fixture);
     }
-    let mut group = Group::new("Floods");
+    let mut group = Group::new(name);
     group.members = show.props.iter().map(|p| p.id.into()).collect();
     let target = pf_sequence::Target::Group(group.id);
     show.groups.push(group);
-    let mut doc = pf_sequence::Sequence::new("floods", TRY_FROM_MS + TRY_FOR_MS);
+    let resting = pf_sequence::Sequence::new("resting", TRY_FROM_MS + TRY_FOR_MS);
+    let mut doc = resting.clone();
     let mut row = pf_sequence::Row::new(target);
     row.layers = vec![pf_sequence::Layer {
         effects: vec![effect.clone()],
     }];
     doc.rows.push(row);
     let mut renderer = pf_engine::DraftRenderer::new(&show);
+    // The fixtures' cells come first in the frame, then their channels.
+    let lit = count * cells as usize * 3;
+    let rest = renderer.frame(&resting, TRY_FROM_MS);
     TRY_AT_MS.iter().any(|t| {
         let frame = renderer.frame(&doc, TRY_FROM_MS + t);
-        frame.get(..6).is_some_and(|cells| cells.iter().any(|v| *v > 12))
+        if effect.kind() == EffectKind::Dmx {
+            return frame
+                .get(..lit)
+                .is_some_and(|cells| cells.iter().any(|v| *v > 12));
+        }
+        frame.iter().zip(&rest).any(|(a, b)| a.abs_diff(*b) > 12)
     })
 }
 
@@ -352,6 +381,26 @@ pub fn effect_problems(kind: EffectKind, source: Option<&str>, stage: &Stage) ->
                 "{file}: the look \"{}\" isn't an effect PixelFlow can place: {e}",
                 look.name
             )),
+            // It draws no pixels: it suits only a group that can hold fixtures, the house, and
+            // there it must point, light, or turn them.
+            Ok(effect) if kind.sets_channels() => {
+                for &suit in look.suits.iter().filter(|s| **s != Suit::House) {
+                    problems.push(format!(
+                        "{file}: the look \"{}\" says it suits the {}, but the {} effect only sets DMX fixtures' channels: it does nothing on a {}. Its looks suit the house, the group that holds a show's fixtures.",
+                        look.name,
+                        suit.word(),
+                        kind.label(),
+                        suit.word()
+                    ));
+                }
+                if look.suits.contains(&Suit::House) && !works_fixtures(&effect) {
+                    problems.push(format!(
+                        "{file}: the look \"{}\" changes nothing on a group of {} in its first four seconds. Change it so it does.",
+                        look.name,
+                        fixtures_for(kind).0
+                    ));
+                }
+            }
             Ok(effect) if kind != EffectKind::Off => {
                 for &suit in &look.suits {
                     if !draws(&effect, suit, stage) {

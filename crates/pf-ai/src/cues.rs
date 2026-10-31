@@ -20,7 +20,7 @@ use crate::draft::Draft;
 use crate::song::find_track;
 use pf_analysis::{Analysis, Moment, MomentKind, Suggest};
 use pf_engine::SequenceEdit;
-use pf_model::{Generator, PropId, RegionKind, RenderStyle, ShapeSource, Show};
+use pf_model::{DmxRole, Generator, PropId, RegionKind, RenderStyle, ShapeSource, Show};
 use pf_sequence::{
     Effect, EffectKind, EffectParams, Layer, MAX_LAYERS_PER_ROW, Mark, Palette, Rgb, Sequence, Target,
     TimingKind, TimingTrack, TimingTrackId, format_ms,
@@ -247,6 +247,10 @@ pub(crate) enum Role {
     Round,
     /// A DMX flood, par or bar: a wash of colour on what it lights.
     Flood,
+    /// A DMX moving head: a beam that points where the Moving Head effect (or channels) send it.
+    Head,
+    /// DMX servos and nothing else: they move something, and make no light.
+    Servo,
     Other,
 }
 
@@ -281,8 +285,19 @@ fn role_by_name(name: &str) -> Option<Role> {
 }
 
 pub(crate) fn role_of(prop: &pf_model::Prop) -> Role {
-    if prop.dmx.is_some() {
-        return Role::Flood;
+    if let Some(dmx) = &prop.dmx {
+        let has = |role: DmxRole| dmx.channels.iter().any(|c| c.role == role);
+        let lights = dmx
+            .channels
+            .iter()
+            .any(|c| c.from_color() || c.role == DmxRole::ColorWheel);
+        return if dmx.is_head() {
+            Role::Head
+        } else if has(DmxRole::Servo) && !lights {
+            Role::Servo
+        } else {
+            Role::Flood
+        };
     }
     let by_shape = match &prop.shape {
         ShapeSource::Generator(g) => match g {
@@ -1823,8 +1838,9 @@ impl<'a> Stager<'a> {
                     end,
                     &palette,
                 ),
-                // A flood washes what it lights: the palette's colors, changing slowly.
-                Role::Flood => make(
+                // A flood washes what it lights: the palette's colors, changing slowly (a
+                // head as it points; a servo takes no color).
+                Role::Flood | Role::Head | Role::Servo => make(
                     EffectKind::ColorWash,
                     json!({ "cycles": 1.0 }),
                     spec.at,

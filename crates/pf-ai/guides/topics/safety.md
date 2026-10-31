@@ -22,6 +22,7 @@ This is a limit, not a style preference. A request for "crazy strobes on the who
 - Any effect cut on a fast track and alternated with dark: an `on` and an `off` on every sixteenth note at a quick tempo. At 120 beats a minute, a beat is two flashes a second (safe), half beats are four (too fast for a large area), quarter beats are eight.
 - A `square` curve on `brightness` with many cycles: count them. Cycles divided by the effect's seconds is flashes a second.
 - `lightning` and big hits back to back. One is fine. Eight in two seconds is a strobe.
+- A `movingHead.strobe`, or a strobe channel opened by `dmx`: a beam or a flood flashing is a real strobe lamp, seen from far down the street, however few pixels it is. Keep it to a moment, under 3 a second for anything longer.
 - Hard alternation between two full-house looks on every beat at a fast tempo.
 
 ## What to use instead

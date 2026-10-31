@@ -657,6 +657,71 @@ mod tests {
     }
 
     #[test]
+    fn heads_and_servos_are_described_in_degrees_with_their_own_movements() {
+        let tracks = tracks();
+        let cx = Context {
+            tracks: &tracks,
+            pictures: None,
+        };
+        let head = parse(
+            &json!({
+                "kind": "movingHead",
+                "settings": { "tilt": 40, "pattern": "eight", "width": 70, "fanPan": -20, "fans": 2, "mirror": true, "color": "perHead", "dimmer": 80 },
+                "colors": ["#ff0000", "#0000ff"],
+                "fadeInMs": 500,
+                "curves": { "pan": { "shape": "ramp", "from": -90, "to": 90 }, "speed": { "shape": "ramp", "from": 0.1, "to": 1 } },
+            }),
+            &cx,
+        )
+        .unwrap();
+        let EffectParams::MovingHead(p) = &head.params else {
+            panic!("{:?}", head.params)
+        };
+        assert_eq!(
+            (p.tilt, p.pattern, p.fan_pan, p.fans, p.mirror),
+            (40.0, pf_sequence::HeadPattern::Eight, -20.0, 2, true)
+        );
+        assert_eq!((p.color, p.dimmer), (pf_sequence::HeadColor::PerHead, 80.0));
+        assert_eq!((head.curves["pan"].from, head.curves["pan"].to), (-90.0, 90.0));
+        assert_eq!(head.fade_in_ms, 500);
+        let servo = parse(
+            &json!({ "kind": "servo", "settings": { "pattern": "steps", "steps": 3, "servo": 2, "delay": 0.2 } }),
+            &cx,
+        )
+        .unwrap();
+        let EffectParams::Servo(s) = &servo.params else {
+            panic!("{:?}", servo.params)
+        };
+        assert_eq!(
+            (s.pattern, s.steps, s.servo, s.delay),
+            (pf_sequence::ServoPattern::Steps, 3, 2, 0.2)
+        );
+        // Each has its own movements, and says which when asked for another's.
+        let refused = |spec: Value| parse(&spec, &cx).unwrap_err();
+        assert_eq!(
+            refused(json!({ "kind": "servo", "settings": { "pattern": "circle" } })),
+            "pattern is \"circle\"; choose from still, sweep, wave, steps."
+        );
+        assert_eq!(
+            refused(json!({ "kind": "movingHead", "settings": { "pattern": "steps" } })),
+            "pattern is \"steps\"; choose from still, sweep, circle, eight, wave, wander."
+        );
+        assert_eq!(
+            refused(json!({ "kind": "movingHead", "settings": { "color": "rainbow" } })),
+            "color is \"rainbow\"; choose from first, wash, perHead, drawn."
+        );
+        assert_eq!(
+            refused(json!({ "kind": "movingHead", "settings": { "tilt": 200 } })),
+            "tilt is 200; use -180 to 180 (default 0)."
+        );
+        let other = refused(json!({ "kind": "servo", "settings": { "pan": 30 } }));
+        assert!(
+            other.contains("The Servo effect has no setting \"pan\"") && other.contains("position"),
+            "{other}"
+        );
+    }
+
+    #[test]
     fn changes_keep_what_they_dont_name_and_take_curves_off() {
         let tracks = tracks();
         let cx = Context {

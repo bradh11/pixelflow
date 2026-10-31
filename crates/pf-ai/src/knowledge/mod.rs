@@ -62,9 +62,13 @@ impl Suit {
 }
 
 /// Whether `kind`'s guide has a look for a single run of pixels (a string or an arch): `None`
-/// for a kind without a guide. One without is what the review's fit criterion flags on an
-/// outline or an arch.
+/// for a kind without a guide, or one that draws no pixels at all (DMX, Moving Head, Servo: they
+/// set fixtures' channels, whatever the fixture's shape). One without is what the review's fit
+/// criterion flags on an outline or an arch.
 pub fn suits_a_run(kind: EffectKind) -> Option<bool> {
+    if kind.sets_channels() {
+        return None;
+    }
     let guide = effect_guide(kind)?;
     Some(
         guide

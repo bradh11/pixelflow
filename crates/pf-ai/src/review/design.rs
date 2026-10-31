@@ -8,8 +8,8 @@
 //! - **changes**: something changes where the song does, at each new section.
 //! - **scale**: the song's biggest moments light most of the house.
 //! - **fit**: effects suit the props they're on (an effect drawn on a grid shows only a slice on a
-//!   single run of pixels; a singing face needs a face), going by the targets each effect's guide
-//!   gives looks for.
+//!   single run of pixels; a singing face needs a face; the effects that set DMX channels need the
+//!   fixture they act on), going by the targets each effect's guide gives looks for.
 //! - **text**: words can be read: tall enough for their prop, on long enough, and not scrolling
 //!   too fast.
 //! - **flicker**: effects that flash faster than a frame-by-frame run-through can see (a shimmer
@@ -21,7 +21,7 @@
 use super::{Call, EMPHASIS, HUES, Reviewer, Section, kind_name, lands, percent, rank, where_};
 use crate::knowledge::{self, Suit};
 use pf_model::{Generator, Prop, PropId, RegionKind, ShapeSource};
-use pf_sequence::{Effect, EffectKind, EffectParams, Row, Target, format_ms};
+use pf_sequence::{Effect, EffectKind, EffectParams, HeadColor, Row, Target, format_ms};
 use serde_json::json;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -115,6 +115,22 @@ fn canvas(prop: &Prop) -> Canvas {
     }
 }
 
+/// What `prop` lacks for an effect of `kind` that sets DMX channels to do anything on it, said
+/// after the prop's name ("isn't a moving head"); `None` when it has it, or `kind` draws pixels.
+fn lacks_fixture(kind: EffectKind, prop: &Prop) -> Option<&'static str> {
+    let dmx = prop.dmx.as_ref();
+    match kind {
+        EffectKind::Dmx if dmx.is_none() => Some("has no DMX channels"),
+        EffectKind::MovingHead if !dmx.is_some_and(|d| d.is_head()) => Some("isn't a moving head"),
+        EffectKind::Servo
+            if !dmx.is_some_and(|d| d.channels.iter().any(|c| c.role == pf_model::DmxRole::Servo)) =>
+        {
+            Some("has no servos")
+        }
+        _ => None,
+    }
+}
+
 /// A color bin as "#rrggbb": the middle of its slice of the color wheel, or white.
 fn bin_color(bin: usize) -> String {
     if bin >= HUES - 1 {
@@ -171,6 +187,10 @@ fn flicker(effect: &Effect, frame_ms: u32) -> Option<(f32, f32)> {
         }
         // A share of the pixels, all on and off together.
         EffectParams::Strobe(strobe) => Some((strobe.rate, strobe.density)),
+        // A head's light, all of it.
+        EffectParams::MovingHead(head) if head.strobe > 0.0 && head.color != HeadColor::Drawn => {
+            Some((head.strobe, 1.0))
+        }
         _ => None,
     }
 }
@@ -596,6 +616,11 @@ impl Reviewer<'_> {
                     && !prop.regions.iter().any(|r| matches!(r.kind, RegionKind::Face(_)))
                 {
                     problem = Some("has no face, so a Faces effect has nothing to sing with; the sing effect sings on any prop".to_string());
+                } else if let Some(lacks) = lacks_fixture(kind, prop) {
+                    problem = Some(format!(
+                        "{lacks}, so a {} effect does nothing there",
+                        kind.label()
+                    ));
                 } else if on == Canvas::Run && single_look && suits_a_run(kind) == Some(false) {
                     problem = Some(format!(
                         "is a single run of pixels, one row tall, so {} shows only a slice of itself there (its guide has looks for: {})",

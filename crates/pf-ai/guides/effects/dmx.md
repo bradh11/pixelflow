@@ -8,9 +8,11 @@ No color of its own. On a DMX fixture (a flood, a par, a bar of several cells) i
 
 - On a single flood or par: the strobe opened, a mode or macro picked, the dimmer held or swelled. Setting its dimmer and color channels lights it in that color on its own.
 - On a bar of cells it sets the bar's shared channels (its dimmer, its strobe); the cells' colors still come from what is drawn on them.
-- On a moving head it points the head: its pan and tilt channels (and their fine channels on a 16-bit head), swept with curves; its color still comes from what is drawn on it. On a servo it sets the servo's position. Move heads slowly and only where the show's owner has set them up to point.
+- On a moving head it sets the channels `movingHead` leaves alone: a gobo, the head's own strobe or speed channel. It can set the pan and tilt too, by number, but `movingHead` points heads in degrees and moves them far more easily, and `servo` turns servos. Its numbers go out as they are, past the limits the show's owner set, which those two keep to.
 - On the whole house, or any group, it sets channel n of every fixture in the group, so it suits a group of floods of one kind; the props that aren't fixtures ignore it.
 - On a string, an arch, a matrix, or a tree it does nothing: they have no DMX channels.
+- Where it and a `movingHead` or a `servo` set the same channel, the later row or the higher layer wins.
+- Its colors and fades do nothing: it sets only the channels it names, to the values it gives. A curve on a channel swells or fades it.
 
 Which channel does what is the fixture's own: `get_prop` shows a flood's channels by number and role.
 
@@ -23,6 +25,7 @@ Which channel does what is the fixture's own: `get_prop` shows a flood's channel
 - A strobe burst on the floods for a big hit, with the color from an `on` on the layer below. Keep it short, and mind flash safety: a strobe channel is a real strobe.
 - Swelling the floods' dimmer up into a chorus, or down at the end, while their color comes from the effects below.
 - Holding a mode or macro channel at the value the fixture's manual gives.
+- A moving head's gobo, or its own strobe, on a layer above the `movingHead` that points it.
 - Don't use it for color: draw color with `on`, `colorWash`, or `fade`, and the fixture's red, green, blue, white, amber, and dimmer channels follow by themselves.
 
 ## Looks

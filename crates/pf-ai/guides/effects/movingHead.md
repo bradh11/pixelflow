@@ -1,55 +1,81 @@
 # Moving Head
 
-Points moving heads and moves them: a still position, a sweep, a circle, a figure eight, a wave, or a random wander, fanned out across a group of heads, lit in the palette's colors.
+Points moving heads and moves them: held still, or sweeping, circling, tracing a figure eight, waving, or wandering, fanned out across a group of heads and lit in the palette's colors.
 
 ## What it draws
 
-No pixels. On a moving head (a DMX fixture with pan and tilt) it sets where the head points and what light it gives, for as long as it plays; the previews draw the head's beam. Positions are degrees from Home: Home is the head facing the street, pointing straight up. Each head's own limits keep it where its owner set it up to point.
+No pixels. On a moving head (a DMX fixture with pan and tilt) it sets where the head points and the light it gives, for as long as it plays; the previews draw its beam. Positions are degrees from Home, where the head faces the street and points straight up. The limits the show's owner set for each head always hold, so it never points where it shouldn't.
 
-- On one head: it points that head, and moves it about that position.
-- On a group of heads: each head takes the same settings, fanned out in member order. `fanPan` and `fanTilt` spread them apart, evenly about the middle head; `delay` makes each head run a moment behind the one before, so a sweep ripples down the line.
-- On the whole house, or a group with floods and strings in it: only the heads move; everything else is left alone.
+- On one head: it points the head and moves it about that position.
+- On a group of heads: each head takes the same settings, in member order. `fanPan` and `fanTilt` spread them out evenly about the middle head; `delay` runs each a moment behind the one before; `fans` and `mirror` split them into matching fans or mirrored halves.
+- On the whole house, or any group with floods and pixels in it: only the heads move and light. Nothing else changes.
 - On a string, an arch, a matrix, or a tree it does nothing: they have no motors.
+- Its light replaces whatever other effects draw on the head, unless `color` is `drawn`. Where it and a `dmx` effect set the same channel, the later row or the higher layer wins.
+- When it ends, the head goes back to where it rests (Home, on most) and its light to whatever is drawn on it.
+- It draws no pixels, so `brightness`, `sparkles`, `blur`, render styles, and turns do nothing to it. Fades dim its light and never move the head.
 
 ## Settings
 
-- `pan` and `tilt`: where it points, in degrees from Home. Pan turns it round (+ to the right, seen from the street); tilt leans it (+ toward the street, - toward the house). Tilt 90 points at the street; tilt 45 lights the lawn in front. Curves on them make any path of your own: a "ramp" on `pan` from -90 to 90 sweeps once across.
-- `pattern`: how it moves about the pan and tilt. `still` holds there. `sweep` goes back and forth along a line (width across, height up and down; height 0 is a flat sweep). `circle` goes round (an oval when width and height differ). `eight` traces a figure eight. `wave` sweeps across, rising and falling three times as it goes. `wander` drifts on a smooth random path, each head its own; `seed` picks the paths.
-- `width` and `height`: how far the movement goes, end to end, in degrees.
-- `speed`: times round the movement each second. 0.1 to 0.3 is a slow, stately move; 1 is brisk; above 2 the heads race, and real heads may not keep up. A curve on it speeds the movement up and slows it down smoothly.
-- `fanPan` and `fanTilt`: degrees between neighboring heads of a group. 20 to 40 opens the beams into a fan; negative turns them inward, crossing.
-- `delay`: seconds each head runs behind the one before. 0 moves them together; 0.1 to 0.3 makes a ripple.
-- `fans`: splits a group's heads into this many fans side by side that move alike: with 8 heads and 2, heads 1 and 5 match.
-- `mirror`: the right half of each fan points and moves as a mirror image of the left (pan turned the other way), for symmetrical looks: with `pan` 30, the left half points right and the right half left, crossing.
-- `color`: where its light's color comes from. `first` is the first palette color; `wash` goes through the palette's colors over the effect; `perHead` gives each head the next palette color; `drawn` leaves the color to the effects on the layers below, so the effect only moves the head.
-- `dimmer`: how bright, 0 to 100. A curve swells it up or down.
-- `strobe`: flashes per second, 0 for steady. Mind flash safety: keep it short and under 3 flashes a second for long stretches.
+- `pan` and `tilt`: where it points, in degrees from Home. `tilt` leans the beam from straight up toward the street (+) or back over the house (-): 30 to 60 leans it out over the street, 90 points it level at the street, and past 90 it points down at the ground in front, for a head mounted up high. `pan` turns the way it leans, + to the right seen from the street: 90 leans it right, -90 left, 180 back over the house. At tilt 0 the beam points straight up, and pan changes nothing anyone can see.
+- `pattern`: how it moves about the pan and tilt. `still` holds there. `sweep` goes back and forth along a line, `width` of pan and `height` of tilt at once (height 0 for pan alone; the default 45 slants it). `circle` goes round, an oval when width and height differ. `eight` traces a figure eight lying on its side: across once while rising and falling twice. `wave` goes across and back on a wavy line that rises and falls three times each round. `wander` drifts on a smooth random path, each head its own.
+- `width` and `height`: how far the movement goes, end to end, in degrees: width 90 swings 45 each way. Width moves the pan and height the tilt, so what the street sees depends on where the head points. Leaning out (tilt 30 to 60), width swings the beam side to side and height dips and lifts it. At pan 90 it is the other way round: height swings the beam from side to side across the house front.
+- `speed`: times round the movement each second (for a sweep, there and back). 0.1 to 0.3 is slow and stately; 0.5 to 1 is lively; past 2 the heads race, and real heads may not keep up. A curve on it speeds the movement up or slows it down smoothly.
+- `fanPan` and `fanTilt`: degrees between neighboring heads of a group, spread evenly about the middle. With the heads leaning out, `fanPan` 20 to 40 opens them into a fan. At pan 90, `fanTilt` fans them across the house front like a peacock's tail. Negative turns the fan the other way: with the group's heads listed left to right, the beams cross.
+- `delay`: seconds each head runs behind the one before it in its fan. 0 moves them together; 0.1 to 0.3 makes a ripple down the line. A head running behind waits where the movement starts.
+- `fans`: splits a group's heads, in member order, into this many fans side by side that move alike: with 8 heads and 2 fans, heads 1 and 5 match.
+- `mirror`: the right half of each fan turns its pan the other way, so the halves move as mirror images. With a `sweep` they swing in and out together, like wings; held at `pan` 30 and leaning out, the halves lean toward each other and the beams cross.
+- `color`: where its light's color comes from. `first` is the first palette color. `wash` goes through the palette's colors over the effect. `perHead` gives each head the next palette color, in member order. `drawn` leaves the light to the effects drawn on the head (an `on`, a `pulse`, a `colorWash` on its row), so this effect only moves it. A head with a color wheel turns the wheel to the nearest color it has.
+- `dimmer`: how bright its light is, 0 to 100. This, not `brightness`, sets it; a curve swells it up or down.
+- `strobe`: flashes its light this many times a second, lit for half of each flash; 0 is steady.
+- `seed`: picks the paths `wander` takes. Another seed, another set of paths.
+
+Curves work on every number here; `fans` and `seed` take whole numbers, so a curve on them jumps from one to the next.
 
 ## When to use it
 
-- Beams that sweep the sky over the house on a big chorus, fanned wide.
-- A slow wander of searchlights through a quiet verse.
-- Heads snapping to a new position on each beat: one effect per beat, each `still` at its own pan and tilt.
-- Beams crossing and uncrossing: `fanPan` from positive to negative with a curve.
-- Color changes ride along: `wash` for a slow change, `perHead` for a rainbow of beams.
-- Fades dim the light; they never move the head.
+- Beams moving over the house give a show scale: a sweep or a wander reads from far down the street, above everything else.
+- Slow movement looks grand; fast movement looks frantic. Real heads take a second or more to swing right round, so a big jump on a short beat may not arrive in time.
+- Moves that land on the music: one `still` effect per beat or bar, each at its own pan and tilt, snaps the heads from place to place. Curves on `pan` and `tilt` glide them instead.
+- Light that follows the music: `color` `drawn`, with a `pulse`, a `fade`, or a `colorWash` on the heads' row. This effect moves them; the other lights them.
+- Color that changes as they move: `wash` for a slow change, `perHead` for a rainbow of beams.
+- A beam fading up where it points: `fadeInMs`.
+- Keep beams up, out of drivers' and passers-by's eyes: tilt near 90 points level at the street. A beam flashing is a real strobe, so `strobe` keeps to topic `safety`.
 
 ## Looks
 
 ```look
 {"name": "Sky sweep", "suits": ["house"],
- "note": "Every head sweeping side to side, fanned out 30 degrees apart, rippling down the line.",
- "effect": {"kind": "movingHead", "settings": {"tilt": 20, "pattern": "sweep", "width": 120, "height": 0, "speed": 0.25, "fanPan": 30, "delay": 0.2}, "colors": ["#ffffff"]}}
+ "note": "Every head leaning out over the street and sweeping side to side, fanned 25 degrees apart, rippling down the line.",
+ "effect": {"kind": "movingHead", "settings": {"tilt": 40, "pattern": "sweep", "width": 100, "height": 0, "speed": 0.25, "fanPan": 25, "delay": 0.2}, "colors": ["#ffffff"]}}
+```
+
+```look
+{"name": "Peacock fan", "suits": ["house"],
+ "note": "The beams start together, straight up, and open into a fan across the house front.",
+ "effect": {"kind": "movingHead", "settings": {"pan": 90}, "colors": ["#ffd700"],
+            "curves": {"fanTilt": {"shape": "ramp", "from": 0, "to": 25}}}}
 ```
 
 ```look
 {"name": "Searchlights", "suits": ["house"],
- "note": "Each head wandering slowly on its own path, high over the house, in cold blue.",
- "effect": {"kind": "movingHead", "settings": {"tilt": 25, "pattern": "wander", "width": 140, "height": 40, "speed": 0.1}, "colors": ["#4060ff"]}}
+ "note": "Each head drifting slowly on its own path over the street, in cold blue.",
+ "effect": {"kind": "movingHead", "settings": {"tilt": 35, "pattern": "wander", "width": 140, "height": 40, "speed": 0.1}, "colors": ["#4060ff"]}}
 ```
 
 ```look
 {"name": "Rainbow circles", "suits": ["house"],
  "note": "Every head circling, each in the next palette color.",
  "effect": {"kind": "movingHead", "settings": {"tilt": 30, "pattern": "circle", "width": 60, "height": 30, "speed": 0.5, "color": "perHead"}, "colors": ["#ff0000", "#00ff00", "#0000ff", "#ffff00"]}}
+```
+
+```look
+{"name": "Crossing wings", "suits": ["house"],
+ "note": "The two halves swinging in to cross over the middle and out again, washing from red to blue.",
+ "effect": {"kind": "movingHead", "settings": {"tilt": 45, "pattern": "sweep", "width": 80, "height": 0, "speed": 0.3, "mirror": true, "color": "wash"}, "colors": ["#ff2a2a", "#2a6bff"]}}
+```
+
+```look
+{"name": "Figure eights, lit from below", "suits": ["house"],
+ "note": "Heads tracing slow figure eights, fanned out; their light comes from what is drawn on them, a pulse on the beat, say.",
+ "effect": {"kind": "movingHead", "settings": {"tilt": 40, "pattern": "eight", "width": 70, "height": 30, "speed": 0.2, "fanPan": 20, "color": "drawn"}}}
 ```

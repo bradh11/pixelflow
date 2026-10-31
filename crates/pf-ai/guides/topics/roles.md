@@ -13,6 +13,8 @@ What each kind of prop is for in a show, which effects suit it, and how to give 
 - **Arch** and canes: the rhythm section. Chases that travel from arch to arch, bars along them, fills that run across the row on a drum fill. They are the props that most obviously move in time.
 - **Round** (stars, wreaths, snowflakes, spinners): accents and punctuation. A star on a tree is the top of every upward sweep. Pinwheels and fans on spinners.
 - **Flood** (DMX floods, pars, and bars of a few cells): light thrown onto something else. One flood is one color at a time (a bar, a few), so it washes a whole surface: the house front in the section's color, a tree colored from below, a wall that flashes on the hit. Give it slow color (`on`, `colorWash`, `fade`, `colorShift`), the big hits, and blackouts; never chases, text, or pictures, which need many pixels. Its color becomes its red, green, blue, white, and dimmer channels by itself; the `dmx` effect sets anything else (its strobe, a mode), and its channels are listed by `get_prop`. A flood's strobe channel is a real strobe: keep it short (topic `safety`).
+- **Head** (DMX moving heads): a beam that can point anywhere and move: sweep the sky, circle, wander like a searchlight, fan out, cross. `movingHead` points and moves it, and lights it in the palette's colors or leaves its light to what is drawn on it. Anything drawn on a head lights it where it points, or where it rests if nothing points it.
+- **Servo** (DMX servos): a motor that moves something: an arm, a head, a jaw, a flag. `servo` turns it. It makes no light, so it plays by moving and the light effects do nothing on it.
 - A prop with a face is a singer first: whatever else it does, it sings when there are words (topic `vocals`).
 - Anything whose role is "other": look at its shape and its name, and cast it as the nearest of these.
 
@@ -41,4 +43,4 @@ Read an effect's own guide before using it: each says what it really draws on a 
 
 ## Every prop a part, every prop a rest
 
-Before proposing, run down the list of props: each should play somewhere and be dark somewhere. A prop that never lights looks broken. A prop that never rests is wallpaper. `review_draft` names both.
+Before proposing, run down the list of props: each should play somewhere and be dark somewhere. A prop that never lights looks broken. A prop that never rests is wallpaper. `review_draft` names both (a servo plays by moving, so it is left out).

@@ -921,4 +921,31 @@ mod fixture_tests {
         assert_eq!(prop.dmx, flood.dmx);
         assert_eq!(prop.transform.position.x, 3.0);
     }
+
+    #[test]
+    fn a_fixture_is_cast_as_what_it_does_floods_heads_and_servos() {
+        // The role the context and list_props give: how the Assistant knows which props the
+        // Moving Head and Servo effects move.
+        let fixture = |layout: &str, cells: u32| {
+            let mut prop = pf_model::Prop::new(
+                layout,
+                pf_model::ShapeSource::Generator(pf_model::Generator::Line {
+                    nodes: cells,
+                    length: 0.5,
+                }),
+            );
+            prop.dmx = Some(pf_model::DmxFixture::from_layout(
+                pf_model::dmx_layout(layout).unwrap(),
+                cells,
+                1,
+            ));
+            role_name(&prop)
+        };
+        assert_eq!(fixture("dimmer-rgb-strobe", 1), "flood");
+        assert_eq!(fixture("bar-rgb", 4), "flood");
+        assert_eq!(fixture("head-rgbw-16", 1), "head");
+        assert_eq!(fixture("head-spot-16", 1), "head");
+        assert_eq!(fixture("servo-8", 3), "servo");
+        assert_eq!(fixture("servo-16", 1), "servo");
+    }
 }

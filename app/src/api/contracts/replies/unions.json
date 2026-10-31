@@ -1045,10 +1045,13 @@
         "thickness": 3.0
       },
       {
+        "bold": false,
         "colorPerWord": false,
         "countdown": "none",
         "endX": 0.0,
         "endY": 0.0,
+        "font": "",
+        "italic": false,
         "kind": "text",
         "movement": "none",
         "noRepeat": false,

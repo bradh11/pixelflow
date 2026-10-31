@@ -317,6 +317,11 @@ export type EffectParams =
       kind: "text";
       /** What it says; `\n` starts a new line. */
       text?: string;
+      /** A font family on the computer, by name; "" is PixelFlow's own pixel font. */
+      font?: string;
+      /** Bold and italic, in a computer font. */
+      bold?: boolean;
+      italic?: boolean;
       movement?:
         | "none"
         | "left"
@@ -954,6 +959,8 @@ export type EffectSetting = SettingBase &
     | { type: "face"; default: string }
     /** Free text. */
     | { type: "text"; default: string }
+    /** A font family on the computer, by name ("" = PixelFlow's own pixel font). */
+    | { type: "font"; default: string }
     /** A picture file, as the effect stores it ("" = none chosen yet). */
     | { type: "image"; default: string }
     /** A shader, as the effect names it ("" = none chosen yet). */

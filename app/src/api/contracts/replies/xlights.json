@@ -1066,10 +1066,13 @@
                       "id": "00000000-0000-4000-a000-000000000044",
                       "palette": { "colors": ["#ff0000", "#0000ff", "#ffffff"] },
                       "params": {
+                        "bold": false,
                         "colorPerWord": false,
                         "countdown": "none",
                         "endX": 0.0,
                         "endY": 0.0,
+                        "font": "",
+                        "italic": false,
                         "kind": "text",
                         "movement": "none",
                         "noRepeat": false,
@@ -1123,7 +1126,7 @@
               "target": { "group": "00000000-0000-4000-a000-000000000009" }
             }
           ],
-          "schemaVersion": 15,
+          "schemaVersion": 16,
           "timingTracks": []
         }
       },
@@ -1455,7 +1458,7 @@
           "name": "Effects",
           "rowBlending": "blend",
           "rows": [],
-          "schemaVersion": 15,
+          "schemaVersion": 16,
           "timingTracks": []
         }
       },

@@ -403,7 +403,8 @@ export function SettingControl({
       </label>
     );
   }
-  if (setting.type === "text") {
+  // A font is typed as text for now.
+  if (setting.type === "text" || setting.type === "font") {
     return <TextSetting setting={setting} value={typeof value === "string" ? value : setting.default} onChange={onChange} mixed={mixed} />;
   }
   if (setting.type === "image") {
@@ -531,7 +532,7 @@ function TextSetting({
   onChange,
   mixed,
 }: {
-  setting: Extract<EffectSetting, { type: "text" }>;
+  setting: Extract<EffectSetting, { type: "text" | "font" }>;
   value: string;
   onChange: (value: unknown, gesture?: string) => Promise<boolean>;
   mixed: boolean;

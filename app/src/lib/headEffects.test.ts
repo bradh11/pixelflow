@@ -4,7 +4,8 @@ import { renderSequenceFrame } from "../api/memoryRender";
 import { type Effect, type EffectParams, newEffect, newRow, type Sequence, type SequenceTarget } from "../api/sequence";
 import type { Show } from "../api/types";
 import { DMX_LAYOUTS, layoutChannels, newMovingHead, newServo } from "./dmx";
-import { type FanPlace, chance, fanPlace, hash32, headOffset, servoOffset, strobeLit } from "./headEffects";
+import { USUAL_SHUTTER, openValue, shutterAt, strobeValue } from "./dmx";
+import { type FanPlace, chance, fanPlace, hash32, headOffset, servoOffset } from "./headEffects";
 import { defaultMotor, motorDegrees } from "./motion";
 
 // The same cases as the engine's (crates/pf-render/src/heads.rs and tests/heads.rs).
@@ -64,11 +65,19 @@ describe("where the Moving Head and Servo effects point (the engine's heads.rs)"
     expect([0, 0.3, 0.6, 0.9].map((c) => servoOffset("steps", c, 90, 4))).toEqual([-45, -15, 15, 45]);
   });
 
-  it("lights a strobe for half of each flash", () => {
-    expect(strobeLit(0, 0.7)).toBe(true);
-    expect(strobeLit(2, 0.1)).toBe(true);
-    expect(strobeLit(2, 0.3)).toBe(false);
-    expect(strobeLit(2, 0.5)).toBe(true);
+  it("finds the shutter value for a strobe's pace and for a steady light, as the engine does", () => {
+    expect([1, 2, 20, 50, 0.2].map((hz) => strobeValue(USUAL_SHUTTER, hz))).toEqual([10, 23, 255, 255, 10]);
+    const at = shutterAt(USUAL_SHUTTER, 23);
+    expect(at.kind === "strobe" && Math.abs(at.hz - 2) < 0.04).toBe(true);
+    expect([openValue(USUAL_SHUTTER, 0), openValue(USUAL_SHUTTER, 5), openValue(USUAL_SHUTTER, 200)]).toEqual([0, 5, 0]);
+    const head = [
+      { from: 0, does: "closed" as const },
+      { from: 8, does: "open" as const },
+      { from: 16, does: "strobe" as const },
+      { from: 132, does: "open" as const },
+    ];
+    expect([openValue(head, 0), strobeValue(head, 20)]).toEqual([8, 131]);
+    expect(strobeValue([{ from: 0, does: "open" }], 5)).toBeNull();
   });
 });
 
@@ -109,6 +118,7 @@ function sequence(...rows: [SequenceTarget, Effect[][]][]): Sequence {
   return {
     ...({} as Sequence),
     durationMs: 4000,
+    frameMs: 25,
     timingTracks: [],
     rows: rows.map(([target, layers]) => ({ ...newRow(target), layers: layers.map((effects) => ({ effects })) })),
   };
@@ -183,9 +193,11 @@ describe("the browser stand-in's Moving Head and Servo effects (the engine's tes
     expect(headChannels(frame, 0).slice(7)).toEqual([255, 0, 0, 0]);
     expect(headChannels(frame, 1).slice(7)).toEqual([0, 255, 0, 0]);
     expect(headChannels(frame, 2).slice(7)).toEqual([255, 0, 0, 0]);
+    // A strobe sets the head's strobe channel; the dimmer stays steady and the shutter flashes the light.
     const strobing = sequence([heads, [[head({ strobe: 2 })]]]);
-    expect(headChannels(renderSequenceFrame(strobing, show, 100), 0)[5]).toBe(255);
-    expect(headChannels(renderSequenceFrame(strobing, show, 300), 0)[5]).toBe(0);
+    expect(headChannels(renderSequenceFrame(strobing, show, 100), 0).slice(5, 7)).toEqual([255, 23]);
+    expect(Array.from(renderSequenceFrame(strobing, show, 0).slice(0, 3))).toEqual([255, 0, 0]);
+    expect(Array.from(renderSequenceFrame(strobing, show, 25).slice(0, 3))).toEqual([0, 0, 0]);
     const faded = head({ pan: 90 });
     faded.fadeInMs = 2000;
     frame = renderSequenceFrame(sequence([heads, [[faded]]]), show, 1000);

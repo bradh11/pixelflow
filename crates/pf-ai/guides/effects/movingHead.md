@@ -26,7 +26,7 @@ No pixels. On a moving head (a DMX fixture with pan and tilt) it sets where the 
 - `mirror`: the right half of each fan turns its pan the other way, so the halves move as mirror images. With a `sweep` they swing in and out together, like wings; held at `pan` 30 and leaning out, the halves lean toward each other and the beams cross.
 - `color`: where its light's color comes from. `first` is the first palette color. `wash` goes through the palette's colors over the effect. `perHead` gives each head the next palette color, in member order. `drawn` leaves the light to the effects drawn on the head (an `on`, a `pulse`, a `colorWash` on its row), so this effect only moves it. A head with a color wheel turns the wheel to the nearest color it has.
 - `dimmer`: how bright its light is, 0 to 100. This, not `brightness`, sets it; a curve swells it up or down.
-- `strobe`: flashes its light this many times a second, lit for half of each flash; 0 is steady.
+- `strobe`: flashes the head this many times a second, 1 to 20, through its strobe channel: the effect sets the channel to the value that flashes at that pace, by what the head's strobe values do. 0 opens the shutter for a steady light. A head with no strobe channel flashes its light instead. Either way the previews show the flashes.
 - `seed`: picks the paths `wander` takes. Another seed, another set of paths.
 
 Curves work on every number here; `fans` and `seed` take whole numbers, so a curve on them jumps from one to the next.

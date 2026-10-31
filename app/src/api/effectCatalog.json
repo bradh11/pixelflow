@@ -4718,7 +4718,7 @@
       },
       {
         "default": 0.0,
-        "description": "Flashes its light this many times a second (0: steady).",
+        "description": "Flashes it this many times a second through its strobe channel (0: the shutter open).",
         "key": "strobe",
         "label": "Strobe",
         "max": 20.0,

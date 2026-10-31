@@ -3447,7 +3447,7 @@ effect_params! {
         color: HeadColor = HeadColor::First => "color", "Color", choice;
         /// How bright its light is.
         dimmer: f32 = 100.0 => "dimmer", "Dimmer", number(0.0, 100.0, 1.0, "%");
-        /// Flashes its light this many times a second (0: steady).
+        /// Flashes it this many times a second through its strobe channel (0: the shutter open).
         strobe: f32 = 0.0 => "strobe", "Strobe", number(0.0, 20.0, 0.1, "per second");
         /// Picks the paths Wander takes.
         seed: u32 = 1 => "seed", "Seed", int(0, 9999), more;

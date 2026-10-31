@@ -121,6 +121,34 @@ pub fn shutter_shows(ranges: &[DmxShutterRange], value: u8, at: Moment) -> bool 
     }
 }
 
+/// The value that sets a shutter whose values do as `ranges` say flashing `hz` times a second:
+/// within its first strobe range, as near that pace as its values go (1 to 20 a second). `None`
+/// when it has no strobe range.
+pub fn strobe_value(ranges: &[DmxShutterRange], hz: f64) -> Option<u8> {
+    let i = ranges.iter().position(|r| r.does == DmxShutter::Strobe)?;
+    let from = ranges[i].from;
+    let last = ranges
+        .get(i + 1)
+        .map_or(255, |next| next.from.saturating_sub(1).max(from));
+    let share = (hz - STROBE_SLOWEST_HZ) / (STROBE_FASTEST_HZ - STROBE_SLOWEST_HZ);
+    let share = if share.is_nan() {
+        0.0
+    } else {
+        share.clamp(0.0, 1.0)
+    };
+    Some(from + (share * f64::from(last - from)).round() as u8)
+}
+
+/// A value that opens a shutter whose values do as `ranges` say: `held` when it does, else the
+/// lowest that does. `None` when no value opens it.
+pub fn open_value(ranges: &[DmxShutterRange], held: u8) -> Option<u8> {
+    let open = |v: u8| shutter_at(ranges, v) == ShutterState::Open;
+    if open(held) {
+        return Some(held);
+    }
+    (0..=255).find(|&v| open(v))
+}
+
 /// Why these ranges can't be used, in plain words.
 pub fn shutter_problem(ranges: &[DmxShutterRange]) -> Option<String> {
     if ranges.len() > MAX_SHUTTER_RANGES {
@@ -215,6 +243,40 @@ mod tests {
         assert!(shutter_shows(&closed, 200, at));
         assert!(!shutter_shows(USUAL_SHUTTER, 255, at), "between flashes");
         assert!(shutter_shows(USUAL_SHUTTER, 255, Moment::new(50, 25)));
+    }
+
+    #[test]
+    fn a_pace_and_an_open_shutter_become_values() {
+        // The usual shutter: 1 a second at 10, 20 at 255, open below 10.
+        assert_eq!(strobe_value(USUAL_SHUTTER, 1.0), Some(10));
+        assert_eq!(strobe_value(USUAL_SHUTTER, 20.0), Some(255));
+        assert_eq!(strobe_value(USUAL_SHUTTER, 50.0), Some(255));
+        assert_eq!(strobe_value(USUAL_SHUTTER, 0.2), Some(10));
+        for hz in [2.0, 7.5, 13.0] {
+            let v = strobe_value(USUAL_SHUTTER, hz).unwrap();
+            let ShutterState::Strobe(back) = shutter_at(USUAL_SHUTTER, v) else {
+                panic!("a strobe at {v}");
+            };
+            assert!((back - hz).abs() < 0.04, "{hz}: {v} flashes {back}");
+        }
+        assert_eq!(open_value(USUAL_SHUTTER, 0), Some(0));
+        assert_eq!(
+            open_value(USUAL_SHUTTER, 5),
+            Some(5),
+            "the value held, when it opens"
+        );
+        assert_eq!(open_value(USUAL_SHUTTER, 200), Some(0));
+        // A head's own: closed low, open from 8, a strobe from 16 to 131.
+        let head = [
+            range(0, DmxShutter::Closed),
+            range(8, DmxShutter::Open),
+            range(16, DmxShutter::Strobe),
+            range(132, DmxShutter::Open),
+        ];
+        assert_eq!(open_value(&head, 0), Some(8));
+        assert_eq!(strobe_value(&head, 20.0), Some(131));
+        assert_eq!(strobe_value(&[range(0, DmxShutter::Open)], 5.0), None);
+        assert_eq!(open_value(&[range(0, DmxShutter::Closed)], 3), None);
     }
 
     #[test]

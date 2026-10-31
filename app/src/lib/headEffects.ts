@@ -10,7 +10,7 @@
 import type { Effect, HeadColor, HeadPattern, ServoPattern } from "../api/sequence";
 import type { DmxChannel } from "../api/types";
 import { curveValue } from "./curves";
-import { channelFromColor, channelsForColors } from "./dmx";
+import { channelFromColor, channelsForColors, flashes, openValue, shutterOf, strobeValue } from "./dmx";
 import { type Axis, axisValues, cosDeg, sinDeg } from "./motion";
 
 /** The fractional part of `x` (0 to 1). */
@@ -106,11 +106,6 @@ export function servoOffset(pattern: ServoPattern, cycles: number, size: number,
     default:
       return 0;
   }
-}
-
-/** Whether a strobing light is lit at `seconds` into the effect, flashing `rate` times a second: on for the first half of each flash. A rate of 0 is steady. */
-export function strobeLit(rate: number, seconds: number): boolean {
-  return rate <= 0 || frac(rate * seconds) < 0.5;
 }
 
 /** A Moving Head effect's settings, each filled in and kept within its range, as the engine reads them. */
@@ -287,8 +282,23 @@ function light(f: FixtureValues, color: Color, level: number) {
   });
 }
 
-/** A Moving Head effect at `ms`: each head among `fixtures` (the row's, in member order) pointed, and lit. */
-export function pointHeads(fixtures: FixtureValues[], effect: Effect, ms: number) {
+/**
+ * Sets a fixture's strobe channel (its first, the one its shutter is) to flash `strobe` times a
+ * second, or (0) to open for a steady light. True when its shutter does what is asked; false
+ * when the light has to flash by itself: it has no strobe channel, or none of its values strobe.
+ */
+function shutter(f: FixtureValues, strobe: number): boolean {
+  const i = f.channels.findIndex((c) => c.role === "strobe");
+  if (i < 0) return strobe <= 0;
+  const ranges = shutterOf(f.channels[i]);
+  const flashing = strobe > 0 ? strobeValue(ranges, strobe) : null;
+  const value = flashing ?? openValue(ranges, f.channels[i].value ?? 0);
+  if (value !== null && i < f.values.length) f.values[i] = value;
+  return flashing !== null || strobe <= 0;
+}
+
+/** A Moving Head effect at `ms` (a frame shown for `frameMs`): each head among `fixtures` (the row's, in member order) pointed, and lit. */
+export function pointHeads(fixtures: FixtureValues[], effect: Effect, ms: number, frameMs: number) {
   const s = headSettings(effect);
   const fans = whole(effect, "fans", s.fans, ms, 1, 16);
   const seed = whole(effect, "seed", s.seed, ms, 0, 9999);
@@ -317,9 +327,10 @@ export function pointHeads(fixtures: FixtureValues[], effect: Effect, ms: number
     }
     if (s.color !== "drawn") {
       const color = s.color === "wash" ? ramp(colors, progress(effect, at)) : s.color === "perHead" ? colors[head % colors.length] : colors[0];
-      const seconds = Math.max(0, ms - effect.startMs) / 1000;
       const strobe = number(effect, "strobe", s.strobe, ms);
-      const level = strobeLit(strobe, seconds) ? (Math.min(100, Math.max(0, number(effect, "dimmer", s.dimmer, at))) / 100) * fade : 0;
+      // A head that can't strobe itself flashes its light when the previews would.
+      const shows = shutter(f, strobe) || flashes(strobe, ms, frameMs);
+      const level = shows ? (Math.min(100, Math.max(0, number(effect, "dimmer", s.dimmer, at))) / 100) * fade : 0;
       light(f, color, level);
     }
     head++;

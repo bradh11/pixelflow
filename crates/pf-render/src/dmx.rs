@@ -10,6 +10,10 @@
 //! - The Moving Head effect sets each head's pan and tilt (and their fine channels) and, unless
 //!   it takes its colour from the layers below, its colour and dimmer channels (or its colour
 //!   wheel): the colour it lights the head in becomes channels by the same rule as a drawn one.
+//!   It strobes the head through its strobe channel: the value whose range flashes at the pace
+//!   asked for (`pf_model::strobe_value`), or one that opens it for a steady light. A head with
+//!   no strobe range flashes its light at the same moments the previews show a strobe's flashes
+//!   (`pf_model::flashes`).
 //! - The Servo effect sets each servo's channel (and its fine channel).
 //!
 //! They are applied in the sequence's order, rows first to last and each row's layers bottom to
@@ -21,8 +25,8 @@
 use crate::audio::RenderContext;
 use crate::color::Colors;
 use crate::geometry::SceneGeometry;
-use crate::heads::{FanPlace, fan_place, head_offset, servo_offset, strobe_lit};
-use pf_model::{DmxAxis, DmxRole};
+use crate::heads::{FanPlace, fan_place, head_offset, servo_offset};
+use pf_model::{DmxAxis, DmxRole, Moment};
 use pf_sequence::{
     DmxParams, DmxValues, Effect, EffectParams, HeadColor, MovingHeadParams, Sequence, ServoParams, Target,
     dmx_value,
@@ -44,6 +48,8 @@ pub(crate) struct DmxState {
     targets: HashMap<Target, Vec<u32>>,
     /// The channel effects playing: row, layer, and place in the layer.
     playing: Vec<(u32, u32, u32)>,
+    /// Each fixture's first strobe channel, the one its shutter is (see `pf_model::shutter_open`).
+    shutters: Vec<Option<usize>>,
     /// Room for one fixture's cells and channels while a head's colour becomes its channels.
     cells: Vec<u8>,
     channels: Vec<u8>,
@@ -55,6 +61,10 @@ impl DmxState {
         Self {
             values: fixtures.iter().map(|f| vec![None; f.footprint()]).collect(),
             axes: fixtures.iter().map(|f| pf_model::axes(&f.channels)).collect(),
+            shutters: fixtures
+                .iter()
+                .map(|f| f.channels.iter().position(|c| c.role == DmxRole::Strobe))
+                .collect(),
             cells: vec![0; fixtures.iter().map(|f| f.cells as usize * 3).max().unwrap_or(0)],
             channels: vec![0; fixtures.iter().map(|f| f.footprint()).max().unwrap_or(0)],
             ..Self::default()
@@ -98,7 +108,10 @@ impl DmxState {
             let fixtures = std::mem::take(fixtures);
             match &effect.params {
                 EffectParams::Dmx(p) => self.set_channels(&fixtures, effect, p, t_ms, cx),
-                EffectParams::MovingHead(p) => self.point_heads(geometry, &fixtures, effect, p, t_ms, cx),
+                EffectParams::MovingHead(p) => {
+                    let at = Moment::new(t_ms, seq.frame_ms);
+                    self.point_heads(geometry, &fixtures, effect, p, at, cx)
+                }
                 EffectParams::Servo(p) => self.turn_servos(&fixtures, effect, p, t_ms, cx),
                 _ => {}
             }
@@ -141,9 +154,10 @@ impl DmxState {
         fixtures: &[u32],
         effect: &Effect,
         params: &MovingHeadParams,
-        t_ms: u64,
+        moment: Moment,
         cx: &RenderContext,
     ) {
+        let t_ms = moment.t_ms;
         let mut params = sanitized(params);
         params.fans = whole(effect, "fans", params.fans, t_ms, cx, (1, 16));
         params.seed = whole(effect, "seed", params.seed, t_ms, cx, (0, 9999));
@@ -193,9 +207,10 @@ impl DmxState {
                     HeadColor::PerHead => colors.get(head as u64),
                     _ => colors.get(0),
                 };
-                let seconds = t_ms.saturating_sub(effect.start_ms) as f64 / 1000.0;
                 let strobe = f64::from(number(effect, "strobe", params.strobe, t_ms, cx));
-                let level = if strobe_lit(strobe, seconds) {
+                let shut = self.shutter(geometry, f as usize, strobe);
+                // A head that can't strobe itself flashes its light when the previews would.
+                let level = if shut || pf_model::flashes(strobe, moment) {
                     number(effect, "dimmer", params.dimmer, at, cx).clamp(0.0, 100.0) / 100.0 * fade
                 } else {
                     0.0
@@ -204,6 +219,25 @@ impl DmxState {
             }
             head += 1;
         }
+    }
+
+    /// Sets fixture `f`'s strobe channel to flash `strobe` times a second, or (0) to open for a
+    /// steady light. True when its shutter does what is asked; false when the light has to flash
+    /// by itself: it has no strobe channel, or none of its values strobe.
+    fn shutter(&mut self, geometry: &SceneGeometry, f: usize, strobe: f64) -> bool {
+        let Some(i) = self.shutters[f] else {
+            return strobe <= 0.0;
+        };
+        let channel = &geometry.fixtures[f].channels[i];
+        let ranges = channel.shutter().unwrap_or_default();
+        let (value, done) = match pf_model::strobe_value(ranges, strobe) {
+            Some(value) if strobe > 0.0 => (Some(value), true),
+            _ => (pf_model::open_value(ranges, channel.value), strobe <= 0.0),
+        };
+        if let Some(value) = value {
+            self.values[f][i] = Some(value);
+        }
+        done
     }
 
     /// Sets fixture `f`'s colour and dimmer channels (or its colour wheel) to what `color` at

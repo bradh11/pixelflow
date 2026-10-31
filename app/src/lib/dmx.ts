@@ -182,6 +182,25 @@ export function shutterOpen(channels: DmxChannel[], dmx: ArrayLike<number>, tMs:
   return state.kind === "open" || (state.kind === "strobe" && flashes(state.hz, tMs, frameMs));
 }
 
+/** The value that sets a shutter whose values do as `ranges` say flashing `hz` times a second, within its first strobe range (the engine's `strobe_value`); null when it has none. */
+export function strobeValue(ranges: DmxShutterRange[], hz: number): number | null {
+  const i = ranges.findIndex((r) => r.does === "strobe");
+  if (i < 0) return null;
+  const from = ranges[i].from;
+  const next = ranges[i + 1];
+  const last = next ? Math.max(Math.max(next.from - 1, 0), from) : 255;
+  const share = (hz - STROBE_SLOWEST_HZ) / (STROBE_FASTEST_HZ - STROBE_SLOWEST_HZ);
+  return from + Math.round((Number.isNaN(share) ? 0 : Math.min(1, Math.max(0, share))) * (last - from));
+}
+
+/** A value that opens a shutter whose values do as `ranges` say: `held` when it does, else the lowest that does (the engine's `open_value`); null when none does. */
+export function openValue(ranges: DmxShutterRange[], held: number): number | null {
+  const open = (v: number) => shutterAt(ranges, v).kind === "open";
+  if (open(held)) return held;
+  for (let v = 0; v <= 255; v++) if (open(v)) return v;
+  return null;
+}
+
 /** Why a strobe channel's ranges can't be used, in the engine's words, or null. */
 export function shutterProblem(ranges: DmxShutterRange[]): string | null {
   if (ranges.length > 32) return `A strobe channel lists at most 32 ranges of values; this one lists ${ranges.length}.`;

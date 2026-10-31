@@ -119,12 +119,6 @@ pub(crate) fn servo_offset(pattern: ServoPattern, cycles: f64, size: f64, steps:
     }
 }
 
-/// Whether a strobing light is lit at `seconds` into the effect, flashing `rate` times a second:
-/// on for the first half of each flash. A rate of 0 is steady.
-pub(crate) fn strobe_lit(rate: f64, seconds: f64) -> bool {
-    rate <= 0.0 || frac(rate * seconds) < 0.5
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -202,13 +196,5 @@ mod tests {
             .map(|&c| servo_offset(Steps, c, 90.0, 4))
             .collect();
         assert_eq!(steps, [-45.0, -15.0, 15.0, 45.0]);
-    }
-
-    #[test]
-    fn a_strobe_is_on_half_of_each_flash() {
-        assert!(strobe_lit(0.0, 0.7));
-        assert!(strobe_lit(2.0, 0.1));
-        assert!(!strobe_lit(2.0, 0.3));
-        assert!(strobe_lit(2.0, 0.5));
     }
 }

@@ -2,7 +2,8 @@
 //! head, how they fan across a group, and how they meet the DMX effect.
 
 use pf_model::{
-    DmxFixture, DmxMotor, DmxRole, Generator, Group, Prop, ShapeSource, Show, Transform, Vec3, dmx_layout,
+    DmxFixture, DmxMotor, DmxRole, DmxShutter, DmxShutterRange, Generator, Group, Prop, ShapeSource, Show,
+    Transform, Vec3, dmx_layout,
 };
 use pf_render::Renderer;
 use pf_sequence::*;
@@ -250,11 +251,19 @@ fn colors_per_head_strobe_fades_and_drawn() {
     assert_eq!(&head_channels(&frame, 0)[7..], &[255, 0, 0, 0]);
     assert_eq!(&head_channels(&frame, 1)[7..], &[0, 255, 0, 0]);
     assert_eq!(&head_channels(&frame, 2)[7..], &[255, 0, 0, 0]);
-    // A strobe: lit for the first half of each flash, dark for the second.
+    // A strobe: the head's strobe channel at the value that flashes twice a second (the usual
+    // shutter strobes from 1 a second at 10 to 20 at 255), the dimmer steady; the previews show
+    // the light only in the frames a flash fires in.
     let mut seq = Sequence::new("s", 4000);
     seq.rows.push(row(group, vec![vec![head(|p| p.strobe = 2.0)]]));
-    assert_eq!(head_channels(&render(&show, &seq, 100), 0)[5], 255);
-    assert_eq!(head_channels(&render(&show, &seq, 300), 0)[5], 0);
+    for t in [100, 300] {
+        assert_eq!(&head_channels(&render(&show, &seq, t), 0)[5..7], &[255, 23]);
+    }
+    assert_eq!(&render(&show, &seq, 0)[..3], &[255, 0, 0], "the first flash");
+    assert_eq!(&render(&show, &seq, 25)[..3], &[0, 0, 0], "dark between flashes");
+    // About twice a second (23 is the nearest value, 2.008 a second).
+    let lit = (0..80).filter(|n| render(&show, &seq, n * 25)[0] > 0).count();
+    assert_eq!(lit, 5, "flashes near 0, 0.5, 1, 1.5 and 2 seconds");
     // A fade dims the light and leaves the position.
     let mut faded = head(|p| p.pan = 90.0);
     faded.fade_in_ms = 2000;
@@ -401,4 +410,58 @@ fn it_does_nothing_on_props_without_motors() {
     // The flood's cell and its four channels stay dark.
     assert_eq!(&frame[15..18], &[0, 0, 0]);
     assert_eq!(&frame[frame.len() - 4..], &[0, 0, 0, 0]);
+}
+
+#[test]
+fn a_steady_light_opens_the_shutter_and_a_head_without_one_flashes_its_light() {
+    let mut show = show();
+    // The first head's shutter is closed below 8, open from 8, a strobe from 16; it holds 0.
+    let dmx = show.props[0].dmx.as_mut().unwrap();
+    let strobe = dmx
+        .channels
+        .iter_mut()
+        .find(|c| c.role == DmxRole::Strobe)
+        .unwrap();
+    strobe.shutter = vec![
+        DmxShutterRange {
+            from: 0,
+            does: DmxShutter::Closed,
+        },
+        DmxShutterRange {
+            from: 8,
+            does: DmxShutter::Open,
+        },
+        DmxShutterRange {
+            from: 16,
+            does: DmxShutter::Strobe,
+        },
+        DmxShutterRange {
+            from: 132,
+            does: DmxShutter::Open,
+        },
+    ];
+    // The second has no strobe channel at all.
+    show.props[1] = fixture("Middle", "head-rgbw-8", 1, 2.0);
+    let mut seq = Sequence::new("s", 4000);
+    seq.rows
+        .push(row(Target::Prop(show.props[0].id), vec![vec![head(|_| {})]]));
+    let frame = render(&show, &seq, 100);
+    assert_eq!(head_channels(&frame, 0)[6], 8, "opened for a steady light");
+    assert_eq!(&frame[..3], &[255, 0, 0]);
+    let mut seq = Sequence::new("s", 4000);
+    seq.rows.push(row(
+        Target::Prop(show.props[0].id),
+        vec![vec![head(|p| p.strobe = 20.0)]],
+    ));
+    assert_eq!(head_channels(&render(&show, &seq, 100), 0)[6], 131);
+    // Without a strobe channel the light itself flashes, in the frames the previews show
+    // flashes in: at 20 a second, every other frame.
+    let mut seq = Sequence::new("s", 4000);
+    seq.rows.push(row(
+        Target::Prop(show.props[1].id),
+        vec![vec![head(|p| p.strobe = 20.0)]],
+    ));
+    // The 8-bit head's channels follow the first head's 11: pan, tilt, speed, dimmer, RGBW.
+    let dimmer = |t: u64| render(&show, &seq, t)[15 + 11 + 3];
+    assert_eq!([dimmer(0), dimmer(25), dimmer(50), dimmer(75)], [255, 0, 255, 0]);
 }

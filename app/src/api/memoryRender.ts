@@ -684,7 +684,7 @@ function writeFixtures(
   );
   for (const { effect, fixtures: on } of playing) {
     const targets = on.flatMap((f) => set.get(f) ?? []);
-    if (effect.params.kind === "movingHead") pointHeads(targets, effect, ms);
+    if (effect.params.kind === "movingHead") pointHeads(targets, effect, ms, frameMs);
     else if (effect.params.kind === "servo") turnServos(targets, effect, ms);
     else if (effect.params.kind === "dmx") {
       const t = Math.min(1, Math.max(0, (ms - effect.startMs) / Math.max(1, effect.endMs - effect.startMs)));

@@ -69,6 +69,7 @@ pub use show::{
 };
 pub use shutter::{
     DmxShutter, DmxShutterRange, MAX_SHUTTER_RANGES, Moment, STROBE_FASTEST_HZ, STROBE_SLOWEST_HZ,
-    ShutterState, USUAL_SHUTTER, flashes, shutter_at, shutter_problem, shutter_shows,
+    ShutterState, USUAL_SHUTTER, flashes, open_value, shutter_at, shutter_problem, shutter_shows,
+    strobe_value,
 };
 pub use validate::{limit_issues, validate_show};

@@ -26,7 +26,9 @@ import {
   SettingsPlacementContext,
   clamp,
   faceNames,
+  setsChannels,
   usesColors,
+  usesFades,
 } from "./effectControls";
 import { MultiEffectSettings } from "./MultiEffectSettings";
 import { ShaderFileSetting, ShaderInputsSetting } from "./ShaderSettings";
@@ -133,6 +135,34 @@ function Settings({ doc }: { doc: Sequence }) {
     (s) =>
       !(effect.params.kind === "shader" && KEPT_FROM_XLIGHTS.includes(s.key) && (params[s.key] ?? 0) === 0) &&
       !(effect.params.kind === "text" && (s.key === "bold" || s.key === "italic")),
+  );
+  const timing = (
+    <div className="grid grid-cols-2 gap-2">
+      <MsField
+        key={`${id}:start`}
+        label="Starts (ms)"
+        value={effect.startMs}
+        onCommit={(v) =>
+          change((x, latest) => {
+            // Not past its end, and not into the effect before it on its layer.
+            const lo = effectBounds(latest, x.id)?.lo ?? 0;
+            return { ...x, startMs: clamp(v, lo, x.endMs - latest.frameMs) };
+          })
+        }
+      />
+      <MsField
+        key={`${id}:end`}
+        label="Ends (ms)"
+        value={effect.endMs}
+        onCommit={(v) =>
+          change((x, latest) => {
+            // Not before its start, and not into the effect after it on its layer.
+            const hi = Math.min(latest.durationMs, effectBounds(latest, x.id)?.hi ?? latest.durationMs);
+            return { ...x, endMs: clamp(v, x.startMs + latest.frameMs, hi) };
+          })
+        }
+      />
+    </div>
   );
 
   return (
@@ -242,159 +272,142 @@ function Settings({ doc }: { doc: Sequence }) {
         </Section>
       )}
 
-      <Section title="Fades">
-        <div className="grid grid-cols-2 gap-2">
-          <MsField
-            key={`${id}:fadeIn`}
-            label="Fade in (ms)"
-            hint={`0 to ${length} ms`}
-            value={effect.fadeInMs}
-            onCommit={(v) => change((x) => ({ ...x, fadeInMs: clamp(v, 0, x.endMs - x.startMs) }))}
-          />
-          <MsField
-            key={`${id}:fadeOut`}
-            label="Fade out (ms)"
-            hint={`0 to ${length} ms`}
-            value={effect.fadeOutMs}
-            onCommit={(v) => change((x) => ({ ...x, fadeOutMs: clamp(v, 0, x.endMs - x.startMs) }))}
-          />
-        </div>
-      </Section>
+      {usesFades(effect) && (
+        <Section title="Fades">
+          <div className="grid grid-cols-2 gap-2">
+            <MsField
+              key={`${id}:fadeIn`}
+              label="Fade in (ms)"
+              hint={`0 to ${length} ms`}
+              value={effect.fadeInMs}
+              onCommit={(v) => change((x) => ({ ...x, fadeInMs: clamp(v, 0, x.endMs - x.startMs) }))}
+            />
+            <MsField
+              key={`${id}:fadeOut`}
+              label="Fade out (ms)"
+              hint={`0 to ${length} ms`}
+              value={effect.fadeOutMs}
+              onCommit={(v) => change((x) => ({ ...x, fadeOutMs: clamp(v, 0, x.endMs - x.startMs) }))}
+            />
+          </div>
+        </Section>
+      )}
 
-      <More id="effect-settings" label="More: mixing, render style, sparkles, blur, color, and timing">
-        <div className="flex flex-col gap-2.5">
-          <label className="flex flex-col gap-1 text-sm">
-            <span className="text-neutral-600 dark:text-neutral-400">With the layers below</span>
-            <select className={FIELD} value={effect.blend} onChange={(e) => {
-                const blend = e.target.value as Blend;
-                void change((x) => ({ ...x, blend }));
-              }}
-            >
-              <BlendOptions />
-            </select>
-          </label>
-          <div className="grid grid-cols-2 gap-2">
-            <label className="flex min-w-0 flex-col gap-1 text-sm">
-              <span className="text-neutral-600 dark:text-neutral-400">Render style</span>
-              <select
-                className={FIELD}
-                value={effect.renderStyle ?? "default"}
-                title="How the lights are laid out for this effect"
-                onChange={(e) => {
-                  const renderStyle = e.target.value as RenderStyle;
-                  void change((x) => ({ ...x, renderStyle }));
+      {setsChannels(effect) ? (
+        <More id="effect-timing" label="More: timing">
+          {timing}
+        </More>
+      ) : (
+        <More id="effect-settings" label="More: mixing, render style, sparkles, blur, color, and timing">
+          <div className="flex flex-col gap-2.5">
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="text-neutral-600 dark:text-neutral-400">With the layers below</span>
+              <select className={FIELD} value={effect.blend} onChange={(e) => {
+                  const blend = e.target.value as Blend;
+                  void change((x) => ({ ...x, blend }));
                 }}
               >
-                {renderStyleOptions("group" in target).map((s) => (
-                  <option key={s.value} value={s.value}>
-                    {s.label}
-                  </option>
-                ))}
+                <BlendOptions />
               </select>
             </label>
-            <label className="flex min-w-0 flex-col gap-1 text-sm">
-              <span className="text-neutral-600 dark:text-neutral-400">Turn or flip</span>
-              <select
-                className={FIELD}
-                value={effect.bufferTransform ?? "none"}
-                onChange={(e) => {
-                  const bufferTransform = e.target.value as BufferTransform;
-                  void change((x) => ({ ...x, bufferTransform }));
-                }}
-              >
-                {BUFFER_TRANSFORMS.map((t) => (
-                  <option key={t.value} value={t.value}>
-                    {t.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-          <div className="flex items-end gap-2">
-            <div className="min-w-0 flex-1">
-              <NumberSetting
-                key={`${id}:sparkles`}
-                setting={SPARKLES}
-                value={effect.sparkles ?? 0}
-                onChange={(v, gesture) => change((x) => ({ ...x, sparkles: v as number }), gesture)}
-                animate={animate("sparkles")}
-              />
+            <div className="grid grid-cols-2 gap-2">
+              <label className="flex min-w-0 flex-col gap-1 text-sm">
+                <span className="text-neutral-600 dark:text-neutral-400">Render style</span>
+                <select
+                  className={FIELD}
+                  value={effect.renderStyle ?? "default"}
+                  title="How the lights are laid out for this effect"
+                  onChange={(e) => {
+                    const renderStyle = e.target.value as RenderStyle;
+                    void change((x) => ({ ...x, renderStyle }));
+                  }}
+                >
+                  {renderStyleOptions("group" in target).map((s) => (
+                    <option key={s.value} value={s.value}>
+                      {s.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex min-w-0 flex-col gap-1 text-sm">
+                <span className="text-neutral-600 dark:text-neutral-400">Turn or flip</span>
+                <select
+                  className={FIELD}
+                  value={effect.bufferTransform ?? "none"}
+                  onChange={(e) => {
+                    const bufferTransform = e.target.value as BufferTransform;
+                    void change((x) => ({ ...x, bufferTransform }));
+                  }}
+                >
+                  {BUFFER_TRANSFORMS.map((t) => (
+                    <option key={t.value} value={t.value}>
+                      {t.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
-            <ColorPicker
-              key={`${id}:sparkleColor`}
-              index={0}
-              label="Sparkle color"
-              color={effect.sparkleColor ?? "#ffffff"}
-              onPick={(value, gesture) => change((x) => ({ ...x, sparkleColor: value }), gesture)}
-            />
-          </div>
-          {(effect.sparkles ?? 0) > 0 && (
-            <label className="flex items-center gap-2 text-sm" title="As many sparkles as the music is loud, up to the setting above">
-              <input
-                type="checkbox"
-                checked={effect.musicSparkles ?? false}
-                onChange={(e) => {
-                  const musicSparkles = e.target.checked;
-                  void change((x) => ({ ...x, musicSparkles: musicSparkles || undefined }));
-                }}
-              />
-              Sparkles follow the music
-            </label>
-          )}
-          <NumberSetting
-            key={`${id}:blur`}
-            setting={BLUR}
-            value={effect.blur ?? 0}
-            onChange={(v, gesture) => change((x) => ({ ...x, blur: v as number }), gesture)}
-            animate={animate("blur")}
-          />
-          <More
-            key={`${id}:color`}
-            id="effect-color"
-            label="Color: hue, saturation, lightness, brightness, contrast"
-            forceOpen={COLOR_ADJUSTMENTS.some((a) => (effect[a.key] ?? a.default) !== a.default || effect.curves?.[a.key] !== undefined)}
-          >
-            <div className="flex flex-col gap-2.5">
-              {COLOR_ADJUSTMENTS.map((a) => (
+            <div className="flex items-end gap-2">
+              <div className="min-w-0 flex-1">
                 <NumberSetting
-                  key={`${id}:${a.key}`}
-                  setting={a}
-                  value={effect[a.key] ?? a.default}
-                  onChange={(v, gesture) => change((x) => ({ ...x, [a.key]: v === a.default ? undefined : (v as number) }), gesture)}
-                  animate={a.curve ? animate(a.key) : undefined}
+                  key={`${id}:sparkles`}
+                  setting={SPARKLES}
+                  value={effect.sparkles ?? 0}
+                  onChange={(v, gesture) => change((x) => ({ ...x, sparkles: v as number }), gesture)}
+                  animate={animate("sparkles")}
                 />
-              ))}
+              </div>
+              <ColorPicker
+                key={`${id}:sparkleColor`}
+                index={0}
+                label="Sparkle color"
+                color={effect.sparkleColor ?? "#ffffff"}
+                onPick={(value, gesture) => change((x) => ({ ...x, sparkleColor: value }), gesture)}
+              />
             </div>
-          </More>
-          <h4 className="mt-1 text-xs font-semibold tracking-wide text-neutral-500 uppercase">Timing</h4>
-          <div className="grid grid-cols-2 gap-2">
-            <MsField
-              key={`${id}:start`}
-              label="Starts (ms)"
-              value={effect.startMs}
-              onCommit={(v) =>
-                change((x, latest) => {
-                  // Not past its end, and not into the effect before it on its layer.
-                  const lo = effectBounds(latest, x.id)?.lo ?? 0;
-                  return { ...x, startMs: clamp(v, lo, x.endMs - latest.frameMs) };
-                })
-              }
+            {(effect.sparkles ?? 0) > 0 && (
+              <label className="flex items-center gap-2 text-sm" title="As many sparkles as the music is loud, up to the setting above">
+                <input
+                  type="checkbox"
+                  checked={effect.musicSparkles ?? false}
+                  onChange={(e) => {
+                    const musicSparkles = e.target.checked;
+                    void change((x) => ({ ...x, musicSparkles: musicSparkles || undefined }));
+                  }}
+                />
+                Sparkles follow the music
+              </label>
+            )}
+            <NumberSetting
+              key={`${id}:blur`}
+              setting={BLUR}
+              value={effect.blur ?? 0}
+              onChange={(v, gesture) => change((x) => ({ ...x, blur: v as number }), gesture)}
+              animate={animate("blur")}
             />
-            <MsField
-              key={`${id}:end`}
-              label="Ends (ms)"
-              value={effect.endMs}
-              onCommit={(v) =>
-                change((x, latest) => {
-                  // Not before its start, and not into the effect after it on its layer.
-                  const hi = Math.min(latest.durationMs, effectBounds(latest, x.id)?.hi ?? latest.durationMs);
-                  return { ...x, endMs: clamp(v, x.startMs + latest.frameMs, hi) };
-                })
-              }
-            />
+            <More
+              key={`${id}:color`}
+              id="effect-color"
+              label="Color: hue, saturation, lightness, brightness, contrast"
+              forceOpen={COLOR_ADJUSTMENTS.some((a) => (effect[a.key] ?? a.default) !== a.default || effect.curves?.[a.key] !== undefined)}
+            >
+              <div className="flex flex-col gap-2.5">
+                {COLOR_ADJUSTMENTS.map((a) => (
+                  <NumberSetting
+                    key={`${id}:${a.key}`}
+                    setting={a}
+                    value={effect[a.key] ?? a.default}
+                    onChange={(v, gesture) => change((x) => ({ ...x, [a.key]: v === a.default ? undefined : (v as number) }), gesture)}
+                    animate={a.curve ? animate(a.key) : undefined}
+                  />
+                ))}
+              </div>
+            </More>
+            <h4 className="mt-1 text-xs font-semibold tracking-wide text-neutral-500 uppercase">Timing</h4>
+            {timing}
           </div>
-        </div>
-      </More>
+        </More>
+      )}
     </Panel>
   );
 }

@@ -6,7 +6,7 @@ import { targetName } from "../../lib/submodels";
 import { formatTime, shiftEdits } from "../../lib/timelineMath";
 import { useSequencer } from "../../state/sequencer";
 import { useApp } from "../../state/store";
-import { BLUR, BlendOptions, ColorList, FIELD, KindSettings, MIXED_OPTION, MixedOption, MsField, NumberSetting, Panel, SPARKLES, Section, SettingControl, clamp, faceNames, usesColors } from "./effectControls";
+import { BLUR, BlendOptions, ColorList, FIELD, KindSettings, MIXED_OPTION, MixedOption, MsField, NumberSetting, Panel, SPARKLES, Section, SettingControl, clamp, faceNames, setsChannels, usesColors, usesFades } from "./effectControls";
 
 /**
  * Settings for several selected effects at once: what they share (colors, mixing, fades, and
@@ -53,6 +53,9 @@ export function MultiEffectSettings({ doc, ids }: { doc: Sequence; ids: string[]
   const blur = shared(effects.map((e) => e.blur ?? 0));
   const length = shared(effects.map((e) => e.endMs - e.startMs));
   const showColors = effects.some(usesColors);
+  // Mixing, sparkles and blur only for effects that draw on pixels; fades for those they change.
+  const draws = effects.some((e) => !setsChannels(e));
+  const fades = effects.some(usesFades);
   const from = Math.min(...effects.map((e) => e.startMs));
   const to = Math.max(...effects.map((e) => e.endMs));
   const label = kind ? `${effects.length} ${info?.label ?? kind} effects` : `${effects.length} effects`;
@@ -120,56 +123,64 @@ export function MultiEffectSettings({ doc, ids }: { doc: Sequence; ids: string[]
         </Section>
       )}
 
-      <Section title="Mixing">
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="text-neutral-600 dark:text-neutral-400">With the layers below</span>
-          <select
-            className={FIELD}
-            value={blend.mixed ? MIXED_OPTION : blend.value}
-            onChange={(e) => {
-              const value = e.target.value as Blend;
-              void all((x) => ({ ...x, blend: value }));
-            }}
-          >
-            <MixedOption mixed={blend.mixed} />
-            <BlendOptions />
-          </select>
-        </label>
-        <NumberSetting
-          key={`${fresh}:sparkles`}
-          setting={SPARKLES}
-          value={sparkles.value}
-          mixed={sparkles.mixed}
-          onChange={(v, gesture) => all((x) => ({ ...x, sparkles: v as number }), gesture)}
-          animate={animate("sparkles", false)}
-        />
-        <NumberSetting
-          key={`${fresh}:blur`}
-          setting={BLUR}
-          value={blur.value}
-          mixed={blur.mixed}
-          onChange={(v, gesture) => all((x) => ({ ...x, blur: v as number }), gesture)}
-          animate={animate("blur", false)}
-        />
-        <div className="grid grid-cols-2 items-end gap-2">
-          <MsField
-            key={`${fresh}:fadeIn`}
-            label="Fade in (ms)"
-            hint="Each effect's fade stays within its length."
-            value={fadeIn.value}
-            mixed={fadeIn.mixed}
-            onCommit={(v) => all((x) => ({ ...x, fadeInMs: clamp(v, 0, x.endMs - x.startMs) }))}
-          />
-          <MsField
-            key={`${fresh}:fadeOut`}
-            label="Fade out (ms)"
-            hint="Each effect's fade stays within its length."
-            value={fadeOut.value}
-            mixed={fadeOut.mixed}
-            onCommit={(v) => all((x) => ({ ...x, fadeOutMs: clamp(v, 0, x.endMs - x.startMs) }))}
-          />
-        </div>
-      </Section>
+      {(draws || fades) && (
+        <Section title={draws ? "Mixing" : "Fades"}>
+          {draws && (
+            <>
+              <label className="flex flex-col gap-1 text-sm">
+                <span className="text-neutral-600 dark:text-neutral-400">With the layers below</span>
+                <select
+                  className={FIELD}
+                  value={blend.mixed ? MIXED_OPTION : blend.value}
+                  onChange={(e) => {
+                    const value = e.target.value as Blend;
+                    void all((x) => ({ ...x, blend: value }));
+                  }}
+                >
+                  <MixedOption mixed={blend.mixed} />
+                  <BlendOptions />
+                </select>
+              </label>
+              <NumberSetting
+                key={`${fresh}:sparkles`}
+                setting={SPARKLES}
+                value={sparkles.value}
+                mixed={sparkles.mixed}
+                onChange={(v, gesture) => all((x) => ({ ...x, sparkles: v as number }), gesture)}
+                animate={animate("sparkles", false)}
+              />
+              <NumberSetting
+                key={`${fresh}:blur`}
+                setting={BLUR}
+                value={blur.value}
+                mixed={blur.mixed}
+                onChange={(v, gesture) => all((x) => ({ ...x, blur: v as number }), gesture)}
+                animate={animate("blur", false)}
+              />
+            </>
+          )}
+          {fades && (
+            <div className="grid grid-cols-2 items-end gap-2">
+              <MsField
+                key={`${fresh}:fadeIn`}
+                label="Fade in (ms)"
+                hint="Each effect's fade stays within its length."
+                value={fadeIn.value}
+                mixed={fadeIn.mixed}
+                onCommit={(v) => all((x) => ({ ...x, fadeInMs: clamp(v, 0, x.endMs - x.startMs) }))}
+              />
+              <MsField
+                key={`${fresh}:fadeOut`}
+                label="Fade out (ms)"
+                hint="Each effect's fade stays within its length."
+                value={fadeOut.value}
+                mixed={fadeOut.mixed}
+                onCommit={(v) => all((x) => ({ ...x, fadeOutMs: clamp(v, 0, x.endMs - x.startMs) }))}
+              />
+            </div>
+          )}
+        </Section>
+      )}
 
       <Section title="Timing">
         <div className="grid grid-cols-2 items-end gap-2">

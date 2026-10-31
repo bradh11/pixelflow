@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../../App";
@@ -13,7 +13,7 @@ import { useSequencer } from "../../state/sequencer";
 import { useApp } from "../../state/store";
 import { EffectSettings } from "./EffectSettings";
 import { PanTiltPad, headReach } from "./MovingHeadSettings";
-import { usesColors } from "./effectControls";
+import { setsChannels, usesColors, usesFades } from "./effectControls";
 
 // The pad is 100 × 100 px at the window's corner.
 beforeEach(() => {
@@ -117,7 +117,14 @@ function Settings() {
 }
 
 /** A show of three moving heads in a group and a servo, a sequence with `effect` on `target`'s row, and its settings open. */
-async function open(params: EffectParams, target: (show: Show) => SequenceTarget = (show) => ({ prop: show.props[0].id }), colors = ["#ff0000"]) {
+async function open(params: EffectParams, target?: (show: Show) => SequenceTarget, colors?: string[]) {
+  const { seq, panel } = await openMany([params], target, colors);
+  const find = () => seq.doc!.rows[0].layers[0].effects[0];
+  return { seq, panel, find };
+}
+
+/** As `open`, with an effect for each of `all` one after another on the row, all of them selected. */
+async function openMany(all: EffectParams[], target: (show: Show) => SequenceTarget = (show) => ({ prop: show.props[0].id }), colors = ["#ff0000"]) {
   const show = emptyShow("s");
   for (const name of ["Left", "Middle", "Right"]) {
     const head = newMovingHead(show);
@@ -128,18 +135,17 @@ async function open(params: EffectParams, target: (show: Show) => SequenceTarget
   show.groups.push({ id: "g", name: "Heads", members: show.props.slice(0, 3).map((p) => p.id) } as Show["groups"][number]);
   const backend = new MemoryBackend(show);
   const seq = new MemorySequencer(backend);
-  const effect: Effect = { ...newEffect(params.kind, 0, 4000, colors), params };
-  const row = { ...newRow(target(show)), layers: [{ effects: [effect] }] };
-  const doc: Sequence = { schemaVersion: 17, name: "s", audio: null, durationMs: 4000, frameMs: 25, timingTracks: [], rows: [row] };
+  const effects: Effect[] = all.map((params, i) => ({ ...newEffect(params.kind, i * 4000, (i + 1) * 4000, colors), params }));
+  const row = { ...newRow(target(show)), layers: [{ effects }] };
+  const doc: Sequence = { schemaVersion: 17, name: "s", audio: null, durationMs: 4000 * all.length, frameMs: 25, timingTracks: [], rows: [row] };
   seq.files.set("/Shows/s.pfseq.json", doc);
   await seq.openSequenceDoc("/Shows/s.pfseq.json");
   await useApp.getState().connect(backend);
   await useSequencer.getState().connect(seq);
-  act(() => useSequencer.getState().select([effect.id]));
+  act(() => useSequencer.getState().select(effects.map((e) => e.id)));
   render(<Settings />);
   const panel = screen.getByRole("complementary", { name: "Effect settings" });
-  const find = () => seq.doc!.rows[0].layers[0].effects[0];
-  return { seq, panel, find };
+  return { seq, panel };
 }
 
 const sliders = (panel: HTMLElement) => within(panel).queryAllByRole("slider").map((s) => s.getAttribute("aria-label") ?? (s.id && document.querySelector(`label[for='${s.id}']`)?.textContent));
@@ -153,6 +159,9 @@ describe("a Moving Head effect's settings", () => {
     expect(sliders(panel)).toEqual(["Pan and tilt", "Pan", "Tilt", "Dimmer", "Strobe"]);
     expect(within(panel).getByRole("button", { name: "Fan for a group of heads" })).toHaveAttribute("aria-expanded", "false");
     expect(within(panel).getByText("This effect uses the first color.")).toBeInTheDocument();
+    // Its fades dim its light; mixing, sparkles, blur and the color adjustments don't apply to a head.
+    expect(within(panel).getByRole("button", { name: "More: timing" })).toBeInTheDocument();
+    expect(within(panel).queryByRole("button", { name: /^More: mixing/ })).not.toBeInTheDocument();
     // Every control has a name.
     for (const role of ["button", "slider", "combobox", "spinbutton", "checkbox"] as const) {
       expect(within(panel).queryAllByRole(role, { name: (name) => name.trim() === "" })).toEqual([]);
@@ -204,9 +213,10 @@ describe("a Moving Head effect's settings", () => {
 });
 
 describe("a Servo effect's settings", () => {
-  it("groups them, with steps only for Steps, which servo under More, and no colors", async () => {
+  it("groups them, with steps only for Steps, which servo under More, and no colors or fades", async () => {
     const { panel } = await open({ kind: "servo", pattern: "steps" }, (show) => ({ prop: show.props[3].id }));
-    expect(groups(panel)).toEqual(["Position", "Movement", "Fan", "Fades"]);
+    expect(groups(panel)).toEqual(["Position", "Movement", "Fan"]);
+    expect(within(panel).getByRole("button", { name: "More: timing" })).toBeInTheDocument();
     expect(sliders(panel)).toEqual(["Position", "Size", "Speed", "Steps"]);
     fireEvent.click(within(panel).getByRole("button", { name: "Fan for several servos" }));
     fireEvent.click(within(panel).getByRole("button", { name: "More: which servo" }));
@@ -244,5 +254,33 @@ describe("a Servo effect's settings", () => {
     expect(usesColors(effect({ kind: "servo" }))).toBe(false);
     expect(usesColors(effect({ kind: "movingHead", color: "drawn" }))).toBe(false);
     expect(usesColors(effect({ kind: "movingHead" }))).toBe(true);
+  });
+});
+
+describe("the channel effects' other settings", () => {
+  it("sets channels for the DMX, Moving Head and Servo effects alone, and fades only a head's light", () => {
+    const effect = (params: EffectParams) => ({ ...newEffect(params.kind, 0, 1000), params });
+    expect([effect({ kind: "dmx" }), effect({ kind: "movingHead" }), effect({ kind: "servo" }), effect({ kind: "wave" })].map(setsChannels)).toEqual([true, true, true, false]);
+    expect([effect({ kind: "dmx" }), effect({ kind: "movingHead" }), effect({ kind: "servo" }), effect({ kind: "wave" })].map(usesFades)).toEqual([false, true, false, true]);
+    expect(usesColors(effect({ kind: "dmx" }))).toBe(false);
+  });
+
+  it("shows a DMX effect's channels and timing, and nothing that doesn't change it", async () => {
+    const { panel } = await open({ kind: "dmx" });
+    expect(groups(panel)).toEqual(["Settings"]);
+    expect(within(panel).queryByRole("button", { name: /^More: mixing/ })).not.toBeInTheDocument();
+    fireEvent.click(within(panel).getByRole("button", { name: "More: timing" }));
+    expect(within(panel).getByRole("spinbutton", { name: "Starts (ms)" })).toBeInTheDocument();
+    expect(within(panel).queryByRole("spinbutton", { name: "Fade in (ms)" })).not.toBeInTheDocument();
+  });
+
+  it("shows several servos no mixing or fades, and several heads their fades alone", async () => {
+    const servos = await openMany([{ kind: "servo" }, { kind: "servo" }], (show) => ({ prop: show.props[3].id }));
+    expect(groups(servos.panel)).toEqual(["Settings", "Timing"]);
+    cleanup();
+    const heads = await openMany([{ kind: "movingHead" }, { kind: "movingHead" }]);
+    expect(groups(heads.panel)).toEqual(["Settings", "Colors", "Fades", "Timing"]);
+    expect(within(heads.panel).getByRole("spinbutton", { name: "Fade in (ms)" })).toBeInTheDocument();
+    expect(within(heads.panel).queryByRole("combobox", { name: "With the layers below" })).not.toBeInTheDocument();
   });
 });

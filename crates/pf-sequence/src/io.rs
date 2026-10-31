@@ -732,7 +732,10 @@ mod tests {
         let saved = sequence_to_json(&seq).unwrap();
         assert!(saved.contains(r#""schemaVersion": 16"#), "{saved}");
         assert!(saved.contains(r#""font": "Arial Narrow""#), "{saved}");
-        assert!(saved.contains(r#""bold": true"#) && saved.contains(r#""italic": true"#), "{saved}");
+        assert!(
+            saved.contains(r#""bold": true"#) && saved.contains(r#""italic": true"#),
+            "{saved}"
+        );
         assert_eq!(sequence_from_json(&saved).unwrap(), seq);
         // A font name longer than any is cut to the longest text a setting holds on open, and
         // refused in memory.
@@ -747,10 +750,20 @@ mod tests {
             unreachable!()
         };
         p.font = long;
-        assert!(limit_problems(&bad)[0].contains("Font is longer than"), "{:?}", limit_problems(&bad));
+        assert!(
+            limit_problems(&bad)[0].contains("Font is longer than"),
+            "{:?}",
+            limit_problems(&bad)
+        );
         // The font picker is a setting of its own kind, under the text.
-        let font = crate::TextParams::SETTINGS.iter().find(|s| s.key == "font").unwrap();
-        assert_eq!((font.label, font.range, font.more), ("Font", crate::SettingRange::Font, false));
+        let font = crate::TextParams::SETTINGS
+            .iter()
+            .find(|s| s.key == "font")
+            .unwrap();
+        assert_eq!(
+            (font.label, font.range, font.more),
+            ("Font", crate::SettingRange::Font, false)
+        );
     }
 
     #[test]

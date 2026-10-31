@@ -35,6 +35,7 @@ mod fireworks;
 mod garlands;
 mod geometry;
 mod glsl;
+mod heads;
 mod impact;
 mod life;
 mod lightning;

@@ -94,6 +94,8 @@ pub fn effect_source(kind: EffectKind) -> &'static str {
         EffectKind::Fireworks => include_str!("../../guides/effects/fireworks.md"),
         EffectKind::Shader => include_str!("../../guides/effects/shader.md"),
         EffectKind::Dmx => include_str!("../../guides/effects/dmx.md"),
+        EffectKind::MovingHead => include_str!("../../guides/effects/movingHead.md"),
+        EffectKind::Servo => include_str!("../../guides/effects/servo.md"),
     }
 }
 

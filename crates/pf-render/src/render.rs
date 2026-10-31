@@ -466,15 +466,16 @@ impl Renderer {
                     effects.map(move |(e, effect)| (l as u32, e as u32, effect))
                 })
                 .filter(|(_, _, effect)| effect.is_active_at(t_ms));
-            // A DMX effect draws no color: it sets fixtures' channels once the frame is drawn.
+            // A DMX, Moving Head or Servo effect draws no color: it sets fixtures' channels once
+            // the frame is drawn.
             for (layer, place, _) in playing
                 .clone()
-                .filter(|(_, _, effect)| matches!(effect.params, EffectParams::Dmx(_)))
+                .filter(|(_, _, effect)| effect.kind().sets_channels())
             {
                 self.dmx.play(r, layer, place);
             }
             let mut active = playing
-                .filter(|(_, _, effect)| !matches!(effect.params, EffectParams::Dmx(_)))
+                .filter(|(_, _, effect)| !effect.kind().sets_channels())
                 .peekable();
             if active.peek().is_none() {
                 continue;

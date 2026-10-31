@@ -38,6 +38,9 @@ tauri-plugin-dialog = "2"
 libc = "0.2"
 
 [dev-dependencies]
+# The shell's tests export videos offline, with OpenH264 compiled in. Only tests: the app itself
+# loads Cisco's binary, downloaded at the user's request (`node scripts/encoder-check.mjs`).
+pf-video = { path = "../../crates/pf-video", features = ["encoder-from-source"] }
 pf-devices = { path = "../../crates/pf-devices", features = ["test-fixtures"] }
 pf-ai = { path = "../../crates/pf-ai", features = ["test-fixtures"] }
 pf-output = { path = "../../crates/pf-output" }

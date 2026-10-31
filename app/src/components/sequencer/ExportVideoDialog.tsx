@@ -1,12 +1,13 @@
-import { CheckCircle2, Film } from "lucide-react";
+import { CheckCircle2, Download, Film } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { errorMessage } from "../../api/backend";
 import type { Sequence } from "../../api/sequence";
-import type { VideoChoices, VideoProgress, VideoRequest, VideoSummary } from "../../api/video";
+import type { H264Encoder, H264Progress, VideoChoices, VideoProgress, VideoRequest, VideoSummary } from "../../api/video";
 import { clock, fileName, sizeText } from "../../lib/format";
 import { formatTime, parseTime } from "../../lib/timelineMath";
 import { useSequencer } from "../../state/sequencer";
 import { useView3d } from "../../state/view3d";
+import { EncoderConsent, downloadSize } from "../CiscoEncoder";
 import { ProgressBar } from "../ProgressBar";
 import { Button, Input, Select } from "../ui";
 
@@ -80,13 +81,27 @@ type Range = "all" | "selection" | "custom";
 
 type Phase =
   | { kind: "choose"; error?: string; info?: string }
+  /** Asking before Cisco's encoder is downloaded (the built-in encoder's first export). */
+  | { kind: "consent" }
+  /** Asking to turn Cisco's encoder back on (it was turned off in Settings). */
+  | { kind: "turnOn" }
+  | { kind: "downloading"; progress: H264Progress | null; cancelling: boolean }
+  | { kind: "downloadFailed"; error: string }
   | { kind: "exporting"; progress: VideoProgress | null; cancelling: boolean }
   | { kind: "done"; path: string; summary: VideoSummary };
+
+/** The steps that are about Cisco's encoder, in place of the choices. */
+type EncoderPhase = Extract<Phase, { kind: "consent" | "turnOn" | "downloading" | "downloadFailed" }>;
+
+function isEncoderPhase(phase: Phase): phase is EncoderPhase {
+  return phase.kind === "consent" || phase.kind === "turnOn" || phase.kind === "downloading" || phase.kind === "downloadFailed";
+}
 
 /**
  * Export video: the sequence as an MP4 of the 2D preview with its music, to share or post. The
  * size, frame rate, stretch of the song, photo, dot size, and encoder are chosen here; then where
- * to save it, and its progress shows here with Cancel.
+ * to save it, and its progress shows here with Cancel. The built-in encoder is Cisco's OpenH264:
+ * the first export asks before downloading it, shows the download, then carries straight on.
  */
 export function ExportVideoDialog({ onClose }: { onClose: () => void }) {
   const api = useSequencer((s) => s.api);
@@ -95,6 +110,7 @@ export function ExportVideoDialog({ onClose }: { onClose: () => void }) {
   const selection = useSequencer((s) => s.selection);
   const playheadMs = useSequencer((s) => s.playheadMs);
   const [choices, setChoices] = useState<VideoChoices | null>(null);
+  const [h264, setH264] = useState<H264Encoder | null>(null);
   const [settings, setSettings] = useState<Settings>(loadSettings);
   // Until a glow is chosen here, the video starts with the glow the previews are shown with.
   const previewGlow = useView3d((s) => s.glow);
@@ -109,7 +125,10 @@ export function ExportVideoDialog({ onClose }: { onClose: () => void }) {
   const close = useRef(onClose);
   close.current = onClose;
   const busy = useRef(false);
-  busy.current = exporting;
+  busy.current = exporting || phase.kind === "downloading";
+  // Escape on a step about the encoder goes back to the choices.
+  const asking = useRef(false);
+  asking.current = isEncoderPhase(phase);
 
   useEffect(() => {
     if (!api) return;
@@ -117,6 +136,10 @@ export function ExportVideoDialog({ onClose }: { onClose: () => void }) {
     api.videoExportChoices().then(
       (c) => live && setChoices(c),
       () => live && setChoices({ ffmpeg: null, photo: false }),
+    );
+    api.h264Encoder().then(
+      (e) => live && setH264(e),
+      () => {},
     );
     return () => {
       live = false;
@@ -131,7 +154,8 @@ export function ExportVideoDialog({ onClose }: { onClose: () => void }) {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape" || busy.current) return;
       e.preventDefault();
-      close.current();
+      if (asking.current) setPhase({ kind: "choose" });
+      else close.current();
     };
     window.addEventListener("keydown", onKey);
     return () => {
@@ -139,6 +163,14 @@ export function ExportVideoDialog({ onClose }: { onClose: () => void }) {
       if (opener?.isConnected) opener.focus();
     };
   }, []);
+
+  // A step about the encoder takes the focus (its main button), and the choices get it back.
+  const encoderStep = isEncoderPhase(phase) ? phase.kind : null;
+  useEffect(() => {
+    if (encoderStep === "downloading") return;
+    const button = encoderStep ? "[data-encoder-step] button[data-primary]" : "select, input, button";
+    box.current?.querySelector<HTMLElement>(button)?.focus();
+  }, [encoderStep]);
 
   if (!doc || !api) return null;
   const fromMs = parseTime(from);
@@ -156,6 +188,59 @@ export function ExportVideoDialog({ onClose }: { onClose: () => void }) {
 
   const start = async () => {
     if (customBad) return;
+    if (!ffmpeg) {
+      // The built-in encoder is Cisco's, downloaded only when the user agrees.
+      let encoder: H264Encoder;
+      try {
+        encoder = await api.h264Encoder();
+      } catch (e) {
+        setPhase({ kind: "choose", error: errorMessage(e) });
+        return;
+      }
+      setH264(encoder);
+      if (encoder.state === "unsupported") {
+        setPhase({ kind: "choose", error: encoder.problem ?? "The built-in encoder isn't available on this computer." });
+        return;
+      }
+      if (encoder.state === "missing") {
+        setPhase({ kind: "consent" });
+        return;
+      }
+      if (encoder.state === "off") {
+        setPhase({ kind: "turnOn" });
+        return;
+      }
+    }
+    await exportVideo();
+  };
+
+  /** Downloads Cisco's encoder (the user has just agreed), then exports. */
+  const download = async () => {
+    setPhase({ kind: "downloading", progress: null, cancelling: false });
+    try {
+      setH264(await api.downloadH264Encoder((progress) => setPhase((p) => (p.kind === "downloading" ? { ...p, progress } : p))));
+    } catch (e) {
+      const message = errorMessage(e);
+      setPhase(message === "Stopped." ? { kind: "choose", info: "Download stopped. Nothing was kept." } : { kind: "downloadFailed", error: message });
+      return;
+    }
+    await exportVideo();
+  };
+
+  /** Turns Cisco's encoder back on (the user has just said to), then exports. */
+  const turnOn = async () => {
+    try {
+      setH264(await api.setH264EncoderEnabled(true));
+    } catch (e) {
+      setPhase({ kind: "choose", error: errorMessage(e) });
+      return;
+    }
+    await exportVideo();
+  };
+
+  /** Asks where to save the video, then exports it there. */
+  const exportVideo = async () => {
+    setPhase({ kind: "choose" });
     // Export what's on screen: every edit made so far lands first.
     await useSequencer.getState().settled();
     const base = path ? fileName(path).replace(/\.pfseq\.json$|\.json$/i, "") : doc.name || "Sequence";
@@ -187,6 +272,8 @@ export function ExportVideoDialog({ onClose }: { onClose: () => void }) {
     } catch (e) {
       const message = errorMessage(e);
       setPhase(message === "The export was cancelled." ? { kind: "choose", info: "Export cancelled. No file was written." } : { kind: "choose", error: message });
+      // The encoder may have been found changed (and removed), or turned off meanwhile.
+      if (!ffmpeg) api.h264Encoder().then(setH264, () => {});
     }
   };
   const cancel = () => {
@@ -209,6 +296,18 @@ export function ExportVideoDialog({ onClose }: { onClose: () => void }) {
         </h2>
         {phase.kind === "done" ? (
           <Done path={phase.path} summary={phase.summary} onClose={onClose} />
+        ) : isEncoderPhase(phase) && h264 ? (
+          <EncoderStep
+            phase={phase}
+            encoder={h264}
+            onDownload={() => void download()}
+            onTurnOn={() => void turnOn()}
+            onCancelDownload={() => {
+              setPhase((p) => (p.kind === "downloading" ? { ...p, cancelling: true } : p));
+              void api.cancelH264Download();
+            }}
+            onBack={() => setPhase({ kind: "choose" })}
+          />
         ) : (
           <>
             <p className="mt-1 text-neutral-500">The preview of {doc.name || "this sequence"} with its music, as an MP4 to share or post.</p>
@@ -273,6 +372,15 @@ export function ExportVideoDialog({ onClose }: { onClose: () => void }) {
                   {choices?.ffmpeg && <option value="ffmpeg">ffmpeg (higher quality)</option>}
                 </Select>
               </label>
+              {!ffmpeg && h264 && h264.state !== "ready" && (
+                <p className="col-span-2 text-xs text-neutral-500">
+                  {h264.state === "missing"
+                    ? `The built-in encoder is Cisco's OpenH264. The first export asks before downloading it (${downloadSize(h264.bytes)}).`
+                    : h264.state === "off"
+                      ? "Cisco's OpenH264 encoder is turned off in Settings. Exporting asks to turn it back on."
+                      : h264.problem}
+                </p>
+              )}
               <label
                 className={`col-span-2 flex items-center gap-2 ${choices?.photo ? "" : "text-neutral-400 dark:text-neutral-500"}`}
                 title={choices && !choices.photo ? "Add a photo of the house on the Layout screen to show it here" : undefined}
@@ -333,6 +441,73 @@ export function ExportVideoDialog({ onClose }: { onClose: () => void }) {
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Cisco's encoder, in place of the choices: asking before it's downloaded (what, from where, how
+ * big, and why), its download, a download that failed, or asking to turn it back on.
+ */
+function EncoderStep({
+  phase,
+  encoder,
+  onDownload,
+  onTurnOn,
+  onCancelDownload,
+  onBack,
+}: {
+  phase: EncoderPhase;
+  encoder: H264Encoder;
+  onDownload: () => void;
+  onTurnOn: () => void;
+  onCancelDownload: () => void;
+  onBack: () => void;
+}) {
+  const progress = phase.kind === "downloading" ? phase.progress : null;
+  return (
+    <div data-encoder-step className="mt-3 flex flex-col gap-3">
+      <h3 className="font-semibold">{phase.kind === "turnOn" ? "Turn Cisco's video encoder back on?" : "Download Cisco's video encoder?"}</h3>
+      {phase.kind === "turnOn" ? (
+        <div className="flex flex-col gap-2 text-sm text-neutral-600 dark:text-neutral-300">
+          <p>The built-in encoder is Cisco&apos;s OpenH264. It&apos;s downloaded, and turned off in Settings, under Video export.</p>
+          <p className="text-xs text-neutral-500">{encoder.attribution}</p>
+        </div>
+      ) : (
+        <EncoderConsent encoder={encoder} />
+      )}
+      {phase.kind === "downloadFailed" && (
+        <p className="text-red-600 dark:text-red-400" role="alert">
+          {phase.error}
+        </p>
+      )}
+      {phase.kind === "downloading" ? (
+        <div className="mt-2 flex items-end gap-3">
+          <ProgressBar
+            className="flex-1"
+            label={phase.cancelling ? "Stopping the download" : "Downloading the encoder"}
+            fraction={phase.cancelling || !progress || progress.total <= 0 ? null : progress.received / progress.total}
+          />
+          <Button variant="ghost" onClick={onCancelDownload} disabled={phase.cancelling}>
+            Cancel
+          </Button>
+        </div>
+      ) : (
+        <div className="mt-2 flex justify-end gap-2">
+          <Button variant="ghost" onClick={onBack}>
+            Cancel
+          </Button>
+          {phase.kind === "turnOn" ? (
+            <Button variant="primary" data-primary onClick={onTurnOn}>
+              Turn on and export
+            </Button>
+          ) : (
+            <Button variant="primary" data-primary onClick={onDownload}>
+              <Download size={14} aria-hidden /> {phase.kind === "downloadFailed" ? "Try again" : "Download and export"}
+            </Button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

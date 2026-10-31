@@ -89,6 +89,8 @@ if (inTauri()) {
     // A video export takes a few seconds, as if ffmpeg were installed too.
     sequencer.video.stepMs = 150;
     sequencer.video.ffmpeg = "x264";
+    // Cisco's encoder isn't downloaded yet, as in a new install: the first export asks first.
+    sequencer.video.h264DownloadMs = 2500;
   }
   if (demo) {
     // A sample sequence, open on the Sequence screen.

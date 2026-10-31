@@ -152,6 +152,12 @@
     "value": { "received": 1048576, "total": 189118943 }
   },
   {
+    "event": "h264-download-progress",
+    "name": "Cisco's video encoder part way down (built)",
+    "ts": "video.H264Progress",
+    "value": { "received": 262144, "total": 482124 }
+  },
+  {
     "event": "assistant-event",
     "name": "a chat turn's text",
     "ts": "{ turn: number; event: assistant.ChatEvent }",

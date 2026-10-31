@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Video export loads Cisco's OpenH264 library, which the app downloads from Cisco at the
+	     user's request and which Cisco signs with its own Developer ID. Under the hardened
+	     runtime macOS loads only libraries signed by the app's own team unless this is set
+	     ("mapping process and mapped file have different Team IDs"). The app loads only that
+	     file, after checking its SHA-256 (crates/pf-video/src/cisco.rs). -->
+	<key>com.apple.security.cs.disable-library-validation</key>
+	<true/>
+</dict>
+</plist>

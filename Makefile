@@ -5,7 +5,7 @@ SHELL_CRATE := app/src-tauri
 SHOW ?= examples/shows/demo.pixelflow.json
 
 .DEFAULT_GOAL := help
-.PHONY: help setup run ui test test-rust test-app lint fmt build licenses audit version bump cli-validate cli-map discover clean
+.PHONY: help setup run ui test test-rust test-app lint fmt build encoder-check licenses audit version bump cli-validate cli-map discover clean
 
 help: ## List the available commands
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z_-]+:.*## / {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -37,13 +37,18 @@ lint: $(APP)/node_modules ## Check formatting and lints (same as CI)
 	cargo clippy --workspace --all-targets -- -D warnings
 	cd $(APP) && pnpm typecheck
 	cd $(SHELL_CRATE) && cargo fmt --check && cargo clippy --all-targets -- -D warnings
+	$(MAKE) encoder-check
 
 fmt: ## Format all Rust code
 	cargo fmt --all
 	cd $(SHELL_CRATE) && cargo fmt
 
-build: $(APP)/node_modules ## Build an installable app (output in app/src-tauri/target/release/bundle)
+build: $(APP)/node_modules encoder-check ## Build an installable app (output in app/src-tauri/target/release/bundle)
 	cd $(APP) && pnpm tauri build
+
+encoder-check: ## Check the app's builds have no H.264 encoder compiled from source (it downloads Cisco's)
+	node --test scripts/encoder-check.test.mjs
+	node scripts/encoder-check.mjs
 
 licenses: $(APP)/node_modules ## Rewrite the dependency licence inventory and the notices the app bundles (after a lockfile changes)
 	node scripts/licenses.mjs

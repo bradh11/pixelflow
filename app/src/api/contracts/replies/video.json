@@ -40,5 +40,85 @@
     "name": "a video export's choices, with neither (built)",
     "ts": "video.VideoChoices",
     "value": { "ffmpeg": null, "photo": false }
+  },
+  {
+    "name": "Cisco's video encoder, not downloaded (built)",
+    "ts": "video.H264Encoder",
+    "value": {
+      "attribution": "OpenH264 Video Codec provided by Cisco Systems, Inc.",
+      "bytes": 482124,
+      "downloading": false,
+      "host": "ciscobinary.openh264.org",
+      "licence": "About The Cisco-Provided Binary of OpenH264 Video Codec …",
+      "licenceUrl": "https://www.openh264.org/BINARY_LICENSE.txt",
+      "problem": null,
+      "state": "missing",
+      "url": "https://ciscobinary.openh264.org/libopenh264-2.6.0-mac-arm64.dylib.bz2",
+      "version": "2.6.0"
+    }
+  },
+  {
+    "name": "Cisco's video encoder, downloading (built)",
+    "ts": "video.H264Encoder",
+    "value": {
+      "attribution": "OpenH264 Video Codec provided by Cisco Systems, Inc.",
+      "bytes": 482124,
+      "downloading": true,
+      "host": "ciscobinary.openh264.org",
+      "licence": "About The Cisco-Provided Binary of OpenH264 Video Codec …",
+      "licenceUrl": "https://www.openh264.org/BINARY_LICENSE.txt",
+      "problem": null,
+      "state": "missing",
+      "url": "https://ciscobinary.openh264.org/libopenh264-2.6.0-mac-arm64.dylib.bz2",
+      "version": "2.6.0"
+    }
+  },
+  {
+    "name": "Cisco's video encoder, downloaded and on (built)",
+    "ts": "video.H264Encoder",
+    "value": {
+      "attribution": "OpenH264 Video Codec provided by Cisco Systems, Inc.",
+      "bytes": 482124,
+      "downloading": false,
+      "host": "ciscobinary.openh264.org",
+      "licence": "About The Cisco-Provided Binary of OpenH264 Video Codec …",
+      "licenceUrl": "https://www.openh264.org/BINARY_LICENSE.txt",
+      "problem": null,
+      "state": "ready",
+      "url": "https://ciscobinary.openh264.org/libopenh264-2.6.0-mac-arm64.dylib.bz2",
+      "version": "2.6.0"
+    }
+  },
+  {
+    "name": "Cisco's video encoder, turned off (built)",
+    "ts": "video.H264Encoder",
+    "value": {
+      "attribution": "OpenH264 Video Codec provided by Cisco Systems, Inc.",
+      "bytes": 482124,
+      "downloading": false,
+      "host": "ciscobinary.openh264.org",
+      "licence": "About The Cisco-Provided Binary of OpenH264 Video Codec …",
+      "licenceUrl": "https://www.openh264.org/BINARY_LICENSE.txt",
+      "problem": null,
+      "state": "off",
+      "url": "https://ciscobinary.openh264.org/libopenh264-2.6.0-mac-arm64.dylib.bz2",
+      "version": "2.6.0"
+    }
+  },
+  {
+    "name": "Cisco's video encoder, on a system Cisco makes it for none (built)",
+    "ts": "video.H264Encoder",
+    "value": {
+      "attribution": "OpenH264 Video Codec provided by Cisco Systems, Inc.",
+      "bytes": 0,
+      "downloading": false,
+      "host": "ciscobinary.openh264.org",
+      "licence": "About The Cisco-Provided Binary of OpenH264 Video Codec …",
+      "licenceUrl": "https://www.openh264.org/BINARY_LICENSE.txt",
+      "problem": "Cisco doesn't make its OpenH264 encoder for this system (freebsd, riscv64), so videos can only be exported with ffmpeg here.",
+      "state": "unsupported",
+      "url": null,
+      "version": "2.6.0"
+    }
   }
 ]

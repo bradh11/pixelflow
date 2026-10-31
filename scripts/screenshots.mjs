@@ -309,6 +309,34 @@ const SHOTS = [
     },
   },
   {
+    name: "export-video-download",
+    file: "export-video-download.png",
+    usedBy: "first-show",
+    async run(ui) {
+      // The demo is a new install: Cisco's encoder isn't downloaded, so the first export asks.
+      await ui.screen("Sequence");
+      await ui.click("More ways to export");
+      await ui.click("Export video…");
+      await ui.settle(800);
+      await ui.click("Export…");
+      await ui.waitForText("Download and export");
+      await ui.settle(300);
+      return ui.box("[role=dialog]");
+    },
+  },
+  {
+    name: "settings-video-encoder",
+    file: "settings-video-encoder.png",
+    usedBy: "troubleshooting",
+    async run(ui) {
+      await ui.click("Settings", { exact: true });
+      await ui.settle(600);
+      await ui.js(`find("Video export", { sel: "h2" })?.scrollIntoView({ block: "center" }); return 1`);
+      await ui.settle(300);
+      return ui.parentBoxOf("Video export", { sel: "h2", up: 2, pad: 8 });
+    },
+  },
+  {
     name: "vendor-mapping",
     file: "vendor-mapping.png",
     usedBy: "first-show",

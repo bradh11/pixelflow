@@ -138,7 +138,7 @@ export function LayoutScreen() {
         <PreviewWindowToggle />
         <AddPropMenu preview={preview.props} />
       </ScreenHeader>
-      <div ref={row} data-layout-row className="relative flex min-h-0 flex-1 gap-3">
+      <div ref={row} data-layout-row data-properties={arrangement.properties} className="relative flex min-h-0 flex-1 gap-3">
         <SidePanel floating={arrangement.list === "floating"} />
         <div className="relative min-w-0 flex-1">
           {in3d ? (

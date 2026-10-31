@@ -1,10 +1,11 @@
 // DMX fixtures in the window: the library of channel layouts (the engine's own, in
 // `crates/pf-model/src/dmx.rs`, mirrored by `dmxLayouts.json` and checked against it by the
-// shell's tests), making a fixture from one, and the colour its channels make, as the engine
-// works it out (`emitted_colors`), for the browser stand-in and the Test screen.
+// shell's tests), making a fixture from one, the colour its channels make, as the engine works
+// it out (`emitted_colors`), and whether its shutter lets it show at a moment
+// (`crates/pf-model/src/shutter.rs`), for the browser stand-in and the Test screen.
 
 import layouts from "../api/dmxLayouts.json";
-import type { DmxChannel, DmxFixture, DmxRole, DmxSlot, Prop, Show } from "../api/types";
+import type { DmxChannel, DmxFixture, DmxRole, DmxShutterRange, DmxSlot, DmxZoom, Prop, Show } from "../api/types";
 import { axes, motorProblem, restMotorsAt } from "./motion";
 
 /** What kind of fixture a library layout is for. */
@@ -49,6 +50,7 @@ export const DMX_ROLE_LABELS: Record<DmxRole, string> = {
   servo: "Servo",
   servoFine: "Servo fine",
   speed: "Speed",
+  zoom: "Zoom",
 };
 
 const PER_CELL: DmxRole[] = ["red", "green", "blue", "white", "amber", "cyan", "magenta", "yellow"];
@@ -126,6 +128,69 @@ export function fixtureSummary(fixture: DmxFixture, cells: number): string {
 /** The beam a head is drawn with when it doesn't say. */
 export const DEFAULT_BEAM = { angleDeg: 15, length: 6 } as const;
 
+/** How a zoom channel widens the beam when it doesn't say: narrow at 0, wide at 255. */
+export const DEFAULT_ZOOM: DmxZoom = { fromDeg: 5, toDeg: 45 };
+
+/** What a strobe channel that lists nothing does: open from 0 to 9, then a strobe from slow to fast. */
+export const USUAL_SHUTTER: DmxShutterRange[] = [
+  { from: 0, does: "open" },
+  { from: 10, does: "strobe" },
+];
+
+/** Flashes a second at the first value of a strobe range, and at its last. */
+export const STROBE_SLOWEST_HZ = 1;
+export const STROBE_FASTEST_HZ = 20;
+
+/** What a shutter does at `value`: closed, open, or flashing `hz` times a second. */
+export type ShutterState = { kind: "closed" } | { kind: "open" } | { kind: "strobe"; hz: number };
+
+/** What a shutter whose values do as `ranges` say does at `value` (the engine's `shutter_at`). */
+export function shutterAt(ranges: DmxShutterRange[], value: number): ShutterState {
+  let i = -1;
+  ranges.forEach((r, k) => {
+    if (r.from <= value) i = k;
+  });
+  if (i < 0) return { kind: "open" };
+  const range = ranges[i];
+  if (range.does !== "strobe") return { kind: range.does };
+  const next = ranges[i + 1];
+  const last = next ? Math.max(Math.max(next.from - 1, 0), range.from) : 255;
+  const span = Math.max(last - range.from, 1);
+  const share = (value - range.from) / span;
+  return { kind: "strobe", hz: STROBE_SLOWEST_HZ + (STROBE_FASTEST_HZ - STROBE_SLOWEST_HZ) * share };
+}
+
+/** Whether a strobe of `hz` flashes a second shows a flash in the frame shown at `tMs` for `frameMs` (the engine's `flashes`). */
+export function flashes(hz: number, tMs: number, frameMs: number): boolean {
+  const frame = Math.max(frameMs, 1);
+  const rate = Math.min(hz, 500 / frame);
+  if (!(rate > 0)) return false;
+  const first = Math.ceil((tMs * rate) / 1000);
+  return first < ((tMs + frame) * rate) / 1000;
+}
+
+/** What a strobe channel's values do: its own ranges, or the usual ones. */
+export function shutterOf(channel: DmxChannel): DmxShutterRange[] {
+  return channel.shutter && channel.shutter.length > 0 ? channel.shutter : USUAL_SHUTTER;
+}
+
+/** Whether a fixture's light shows at `tMs` (a frame shown for `frameMs`) with its channels at `dmx`: its first strobe channel's shutter open, or flashing then. */
+export function shutterOpen(channels: DmxChannel[], dmx: ArrayLike<number>, tMs: number, frameMs: number): boolean {
+  const i = channels.findIndex((c) => c.role === "strobe");
+  if (i < 0) return true;
+  const state = shutterAt(shutterOf(channels[i]), i < dmx.length ? dmx[i] : 0);
+  return state.kind === "open" || (state.kind === "strobe" && flashes(state.hz, tMs, frameMs));
+}
+
+/** Why a strobe channel's ranges can't be used, in the engine's words, or null. */
+export function shutterProblem(ranges: DmxShutterRange[]): string | null {
+  if (ranges.length > 32) return `A strobe channel lists at most 32 ranges of values; this one lists ${ranges.length}.`;
+  if (ranges.some((r, i) => i > 0 && ranges[i - 1].from >= r.from)) {
+    return "A strobe channel's ranges of values go from the lowest up, each starting after the one before.";
+  }
+  return null;
+}
+
 /** A fixture at `address` laid out as `layout` with `cells` cells. */
 export function fixtureFromLayout(layout: DmxLayout, cells: number, address: number): DmxFixture {
   const fixture: DmxFixture = { address, channels: layoutChannels(layout, cells), layout: layout.id };
@@ -153,6 +218,11 @@ export function fixtureProblem(fixture: DmxFixture, cells: number): string | nul
     const problem = c.motor ? motorProblem(c.motor) : null;
     if (problem) return `The channel '${c.name}': ${problem}`;
     if ((c.slots?.length ?? 0) > 64) return `The channel '${c.name}' lists ${c.slots!.length} slots; a wheel has at most 64.`;
+    const shutter = shutterProblem(c.shutter ?? []);
+    if (shutter) return `The channel '${c.name}': ${shutter}`;
+    const zoom = c.zoom;
+    const angle = (a: number) => Number.isFinite(a) && a >= 1 && a <= 120;
+    if (zoom && !(angle(zoom.fromDeg) && angle(zoom.toDeg))) return `The channel '${c.name}': A zoom widens a beam to 1° to 120°.`;
   }
   const beam = fixture.beam;
   if (beam && !(beam.angleDeg >= 1 && beam.angleDeg <= 120)) return "A beam is 1° to 120° wide.";

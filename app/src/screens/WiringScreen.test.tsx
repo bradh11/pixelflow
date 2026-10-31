@@ -639,6 +639,22 @@ describe("wiring screen", () => {
     expect(backend.show.controllers).toEqual(before);
   });
 
+  it("offers the FPP type for a controller a scan found to be one, and changes it only when asked", async () => {
+    const user = await setup();
+    useApp.setState({ discovery: { devices: [{ address: "192.168.1.90", kind: "fpp", name: "Show Pi", model: "Pi 4", firmware: "FPP 9", mode: "player", foundBy: ["ping"], responding: true, lastSeen: 0 }], silent: [], locked: [] } });
+    await user.click(screen.getByRole("button", { name: "Add controller" }));
+    const form = screen.getByRole("form", { name: "Add controller" });
+    const type = within(form).getByRole("combobox", { name: "Controller type" });
+    await user.type(within(form).getByPlaceholderText("e.g. 192.168.1.50"), "192.168.1.90");
+    expect(within(form).getByText("A scan found an FPP at this address.")).toBeInTheDocument();
+    expect(type).toHaveValue("other");
+    await user.click(within(form).getByRole("button", { name: "Set type to FPP" }));
+    expect(type).toHaveValue("fpp");
+    expect(within(form).queryByRole("button", { name: "Set type to FPP" })).not.toBeInTheDocument();
+    await user.click(within(form).getByRole("button", { name: "Add" }));
+    expect(backend.show.controllers.at(-1)).toMatchObject({ address: "192.168.1.90", adapter: "fpp" });
+  });
+
   it("empty, it points to where props and controllers come from with buttons", async () => {
     const user = await setup({ ...demoShow(), props: [], controllers: [] });
     await user.click(screen.getByRole("button", { name: "Add controller" }));

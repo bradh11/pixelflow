@@ -5,7 +5,7 @@
 //!
 //! - **Floods** (`DmxGeneral`, `DmxFloodlight`, `DmxFloodArea`): red, green, blue and white
 //!   (`DmxRedChannel` and the like) and a shutter (`DmxShutterChannel`, held open at
-//!   `DmxShutterOpen`). One cell.
+//!   `DmxShutterOpen`: closed below that value, open from it up). One cell.
 //! - **Moving heads** (`DmxMovingHeadAdv`, `DmxMovingHead`, `DmxMovingHead3D`): the same colour
 //!   and shutter channels, or a colour wheel (`DmxColorType` 1: `DmxColorWheelChannel`, its
 //!   colours `DmxColorWheelColor<n>` and the values selecting them `DmxColorWheelDMX<n>`) or CMY
@@ -20,11 +20,14 @@
 //!   16-bit scale, `RangeOfMotion` in degrees, `Reverse`); one after another from channel 1 when
 //!   the file doesn't say. A cell each, where its arm is drawn.
 //!
+//! A head's pan and tilt rest at Home when nothing moves them, as PixelFlow's own heads do.
 //! Every other channel holds 0, as xLights sends a channel nothing sets. Skulls and other DMX
 //! models stay as they were (a row of channel dots, not wired).
 
 use crate::model::XmlModel;
-use pf_model::{DmxBeam, DmxChannel, DmxFixture, DmxMotor, DmxRole, DmxSlot, Rgb};
+use pf_model::{
+    DmxBeam, DmxChannel, DmxFixture, DmxMotor, DmxRole, DmxShutter, DmxShutterRange, DmxSlot, Rgb,
+};
 use std::collections::BTreeMap;
 
 /// What kind of xLights DMX model PixelFlow imports a model as.
@@ -239,6 +242,10 @@ pub(crate) fn fixture(model: &XmlModel, kind: Kind, address: u16) -> Imported {
             out.cells = placed.max(1);
         }
     }
+    if kind == Kind::Head {
+        // Where nothing moves it, a head rests at Home (xLights would send its pan and tilt 0).
+        pf_model::rest_motors_at(&mut channels, 0.0);
+    }
     out.fixture.channels = channels;
     out
 }
@@ -257,15 +264,21 @@ fn colors(set: &mut impl FnMut(Option<usize>, DmxChannel) -> bool, model: &XmlMo
     any
 }
 
-/// Sets the shutter channel the file names, held open.
+/// Sets the shutter channel the file names, held open: closed below the value that opens it, open
+/// from it up (open at every value when that is 0).
 fn shutter(set: &mut impl FnMut(Option<usize>, DmxChannel) -> bool, model: &XmlModel, count: usize) {
     let open = number(model.attr("DmxShutterOpen"))
         .unwrap_or(0.0)
-        .clamp(0.0, 255.0);
-    set(
-        channel_in(model.attr("DmxShutterChannel"), count),
-        DmxChannel::new(DmxRole::Strobe).holding(open.round() as u8),
-    );
+        .clamp(0.0, 255.0)
+        .round() as u8;
+    let mut channel = DmxChannel::new(DmxRole::Strobe).holding(open);
+    let range = |from, does| DmxShutterRange { from, does };
+    channel.shutter = if open > 0 {
+        vec![range(0, DmxShutter::Closed), range(open, DmxShutter::Open)]
+    } else {
+        vec![range(0, DmxShutter::Open)]
+    };
+    set(channel_in(model.attr("DmxShutterChannel"), count), channel);
 }
 
 /// A head's pan or tilt motor from its element's attributes (`range`: when it doesn't say).
@@ -402,7 +415,21 @@ mod tests {
             roles(&found.fixture),
             vec![Other, Red, Green, Blue, Other, Strobe]
         );
-        assert_eq!(found.fixture.channels[5].value, 200);
+        let shutter = &found.fixture.channels[5];
+        assert_eq!(shutter.value, 200);
+        let at = pf_model::Moment::new(0, 25);
+        assert!(
+            pf_model::shutter_shows(shutter.shutter().unwrap(), 200, at),
+            "open at 200"
+        );
+        assert!(
+            pf_model::shutter_shows(shutter.shutter().unwrap(), 255, at),
+            "and above"
+        );
+        assert!(
+            !pf_model::shutter_shows(shutter.shutter().unwrap(), 199, at),
+            "closed below"
+        );
         assert_eq!(found.fixture.beam, None);
     }
 
@@ -490,7 +517,10 @@ mod tests {
             "no limits in the file"
         );
         assert_eq!(f.channels[10].value, 8, "the shutter held open");
-        assert_eq!(f.channels[0].value, 0, "pan holds 0, as xLights sends it");
+        // At rest, Home: pan 270° of 540° is the middle (128, 0); the reversed tilt's Home, 135°
+        // of 270°, is the middle too.
+        let held: Vec<u8> = f.channels[..4].iter().map(|c| c.value).collect();
+        assert_eq!(held, [128, 0, 128, 0], "pan and tilt rest at Home");
         assert_eq!(f.beam.unwrap().angle_deg, 25.0);
         assert!(found.colored && found.upside_down && !found.unmoving);
         assert_eq!(f.problem(1), None);

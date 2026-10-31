@@ -237,7 +237,7 @@ fn text_in_a_font_this_computer_lacks_is_listed_and_not_held() {
 
 /// The corpus's moving heads and servos, imported and rendered by PixelFlow alone, are sent what
 /// the sequence's DMX effects set at their channels (where xLights puts them), with the colors
-/// drawn on the heads in their color channels.
+/// drawn on the heads in their color channels; where nothing sets them, the heads rest at Home.
 #[test]
 fn the_corpus_heads_and_servos_get_their_channels() {
     let show = corpus().join("show");
@@ -279,4 +279,19 @@ fn the_corpus_heads_and_servos_get_their_channels() {
     );
     assert!(first[arm] < 10 && late[arm] > 240, "the first servo turns");
     assert_eq!(&first[arm + 1..arm + 4], &[0, 64, 0]);
+
+    // Where nothing moves them, the heads rest at Home: each motor's Home is the middle of its
+    // travel (Spot Left's 16-bit pan and tilt, Spot Right's 8-bit ones, its tilt reversed).
+    let imported = pf_fidelity::layout::comparison_show(&show).unwrap();
+    let held = |name: &str, n: usize| -> Vec<u8> {
+        let prop = imported.show.props.iter().find(|p| p.name == name).unwrap();
+        let dmx = prop.dmx.as_ref().unwrap();
+        dmx.channels[..n].iter().map(|c| c.value).collect()
+    };
+    assert_eq!(
+        held("Spot Left", 4),
+        [128, 0, 128, 0],
+        "pan, pan fine, tilt, tilt fine"
+    );
+    assert_eq!(held("Spot Right", 2), [128, 128], "pan, tilt");
 }

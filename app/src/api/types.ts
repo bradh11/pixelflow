@@ -278,7 +278,8 @@ export type DmxRole =
   | "yellow"
   | "servo"
   | "servoFine"
-  | "speed";
+  | "speed"
+  | "zoom";
 
 /** How a motor (a head's pan or tilt, or a servo) turns with its value (see crates/pf-model/src/motion.rs). */
 export interface DmxMotor {
@@ -307,6 +308,21 @@ export interface DmxBeam {
   length: number;
 }
 
+/** What a range of a strobe channel's values does (see crates/pf-model/src/shutter.rs). */
+export type DmxShutter = "closed" | "open" | "strobe";
+
+/** What a strobe channel's values from `from` do, up to where the next range starts. */
+export interface DmxShutterRange {
+  from: number;
+  does: DmxShutter;
+}
+
+/** How a zoom channel widens a head's beam: its width (degrees) at value 0 and at 255. */
+export interface DmxZoom {
+  fromDeg: number;
+  toDeg: number;
+}
+
 /** One channel of a DMX fixture, in the order the fixture takes them. */
 export interface DmxChannel {
   name: string;
@@ -319,6 +335,10 @@ export interface DmxChannel {
   motor?: DmxMotor;
   /** A colour wheel's colours, or a gobo wheel's gobos. */
   slots?: DmxSlot[];
+  /** What a strobe channel's values do (missing: the usual, `USUAL_SHUTTER`). */
+  shutter?: DmxShutterRange[];
+  /** How a zoom channel widens the beam (missing: the usual, `DEFAULT_ZOOM`). */
+  zoom?: DmxZoom;
 }
 
 /** What makes a prop a DMX fixture: its start address (1-512) and its channels. */
@@ -1346,15 +1366,23 @@ export interface PreviewAxis {
   motor: DmxMotor;
 }
 
+/** A zoom channel in a live frame: where its value is, the value it rests at, and the beam's width (degrees) at 0 and at 255. */
+export interface PreviewZoom {
+  at: number;
+  rest: number;
+  fromDeg: number;
+  toDeg: number;
+}
+
 /**
  * How a moving head or servos move in the previews (`PreviewMotion` in crates/pf-engine): the
  * fixture's frame in the layout (`basis`, the prop's rotation: its right, up and front as the
- * columns of a row-major 3 × 3 matrix), a head's beam from its first cell, and servo `k`'s arm at
- * cell `k`.
+ * columns of a row-major 3 × 3 matrix), a head's beam from its first cell (its width its zoom
+ * channel's, when it has one), and servo `k`'s arm at cell `k`.
  */
 export interface PreviewMotion {
   basis: number[];
-  beam?: { pan?: PreviewAxis; tilt?: PreviewAxis; angleDeg: number; length: number };
+  beam?: { pan?: PreviewAxis; tilt?: PreviewAxis; angleDeg: number; length: number; zoom?: PreviewZoom };
   servos?: PreviewAxis[];
 }
 

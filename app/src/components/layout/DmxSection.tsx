@@ -19,7 +19,7 @@ import { defaultMotor, isMotor } from "../../lib/motion";
 import { nodeCount } from "../../lib/shows";
 import { useApp } from "../../state/store";
 import { Input, More, Select } from "../ui";
-import { MotionSection, WheelSlots } from "./MotionSection";
+import { MotionSection, ShutterRanges, WheelSlots } from "./MotionSection";
 import { NumberField, Section } from "./PropertiesPanel";
 
 const ROLES = Object.keys(DMX_ROLE_LABELS) as DmxRole[];
@@ -64,6 +64,8 @@ export function DmxSection({ prop }: { prop: Prop }) {
         if (!isMotor(next.role)) delete next.motor;
         else if (!next.motor) next.motor = defaultMotor(next.role);
         if (next.role !== "colorWheel" && next.role !== "gobo") delete next.slots;
+        if (next.role !== "strobe") delete next.shutter;
+        if (next.role !== "zoom") delete next.zoom;
         return next;
       }),
     );
@@ -142,6 +144,25 @@ export function DmxSection({ prop }: { prop: Prop }) {
             index={i}
             channel={channel}
             onChange={(slots) => update((p) => (p.dmx ? { ...p, dmx: { ...p.dmx, channels: p.dmx.channels.map((c, k) => (k === i ? { ...c, slots } : c)) } } : p))}
+          />
+        ) : channel.role === "strobe" && fixture.channels.findIndex((c) => c.role === "strobe") === i ? (
+          <ShutterRanges
+            key={i}
+            prop={prop}
+            index={i}
+            channel={channel}
+            onChange={(ranges) =>
+              update((p) => {
+                if (!p.dmx) return p;
+                const channels = p.dmx.channels.map((c, k) => {
+                  if (k !== i) return c;
+                  const next: DmxChannel = { ...c, shutter: ranges };
+                  if (ranges.length === 0) delete next.shutter;
+                  return next;
+                });
+                return { ...p, dmx: { ...p.dmx, channels } };
+              })
+            }
           />
         ) : null,
       )}

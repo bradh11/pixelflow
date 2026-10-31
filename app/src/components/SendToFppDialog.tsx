@@ -23,6 +23,28 @@ export function fppChoices(controllers: Controller[] | undefined, devices: Known
   return choices;
 }
 
+/** Somewhere Send to FPP can send: `checked` when it's known to be an FPP. */
+export interface SendChoice extends FppChoice {
+  checked: boolean;
+}
+
+/**
+ * The FPPs known ({@link fppChoices}), then the show's other controllers with a network address,
+ * not checked yet: a controller added by hand is often an FPP whose type was left as "Other".
+ * Check reads one to make sure before anything is sent. Falcons, WLEDs, DMX controllers, and
+ * controllers a scan found to be something else are left out.
+ */
+export function sendChoices(controllers: Controller[] | undefined, devices: KnownDevice[] | undefined): SendChoice[] {
+  const choices: SendChoice[] = fppChoices(controllers, devices).map((c) => ({ ...c, checked: true }));
+  const notFpp = new Set((devices ?? []).filter((d) => d.kind !== "fpp").map((d) => d.address));
+  for (const c of controllers ?? []) {
+    const address = c.address.trim();
+    if (c.adapter !== "generic" || c.kind === "dmx" || !address || notFpp.has(address) || choices.some((x) => x.address === address)) continue;
+    choices.push({ address, name: c.name, checked: false });
+  }
+  return choices;
+}
+
 /** The FPP last sent to, remembered on this computer. */
 const LAST_FPP_KEY = "pixelflow.sendToFpp";
 
@@ -110,9 +132,9 @@ export function SendToFppDialog({
   const backend = useApp((s) => s.backend);
   const controllers = useApp((s) => s.snapshot?.show.controllers);
   const devices = useApp((s) => s.discovery?.devices);
-  const [choices] = useState(() => fppChoices(controllers, devices));
+  const [choices] = useState(() => sendChoices(controllers, devices));
+  const [remembered] = useState(lastFpp);
   const [address, setAddress] = useState<string>(() => {
-    const remembered = lastFpp();
     const start = initialAddress ?? (remembered && choices.some((c) => c.address === remembered) ? remembered : choices[0]?.address);
     return start ?? "";
   });
@@ -120,7 +142,16 @@ export function SendToFppDialog({
   const [typed, setTyped] = useState("");
   /** The typed address, once the user asks for it to be checked. */
   const [checkedTyped, setCheckedTyped] = useState("");
-  const target = typing ? checkedTyped : address;
+  /** Controllers in the list not known to be FPPs that may be read: Check was pressed, or it's
+   * the one asked for or last sent to (a send needs a reading that worked). */
+  const [mayRead, setMayRead] = useState(() => new Set([initialAddress, remembered].filter((a): a is string => Boolean(a))));
+  /** Those read as FPPs here. */
+  const [confirmed, setConfirmed] = useState<Set<string>>(() => new Set());
+  const picked = choices.find((c) => c.address === address);
+  const notChecked = (c: SendChoice) => !c.checked && !confirmed.has(c.address);
+  /** The picked controller is waiting for Check. */
+  const waiting = !typing && picked !== undefined && !picked.checked && !mayRead.has(address);
+  const target = typing ? checkedTyped : waiting ? "" : address;
   const [music, setMusic] = useState<string | null>(initialMusic);
   const [plan, setPlan] = useState<FppSendPlan | null>(null);
   const [planError, setPlanError] = useState<string | null>(null);
@@ -155,6 +186,7 @@ export function SendToFppDialog({
       (p) => {
         if (!current) return;
         setPlan(p);
+        setConfirmed((now) => (now.has(target) ? now : new Set(now).add(target)));
         setExisting((name) => (p.playlists.includes(name) ? name : ""));
         setNewName((name) => name || p.newPlaylistName);
         setChecking(false);
@@ -307,6 +339,8 @@ export function SendToFppDialog({
               address={address}
               typing={typing}
               typed={typed}
+              notChecked={notChecked}
+              waiting={waiting}
               onPick={(value) => {
                 if (value === OTHER) setTyping(true);
                 else {
@@ -319,6 +353,7 @@ export function SendToFppDialog({
                 setCheckedTyped(typed.trim());
                 setCheckTurn((n) => n + 1);
               }}
+              onCheckPicked={() => setMayRead((now) => new Set(now).add(address))}
             />
 
             <div className="flex flex-col gap-1 text-sm">
@@ -350,8 +385,15 @@ export function SendToFppDialog({
             )}
             {planError && (
               <div className="flex items-start justify-between gap-2 rounded-md bg-red-50 p-2 dark:bg-red-950/40">
-                <ErrorText message={planError} />
-                <Button variant="ghost" onClick={() => setCheckTurn((n) => n + 1)}>
+                <div className="flex flex-col gap-1">
+                  <ErrorText message={planError} />
+                  {!typing && picked && notChecked(picked) && (
+                    <p className="text-xs text-neutral-600 dark:text-neutral-400">
+                      {picked.name} may not be an FPP. If it isn't, pick your FPP above, or choose Another address… and type its address.
+                    </p>
+                  )}
+                </div>
+                <Button variant="ghost" className="shrink-0" onClick={() => setCheckTurn((n) => n + 1)}>
                   Check again
                 </Button>
               </div>
@@ -479,18 +521,27 @@ function FppPicker({
   address,
   typing,
   typed,
+  notChecked,
+  waiting,
   onPick,
   onType,
   onCheck,
+  onCheckPicked,
 }: {
-  choices: FppChoice[];
+  choices: SendChoice[];
   address: string;
   typing: boolean;
   typed: string;
+  /** A controller in the list not known to be an FPP yet. */
+  notChecked: (choice: SendChoice) => boolean;
+  /** The picked controller isn't read until Check. */
+  waiting: boolean;
   onPick: (value: string) => void;
   onType: (value: string) => void;
   /** Check the typed address (nothing is contacted while typing). */
   onCheck: () => void;
+  /** Check the picked controller. */
+  onCheckPicked: () => void;
 }) {
   return (
     <div className="flex flex-col gap-1 text-sm">
@@ -502,10 +553,17 @@ function FppPicker({
           {choices.map((c) => (
             <option key={c.address} value={c.address}>
               {c.name === c.address ? c.address : `${c.name} (${c.address})`}
+              {notChecked(c) ? ", not checked yet" : ""}
             </option>
           ))}
           <option value={OTHER}>Another address…</option>
         </Select>
+      )}
+      {waiting && (
+        <div className="flex flex-wrap items-center gap-2">
+          <Button onClick={onCheckPicked}>Check</Button>
+          <span className="text-xs text-neutral-500">Not checked yet. Check reads it to make sure it's an FPP; nothing is sent.</span>
+        </div>
       )}
       {typing && (
         <div className="flex gap-2">

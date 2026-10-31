@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryBackend, emptyShow } from "../api/memory";
 import type { Edit, Prop, Show } from "../api/types";
 import { newController } from "../lib/shows";
-import { type Handle, type Pt, frameOfPoints, handlePositions, toScreen, toWorld } from "../lib/layoutMath";
+import { type Handle, type Pt, boxOfPoints, frameOfPoints, handlePositions, toScreen, toWorld } from "../lib/layoutMath";
 import { newProp, nodeCount } from "../lib/shows";
 import { formatGap } from "../lib/smartGuides";
 import { GUIDE_COLORS } from "../components/layout/guideMarks";
@@ -493,7 +493,7 @@ describe("LayoutScreen", () => {
     expect(backend.show.background).toBeNull();
   });
 
-  it("adds a prop from the menu in the middle of the canvas, selected, and steps the next one aside", async () => {
+  it("adds a prop from the menu in the middle of the canvas, selected, and puts the next one clear of it", async () => {
     const user = await setup(showWith(line("Gutter", 0, 0), line("Fence", 40, 0)));
     // Looking at an empty part of the layout.
     act(() => useLayoutEditor.getState().setView({ cx: 100, cy: 50, zoom: 20 }));
@@ -509,9 +509,37 @@ describe("LayoutScreen", () => {
     await user.click(screen.getByRole("button", { name: "Add prop" }));
     await user.click(screen.getByRole("menuitem", { name: "Line / string" }));
     const next = backend.show.props[3];
-    expect(next.transform.position.x).toBeGreaterThan(added.transform.position.x);
+    // Just under the first (a line has no height), not on it, and still in view.
+    expect(next.transform.position.x).toBeCloseTo(added.transform.position.x, 3);
     expect(next.transform.position.y).toBeLessThan(added.transform.position.y);
+    expect(next.transform.position.y).toBeGreaterThan(50 - SIZE.height / 2 / 20);
     expect(useLayoutEditor.getState().selected).toEqual([next.id]);
+    expect(edits).toHaveLength(2);
+
+    // Each addition is its own undo step.
+    await act(() => useApp.getState().undo());
+    expect(backend.show.props.map((p) => p.id).slice(2)).toEqual([added.id]);
+    await act(() => useApp.getState().undo());
+    expect(backend.show.props.map((p) => p.name)).toEqual(["Gutter", "Fence"]);
+  });
+
+  it("adds props one after another from the menu so that each one is in view and picked by a click inside it", async () => {
+    const user = await setup(showWith(), 0, DesktopLikeBackend);
+    act(() => useLayoutEditor.getState().setView({ cx: 0, cy: 0, zoom: 20 }));
+    for (const kind of ["Mega tree", "Mega tree", "Arch", "Matrix"]) {
+      await user.click(screen.getByRole("button", { name: "Add prop" }));
+      await user.click(screen.getByRole("menuitem", { name: kind }));
+    }
+    expect(edits).toHaveLength(4);
+    const preview = (await backend.previewProps()).props;
+    for (const prop of backend.show.props) {
+      const box = boxOfPoints(preview.find((p) => p.prop === prop.id)!.points)!;
+      const [a, b] = [screenAt({ x: box.minX, y: box.maxY }), screenAt({ x: box.maxX, y: box.minY })];
+      expect(a.x > 0 && a.y > 0 && b.x < SIZE.width && b.y < SIZE.height).toBe(true);
+      // The middle of its box picks it, not a later one on top of it.
+      await click({ x: (box.minX + box.maxX) / 2, y: (box.minY + box.maxY) / 2 });
+      expect(useLayoutEditor.getState().selected).toEqual([prop.id]);
+    }
   });
 
   it("moves through the Add prop menu's grid with the arrow keys", async () => {
@@ -571,6 +599,37 @@ describe("LayoutScreen", () => {
     await user.click(screen.getByRole("button", { name: /Color wheel: its colors/ }));
     await user.click(screen.getByRole("button", { name: "Add a color" }));
     await waitFor(() => expect(backend.show.props[1].dmx?.channels[7].slots).toEqual([{ value: 0, color: "#ffffff" }]));
+  });
+
+  it("sets what a head's strobe values do from its manual, and a zoom channel's widths", async () => {
+    const user = await setup(showWith(line("Gutter", 0, 0)));
+    await user.click(screen.getByRole("button", { name: "Add prop" }));
+    await user.click(within(screen.getByRole("menu", { name: "Add prop" })).getByRole("menuitem", { name: "DMX moving head" }));
+    const panel = screen.getByRole("region", { name: "DMX moving head" });
+    // The usual until it's changed: open from 0, a strobe from 10.
+    await user.click(within(panel).getByRole("button", { name: "Strobe: what its values do" }));
+    expect(within(panel).getByRole("combobox", { name: "Range 1 does" })).toHaveValue("open");
+    expect(within(panel).getByRole("combobox", { name: "Range 2 does" })).toHaveValue("strobe");
+    await user.selectOptions(within(panel).getByRole("combobox", { name: "Range 1 does" }), "closed");
+    await waitFor(() =>
+      expect(backend.show.props[1].dmx?.channels[6].shutter).toEqual([
+        { from: 0, does: "closed" },
+        { from: 10, does: "strobe" },
+      ]),
+    );
+    await user.click(within(panel).getByRole("button", { name: "Use the usual" }));
+    await waitFor(() => expect(backend.show.props[1].dmx?.channels[6].shutter).toBeUndefined());
+
+    // A zoom channel: the beam's width at 0 and 255 instead of one width.
+    await user.click(within(panel).getByRole("button", { name: /Each channel/ }));
+    await user.selectOptions(within(panel).getByRole("combobox", { name: "Channel 5 does" }), "zoom");
+    await waitFor(() => expect(backend.show.props[1].dmx?.channels[4].role).toBe("zoom"));
+    await user.click(within(panel).getByRole("button", { name: "Pan and tilt" }));
+    const wide = within(panel).getByRole("textbox", { name: "Zoom at 255 (°)" });
+    await user.clear(wide);
+    await user.type(wide, "60{Enter}");
+    await waitFor(() => expect(backend.show.props[1].dmx?.channels[4].zoom).toEqual({ fromDeg: 5, toDeg: 60 }));
+    expect(within(panel).queryByRole("textbox", { name: "Beam width (°)" })).not.toBeInTheDocument();
   });
 
   it("closes the Add prop menu when focus leaves it", async () => {
@@ -743,6 +802,19 @@ describe("LayoutScreen", () => {
       canvas().focus();
       await user.keyboard("{Meta>}g{/Meta}");
       expect(await screen.findByRole("complementary", { name: "Props and groups" })).toHaveAttribute("data-floating", "true");
+    });
+
+    it("adds a prop where the properties, floating over the canvas's right edge once it's selected, won't hide it", async () => {
+      rowWidth(700);
+      const user = await setup(showWith(line("Gutter", 0, -12)));
+      act(() => useLayoutEditor.getState().setView({ cx: 0, cy: 0, zoom: 20 }));
+      await user.click(screen.getByRole("button", { name: "Add prop" }));
+      await user.click(screen.getByRole("menuitem", { name: "Line / string" }));
+      const added = backend.show.props[1];
+      expect(screen.getByRole("complementary", { name: "Properties" }).closest("[data-floating]")).not.toBeNull();
+      // The panel covers the right 288 px of the 800 px canvas: the line is in the middle of the rest.
+      expect(screenAt({ x: added.transform.position.x + 2.5, y: 0 }).x).toBeLessThan(SIZE.width - 288);
+      expect(screenAt(added.transform.position).x).toBeCloseTo((SIZE.width - 288) / 2, 0);
     });
 
     it("puts the properties away too when the window is narrower still, and floats them when asked", async () => {

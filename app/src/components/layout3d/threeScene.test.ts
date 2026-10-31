@@ -329,6 +329,36 @@ describe("the three.js scene", () => {
     expect(renderer.drawn.filter((d) => d.into === null)).toHaveLength(2);
   });
 
+  it("draws a head's beam, its pool on the ground and a selected head's dashed aim over the scene and under the dots", () => {
+    const { renderer, scene } = made();
+    scene.setPixels(new Float32Array(3), spreadFor(1));
+    const origin = v3(0, 2, 0);
+    scene.setMotion([
+      { kind: "beam", origin, dir: v3(0, -1, 0), length: 2, angleDeg: 20, color: [0, 0, 255], level: 0.5, lands: true },
+      { kind: "pool", at: v3(0, 0, 0), heading: { x: 1, z: 0 }, radius: 0.35, stretch: 0.35, color: [0, 0, 255], level: 0.5 },
+      { kind: "aim", origin: v3(3, 0, 0), dir: v3(0, 1, 0), length: 4, angleDeg: 15, color: [167, 139, 250] },
+    ]);
+    scene.render(ORBIT);
+    const onScreen = renderer.drawn.filter((d) => d.into === null);
+    // The scene, the heads' beams and pools, then the lights.
+    expect(onScreen).toHaveLength(3);
+    const meshes: Mesh[] = [];
+    onScreen[1].what.traverse((o) => void (o instanceof Mesh && meshes.push(o)));
+    const [beam, pool] = meshes.filter((m) => m.visible).map((m) => (m.material as ShaderMaterial).uniforms);
+    expect([beam.level.value, beam.lands.value]).toEqual([0.5, 1]);
+    expect(beam.color.value.toArray()).toEqual([0, 0, 1]);
+    expect([pool.level.value, pool.radius.value]).toEqual([0.5, 0.35]);
+    for (const m of meshes) expect((m.material as ShaderMaterial).depthWrite).toBe(false);
+    // The aim's lines, dashed.
+    let dashed = 0;
+    onScreen[1].what.traverse((o) => {
+      const line = o as Object3D & { isLineSegments?: boolean; geometry?: { getAttribute(n: string): { count: number } | undefined } };
+      if (line.isLineSegments && (line as unknown as { material: { isLineDashedMaterial?: boolean } }).material.isLineDashedMaterial) dashed = line.geometry?.getAttribute("position")?.count ?? 0;
+    });
+    expect(dashed).toBeGreaterThan(24);
+    scene.dispose();
+  });
+
   it("with no glow draws the scene and the lights straight to the screen: nothing is added", () => {
     const { renderer, scene } = made();
     scene.setPixels(new Float32Array(6), spreadFor(2));

@@ -888,7 +888,7 @@ impl FixtureNotes {
         let lines = [
             (
                 &self.heads,
-                "Matches: these DMX moving heads became moving-head fixtures, wired on their controller at the channels xLights gives them, with their pan and tilt, color, dimmer and shutter channels",
+                "Matches: these DMX moving heads became moving-head fixtures, wired on their controller at the channels xLights gives them, with their pan and tilt, color, dimmer and shutter channels; when nothing moves them they rest at Home, where xLights would send their pan and tilt 0",
             ),
             (
                 &self.servos,
@@ -1534,7 +1534,7 @@ mod tests {
         let result = build_show("t", &[x], &layout, geometry);
         has_note(
             &result,
-            "Matches: these DMX moving heads became moving-head fixtures, wired on their controller at the channels xLights gives them, with their pan and tilt, color, dimmer and shutter channels: Spot.",
+            "Matches: these DMX moving heads became moving-head fixtures, wired on their controller at the channels xLights gives them, with their pan and tilt, color, dimmer and shutter channels; when nothing moves them they rest at Home, where xLights would send their pan and tilt 0: Spot.",
         );
         has_note(&result, "Matches: these DMX servos became servo fixtures");
         has_note(&result, "Close: these moving heads hang upside down");
@@ -1570,14 +1570,15 @@ mod tests {
                 channel: 201
             }
         );
-        // As xLights sends a channel nothing sets, pan and tilt hold 0; red drawn on it lights it.
+        // Where nothing moves it, it rests at Home (the middle of each 16-bit motor's travel);
+        // red drawn on it lights it.
         let fixture = map.fixture(spot.id).unwrap();
         let mut frame = vec![0u8; map.frame_len];
         frame[fixture.cells_offset] = 255;
         map.write_fixtures(&mut frame);
         assert_eq!(
             &frame[fixture.dmx_offset..fixture.dmx_offset + 10],
-            &[0, 0, 0, 0, 0, 255, 255, 0, 0, 0]
+            &[128, 0, 128, 0, 0, 255, 255, 0, 0, 0]
         );
     }
 

@@ -2687,17 +2687,25 @@ effect_params! {
 }
 
 effect_params! {
-    /// Text in PixelFlow's built-in pixel font, still or moving, in the first palette color (or
-    /// a palette color per letter or word when the palette has several).
+    /// Text, still or moving, in PixelFlow's own pixel font or in a font on the computer, in the
+    /// first palette color (or a palette color per letter or word when the palette has several).
     pub struct TextParams {
         /// What it says (a new line starts with \n).
         text: String = "Hello".to_string() => "text", "Text", text;
+        /// "" for PixelFlow's own pixel font, or a font family on the computer by name ("Arial
+        /// Narrow"). A computer without that family shows the pixel font.
+        font: String = String::new() => "font", "Font", font;
+        /// How big the letters are, in pixels: the pixel font's are this tall (8 is its own size);
+        /// a computer font is drawn at this size, as a font size in points draws on a Mac.
+        size: u32 = 8 => "size", "Size", int(4, 100, "pixels");
+        /// Bold, in a computer font (made thicker when the family has no bold).
+        bold: bool = false => "bold", "Bold", toggle;
+        /// Italic, in a computer font (slanted when the family has no italic).
+        italic: bool = false => "italic", "Italic", toggle;
         /// Still, or moving.
         movement: TextMovement = TextMovement::None => "movement", "Movement", choice;
         /// How fast it moves.
         speed: u32 = 10 => "speed", "Speed", int(0, 100);
-        /// How tall the letters are (8 is the font's own size; others scale it).
-        size: u32 = 8 => "size", "Letter height", int(4, 100, "pixels");
         /// Letters across, or stacked one above another.
         orientation: TextOrientation = TextOrientation::Across => "orientation", "Letters", choice;
         /// Stop when the text reaches the middle.

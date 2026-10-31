@@ -1,17 +1,22 @@
-//! The Text effect, after xLights' (`TextEffect::RenderTextLine` in `src-core/effects/TextEffect.cpp`),
-//! in PixelFlow's own pixel font: the text is laid out in the middle of the target's grid, one
-//! line under another and each line centered, then moved as xLights moves it. xLights counts
-//! `speed` a frame-worth of time and moves the text a cell for every 8 of the count, starting
-//! just off one side and crossing until it's just off the other.
+//! The Text effect, after xLights' (`TextEffect::RenderTextLine` in `src-core/effects/TextEffect.cpp`):
+//! the text is laid out in the middle of the target's grid, one line under another and each line
+//! centered, then moved as xLights moves it. xLights counts `speed` a frame-worth of time and
+//! moves the text a cell for every 8 of the count, starting just off one side and crossing until
+//! it's just off the other.
 //!
-//! The font is the classic 5 × 7 one (with room for descenders, 8 tall), scaled to the letter
-//! height. Each pixel works out which letter and dot it falls on, so nothing is drawn ahead.
+//! The letters are PixelFlow's own pixel font, the classic 5 × 7 one (with room for descenders,
+//! 8 tall) scaled to the size, or a font on the computer at that size (see `pf-fonts`), whose
+//! letters are each drawn once per size and kept. A sequence naming a font the computer doesn't
+//! have shows the pixel font. Each pixel works out which letter it falls on, and how much of it
+//! the letter covers, so nothing is drawn ahead.
 
 use crate::color::{Colors, Rgba};
 use crate::effects::{Canvas, EffectTime, Shade};
 use crate::geometry::Pixel;
 use crate::raster::{cell_of, grid_size};
+use pf_fonts::{Glyph, SizedFont};
 use pf_sequence::{TextCountdown, TextMovement, TextOrientation, TextParams};
+use std::sync::Arc;
 
 /// The font: 5 columns per character (bit 0 the top row, bit 7 the bottom), for ASCII 32 to 126.
 /// Anything else shows as a box.
@@ -140,6 +145,29 @@ fn glyph(c: char) -> [u8; 5] {
 struct Line {
     chars: Vec<(char, usize)>,
     left: i32,
+    /// In a computer font: each letter, where its drawing starts across the line, in order.
+    placed: Vec<Placed>,
+    /// The widest of those drawings.
+    widest: i32,
+}
+
+/// A computer font's letter, placed on its line.
+#[derive(Debug, Clone)]
+struct Placed {
+    /// Where the letter's drawing starts, in cells from the line's start.
+    x: i32,
+    glyph: Arc<Glyph>,
+    /// Its palette color.
+    k: usize,
+}
+
+/// What the letters are drawn in.
+enum Letters {
+    /// PixelFlow's pixel font, `scale` grid cells per font dot.
+    Pixel { scale: f32 },
+    /// A font on the computer: its baseline `ascent` rows below a line's top, lines `height`
+    /// rows tall and `pitch` rows apart.
+    Font { ascent: i32, height: i32, pitch: i32 },
 }
 
 pub struct Text {
@@ -147,11 +175,34 @@ pub struct Text {
     width: i32,
     height: i32,
     lines: Vec<Line>,
-    /// Grid cells per font dot.
-    scale: f32,
+    letters: Letters,
     /// The text block's top left, in cells from the grid's top left (rows counting down).
     left: i32,
     top: i32,
+}
+
+/// Places a line's letters in a computer font; returns its width (to where the next letter
+/// would start).
+fn place(font: &SizedFont, line: &mut Line) -> i32 {
+    let mut pen = 0.0f32;
+    let mut last: Option<Arc<Glyph>> = None;
+    for &(c, k) in &line.chars {
+        let glyph = font.glyph(c);
+        if let Some(last) = &last {
+            pen += font.kerning(last, &glyph);
+        }
+        line.placed.push(Placed {
+            x: pen.round() as i32 + glyph.left,
+            glyph: glyph.clone(),
+            k,
+        });
+        pen += glyph.advance;
+        last = Some(glyph);
+    }
+    // In order across, for finding the letters that cover a cell.
+    line.placed.sort_by_key(|p| p.x);
+    line.widest = line.placed.iter().map(|p| p.glyph.width).max().unwrap_or(0);
+    pen.round() as i32
 }
 
 /// xLights' back-and-forth count (`zigzag`): up to `range` and back, over and over.
@@ -223,7 +274,11 @@ impl Text {
         if msg.ends_with('\n') && p.orientation != TextOrientation::Across {
             msg.pop();
         }
-        let scale = p.size.clamp(4, 100) as f32 / GLYPH_H as f32;
+        let size = p.size.clamp(4, 100);
+        let font = (!p.font.trim().is_empty())
+            .then(|| pf_fonts::sized(p.font.trim(), size as f32, p.bold, p.italic))
+            .flatten();
+        let scale = size as f32 / GLYPH_H as f32;
         let dots = |n: i32| (n as f32 * scale).round() as i32;
         let line_width = |chars: usize| dots((chars as i32 * ADVANCE - 1).max(0));
 
@@ -247,15 +302,41 @@ impl Text {
             lines.push(Line {
                 chars: colored,
                 left: 0,
+                placed: Vec::new(),
+                widest: 0,
             });
         }
-        let block_w = lines.iter().map(|l| line_width(l.chars.len())).max().unwrap_or(0);
-        let block_h = dots(GLYPH_H) * lines.len() as i32;
-        for line in &mut lines {
-            line.left = (block_w - line_width(line.chars.len())) / 2;
+        let (letters, widths, block_h, space) = match &font {
+            Some(font) => {
+                let widths: Vec<i32> = lines.iter_mut().map(|line| place(font, line)).collect();
+                let ascent = font.ascent.round() as i32;
+                let height = (font.ascent + font.descent).round().max(1.0) as i32;
+                let pitch = (font.ascent + font.descent + font.line_gap).round().max(1.0) as i32;
+                let block_h = pitch * (lines.len() as i32 - 1) + height;
+                let space = font.glyph(' ').advance;
+                (
+                    Letters::Font {
+                        ascent,
+                        height,
+                        pitch,
+                    },
+                    widths,
+                    block_h,
+                    space,
+                )
+            }
+            None => {
+                let widths = lines.iter().map(|l| line_width(l.chars.len())).collect();
+                let block_h = dots(GLYPH_H) * lines.len() as i32;
+                (Letters::Pixel { scale }, widths, block_h, ADVANCE as f32 * scale)
+            }
+        };
+        let block_w = widths.iter().copied().max().unwrap_or(0);
+        for (line, width) in lines.iter_mut().zip(&widths) {
+            line.left = (block_w - width) / 2;
         }
         // Leading or trailing spaces, which text stopping in the middle leaves out.
-        let spaces = |n: usize| dots(n as i32 * ADVANCE);
+        let spaces = |n: usize| (n as f32 * space).round() as i32;
         let extra_left = spaces(msg.chars().take_while(|&c| c == ' ').count());
         let extra_right = spaces(msg.chars().rev().take_while(|&c| c == ' ').count());
 
@@ -388,7 +469,7 @@ impl Text {
             width,
             height,
             lines,
-            scale,
+            letters,
             left: clamp(dx) + (width - block_w) / 2,
             top: clamp(dy) + (height - block_h) / 2,
         }
@@ -404,12 +485,26 @@ impl Shade for Text {
         if col < 0 || row < 0 {
             return Rgba::CLEAR;
         }
-        let line_h = (GLYPH_H as f32 * self.scale).round().max(1.0) as i32;
+        match self.letters {
+            Letters::Pixel { scale } => self.pixel_font(col, row, scale),
+            Letters::Font {
+                ascent,
+                height,
+                pitch,
+            } => self.font(col, row, ascent, height, pitch),
+        }
+    }
+}
+
+impl Text {
+    #[inline]
+    fn pixel_font(&self, col: i32, row: i32, scale: f32) -> Rgba {
+        let line_h = (GLYPH_H as f32 * scale).round().max(1.0) as i32;
         let Some(line) = self.lines.get((row / line_h) as usize) else {
             return Rgba::CLEAR;
         };
-        let dot_x = ((col - line.left) as f32 / self.scale).floor() as i32;
-        let dot_y = (((row % line_h) as f32) / self.scale).floor() as i32;
+        let dot_x = ((col - line.left) as f32 / scale).floor() as i32;
+        let dot_y = (((row % line_h) as f32) / scale).floor() as i32;
         if dot_x < 0 || !(0..GLYPH_H).contains(&dot_y) {
             return Rgba::CLEAR;
         }
@@ -421,5 +516,36 @@ impl Shade for Text {
             return Rgba::CLEAR;
         }
         Rgba::opaque(self.colors.get(k as u64))
+    }
+
+    /// A computer font: the letter covering the cell most, its share of the cell as how bright
+    /// it shows.
+    #[inline]
+    fn font(&self, col: i32, row: i32, ascent: i32, height: i32, pitch: i32) -> Rgba {
+        let n = row / pitch;
+        let within = row - n * pitch;
+        let Some(line) = self.lines.get(n as usize) else {
+            return Rgba::CLEAR;
+        };
+        if within >= height {
+            return Rgba::CLEAR;
+        }
+        let (x, below) = (col - line.left, within - ascent);
+        // The letters starting at or before the cell, back to where the widest one would reach.
+        let end = line.placed.partition_point(|p| p.x <= x);
+        let mut best = (0u8, 0usize);
+        for p in line.placed[..end].iter().rev() {
+            if p.x + line.widest <= x {
+                break;
+            }
+            let c = p.glyph.coverage(x - p.x, below - p.glyph.top);
+            if c > best.0 {
+                best = (c, p.k);
+            }
+        }
+        if best.0 == 0 {
+            return Rgba::CLEAR;
+        }
+        Rgba::with_alpha(self.colors.get(best.1 as u64), f32::from(best.0) / 255.0)
     }
 }

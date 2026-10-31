@@ -43,6 +43,8 @@ pub enum SettingRange {
     Face,
     /// Free text (at most [`MAX_TEXT_LEN`] characters).
     Text,
+    /// A font family on the computer, by name (blank: PixelFlow's own pixel font).
+    Font,
     /// A picture file, by path (blank: none chosen yet).
     Image,
     /// A shader file, by path (blank: none chosen yet).
@@ -173,7 +175,7 @@ impl SettingField for bool {
     }
 }
 
-/// A name (a face's), text, or a file's path: at most [`MAX_TEXT_LEN`] characters.
+/// A name (a face's or a font's), text, or a file's path: at most [`MAX_TEXT_LEN`] characters.
 impl SettingField for String {
     fn sanitize(&mut self, _range: &SettingRange, _default: Self) {
         if self.chars().count() > MAX_TEXT_LEN {
@@ -262,6 +264,9 @@ macro_rules! range {
     };
     ($ty:ty, text) => {
         $crate::settings::SettingRange::Text
+    };
+    ($ty:ty, font) => {
+        $crate::settings::SettingRange::Font
     };
     ($ty:ty, image) => {
         $crate::settings::SettingRange::Image
@@ -454,6 +459,10 @@ pub enum SettingValue {
     Text {
         default: String,
     },
+    /// A font family on the computer, by name ("" = PixelFlow's own pixel font).
+    Font {
+        default: String,
+    },
     /// A picture file, by path ("" = none chosen).
     Image {
         default: String,
@@ -515,6 +524,9 @@ fn effect_info(kind: EffectKind) -> EffectInfo {
                 },
                 SettingRange::Text => SettingValue::Text {
                     default: default.as_str().expect("a text default").to_string(),
+                },
+                SettingRange::Font => SettingValue::Font {
+                    default: default.as_str().expect("a font name default").to_string(),
                 },
                 SettingRange::Image => SettingValue::Image {
                     default: default.as_str().expect("a file path default").to_string(),
@@ -588,6 +600,7 @@ mod tests {
                     SettingRange::Bool => assert!(value.is_boolean(), "{kind:?}.{}", spec.key),
                     SettingRange::Face
                     | SettingRange::Text
+                    | SettingRange::Font
                     | SettingRange::Image
                     | SettingRange::ShaderFile => {
                         assert!(value.is_string(), "{kind:?}.{}", spec.key)

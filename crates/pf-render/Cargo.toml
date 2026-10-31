@@ -17,6 +17,7 @@ pf-output.workspace = true
 pf-fseq.workspace = true
 pf-lexicon.workspace = true
 pf-shader.workspace = true
+pf-fonts.workspace = true
 image.workspace = true
 rayon.workspace = true
 serde.workspace = true

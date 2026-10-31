@@ -2115,6 +2115,7 @@ dependencies = [
  "pf-analysis",
  "pf-audio",
  "pf-engine",
+ "pf-fonts",
  "pf-geometry",
  "pf-lexicon",
  "pf-model",
@@ -2182,6 +2183,7 @@ dependencies = [
  "pf-analysis",
  "pf-audio",
  "pf-engine",
+ "pf-fonts",
  "pf-frame",
  "pf-mapping",
  "pf-model",
@@ -2291,6 +2293,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "pf-fonts"
+version = "0.1.0"
+dependencies = [
+ "tempfile",
+ "ttf-parser",
+]
+
+[[package]]
 name = "pf-frame"
 version = "0.1.0"
 dependencies = [
@@ -2371,6 +2381,7 @@ dependencies = [
  "gif",
  "image",
  "pf-analysis",
+ "pf-fonts",
  "pf-fseq",
  "pf-geometry",
  "pf-lexicon",
@@ -3729,6 +3740,12 @@ checksum = "e875ab7068a75b74f419da453927e05527c36f0001b3c7aad3ce443640683487"
 dependencies = [
  "crossbeam-utils",
 ]
+
+[[package]]
+name = "ttf-parser"
+version = "0.25.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d2df906b07856748fa3f6e0ad0cbaa047052d4a7dd609e231c4f72cee8c36f31"
 
 [[package]]
 name = "typed-path"

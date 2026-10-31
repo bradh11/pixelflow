@@ -765,6 +765,7 @@ fn everything_the_guides_name_can_be_said_to_a_tool() {
                 SettingValue::Bool { .. } => vec![json!(true), json!(false)],
                 SettingValue::Choice { options, .. } => options.iter().map(|o| json!(o.value)).collect(),
                 SettingValue::Face { .. } | SettingValue::Text { .. } => vec![json!("Face")],
+                SettingValue::Font { .. } => vec![json!("")],
                 SettingValue::Image { .. } => vec![json!(pf_ai::stage::PICTURE)],
                 SettingValue::TimingTrack { .. } => vec![json!("Beats"), Value::Null],
                 SettingValue::ShaderFile { .. } => vec![json!(pf_sequence::DEFAULT_SHADER)],

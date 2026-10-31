@@ -1738,6 +1738,9 @@ fn text(r: &Reader, diff: &mut Diff) -> EffectParams {
     let at = |id: &str| r.get(id, 0.0, -200.0, 200.0) as f32;
     EffectParams::Text(TextParams {
         text: words.to_string(),
+        font: String::new(),
+        bold: false,
+        italic: false,
         movement,
         speed: count(r.get("Text_Speed", 10.0, 0.0, 100.0), 0, 100),
         size: count(size, 4, 100),
@@ -4084,6 +4087,9 @@ mod tests {
             t.params,
             EffectParams::Text(TextParams {
                 text: "Happy, days".into(),
+                font: String::new(),
+                bold: false,
+                italic: false,
                 movement: TextMovement::Up,
                 speed: 12,
                 size: 12,

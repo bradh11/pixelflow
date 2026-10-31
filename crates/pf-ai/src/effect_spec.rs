@@ -135,7 +135,7 @@ fn setting(kind: EffectKind, key: &str, value: &Value, cx: &Context<'_>) -> Resu
                 ));
             }
         }
-        SettingValue::Face { .. } | SettingValue::Text { .. } => {
+        SettingValue::Face { .. } | SettingValue::Text { .. } | SettingValue::Font { .. } => {
             if !value.is_string() {
                 return Err(format!("{key} is text."));
             }

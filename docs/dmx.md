@@ -3,8 +3,8 @@
 PixelFlow drives DMX fixtures alongside your pixels: RGB, RGBW, RGBA and RGBWA floods and pars,
 usually with a master dimmer and often a strobe, bars of several separately colored cells,
 moving heads that pan and tilt, and servos. You color them with the same effects as any prop, and
-PixelFlow turns that color into the fixture's channels; the DMX effect points a head or turns a
-servo.
+PixelFlow turns that color into the fixture's channels. The Moving Head effect points heads and
+the Servo effect turns servos; the DMX effect sets any channel by number.
 
 > **Safety first.** A DMX universe can drive things that flash or move: a strobe channel is a real
 > strobe, a macro channel can start a light show of its own, a moving head swings round, and the
@@ -110,12 +110,64 @@ is drawn as an arm at its own place. Under **Servos**, each one's settings are a
 it turns, where Home is, its limits, and whether it is reversed. Servos make no light of their
 own.
 
+## The Moving Head effect
+
+The **Moving Head** effect points heads in degrees, so you never work out channel values. Put it
+on a head's row, or on a group of heads to move them all at once.
+
+- **Position.** **Pan** turns the head round (+ to the right, seen from the street) and **Tilt**
+  leans it (+ toward the street), both in degrees from Home. Tilt 0 points straight up; 90 points
+  level at the street. Drag the dot on the pad to set both at once, or nudge it with the arrow
+  keys; **Home** goes back to 0 and 0. Each has a curve button, for a move of your own.
+- **Movement.** **Still** holds the position. **Sweep** goes back and forth along a line,
+  **Width** across and **Height** up and down (Height 0 for a level sweep). **Circle** goes round,
+  an oval when the two differ. **Figure eight** traces an eight lying on its side. **Wave** sweeps
+  across, rising and falling as it goes. **Wander** drifts on a smooth random path, each head its
+  own; **Seed** picks the paths. **Speed** is how many times round each second; a curve on it speeds
+  up or slows down smoothly.
+- **Fan**, for a group. **Fan pan** and **Fan tilt** are the degrees between neighboring heads,
+  spread evenly about the middle of the group, in member order. **Delay per head** makes each head
+  run that many seconds behind the one before, for a ripple. Under **More**, **Fans** splits the
+  heads into fans side by side that move alike (with 8 heads and 2 fans, heads 1 and 5 match), and
+  **Mirror** turns the right half of each fan the other way across, for symmetrical looks.
+- **Light.** **Color** is the first palette color, goes **through the colors** over the effect,
+  gives **a color per head**, or comes **from the layers below** (then the effect only moves the
+  head, and an `On` or a `Color Wash` on its row lights it). The color reaches the head through its
+  color channels or turns its color wheel, as a drawn color does. **Dimmer** sets how bright, and
+  **Strobe** flashes it 1 to 20 times a second through its strobe channel: the effect sets the
+  channel to the value whose range flashes at that pace (see [Strobe and
+  shutter](#strobe-and-shutter)), and at 0 opens it. A head with no strobe channel flashes its
+  light instead.
+
+![The Sequence screen with a Moving Head effect on the Lawn Spots group of three heads: its settings show the pan and tilt pad, Pan 0, Tilt 50, the Circle movement 60 by 30 at 0.25 a second. The preview shows three blue beams fanned out from the lawn.](images/dmx-moving-head-effect.png)
+
+Each head's limits always hold: a position past them stops at the limit. Fades dim the light and
+never move a head. Where it and a DMX effect set one channel, the later row (or the higher layer)
+wins, so a DMX effect above it can set a head's gobo or speed channel. When the effect ends, the
+head goes back to rest. Each moment comes from the settings alone, so stopping on a moment shows
+what playing through it does.
+
+## The Servo effect
+
+The **Servo** effect turns servos to a **Position** in degrees from Home (+ clockwise, seen from
+the street), with a curve button for a move of your own. **Movement** moves it about that
+position: **Sweep** back and forth at a steady pace, **Wave** back and forth easing at each end,
+or **Steps**, even jumps from one end to the other and back to the first. **Size** is how far, end
+to end, and **Speed** how many times each second. On a fixture of several servos, or a group,
+**Fan** spreads them apart by that many degrees each and **Delay per servo** ripples them. Under
+**More**, **Which servo** turns only that servo of each fixture (0 turns every one). Limits hold, as
+for a head.
+
+![The settings of a Servo effect on the Gate Arms: Position 30, the Sweep movement 60 wide at 0.5 a second, Fan 20, Delay per servo 0, and More: which servo open at 0, which turns every servo.](images/dmx-servo-effect.png)
+
 ## Pointing a head with the DMX effect
 
-The DMX effect (below) points a head: set its pan and tilt channels, and its fine channels for a
-smooth move on a 16-bit head, and sweep them with curves. Its color comes from what is drawn on
-it, on a layer below, or from its dimmer and color channels set in the same effect. The previews
-draw the head's beam where it points, in its color; a servo's arm turns.
+The DMX effect (below) can point a head by channel: set its pan and tilt channels, and its fine
+channels for a smooth move on a 16-bit head, and sweep them with curves. The values go out as you
+set them, so a head's limits don't hold them: the Moving Head effect is the easier and safer way.
+The head's color comes from what is drawn on it, on a layer below, or from its dimmer and color
+channels set in the same effect. The previews draw the head's beam where it points, in its color;
+a servo's arm turns.
 
 ![The Sequence screen with a DMX effect on the Lawn Spot moving head: 1 · Pan 156, 3 · Tilt 184, 6 · Dimmer 255 and 10 · Blue 255. The preview above the timeline shows a blue beam rising from the head to the right.](images/dmx-head-effect.png)
 
@@ -232,8 +284,21 @@ them, beside its pixels. The import report says how each kind comes across:
 - "No equivalent": skulls and other DMX models stay rows of channel dots, not wired.
 
 A sequence's DMX effects come across as DMX effects, so they point the heads as in xLights.
-xLights' Moving Head and Servo effects have no PixelFlow effect yet: the report lists them as left
-out.
+
+xLights' **Moving Head** effect comes across as a Moving Head effect, read from the settings it
+keeps for each head (the first head's speak for all): its pan and tilt and their curves, its fan
+(**Fan Pan**, **Fan Tilt**) and groupings (as fans), its Circle or Eight pattern with its size and
+cycles (Line as a sweep, Lissajous as a figure eight), its colors (one held, several washed
+through), and its dimmer over the effect. Its **Servo** effect comes across as a Servo effect on
+the servo it names, from its start to its end, each a share of the servo's travel between its
+limits. The report says:
+
+- "Matches" for a head held at a position in one color;
+- "Close" for the rest: how xLights spreads a fan, sizes a pattern, or reads a servo's start and
+  end is taken from public sample sequences and the xLights manual, not yet checked against
+  xLights' own render;
+- "Different" for a path drawn in xLights (the heads hold their position instead), and for its
+  Diamond, Square and Leaf patterns (shown as a circle).
 
 ## Testing
 

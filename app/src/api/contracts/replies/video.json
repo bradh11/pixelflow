@@ -115,7 +115,7 @@
       "host": "ciscobinary.openh264.org",
       "licence": "About The Cisco-Provided Binary of OpenH264 Video Codec …",
       "licenceUrl": "https://www.openh264.org/BINARY_LICENSE.txt",
-      "problem": "Cisco doesn't make its OpenH264 encoder for this system (macos, aarch64), so videos can only be exported with ffmpeg here.",
+      "problem": "Cisco doesn't make its OpenH264 encoder for this system (freebsd, riscv64), so videos can only be exported with ffmpeg here.",
       "state": "unsupported",
       "url": null,
       "version": "2.6.0"

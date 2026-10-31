@@ -1242,10 +1242,15 @@ fn video_replies() {
         ("turned off", encoder(State::Off, false, None)),
         (
             "on a system Cisco makes it for none",
+            // The message names the system the tests run on; the sample names one system, so the
+            // file reads the same on every machine.
             encoder(
                 State::Unsupported,
                 false,
-                Some(&pf_video::CodecError::Unsupported.to_string()),
+                Some(&pf_video::CodecError::Unsupported.to_string().replace(
+                    &format!("({}, {})", std::env::consts::OS, std::env::consts::ARCH),
+                    "(freebsd, riscv64)",
+                )),
             ),
         ),
     ] {

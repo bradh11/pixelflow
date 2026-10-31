@@ -143,7 +143,9 @@ on a head's row, or on a group of heads to move them all at once.
 
 Each head's limits always hold: a position past them stops at the limit. Fades dim the light and
 never move a head. Where it and a DMX effect set one channel, the later row (or the higher layer)
-wins, so a DMX effect above it can set a head's gobo or speed channel. When the effect ends, the
+wins, so a DMX effect above it can set a head's gobo or speed channel. Since a channel is set
+outright, the mixing, sparkles, blur, and color adjustments of other effects don't apply: under
+**More** there is only the timing. When the effect ends, the
 head goes back to rest. Each moment comes from the settings alone, so stopping on a moment shows
 what playing through it does.
 
@@ -156,7 +158,7 @@ or **Steps**, even jumps from one end to the other and back to the first. **Size
 to end, and **Speed** how many times each second. On a fixture of several servos, or a group,
 **Fan** spreads them apart by that many degrees each and **Delay per servo** ripples them. Under
 **More**, **Which servo** turns only that servo of each fixture (0 turns every one). Limits hold, as
-for a head.
+for a head. Servos make no light, so the effect has no colors or fades.
 
 ![The settings of a Servo effect on the Gate Arms: Position 30, the Sweep movement 60 wide at 0.5 a second, Fan 20, Delay per servo 0, and More: which servo open at 0, which turns every servo.](images/dmx-servo-effect.png)
 
@@ -224,9 +226,9 @@ curve: a strobe burst on a hit, the dimmer swelling up into a chorus, a mode or 
 doesn't set come from the color drawn on the fixture as usual, so put it on a layer above an
 `On` or `Color Wash`. On a group, it sets that channel of every fixture in the group. Where two
 DMX effects set one channel at once, the later row (or the higher layer) wins. It draws no color
-and isn't faded by fades.
+and isn't faded by fades, so its settings are its channels, with its start and end under **More**.
 
-![The settings of a DMX effect on the Lawn Flood: 1 · Dimmer set to 255 and 6 · Strobe set to 180, each with a slider, a curve button, and a button to stop setting it, then Set a channel… to add another.](images/dmx-effect.png)
+![The settings of a DMX effect on the Lawn Flood: 1 · Dimmer set to 255 and 6 · Strobe set to 180, each with a slider, a curve button, and a button to stop setting it, then Set a channel… to add another, and More: timing below.](images/dmx-effect.png)
 
 To set a channel, pick it in **Set a channel…** and choose the **+** beside it; the **×** beside a
 channel stops setting it.

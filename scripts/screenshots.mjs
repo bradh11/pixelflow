@@ -443,7 +443,10 @@ const SHOTS = [
       await ui.choose("Channel to set", "1");
       await ui.click("Set this channel");
       await ui.type("1 · Dimmer value", "255", { enter: true });
-      return ui.box("[aria-label='Effect settings']", { pad: 0 });
+      // Down to its timing, the last thing it shows.
+      const panel = await ui.box("[aria-label='Effect settings']", { pad: 0 });
+      const timing = await ui.box("More: timing", { within: "[aria-label='Effect settings']", pad: 0 });
+      return { ...panel, height: timing.y + timing.height + 12 - panel.y };
     },
   },
   {
@@ -504,7 +507,7 @@ const SHOTS = [
       await ui.type("Fan value", "20", { enter: true });
       await ui.click("More: which servo");
       await ui.scrollToTop("[aria-label='Effect settings']");
-      return ui.settingsTop("Fades");
+      return ui.settingsTop("More: timing");
     },
   },
   {

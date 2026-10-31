@@ -97,6 +97,10 @@ jobs:
           rustc --version
           cargo --version
       - run: pnpm install --frozen-lockfile
+      # The app must never ship an H.264 encoder compiled from source (scripts/encoder-check.mjs).
+      - name: No H.264 encoder compiled into the app
+        working-directory: .
+        run: node scripts/encoder-check.mjs
 
       # Which signing secrets exist. Only "true" or "false" leaves this step, never a secret.
       - name: Which signing is set up

@@ -29,9 +29,12 @@ servo.
    - **Each channel**: for a fixture the library doesn't have, set each channel's name and what it
      does: dimmer, red, green, blue, white, amber, cyan, magenta, yellow, UV, strobe, mode (a
      value held), and the moving-head and servo roles (pan, tilt, servo, their fine channels,
-     speed, color wheel, gobo; see [Moving heads](#moving-heads) and [Servos](#servos)). A channel
-     that isn't a color holds the value you give it, unless a DMX effect sets it: put the mode
-     channel at the value the manual gives for "DMX control".
+     speed, color wheel, gobo, zoom; see [Moving heads](#moving-heads) and [Servos](#servos)). A
+     channel that isn't a color holds the value you give it, unless a DMX effect sets it: put the
+     mode channel at the value the manual gives for "DMX control".
+   - **Strobe: what its values do**: what the strobe (or shutter) channel's values do, from the
+     manual, so the previews show the light as the fixture would (see
+     [Strobe and shutter](#strobe-and-shutter)).
 
 Several fixtures share one universe: give each its own start address, after the last channel of
 the one before. The Wiring screen warns when two overlap.
@@ -55,11 +58,12 @@ the one before. The Wiring screen warns when two overlap.
 - **A color wheel** with its colors listed turns to the one nearest the color drawn (the dimmer
   carries the brightness). Where nothing is drawn, it stays where it is. Without its colors
   listed, it holds its value like a mode channel.
-- **UV, strobe, mode, speed and gobo** channels hold their value.
+- **UV, strobe, mode, speed, gobo and zoom** channels hold their value.
 
 The previews show the color the channels make, as a soft wash around a flood: the same wash,
-from the same numbers, in the 2D previews, the 3D view and an exported video. A moving head shows
-a beam instead (see below).
+from the same numbers, in the 2D previews, the 3D view and an exported video, dark while its
+shutter is closed (see [Strobe and shutter](#strobe-and-shutter)). A moving head shows a beam
+instead (see below).
 
 ## Moving heads
 
@@ -84,8 +88,11 @@ wheel, or cyan, magenta and yellow, usually with a dimmer and a shutter.
    - **Hung upside down**: it hangs from its base (turned half round in the front plane). To point
      it another way, turn the prop on Layout.
    - **Beam width** (the fixture's beam angle) and **Beam drawn** (how far the previews draw it).
+     A head with a zoom channel (set a channel's role to **Zoom**) has **Zoom at 0** and **Zoom at
+     255** instead: how wide its beam is at either end of the channel, from the manual; in
+     between, the beam widens in proportion.
 
-![A moving head on the lawn on the Layout screen, selected. Its properties show DMX moving head: Channels, Start address 20, and Pan and tilt open: Pan and Tilt, each 16-bit, with Turns, Home at, two limits and Reversed; Hung upside down; Beam width 15 and Beam drawn 6.](images/dmx-moving-head.png)
+![A moving head on the lawn on the Layout screen, selected, with a thin dashed outline of where it points. Its properties show DMX moving head: Channels, Start address 20, and Pan and tilt open: Pan and Tilt, each 16-bit, with Turns, Home at, two limits and Reversed; Hung upside down; Beam width 15 and Beam drawn 6.](images/dmx-moving-head.png)
 
 A head rests where its pan and tilt channels hold their values: a head made from the library, or
 imported from xLights, rests at Home. Positions are always in degrees from Home, so they mean the
@@ -114,16 +121,48 @@ draw the head's beam where it points, in its color; a servo's arm turns.
 
 ## In the previews
 
-- **A moving head** shows a beam from where it stands, where its pan and tilt point it: in its
-  color, widening to its beam angle and fading toward its end. Pointing straight at you, it is a
-  pool of light round the head. When nothing plays, a faint beam shows where it rests.
+The previews show a head as the real light would look at night.
+
+- **A moving head** shows a beam from where it stands, where its pan and tilt point it, as wide
+  as its beam angle (or its zoom channel) makes it. It is in the color the head shows and as
+  bright: its dimmer, or the color's own brightness when it has no dimmer, makes it fainter or
+  stronger. Narrow near the head, the beam is bright; where it has spread wide it is softer, as a
+  real beam's light spreads out, and it fades out toward the end of the length it is drawn. So
+  it reads in the small preview beside the timeline and isn't blown out in a big one. Pointing
+  toward you, its end is a soft glow round the head.
+- **A beam pointing down** stops where it meets the ground and lights a pool of light there,
+  stretched the more the beam slants.
+- **Its shutter and strobe**: a closed shutter is dark, and a strobe flashes (see below).
+- **Nothing playing**: with the lights off, nothing is lit. On **Layout**, a selected head shows a
+  thin dashed outline of where it points, to help you aim it; it is never drawn as light.
 - **A servo** shows an arm that turns with it, up at Home.
 - The 2D previews and an exported video draw them alike, from the same numbers; the 3D view draws
-  the beam as a cone, which the house model hides where it stands in front of it.
+  the beam as a cone by the same rules, which the house model hides where it stands in front of
+  it.
 
 ![The same moment in the 3D view: a blue cone rising from the head, out from the house.](images/dmx-head-3d.png)
 
-The previews don't show a shutter or a strobe: a head whose shutter is closed is still drawn lit.
+A head moves in the previews to where its channels point it at each moment, at once: a real head
+takes a moment to get there.
+
+### Strobe and shutter
+
+A fixture's strobe channel (often called shutter) says when its light shows. Under **Strobe: what
+its values do**, list what its values do from the manual: ranges, each from a value up to where
+the next starts, each **Closed**, **Open**, or **Strobe**, slow to fast (from one flash a second
+at the range's first value to 20 a second at its last). Values below the first range are open.
+
+Until you set them, a strobe channel does what most fixtures' strobe channels do: open from 0 to
+9, then a strobe from slow (10) to fast (255). A fixture imported from xLights is closed below the
+shutter's open value and open from it up. **Use the usual** goes back to the usual ranges. A show
+saved by an older PixelFlow keeps looking as it did: a strobe channel there that holds 10 or more
+is open at every value until you set its ranges.
+
+The previews show a closed shutter dark, and a strobe flashing: a flash shows in the frames where
+one fires, worked out from the moment alone, so stopping on a moment shows what playing through it
+does. A strobe faster than half the sequence's frame rate shows as a flash every other frame, the
+fastest the frames can show. What is sent to the fixture is its channels, as they are: the fixture
+does its own strobing.
 
 ## The DMX effect
 
@@ -177,7 +216,8 @@ An xLights show's DMX fixtures import wired on their controller at the channels 
 them, beside its pixels. The import report says how each kind comes across:
 
 - **Floods** (`DmxGeneral`, `DmxFloodlight`, `DmxFloodArea`) become fixtures with their color
-  channels and their shutter, held open.
+  channels and their shutter, held open: the previews draw it closed below the open value the
+  file gives, and open from it up.
 - **Moving heads** (`DmxMovingHeadAdv`, `DmxMovingHead`, `DmxMovingHead3D`): "Matches". They
   become moving heads with their pan and tilt (and fine channels), how far each turns, where
   Home is, their limits and whether each is reversed, their colors (red, green, blue and white, a

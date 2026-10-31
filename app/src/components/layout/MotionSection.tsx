@@ -144,7 +144,7 @@ export function MotionSection({ prop, fixture, update }: { prop: Prop; fixture: 
 
 const HEX = /^#[0-9a-f]{6}$/i;
 
-const SHUTTER_LABELS: Record<DmxShutter, string> = { closed: "Closed", open: "Open", strobe: "Strobe, slow to fast" };
+const SHUTTER_LABELS: Record<DmxShutter, string> = { closed: "Closed", open: "Open", strobe: "Strobe" };
 
 /**
  * What a strobe channel's values do: ranges from a value up to the next, each closed, open or a
@@ -214,7 +214,7 @@ export function ShutterRanges({ prop, index, channel, onChange }: { prop: Prop; 
         )}
       </div>
       <p className="mt-1 text-xs text-neutral-500">
-        {own ? "From the fixture's manual: each range runs up to where the next starts." : "The usual: open from 0 to 9, then a strobe from slow (10) to fast (255). Change a range to set the fixture's own from its manual."} The previews show a closed shutter dark and a strobe flashing.
+        {own ? "From the fixture's manual: each range runs up to where the next starts, and a strobe goes from slow at its first value to fast at its last." : "The usual: open from 0 to 9, then a strobe from slow (10) to fast (255). Change a range to set the fixture's own from its manual."} The previews show a closed shutter dark and a strobe flashing.
       </p>
     </More>
   );

@@ -9,7 +9,7 @@
       "frames": 480,
       "frameMs": 50,
       "digests": {
-        "macos-aarch64": "41e2c679c1647804"
+        "macos-aarch64": "9c60f574dfa90804"
       },
       "props": [
         {
@@ -569,7 +569,7 @@
       "frames": 800,
       "frameMs": 25,
       "digests": {
-        "macos-aarch64": "c4e993f224289144"
+        "macos-aarch64": "45786c95f3df3844"
       },
       "props": [
         {
@@ -1049,7 +1049,7 @@
       "frames": 400,
       "frameMs": 50,
       "digests": {
-        "macos-aarch64": "f51bd439239ab079"
+        "macos-aarch64": "959537fd27807f79"
       },
       "props": [
         {
@@ -2409,7 +2409,7 @@
       "frames": 320,
       "frameMs": 50,
       "digests": {
-        "macos-aarch64": "23a9be7c41ea6c0c"
+        "macos-aarch64": "fe2f4c4ee1ad7c0c"
       },
       "props": [
         {

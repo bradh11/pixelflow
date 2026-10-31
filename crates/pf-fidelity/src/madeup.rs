@@ -812,13 +812,11 @@ fn dmx(channels: &[(u32, u32)], ramps: &[(u32, u32, u32)]) -> String {
         .iter()
         .map(|(n, v)| format!("E_SLIDER_DMX{n}={v}"))
         .collect();
+    // `RV=TRUE`: the curve's points are in the slider's own units (0-255), not shares of it.
     for (n, from, to) in ramps {
-        let percent = |v: u32| f64::from(v) * 100.0 / 255.0;
         parts.push(format!("E_SLIDER_DMX{n}={from}"));
         parts.push(format!(
-            "E_VALUECURVE_DMX{n}=Active=TRUE|Id=ID_VALUECURVE_DMX{n}|Type=Ramp|Min=0.00|Max=255.00|P1={:.2}|P2={:.2}|RV=TRUE|",
-            percent(*from),
-            percent(*to)
+            "E_VALUECURVE_DMX{n}=Active=TRUE|Id=ID_VALUECURVE_DMX{n}|Type=Ramp|Min=0.00|Max=255.00|P1={from}.00|P2={to}.00|RV=TRUE|"
         ));
     }
     parts.join(",")

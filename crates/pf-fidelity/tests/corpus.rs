@@ -213,7 +213,15 @@ fn the_corpus_heads_and_servos_get_their_channels() {
     assert_eq!(first[left + 5], 255, "the dimmer, from the red On under it");
     assert_eq!(&first[left + 6..left + 10], &[255, 0, 0, 0], "red");
     assert_eq!(first[left + 10], 255, "the shutter held open");
-    assert!(first[right] > 245 && late[right] < 10, "the pan sweeps down");
+    // Its sweep runs the whole 20 seconds: halfway at 9.75 s, all the way down at the end.
+    let last = at(399);
+    assert!(
+        first[right] > 245 && (110..=145).contains(&late[right]) && last[right] < 10,
+        "the pan sweeps down: {} {} {}",
+        first[right],
+        late[right],
+        last[right]
+    );
     assert_eq!(first[right + 1], 128);
     assert!(
         [0, 16, 32, 48].contains(&first[right + 4]),

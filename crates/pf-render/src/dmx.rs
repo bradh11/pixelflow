@@ -144,7 +144,9 @@ impl DmxState {
         t_ms: u64,
         cx: &RenderContext,
     ) {
-        let params = sanitized(params);
+        let mut params = sanitized(params);
+        params.fans = whole(effect, "fans", params.fans, t_ms, cx, (1, 16));
+        params.seed = whole(effect, "seed", params.seed, t_ms, cx, (0, 9999));
         let is_head = |axes: &[DmxAxis]| {
             axes.iter()
                 .any(|a| matches!(a.role, DmxRole::Pan | DmxRole::Tilt))
@@ -233,7 +235,9 @@ impl DmxState {
         t_ms: u64,
         cx: &RenderContext,
     ) {
-        let params = sanitized_servo(params);
+        let mut params = sanitized_servo(params);
+        params.servo = whole(effect, "servo", params.servo, t_ms, cx, (0, 64));
+        params.steps = whole(effect, "steps", params.steps, t_ms, cx, (2, 32));
         let chosen = |nth: usize| params.servo == 0 || nth + 1 == params.servo as usize;
         let servos = |axes: &[DmxAxis]| {
             let mut nth = 0;
@@ -298,6 +302,18 @@ fn behind(effect: &Effect, t_ms: u64, seconds: f64) -> u64 {
 fn number(effect: &Effect, key: &str, setting: f32, t_ms: u64, cx: &RenderContext) -> f32 {
     match effect.curves.get(key) {
         Some(curve) => cx.curve_value(effect, curve, t_ms),
+        None => setting,
+    }
+}
+
+/// The whole-number setting `key` at `t_ms`: its curve's value there, rounded and kept within
+/// `range`, or the setting.
+fn whole(effect: &Effect, key: &str, setting: u32, t_ms: u64, cx: &RenderContext, range: (u32, u32)) -> u32 {
+    match effect.curves.get(key) {
+        Some(curve) => {
+            let value = cx.curve_value(effect, curve, t_ms).round();
+            value.clamp(range.0 as f32, range.1 as f32) as u32
+        }
         None => setting,
     }
 }

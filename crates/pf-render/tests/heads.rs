@@ -363,6 +363,17 @@ fn servos_turn_fan_and_step() {
         .map(|&t| degrees(&render(&show, &seq, t), 0).round() as i64)
         .collect();
     assert_eq!(at, [-45, -15, 15, 45]);
+    // A curve on which servo moves: the first, then the second.
+    let mut handing = servo(|p| p.position = 45.0);
+    handing.curves.insert("servo".into(), Curve::ramp(1.0, 2.0));
+    let mut seq = Sequence::new("s", 4000);
+    seq.rows.push(row(arms, vec![vec![handing]]));
+    let early = render(&show, &seq, 500);
+    assert!((degrees(&early, 0) - 45.0).abs() < 0.01);
+    assert_eq!(&servo_channels(&early)[2..], &[128, 0]);
+    let late = render(&show, &seq, 3500);
+    assert_eq!(&servo_channels(&late)[..2], &[128, 0]);
+    assert!((degrees(&late, 1) - 45.0).abs() < 0.01);
     // A position curve turns it over the effect; the servos make no light.
     let mut turning = servo(|_| {});
     turning.curves.insert("position".into(), Curve::ramp(-90.0, 90.0));

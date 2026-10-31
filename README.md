@@ -92,7 +92,7 @@ To look around without any hardware, choose **Try the demo show** on the welcome
 - [Real-hardware acceptance checklist](docs/hardware-acceptance.md): a checklist to fill in against real controllers.
 - [xLights import fidelity](docs/fidelity.md): how an imported sequence looks next to xLights, and how that is measured.
 - [Shaders](docs/shaders.md): the Shader effect, shader files, where they live, what runs, and its limits.
-- [DMX floods, pars, and bars](docs/dmx.md): DMX fixtures, addressing, sACN, Art-Net and USB DMX, and safety.
+- [DMX floods, pars, bars, moving heads, and servos](docs/dmx.md): DMX fixtures, addressing, sACN, Art-Net and USB DMX, and safety.
 - [Scale benchmark](docs/benchmarks.md): how large a show the engine can run.
 - [Your data: what stays on your computer](docs/privacy-and-data-flow.md): what PixelFlow sends, and when.
 - [Releasing](docs/releasing.md): building the macOS and Windows installers, signing, installing a test build, and where the app keeps its data.

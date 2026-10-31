@@ -228,6 +228,64 @@ describe("devices", () => {
     expect(screen.getByRole("status")).toHaveTextContent("Added Falcon_F16V5_A1B2: 1 prop and 1 of yours on 2 ports.");
   });
 
+  it("starts a string no name matches on the one unwired prop that fits it, says why, and undoes as one step", async () => {
+    const { user } = await openDevices();
+    // Drawn before the Falcon was added: an 800-pixel mega tree, as the Falcon's tree string.
+    await useApp.getState().run((b) => b.applyEdits([{ type: "addProp", prop: { ...newProp("tree", emptyShow("t")), name: "Mega Tree 1" } }]));
+    const before = useApp.getState().snapshot!.show.props.length;
+    await user.click(screen.getByRole("button", { name: "Find controllers" }));
+    await user.click(await screen.findByRole("button", { name: "Open Falcon_F16V5_A1B2" }));
+    const dialog = await screen.findByRole("dialog", { name: "Import Falcon_F16V5_A1B2" });
+    const tree = await within(dialog).findByRole("combobox", { name: "Prop for port 1 Falcon Mega Tree" });
+    expect(tree).toHaveDisplayValue("Mega Tree 1 · 800 px");
+    expect(within(dialog).getByText("unwired tree, 800 pixels")).toBeInTheDocument();
+    // The arch has nothing that fits: a new prop, and the tree can't be picked for it as well.
+    const arch = within(dialog).getByRole("combobox", { name: "Prop for port 2 Falcon Arch" });
+    expect(arch).toHaveDisplayValue("A new prop");
+    expect(within(arch).getByRole("option", { name: /^Mega Tree 1 · 800 px \(picked for port 1 Falcon Mega Tree\)$/ })).toBeDisabled();
+    expect(within(dialog).getByText(/wire 1 prop you already have, and add 1 new prop\./)).toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole("button", { name: "Add to show" }));
+    expect(screen.getByRole("status")).toHaveTextContent("Added Falcon_F16V5_A1B2: 1 prop and 1 of yours on 2 ports.");
+    const show = useApp.getState().snapshot!.show;
+    expect(show.props.filter((p) => p.name.toLowerCase().includes("tree")).map((p) => p.name)).toEqual(["Mega Tree 1"]);
+    expect(show.controllers[0].ports[0].slots[0].prop).toBe(show.props.find((p) => p.name === "Mega Tree 1")!.id);
+
+    await useApp.getState().undo();
+    expect(useApp.getState().snapshot!.show.controllers).toEqual([]);
+    expect(useApp.getState().snapshot!.show.props).toHaveLength(before);
+  });
+
+  it("lists every unwired prop that fits first when there are several, picks none, and frees a prop given up", async () => {
+    const { user } = await openDevices();
+    const tree = (name: string) => ({ ...newProp("tree", emptyShow("t")), name });
+    await useApp.getState().run((b) =>
+      b.applyEdits([
+        { type: "addProp", prop: tree("Mega Tree 2") },
+        { type: "addProp", prop: tree("Mega Tree 1") },
+        { type: "addProp", prop: { ...newProp("arch", emptyShow("t")), name: "Garage Arch" } },
+      ]),
+    );
+    await user.click(screen.getByRole("button", { name: "Find controllers" }));
+    await user.click(await screen.findByRole("button", { name: "Open Falcon_F16V5_A1B2" }));
+    const dialog = await screen.findByRole("dialog", { name: "Import Falcon_F16V5_A1B2" });
+    const picker = await within(dialog).findByRole("combobox", { name: "Prop for port 1 Falcon Mega Tree" });
+    expect(picker).toHaveDisplayValue("A new prop");
+    expect(within(dialog).getByText("2 unwired props have 800 pixels: pick one if it's this string")).toBeInTheDocument();
+    const fitting = within(picker).getByRole("group", { name: "Unwired, 800 pixels" });
+    expect(within(fitting).getAllByRole("option").map((o) => o.textContent)).toEqual(["Mega Tree 1 · 800 px", "Mega Tree 2 · 800 px"]);
+
+    await user.selectOptions(picker, within(fitting).getByRole("option", { name: "Mega Tree 2 · 800 px" }));
+    expect(within(dialog).getByText("unwired tree, 800 pixels")).toBeInTheDocument();
+    // The arch's one fit was picked for it; giving it up lets the tree's string have it.
+    const arch = within(dialog).getByRole("combobox", { name: "Prop for port 2 Falcon Arch" });
+    expect(arch).toHaveDisplayValue("Garage Arch · 50 px");
+    expect(within(picker).getByRole("option", { name: /^Garage Arch · 50 px \(picked for port 2 Falcon Arch\)$/ })).toBeDisabled();
+    await user.selectOptions(arch, "A new prop");
+    expect(within(picker).getByRole("option", { name: "Garage Arch · 50 px" })).toBeEnabled();
+    expect(within(arch).getByRole("option", { name: /^Mega Tree 2 · 800 px \(picked for port 1 Falcon Mega Tree\)$/ })).toBeDisabled();
+  });
+
   it("says plainly when every string goes to a prop already in the show", async () => {
     const { user } = await openDevices();
     const line = (name: string, nodes: number): Prop => ({

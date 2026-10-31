@@ -2,7 +2,7 @@
 // port drives. Matches what the engine's device import knows (crates/pf-devices, falcon.rs), which
 // follows xLights' Falcon definitions (resources/controllers/falcon.xcontroller, Falcon.cpp).
 
-import type { Controller } from "../api/types";
+import type { Controller, Device } from "../api/types";
 import { newController } from "./shows";
 
 export interface ControllerKind {
@@ -43,6 +43,28 @@ export const CONTROLLER_KINDS: ControllerKind[] = [
 
 export function kindById(id: string): ControllerKind {
   return CONTROLLER_KINDS.find((k) => k.id === id) ?? CONTROLLER_KINDS[0];
+}
+
+/** A controller type worth offering for one being added, with its short name and why. */
+export interface KindGuess {
+  id: string;
+  short: string;
+  why: string;
+}
+
+/**
+ * What a controller being added by hand most likely is: what a scan found at its address, else an
+ * FPP when its name or address says so ("Show FPP", "fpp.local"). Null with nothing to go on. Only
+ * ever offered: the form's type changes when the user takes it.
+ */
+export function guessKind(name: string, address: string, devices: Pick<Device, "address" | "kind" | "model">[] = []): KindGuess | null {
+  const found = devices.find((d) => d.address === address.trim());
+  if (found?.kind === "fpp") return { id: "fpp", short: "FPP", why: "A scan found an FPP at this address." };
+  if (found?.kind === "wled") return { id: "wled", short: "WLED", why: "A scan found a WLED at this address." };
+  const falcon = found?.kind === "falcon" ? CONTROLLER_KINDS.find((k) => k.adapter === "falcon" && k.label.toLowerCase().endsWith(` ${found.model.toLowerCase()}`)) : undefined;
+  if (found && falcon) return { id: falcon.id, short: falcon.label, why: `A scan found a ${falcon.label} at this address.` };
+  if (!found && (/\bfpp\b/i.test(name) || /\bfpp\b/i.test(address))) return { id: "fpp", short: "FPP", why: "Is it an FPP?" };
+  return null;
 }
 
 /** Most pixels a port drives on this kind of board with `ports` ports in use. */

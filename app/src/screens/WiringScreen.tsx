@@ -12,7 +12,7 @@ import { useDragEscape } from "../components/wiring/useWiringDrag";
 import { WireMode } from "../components/wiring/WireMode";
 import { useElementWidth } from "../lib/useWidth";
 import { Button, Card, EmptyState, Field, Input, ScreenHeader, Select } from "../components/ui";
-import { CONTROLLER_KINDS, FALCON_PIXELS_AT_40FPS, controllerOfKind, kindById, kindPixelLimit } from "../lib/controllerKinds";
+import { CONTROLLER_KINDS, FALCON_PIXELS_AT_40FPS, controllerOfKind, guessKind, kindById, kindPixelLimit } from "../lib/controllerKinds";
 import { addressProblem } from "../lib/controllerEdit";
 import { uniqueName } from "../lib/shows";
 import { channelsPerPixel, findPort, nodeCounts, propWiring, resolveSlot, slotLabel, unwiredInLayoutOrder, wiringProblems } from "../lib/wiringMath";
@@ -27,6 +27,14 @@ function AddControllerForm({ onDone }: { onDone: () => void }) {
   const [protocol, setProtocol] = useState<"ddp" | "sacn">("ddp");
   const [kind, setKind] = useState("other");
   const [ports, setPorts] = useState(4);
+  const devices = useApp((s) => s.discovery?.devices);
+  const pickKind = (id: string) => {
+    setKind(id);
+    const k = kindById(id);
+    if (k.ports) setPorts(k.ports);
+  };
+  // Left as Other, a controller a scan found (or one named as an FPP) is offered its type.
+  const guess = kind === "other" ? guessKind(name, address, devices) : null;
   const known = kindById(kind);
   const limit = known.dmx ? null : kindPixelLimit(known, ports);
   const usb = known.dmx === "usb";
@@ -65,14 +73,7 @@ function AddControllerForm({ onDone }: { onDone: () => void }) {
           <Input autoFocus value={name} onChange={(e) => setName(e.target.value)} />
         </Field>
         <Field label="Controller type">
-          <Select
-            value={kind}
-            onChange={(e) => {
-              setKind(e.target.value);
-              const k = kindById(e.target.value);
-              if (k.ports) setPorts(k.ports);
-            }}
-          >
+          <Select value={kind} onChange={(e) => pickKind(e.target.value)}>
             {CONTROLLER_KINDS.map((k) => (
               <option key={k.id} value={k.id}>
                 {k.label}
@@ -115,6 +116,14 @@ function AddControllerForm({ onDone }: { onDone: () => void }) {
           </Button>
         </div>
         {problem && <p className="col-span-full text-xs text-neutral-500">{problem}</p>}
+        {guess && (
+          <p className="col-span-full flex flex-wrap items-center gap-x-2 text-xs text-neutral-600 dark:text-neutral-300">
+            {guess.why}
+            <Button variant="ghost" className="px-2 py-0.5 text-xs" onClick={() => pickKind(guess.id)}>
+              Set type to {guess.short}
+            </Button>
+          </p>
+        )}
         {known.dmx && (
           <p className="col-span-full text-xs text-neutral-500">
             Each {usb ? "interface sends one DMX universe" : "port is one DMX universe"}, all 512 channels every frame. Drag DMX floods onto it: each goes to its own start address.

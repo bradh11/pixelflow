@@ -88,7 +88,11 @@ fn union_members() {
     all(
         "types.DmxRole",
         every!(pf_model::DmxRole: Dimmer, Red, Green, Blue, White, Amber, Uv, Strobe, Fixed, Pan, PanFine, Tilt,
-            TiltFine, ColorWheel, Gobo, Other, Cyan, Magenta, Yellow, Servo, ServoFine, Speed),
+            TiltFine, ColorWheel, Gobo, Other, Cyan, Magenta, Yellow, Servo, ServoFine, Speed, Zoom),
+    );
+    all(
+        "types.DmxShutter",
+        every!(pf_model::DmxShutter: Closed, Open, Strobe),
     );
     all(
         "types.ControllerKind",

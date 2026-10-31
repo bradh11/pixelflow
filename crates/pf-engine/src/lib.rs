@@ -61,4 +61,6 @@ pub use sequence_doc::{
     load_sequence, save_sequence_atomic,
 };
 pub use shaders::{SHADERS_FOLDER, ShaderFiles, list_shaders};
-pub use snapshot::{PreviewAxis, PreviewBeam, PreviewMotion, PreviewProp, ShowSnapshot, Summary};
+pub use snapshot::{
+    PreviewAxis, PreviewBeam, PreviewMotion, PreviewProp, PreviewZoom, ShowSnapshot, Summary,
+};

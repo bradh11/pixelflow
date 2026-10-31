@@ -309,7 +309,8 @@ export function Layout3dView({ preview, show, photo, storageKey, editable = fals
     const selected = new Set(editable ? useLayoutEditor.getState().selected : []);
     fillColors(latest.current.preview.props, f ?? null, selected, (editable ? EDITING : LOOKING).selected, up.colors);
     scene.setColors(up.colors, !!f);
-    scene.setMotion(motionOf(latest.current.preview.props, f ?? null));
+    // While nothing plays, a selected head on the Layout screen shows where it points.
+    scene.setMotion(motionOf(latest.current.preview.props, f ?? null, selected, EDITING.selected));
   };
 
   const syncBackdrop = () => {

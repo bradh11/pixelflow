@@ -25,11 +25,17 @@
 //! 5. **A colour wheel** with its colours listed (its slots) takes the slot nearest the colour
 //!    drawn (at full brightness: the dimmer carries the brightness). Where nothing is drawn it
 //!    keeps the value it holds, so it doesn't turn for nothing.
-//! 6. Every other channel (UV, strobe, a mode or macro, pan, tilt and servos) holds the value set
-//!    on the fixture, unless a DMX effect sets it. A moving head's pan and tilt, and a servo,
-//!    turn as their `motor` says (see `motion.rs`).
+//! 6. Every other channel (UV, strobe, a mode or macro, pan, tilt, zoom and servos) holds the
+//!    value set on the fixture, unless a DMX effect sets it. A moving head's pan and tilt, and a
+//!    servo, turn as their `motor` says (see `motion.rs`); a zoom widens a head's beam as its
+//!    `zoom` says.
+//!
+//! What the fixture shows at a moment is the colour its channels make ([`emitted_colors`]),
+//! unless its shutter is closed or its strobe is between flashes then ([`shutter_open`], see
+//! `shutter.rs`).
 
-use crate::motion::{DmxBeam, DmxMotor, DmxSlot, MAX_DMX_SLOTS};
+use crate::motion::{DmxBeam, DmxMotor, DmxSlot, DmxZoom, MAX_DMX_SLOTS};
+use crate::shutter::{DmxShutterRange, Moment, USUAL_SHUTTER, shutter_problem, shutter_shows};
 use serde::{Deserialize, Serialize};
 
 /// The most channels one fixture may have: a whole DMX universe.
@@ -53,7 +59,8 @@ pub enum DmxRole {
     Amber,
     /// Ultraviolet: held at its value.
     Uv,
-    /// Strobe or shutter: held at its value.
+    /// Strobe or shutter: held at its value; what its values do (closed, open, a strobe) is its
+    /// `shutter`.
     Strobe,
     /// A mode, macro or program channel: held at its value.
     #[default]
@@ -78,10 +85,12 @@ pub enum DmxRole {
     ServoFine,
     /// How fast a head moves: held at its value.
     Speed,
+    /// How wide a head's beam is: held at its value, widening the beam as its `zoom` says.
+    Zoom,
 }
 
 impl DmxRole {
-    pub const ALL: [DmxRole; 22] = [
+    pub const ALL: [DmxRole; 23] = [
         DmxRole::Dimmer,
         DmxRole::Red,
         DmxRole::Green,
@@ -104,6 +113,7 @@ impl DmxRole {
         DmxRole::Servo,
         DmxRole::ServoFine,
         DmxRole::Speed,
+        DmxRole::Zoom,
     ];
 
     /// The name people see.
@@ -131,6 +141,7 @@ impl DmxRole {
             DmxRole::Servo => "Servo",
             DmxRole::ServoFine => "Servo fine",
             DmxRole::Speed => "Speed",
+            DmxRole::Zoom => "Zoom",
         }
     }
 
@@ -231,6 +242,13 @@ pub struct DmxChannel {
     /// A colour wheel's colours, or a gobo wheel's gobos, by the value that selects each.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub slots: Vec<DmxSlot>,
+    /// What a strobe channel's values do: closed, open or a strobe, by range (left out: the usual,
+    /// see [`USUAL_SHUTTER`]).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub shutter: Vec<DmxShutterRange>,
+    /// How a zoom channel widens the beam (left out: the usual, see [`DmxZoom::default`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub zoom: Option<DmxZoom>,
 }
 
 impl DmxChannel {
@@ -242,6 +260,8 @@ impl DmxChannel {
             value: 0,
             motor: role.is_motor().then(|| DmxMotor::default_for(role)),
             slots: Vec::new(),
+            shutter: Vec::new(),
+            zoom: None,
         }
     }
 
@@ -250,6 +270,22 @@ impl DmxChannel {
         self.role
             .is_motor()
             .then(|| self.motor.unwrap_or_else(|| DmxMotor::default_for(self.role)))
+    }
+
+    /// What its values do, for a strobe channel: its own ranges, or the usual ones.
+    pub fn shutter(&self) -> Option<&[DmxShutterRange]> {
+        (self.role == DmxRole::Strobe).then(|| {
+            if self.shutter.is_empty() {
+                USUAL_SHUTTER
+            } else {
+                &self.shutter[..]
+            }
+        })
+    }
+
+    /// How it widens the beam, for a zoom channel: its own, or the usual.
+    pub fn zoom(&self) -> Option<DmxZoom> {
+        (self.role == DmxRole::Zoom).then(|| self.zoom.unwrap_or_default())
     }
 
     /// Its value comes from the colour drawn: a colour or dimmer channel, or a colour wheel with
@@ -458,6 +494,9 @@ impl DmxFixture {
         }
         for c in &self.channels {
             if let Some(problem) = c.motor.and_then(|m| m.problem()) {
+                return Some(format!("The channel '{}': {problem}", c.name));
+            }
+            if let Some(problem) = shutter_problem(&c.shutter).or_else(|| c.zoom.and_then(|z| z.problem())) {
                 return Some(format!("The channel '{}': {problem}", c.name));
             }
             if c.slots.len() > MAX_DMX_SLOTS {
@@ -815,8 +854,22 @@ pub fn write_channels(channels: &[DmxChannel], cells: &[u8], out: &mut [u8]) {
     }
 }
 
+/// Whether the fixture's light shows at `at` with its channels at `dmx`: its first strobe
+/// channel's shutter is open, or flashing then (see `shutter.rs`). Without a strobe channel it
+/// always shows.
+pub fn shutter_open(channels: &[DmxChannel], dmx: &[u8], at: Moment) -> bool {
+    channels
+        .iter()
+        .enumerate()
+        .find_map(|(i, c)| {
+            c.shutter()
+                .map(|ranges| (ranges, dmx.get(i).copied().unwrap_or(0)))
+        })
+        .is_none_or(|(ranges, value)| shutter_shows(ranges, value, at))
+}
+
 /// The colour each cell shows for the fixture's `dmx` channel values, three bytes a cell, into
-/// `cells`. Allocation-free.
+/// `cells`, with its shutter open. Allocation-free.
 pub fn emitted_colors(channels: &[DmxChannel], dmx: &[u8], cells: &mut [u8]) {
     let value = |i: usize| dmx.get(i).copied().unwrap_or(0);
     let dimmer = channels.iter().position(|c| c.role == DmxRole::Dimmer).map(value);
@@ -1160,6 +1213,74 @@ mod tests {
         let mut cells = [9; 6];
         emitted_colors(&servos, &out, &mut cells);
         assert_eq!(cells, [0; 6]);
+    }
+
+    #[test]
+    fn a_fixture_shows_its_light_while_its_shutter_is_open_or_flashing() {
+        use crate::shutter::{DmxShutter, DmxShutterRange};
+        let at = Moment::new(25, 25);
+        // A library flood: its strobe holds 0, open, as most fixtures' strobe channels are.
+        let flood = layout("dimmer-rgb-strobe", 1);
+        assert!(shutter_open(&flood, &[255, 255, 0, 0, 0], at));
+        assert!(
+            !shutter_open(&flood, &[255, 255, 0, 0, 255], at),
+            "strobing, between flashes"
+        );
+        assert!(
+            shutter_open(&flood, &[255, 255, 0, 0, 255], Moment::new(0, 25)),
+            "a flash"
+        );
+        // A fixture's own ranges: closed below 128.
+        let mut head = flood.clone();
+        head[4].shutter = vec![
+            DmxShutterRange {
+                from: 0,
+                does: DmxShutter::Closed,
+            },
+            DmxShutterRange {
+                from: 128,
+                does: DmxShutter::Open,
+            },
+        ];
+        assert!(!shutter_open(&head, &[255, 255, 0, 0, 0], at));
+        assert!(shutter_open(&head, &[255, 255, 0, 0, 200], at));
+        // Without a strobe channel, always.
+        assert!(shutter_open(&layout("rgb", 1), &[0, 0, 0], at));
+        // Ranges out of order can't be used.
+        let mut fixture = DmxFixture::from_layout(dmx_layout("dimmer-rgb-strobe").unwrap(), 1, 1);
+        fixture.channels[4].shutter = vec![
+            DmxShutterRange {
+                from: 9,
+                does: DmxShutter::Closed,
+            },
+            DmxShutterRange {
+                from: 3,
+                does: DmxShutter::Open,
+            },
+        ];
+        assert!(fixture.problem(1).unwrap().contains("Strobe"));
+    }
+
+    #[test]
+    fn a_zoom_channel_holds_its_value_and_widens_the_beam() {
+        let zoom = DmxChannel::new(DmxRole::Zoom).holding(40);
+        assert_eq!(zoom.zoom(), Some(DmxZoom::default()));
+        assert_eq!(DmxChannel::new(DmxRole::Strobe).zoom(), None);
+        let channels = vec![DmxChannel::new(DmxRole::Red), zoom];
+        let mut out = [0; 2];
+        write_channels(&channels, &[255, 0, 0], &mut out);
+        assert_eq!(out, [255, 40]);
+        let mut fixture = DmxFixture {
+            address: 1,
+            channels,
+            layout: None,
+            beam: None,
+        };
+        fixture.channels[1].zoom = Some(DmxZoom {
+            from_deg: 0.5,
+            to_deg: 30.0,
+        });
+        assert!(fixture.problem(1).unwrap().contains("Zoom"));
     }
 
     #[test]

@@ -47,14 +47,19 @@ class Layout {
 
   /**
    * Adds a moving head at `point` showing `color`, turned by `basis`, with its pan and tilt at
-   * these values (two for a 16-bit motor), its beam `angleDeg` wide and `length` long.
+   * these values (two for a 16-bit motor), its beam `angleDeg` wide and `length` long; with
+   * `zoom`, a zoom channel at that value widening the beam from `fromDeg` to `toDeg`.
    */
-  head(point: number[], color: Color, basis: number[], pan: number[], tilt: number[], angleDeg = 20, length = 1): this {
+  head(point: number[], color: Color, basis: number[], pan: number[], tilt: number[], angleDeg = 20, length = 1, zoom?: { value: number; fromDeg: number; toDeg: number }): this {
     this.add(point, [color]);
     const motion: PreviewMotion = {
       basis,
       beam: { pan: this.axis({ rangeDeg: 540, homeDeg: 270 }, pan), tilt: this.axis({ rangeDeg: 270, homeDeg: 135 }, tilt), angleDeg, length },
     };
+    if (zoom) {
+      motion.beam!.zoom = { at: this.frame.length, rest: zoom.value, fromDeg: zoom.fromDeg, toDeg: zoom.toDeg };
+      this.frame.push(zoom.value);
+    }
     this.props[this.props.length - 1].motion = motion;
     return this;
   }
@@ -201,7 +206,7 @@ const SCENES: Record<string, Scene> = {
   },
   movingHeads: {
     about:
-      "Moving heads and servos: a beam from each head's cell where its pan and tilt point it, in its color, widening and fading out to a round end, under every dot; a 16-bit head leaning right, an 8-bit head hung upside down, one pointing at the viewer (a pool of light), one turned to face the left, a dark one with no beam; and two servos' arms, at Home and turned 90°.",
+      "Moving heads and servos: a beam from each head's cell where its pan and tilt point it, in its color, widening, softer where wider, and fading out toward its end, under every dot; a 16-bit head leaning right, an 8-bit head hung upside down, one pointing at the viewer (a glow round the head), one turned to face the left, a dark one with no beam; and two servos' arms, at Home and turned 90°.",
     size: { width: 112, height: 72 },
     ratio: 1.28,
     layout: new Layout()
@@ -216,6 +221,27 @@ const SCENES: Record<string, Scene> = {
       .head(row(1, 0, 1, -1 / 4), OFF, UPRIGHT, [0, 0], [255, 255])
       .servos(row(2, 1 / 2, -1 / 2, 1), [[128], [255]])
       .add(row(6, 1 / 8, 1 / 4, -1 / 8), run(6, WHITE)),
+  },
+  headLight: {
+    about:
+      "Moving heads as their light looks at night: strong where the beam is narrow and soft where it is wide; a head dimmed to a third, fainter in the same hue; one whose zoom channel widens its beam; one hung high pointing straight down, stopping at the ground in a flat pool, and one slanting down onto it, its pool stretched; one leaning toward the viewer, its end a glow; and one whose shutter is shut, dark, with no beam.",
+    size: { width: 120, height: 80 },
+    ratio: 2,
+    layout: new Layout()
+      // Straight up: white, then the same dimmed to a third.
+      .head(row(1, 0, 0, 0), WHITE, UPRIGHT, [128, 0], [128, 0], 8, 2)
+      .head(row(1, 0, 1 / 2, 0), [85, 85, 85], UPRIGHT, [128, 0], [128, 0], 8, 2)
+      // Its zoom channel at 200 of 255, from 5° to 45°.
+      .head(row(1, 0, 1, 0), ORANGE, UPRIGHT, [128, 0], [128, 0], 15, 2, { value: 200, fromDeg: 5, toDeg: 45 })
+      // Hung 1.5 up, at Home: straight down to the ground.
+      .head(row(1, 0, 7 / 4, 3 / 2), CYAN, HUNG, [128, 0], [128, 0], 20, 3)
+      // 1 up, panned 30° and tilted 135°: down and toward the street, onto the ground.
+      .head(row(1, 0, 5 / 2, 1), PURPLE, UPRIGHT, [142, 56], [255, 255], 20, 3)
+      // Leaning 60° toward the viewer.
+      .head(row(1, 0, 13 / 4, 1 / 4), GREEN, UPRIGHT, [128, 0], [184, 227], 24, 1)
+      // Its shutter shut: its cell shows nothing.
+      .head(row(1, 0, 15 / 4, 0), OFF, UPRIGHT, [128, 0], [128, 0])
+      .add(row(8, 1 / 8, 1 / 8, 3 / 4), run(8, RED)),
   },
   closerThanAPixel: {
     about: "A string and a matrix with several pixels to a screen pixel: those in one screen pixel are merged into one light with their average color, the dots of ones that are off showing through.",

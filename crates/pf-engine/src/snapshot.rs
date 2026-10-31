@@ -77,7 +77,7 @@ pub struct PreviewMotion {
 }
 
 /// A moving head's beam: its pan and tilt (each left out when the head has none), its width in
-/// degrees and how far it is drawn, in layout units.
+/// degrees (or its zoom channel's, when it has one) and how far it is drawn, in layout units.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PreviewBeam {
@@ -87,6 +87,35 @@ pub struct PreviewBeam {
     pub tilt: Option<PreviewAxis>,
     pub angle_deg: f64,
     pub length: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub zoom: Option<PreviewZoom>,
+}
+
+impl PreviewBeam {
+    /// How wide the beam is, in degrees, with the frame `frame` (`None`: at rest).
+    pub fn width(&self, frame: Option<&[u8]>) -> f64 {
+        self.zoom.as_ref().map_or(self.angle_deg, |z| z.angle(frame))
+    }
+}
+
+/// A zoom channel in a live frame: where its value is, the value it rests at, and the beam's
+/// width at value 0 and at 255 (in degrees, widened from the engine's so the window reads exactly
+/// the same numbers).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreviewZoom {
+    pub at: usize,
+    pub rest: u8,
+    pub from_deg: f64,
+    pub to_deg: f64,
+}
+
+impl PreviewZoom {
+    /// How wide it makes the beam, in degrees, with the frame `frame` (`None`: at rest).
+    pub fn angle(&self, frame: Option<&[u8]>) -> f64 {
+        let value = frame.map_or(self.rest, |f| f.get(self.at).copied().unwrap_or(0));
+        self.from_deg + (self.to_deg - self.from_deg) * f64::from(value) / 255.0
+    }
 }
 
 /// One motor in a live frame: where its value is (and its fine value, for a 16-bit motor), the
@@ -150,11 +179,20 @@ fn motion_of(
         motor: axis.motor,
     };
     let of_role = |role: pf_model::DmxRole| axes.iter().find(|a| a.role == role).map(preview);
+    let zoom = dmx.channels.iter().enumerate().find_map(|(i, c)| {
+        c.zoom().map(|z| PreviewZoom {
+            at: fixture.dmx_offset + i,
+            rest: c.value,
+            from_deg: f64::from(z.from_deg),
+            to_deg: f64::from(z.to_deg),
+        })
+    });
     let beam = dmx.beam().map(|b| PreviewBeam {
         pan: of_role(pf_model::DmxRole::Pan),
         tilt: of_role(pf_model::DmxRole::Tilt),
         angle_deg: f64::from(b.angle_deg),
         length: f64::from(b.length),
+        zoom,
     });
     Some(PreviewMotion {
         basis: pf_geometry::rotation_basis(&prop.transform).map(f64::from),

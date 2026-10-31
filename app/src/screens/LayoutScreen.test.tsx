@@ -601,6 +601,37 @@ describe("LayoutScreen", () => {
     await waitFor(() => expect(backend.show.props[1].dmx?.channels[7].slots).toEqual([{ value: 0, color: "#ffffff" }]));
   });
 
+  it("sets what a head's strobe values do from its manual, and a zoom channel's widths", async () => {
+    const user = await setup(showWith(line("Gutter", 0, 0)));
+    await user.click(screen.getByRole("button", { name: "Add prop" }));
+    await user.click(within(screen.getByRole("menu", { name: "Add prop" })).getByRole("menuitem", { name: "DMX moving head" }));
+    const panel = screen.getByRole("region", { name: "DMX moving head" });
+    // The usual until it's changed: open from 0, a strobe from 10.
+    await user.click(within(panel).getByRole("button", { name: "Strobe: what its values do" }));
+    expect(within(panel).getByRole("combobox", { name: "Range 1 does" })).toHaveValue("open");
+    expect(within(panel).getByRole("combobox", { name: "Range 2 does" })).toHaveValue("strobe");
+    await user.selectOptions(within(panel).getByRole("combobox", { name: "Range 1 does" }), "closed");
+    await waitFor(() =>
+      expect(backend.show.props[1].dmx?.channels[6].shutter).toEqual([
+        { from: 0, does: "closed" },
+        { from: 10, does: "strobe" },
+      ]),
+    );
+    await user.click(within(panel).getByRole("button", { name: "Use the usual" }));
+    await waitFor(() => expect(backend.show.props[1].dmx?.channels[6].shutter).toBeUndefined());
+
+    // A zoom channel: the beam's width at 0 and 255 instead of one width.
+    await user.click(within(panel).getByRole("button", { name: /Each channel/ }));
+    await user.selectOptions(within(panel).getByRole("combobox", { name: "Channel 5 does" }), "zoom");
+    await waitFor(() => expect(backend.show.props[1].dmx?.channels[4].role).toBe("zoom"));
+    await user.click(within(panel).getByRole("button", { name: "Pan and tilt" }));
+    const wide = within(panel).getByRole("textbox", { name: "Zoom at 255 (°)" });
+    await user.clear(wide);
+    await user.type(wide, "60{Enter}");
+    await waitFor(() => expect(backend.show.props[1].dmx?.channels[4].zoom).toEqual({ fromDeg: 5, toDeg: 60 }));
+    expect(within(panel).queryByRole("textbox", { name: "Beam width (°)" })).not.toBeInTheDocument();
+  });
+
   it("closes the Add prop menu when focus leaves it", async () => {
     const user = await setup(showWith(line("Gutter", 0, 0)));
     await user.click(screen.getByRole("button", { name: "Add prop" }));

@@ -631,11 +631,13 @@ pub(crate) struct Dots {
     view: View,
 }
 
-/// A moving head or servos: its cells placed in the picture, where its color is in a show frame,
-/// and how it moves (see `beam.rs`).
+/// A moving head or servos: its cells placed in the picture, how high its first cell is above
+/// the ground (layout units), where its color is in a show frame, and how it moves (see
+/// `beam.rs`).
 #[derive(Debug, Clone)]
 struct Mover {
     cells: Vec<(f64, f64)>,
+    head_y: f64,
     offset: usize,
     motion: pf_engine::PreviewMotion,
 }
@@ -690,6 +692,7 @@ impl Dots {
                         .collect();
                     Some(Mover {
                         cells,
+                        head_y: p.points.get(1).copied().map_or(0.0, f64::from),
                         offset: p.frame_offset,
                         motion,
                     })
@@ -979,17 +982,22 @@ impl Dots {
                 continue;
             };
             if let Some(beam) = &mover.motion.beam
-                && let Some([r, g, b]) = color_at(mover.offset)
+                && let Some(([r, g, b], level)) = color_at(mover.offset).and_then(crate::beam::beam_light)
             {
                 let direction = crate::beam::head_direction(&mover.motion, frame);
-                let shape =
-                    crate::beam::beam_shape(ax, ay, direction, beam.length, beam.angle_deg, &self.view);
-                let rgb = pack(r.into(), g.into(), b.into(), 0);
+                let shape = crate::beam::beam_shape(
+                    (ax, ay),
+                    mover.head_y,
+                    direction,
+                    beam.length,
+                    beam.width(Some(frame)),
+                    &self.view,
+                );
+                let rgb = pack(r, g, b, 0);
                 let (x0, x1, y0, y1) = shape.bounds(self.width, self.height);
                 for py in y0..y1 {
                     for px in x0..x1 {
-                        let alpha =
-                            (crate::beam::BEAM_STRENGTH * shape.at(px, py) * 255.0 + 0.5).floor() as u32;
+                        let alpha = (level * shape.at(px, py) * 255.0 + 0.5).floor() as u32;
                         if alpha > 0 {
                             blend(&mut layer.pixels[py * self.width + px], rgb, alpha);
                         }

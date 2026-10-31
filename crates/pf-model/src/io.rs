@@ -31,7 +31,7 @@ type Migration = fn(Value) -> Result<Value, ModelError>;
 /// `MIGRATIONS[i]` upgrades a document from schema version `i + 1` to `i + 2`.
 const MIGRATIONS: &[Migration] = &[
     v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8, v8_to_v9, v9_to_v10, v10_to_v11,
-    v11_to_v12, v12_to_v13, v13_to_v14, v14_to_v15,
+    v11_to_v12, v12_to_v13, v13_to_v14, v14_to_v15, v15_to_v16,
 ];
 
 /// Version 2 only adds the `falcon` adapter value, so version 1 documents are already valid.
@@ -153,6 +153,33 @@ fn v13_to_v14(doc: Value) -> Result<Value, ModelError> {
 /// matters to what moves it by degrees, and to how it is drawn). So version 14 documents are
 /// already valid.
 fn v14_to_v15(doc: Value) -> Result<Value, ModelError> {
+    Ok(doc)
+}
+
+/// Version 16 adds what a fixture's light looks like: a strobe channel's `shutter` (what its
+/// values do: closed, open or a strobe), the `zoom` role and a zoom channel's `zoom`, each
+/// optional. A strobe channel without `shutter` now does the usual: open from 0 to 9, a strobe
+/// above. Before 16 the previews drew every fixture lit whatever its strobe held, so a strobe
+/// channel holding 10 or more (an xLights shutter held at its open value, say) is given a
+/// `shutter` that is open at every value: it looks as it did until its own ranges are set.
+fn v15_to_v16(mut doc: Value) -> Result<Value, ModelError> {
+    let channels = doc
+        .get_mut("props")
+        .and_then(Value::as_array_mut)
+        .into_iter()
+        .flatten()
+        .filter_map(|prop| prop.pointer_mut("/dmx/channels").and_then(Value::as_array_mut))
+        .flatten();
+    for channel in channels.filter_map(Value::as_object_mut) {
+        let strobe = channel.get("role").and_then(Value::as_str) == Some("strobe");
+        let held = channel.get("value").and_then(Value::as_u64).unwrap_or(0);
+        if strobe && held >= 10 && !channel.contains_key("shutter") {
+            channel.insert(
+                "shutter".into(),
+                serde_json::json!([{ "from": 0, "does": "open" }]),
+            );
+        }
+    }
     Ok(doc)
 }
 
@@ -292,32 +319,32 @@ mod tests {
     }
 
     #[test]
-    fn version_7_to_14_files_open_unchanged_and_save_as_version_15() {
+    fn version_7_to_15_files_open_unchanged_and_save_as_version_16() {
         // A show with no new prop shapes, saved now, then labelled as written by older versions:
         // 7 (full paths), 8 (relative paths and `savedIn`) and 9 (new prop shapes, none used here).
         let mut show = sample_show();
         show.sequences
             .push(crate::SequenceEntry::new("Medley", "Medley.fseq"));
         let text = show_file_to_json(&show, Some("/Shows/Home")).unwrap();
-        assert!(text.contains("\"schemaVersion\": 15"), "written as version 15");
+        assert!(text.contains("\"schemaVersion\": 16"), "written as version 16");
         assert!(
             !text.contains("\"dmx\""),
             "nothing DMX is written for a show without it"
         );
         assert!(!text.contains("\"kind\""), "nor a controller's kind");
-        for version in [7, 8, 9, 10, 11, 12, 13, 14, 15] {
-            let old = text.replace("\"schemaVersion\": 15", &format!("\"schemaVersion\": {version}"));
+        for version in [7, 8, 9, 10, 11, 12, 13, 14, 15, 16] {
+            let old = text.replace("\"schemaVersion\": 16", &format!("\"schemaVersion\": {version}"));
             let (read, saved_in) = show_file_from_json(&old).unwrap();
             assert_eq!(read, show, "version {version} reads as it was");
-            assert_eq!(read.schema_version, 15);
+            assert_eq!(read.schema_version, 16);
             assert_eq!(saved_in.as_deref(), Some("/Shows/Home"), "version {version}");
             let saved: Value = serde_json::from_str(&show_to_json(&read).unwrap()).unwrap();
-            assert_eq!(saved["schemaVersion"], 15);
+            assert_eq!(saved["schemaVersion"], 16);
         }
     }
 
     #[test]
-    fn version_14_fixtures_with_pan_and_tilt_read_as_they_were_and_save_as_15() {
+    fn version_14_fixtures_with_pan_and_tilt_read_as_they_were_and_save_as_16() {
         // As version 14 wrote a flood and a head set up by hand: pan and tilt only held a value.
         let text = r#"{
           "schemaVersion": 14,
@@ -338,7 +365,7 @@ mod tests {
           }]
         }"#;
         let show = show_from_json(text).unwrap();
-        assert_eq!(show.schema_version, 15);
+        assert_eq!(show.schema_version, 16);
         let dmx = show.props[0].dmx.as_ref().unwrap();
         assert_eq!(dmx.channels[0].value, 100, "held where it was");
         assert_eq!(dmx.channels[0].motor, None, "nothing new is written in");
@@ -352,11 +379,54 @@ mod tests {
         assert!(dmx.is_head());
         assert_eq!(dmx.beam(), Some(crate::DmxBeam::default()));
         let saved: Value = serde_json::from_str(&show_to_json(&show).unwrap()).unwrap();
-        assert_eq!(saved["schemaVersion"], 15);
+        assert_eq!(saved["schemaVersion"], 16);
         assert_eq!(
             saved["props"][0]["dmx"]["channels"][0],
             serde_json::json!({ "name": "Pan", "role": "pan", "value": 100 })
         );
+    }
+
+    #[test]
+    fn version_15_strobes_holding_a_strobe_value_stay_open_and_the_rest_read_as_they_were() {
+        // As version 15 wrote an imported flood (its shutter held open at 255), a library one
+        // (its strobe at 0) and one set by hand just below a strobe.
+        let text = r#"{
+          "schemaVersion": 15,
+          "name": "Floods",
+          "props": [
+            { "id": "6a1d1f5e-2b0c-4d5e-9f8a-1b2c3d4e5f61", "name": "Imported",
+              "shape": { "source": "generator", "type": "line", "nodes": 1, "length": 0.5 },
+              "dmx": { "address": 1, "channels": [
+                { "name": "Red", "role": "red" }, { "name": "Strobe", "role": "strobe", "value": 255 } ] } },
+            { "id": "6a1d1f5e-2b0c-4d5e-9f8a-1b2c3d4e5f62", "name": "Library",
+              "shape": { "source": "generator", "type": "line", "nodes": 1, "length": 0.5 },
+              "dmx": { "address": 3, "layout": "dimmer-rgb-strobe", "channels": [
+                { "name": "Dimmer", "role": "dimmer" }, { "name": "Red", "role": "red" },
+                { "name": "Green", "role": "green" }, { "name": "Blue", "role": "blue" },
+                { "name": "Strobe", "role": "strobe" } ] } },
+            { "id": "6a1d1f5e-2b0c-4d5e-9f8a-1b2c3d4e5f63", "name": "Slow",
+              "shape": { "source": "generator", "type": "line", "nodes": 1, "length": 0.5 },
+              "dmx": { "address": 8, "channels": [
+                { "name": "Red", "role": "red" }, { "name": "Strobe", "role": "strobe", "value": 9 } ] } }
+          ]
+        }"#;
+        let show = show_from_json(text).unwrap();
+        assert_eq!(show.schema_version, 16);
+        let strobe = |p: usize, c: usize| &show.props[p].dmx.as_ref().unwrap().channels[c];
+        assert_eq!(
+            strobe(0, 1).shutter,
+            vec![crate::DmxShutterRange {
+                from: 0,
+                does: crate::DmxShutter::Open
+            }],
+            "open at every value, as it was drawn"
+        );
+        assert!(strobe(1, 4).shutter.is_empty(), "the usual: open at 0");
+        assert!(strobe(2, 1).shutter.is_empty(), "the usual: open at 9");
+        assert_eq!(strobe(1, 4).shutter(), Some(crate::USUAL_SHUTTER));
+        // Saved as 16, it reads the same again.
+        let again = show_from_json(&show_to_json(&show).unwrap()).unwrap();
+        assert_eq!(again, show);
     }
 
     #[test]
@@ -393,6 +463,26 @@ mod tests {
             angle_deg: 22.5,
             length: 9.0,
         });
+        fixture.channels[6].shutter = vec![
+            crate::DmxShutterRange {
+                from: 0,
+                does: crate::DmxShutter::Closed,
+            },
+            crate::DmxShutterRange {
+                from: 8,
+                does: crate::DmxShutter::Open,
+            },
+            crate::DmxShutterRange {
+                from: 16,
+                does: crate::DmxShutter::Strobe,
+            },
+        ];
+        let mut zoom = crate::DmxChannel::new(crate::DmxRole::Zoom).holding(60);
+        zoom.zoom = Some(crate::DmxZoom {
+            from_deg: 40.0,
+            to_deg: 8.0,
+        });
+        fixture.channels.push(zoom);
         head.dmx = Some(fixture);
         let mut servos = Prop::new(
             "Jaw",
@@ -413,6 +503,8 @@ mod tests {
         assert!(text.contains("\"color\": \"#ff0000\""));
         assert!(text.contains("\"angleDeg\": 22.5"));
         assert!(text.contains("\"role\": \"servoFine\""));
+        assert!(text.contains("\"does\": \"strobe\""));
+        assert!(text.contains("\"toDeg\": 8.0"));
         assert_eq!(show_from_json(&text).unwrap(), show);
     }
 

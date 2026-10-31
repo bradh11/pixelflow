@@ -370,6 +370,12 @@ impl Renderer {
         }
         // The fixtures' colour becomes their channels, with what the DMX effects set.
         self.dmx.write(&self.geometry, seq, t_ms, &cx, frame);
+        // A fixture whose shutter is shut at this moment (closed, or a strobe between flashes)
+        // shows nothing.
+        let at = pf_model::Moment::new(t_ms, seq.frame_ms);
+        for fixture in &self.geometry.fixtures {
+            fixture.show_shutter(frame, at);
+        }
     }
 
     /// How long each step of the frame drawn last took, and how many threads drew it.

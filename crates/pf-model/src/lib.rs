@@ -19,6 +19,7 @@ mod region;
 mod render_style;
 mod shape;
 mod show;
+mod shutter;
 mod validate;
 
 pub use color::Rgb;
@@ -28,7 +29,8 @@ pub use controller::{
 };
 pub use dmx::{
     DMX_LAYOUTS, DmxAxis, DmxChannel, DmxFixture, DmxKind, DmxLayout, DmxRole, MAX_DMX_CELLS,
-    MAX_DMX_CHANNEL_NAME, MAX_DMX_CHANNELS, axes, dmx_layout, emitted_colors, rest_motors_at, write_channels,
+    MAX_DMX_CHANNEL_NAME, MAX_DMX_CHANNELS, axes, dmx_layout, emitted_colors, rest_motors_at, shutter_open,
+    write_channels,
 };
 pub use ids::{ControllerId, GroupId, PropId, RegionId, SequenceId};
 pub use io::{ModelError, check_show, show_file_from_json, show_file_to_json, show_from_json, show_to_json};
@@ -39,7 +41,7 @@ pub use limits::{
     MAX_SPINNER_ARMS, MAX_SPINNER_HOLLOW, MAX_SPIRAL_TURNS, MAX_STAR_POINTS, shape_problem,
 };
 pub use motion::{
-    Basis, DmxBeam, DmxMotor, DmxSlot, MAX_DMX_SLOTS, MAX_MOTOR_RANGE, UPRIGHT, arm_direction,
+    Basis, DmxBeam, DmxMotor, DmxSlot, DmxZoom, MAX_DMX_SLOTS, MAX_MOTOR_RANGE, UPRIGHT, arm_direction,
     beam_direction, cos_deg, sin_deg,
 };
 pub use network_paths::{
@@ -64,5 +66,9 @@ pub use shape::{
 };
 pub use show::{
     Background, CURRENT_SCHEMA_VERSION, HouseModel, LayoutArea, SequenceEntry, Show, ShowSettings,
+};
+pub use shutter::{
+    DmxShutter, DmxShutterRange, MAX_SHUTTER_RANGES, Moment, STROBE_FASTEST_HZ, STROBE_SLOWEST_HZ,
+    ShutterState, USUAL_SHUTTER, flashes, shutter_at, shutter_problem, shutter_shows,
 };
 pub use validate::{limit_issues, validate_show};

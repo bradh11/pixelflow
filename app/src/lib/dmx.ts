@@ -110,6 +110,19 @@ export function isServos(fixture: DmxFixture): boolean {
   return !isHead(fixture) && fixture.channels.some((c) => c.role === "servo");
 }
 
+/** What a fixture is, in a few words: "DMX fixture · 1 cell", "Moving head · 16-bit", "Servos · 2". */
+export function fixtureSummary(fixture: DmxFixture, cells: number): string {
+  if (isHead(fixture)) {
+    const sixteen = axes(fixture.channels).some((a) => a.fine !== null);
+    return `Moving head · ${sixteen ? "16-bit" : "8-bit"}`;
+  }
+  if (isServos(fixture)) {
+    const n = axes(fixture.channels).length;
+    return n === 1 ? "Servo" : `Servos · ${n}`;
+  }
+  return `DMX fixture · ${cells === 1 ? "1 cell" : `${cells} cells`}`;
+}
+
 /** The beam a head is drawn with when it doesn't say. */
 export const DEFAULT_BEAM = { angleDeg: 15, length: 6 } as const;
 

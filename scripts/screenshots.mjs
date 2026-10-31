@@ -26,8 +26,10 @@
 // written as they are. Uses nothing but Node itself: no package to install.
 //
 // Options: --out <folder> (default docs/images), --url <address> to use a UI dev server already
-// running instead of starting one, --port <n> for the one it starts (default 5199), and
-// --chrome-port <n> to drive a Chrome already started with --remote-debugging-port=<n>.
+// running instead of starting one, --port <n> for the one it starts (default 5199),
+// --chrome-port <n> to drive a Chrome already started with --remote-debugging-port=<n>, and
+// --width <n> to see the screens in a narrower window than 1440 (for checking a layout; the
+// guides' pictures are taken at 1440).
 
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, renameSync, statSync } from "node:fs";
@@ -37,7 +39,7 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const APP = path.join(ROOT, "app");
-const WIDTH = 1440;
+const WIDTH = Number(option("width") ?? 1440);
 const HEIGHT = 900;
 /** The widest a picture is written, in pixels. */
 const MAX_WIDTH = 1600;
@@ -348,6 +350,17 @@ const SHOTS = [
     },
   },
   {
+    name: "dmx-moving-head",
+    file: "dmx-moving-head.png",
+    usedBy: "dmx",
+    async run(ui) {
+      await addHead(ui);
+      await ui.click("Pan and tilt");
+      await ui.scrollTo("DMX moving head", "[aria-label=Properties]", "start");
+      return ui.window();
+    },
+  },
+  {
     name: "dmx-wiring",
     file: "dmx-wiring.png",
     usedBy: "dmx",
@@ -476,6 +489,19 @@ async function wireToDmxNode(ui, props) {
 }
 
 /** Adds a DMX flood on the Layout screen, on the lawn, and leaves it selected. */
+/** Adds a 16-bit moving head on the lawn on the Layout screen, selected. */
+async function addHead(ui, { name = "Lawn Spot", x = -5, y = 0.4, address = 20 } = {}) {
+  await ui.screen("Layout");
+  await ui.click("Add prop");
+  await ui.click("DMX moving head");
+  await ui.settle(500);
+  await ui.type("Name", name, { enter: true });
+  await ui.type("Start address", String(address), { enter: true });
+  await ui.type("Position X", String(x), { enter: true });
+  await ui.type("Position Y", String(y), { enter: true });
+  await ui.settle(400);
+}
+
 async function addFlood(ui, { name = "Lawn Flood", x = -9, y = 0.6, address = 1, layout = "7 channels" } = {}) {
   await ui.screen("Layout");
   await ui.click("Add prop");

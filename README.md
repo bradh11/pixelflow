@@ -92,6 +92,7 @@ To look around without any hardware, choose **Try the demo show** on the welcome
 ## Documentation
 
 - [Your first show](docs/first-show.md): from an empty show, or an xLights show, to lights playing music.
+- [The 3D view](docs/3d-view.md): moving around, the ground and its grid, the photo and house model, Glow, and the View options (names, pixels that are off, dot size, Boost dim).
 - [Troubleshooting](docs/troubleshooting.md): nothing lights, wrong colors, controllers not found, Send to FPP problems, and more.
 - [Real-hardware acceptance checklist](docs/hardware-acceptance.md): a checklist to fill in against real controllers.
 - [xLights import fidelity](docs/fidelity.md): how an imported sequence looks next to xLights, and how that is measured.

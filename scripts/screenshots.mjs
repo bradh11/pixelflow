@@ -579,6 +579,58 @@ const SHOTS = [
       return ui.settingsTop("Depth");
     },
   },
+  {
+    name: "3d-view",
+    file: "3d-view.png",
+    usedBy: "3d-view",
+    async run(ui) {
+      await ui.click("3D", { exact: true });
+      await ui.settle(2500);
+      return ui.window();
+    },
+  },
+  {
+    name: "3d-view-options",
+    file: "3d-view-options.png",
+    usedBy: "3d-view",
+    async run(ui) {
+      // The Play screen's preview in 3D at a lit moment, with prop names on and only lit pixels showing.
+      await ui.screen("Play");
+      await ui.seek(12600);
+      await ui.click("3D", { exact: true });
+      await ui.settle(2500);
+      await ui.click("View", { exact: true, within: "[role=toolbar][aria-label='3D view']" });
+      await ui.click("Prop names", { within: "[role=dialog][aria-label=View]" });
+      await ui.click("Hidden", { exact: true, within: "[role=dialog][aria-label=View]" });
+      await ui.settle(800);
+      return ui.window();
+    },
+  },
+  {
+    name: "layout-view-options",
+    file: "layout-view-options.png",
+    usedBy: "3d-view",
+    async run(ui) {
+      // In 2D, the View options are on the Layout screen's tool bar, beside Glow.
+      await ui.click("View", { exact: true, within: "[role=toolbar][aria-label='Layout tools']" });
+      await ui.click("Prop names", { within: "[role=dialog][aria-label=View]" });
+      await ui.settle(600);
+      return ui.window();
+    },
+  },
+  {
+    name: "preview-window-view",
+    file: "preview-window-view.png",
+    usedBy: "3d-view",
+    query: "demo&window=preview",
+    async run(ui) {
+      // The preview's own window has the same View options, over its flat view as over its 3D one.
+      await ui.click("View", { exact: true, within: "[role=toolbar][aria-label='2D view']" });
+      await ui.click("Prop names", { within: "[role=dialog][aria-label=View]" });
+      await ui.settle(800);
+      return ui.window();
+    },
+  },
 ];
 
 /** Adds an Art-Net DMX node on the Wiring screen and wires the props named to its universe, in order. */

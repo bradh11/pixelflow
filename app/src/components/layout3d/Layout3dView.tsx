@@ -4,6 +4,7 @@ import type { PreviewProp3d, PreviewSet3d, Show } from "../../api/types";
 import {
   type Box3,
   type GizmoHandle,
+  type LightLook,
   type Orbit,
   type Ray,
   type V3,
@@ -15,6 +16,7 @@ import {
   dragDelta,
   fillColors,
   fitOrbit,
+  floorGrid,
   focusOrbit,
   freeDragHandle,
   gizmoHit,
@@ -37,6 +39,8 @@ import {
 } from "../../lib/layout3d";
 import { type Gesture, type Pt, type Size, pinchFactor, wheelIntent, wheelZoomFactor } from "../../lib/layoutMath";
 import { LAYOUT_LOOK, PREVIEW_LOOK, lightLook } from "../../lib/pixelLooks";
+import { deepSpots, drawLabels } from "../../lib/propLabels";
+import { DOT_SCALES, boostFrame, hidesUnlit } from "../../lib/viewOptions";
 import { useLayoutEditor } from "../../state/layoutEditor";
 import { commitGesture, settlePending, unsettled } from "../../state/layoutGestures";
 import { useApp } from "../../state/store";
@@ -53,6 +57,8 @@ const CLICK_PX = 4;
 /** How lights are drawn: as on the Layout screen where props are picked and moved, as in the previews where they're only looked at. */
 const EDITING = lightLook(LAYOUT_LOOK);
 const LOOKING = lightLook(PREVIEW_LOOK);
+/** The color of a pixel that's off, with Unlit pixels hidden: none. */
+const NO_LIGHT = [0, 0, 0, 0] as const;
 /** The renderer draws at most this many device pixels per CSS pixel (sharper costs more than it shows). */
 const MAX_RATIO = 2;
 
@@ -127,6 +133,8 @@ interface Layout3dViewProps {
   editable?: boolean;
   /** Live colors given by the screen; without them the view fetches its own. */
   frame?: Uint8Array | null;
+  /** The show is playing (its time moving), for the viewer's Auto choice of Unlit pixels. */
+  playing?: boolean;
   /** Makes the renderer (tests give a stand-in). */
   sceneFactory?: SceneFactory;
   ref?: Ref<LayoutCanvasHandle>;
@@ -138,9 +146,16 @@ interface Layout3dViewProps {
  * Like the 2D canvas, every finished drag is one batch of edits (one undo step), and camera
  * moves, selection, and live colors only redraw: they never re-render React.
  */
-export function Layout3dView({ preview, show, photo, storageKey, editable = false, frame, sceneFactory = loadThreeScene, ref }: Layout3dViewProps) {
+export function Layout3dView({ preview, show, photo, storageKey, editable = false, frame, playing = false, sceneFactory = loadThreeScene, ref }: Layout3dViewProps) {
   const helpId = useId();
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  /** Prop names, drawn over the scene when the viewer's Names option is on. */
+  const namesRef = useRef<HTMLCanvasElement>(null);
+  const namesShown = useRef(false);
+  const namesMemo = useRef<{ props: PreviewProp3d[]; boxes: { prop: string; box: Box3 }[] } | null>(null);
+  const nameOf = useRef<{ props: Show["props"] | null; names: Map<string, string> }>({ props: null, names: new Map() });
+  /** The look the renderer was last given. */
+  const lookSent = useRef<LightLook | null>(null);
   const marqueeRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<Scene3d | null>(null);
   const [ready, setReady] = useState(false);
@@ -171,8 +186,8 @@ export function Layout3dView({ preview, show, photo, storageKey, editable = fals
     colors: new Uint8Array(0),
   });
 
-  const latest = useRef({ preview, show, photo, editable, frame, storageKey });
-  latest.current = { preview, show, photo, editable, frame, storageKey };
+  const latest = useRef({ preview, show, photo, editable, frame, playing, storageKey });
+  latest.current = { preview, show, photo, editable, frame, playing, storageKey };
 
   const size = (): Size => {
     const canvas = canvasRef.current;
@@ -221,6 +236,69 @@ export function Layout3dView({ preview, show, photo, storageKey, editable = fals
   /** The camera as it's drawn (null until there's a size and something to show). */
   const view = (): Orbit | null => camera.current?.current ?? null;
 
+  /**
+   * Tells the renderer how lights are drawn, when that's changed: as on the Layout screen or in the
+   * previews, with pixels that are off left out when the viewer hides them.
+   */
+  const syncLook = (scene: Scene3d) => {
+    const base = (latest.current.editable ? EDITING : LOOKING).look;
+    const look = hidesUnlit(useView3d.getState().unlit, latest.current.playing) ? { ...base, dark: NO_LIGHT } : base;
+    const was = lookSent.current;
+    if (was && was.radius === look.radius && was.unlit === look.unlit && was.dark.every((v, i) => v === look.dark[i])) return;
+    lookSent.current = look;
+    scene.setLook(look);
+  };
+
+  /** The viewer's glow, ground, grid and dot size, to the renderer. */
+  const syncOptions = (scene: Scene3d) => {
+    const { glow, ground, grid, dotSize } = useView3d.getState();
+    scene.setOptions({ glow, ground, grid, dotScale: DOT_SCALES[dotSize] });
+  };
+
+  /** The grid on the ground, measured from everything worth showing; its spacing goes to the store for the View options to say. */
+  const syncFloor = () => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+    const grid = floorGrid(contentBox());
+    scene.setFloor(grid);
+    const was = useView3d.getState().floor;
+    if (was?.minor !== grid.minor || was?.major !== grid.major) useView3d.setState({ floor: grid });
+  };
+
+  /** Each prop's box, for placing its name; worked out again only when the props move. */
+  const propBoxes = (props: PreviewProp3d[]) => {
+    const memo = namesMemo.current;
+    if (memo?.props === props) return memo.boxes;
+    const boxes = props.flatMap((p) => {
+      const box = boundsOfXyz([p.xyz]);
+      return box ? [{ prop: p.prop, box }] : [];
+    });
+    namesMemo.current = { props, boxes };
+    return boxes;
+  };
+
+  /** Draws the props' names over the scene from the camera `o`, or clears them when they're off. */
+  const drawNames = (o: Orbit) => {
+    const canvas = namesRef.current;
+    const ctx = canvas?.getContext("2d");
+    if (!canvas || !ctx) return;
+    const on = useView3d.getState().names;
+    if (!on && !namesShown.current) return;
+    const s = size();
+    const ratio = window.devicePixelRatio || 1;
+    if (canvas.width !== Math.round(s.width * ratio) || canvas.height !== Math.round(s.height * ratio)) {
+      canvas.width = Math.round(s.width * ratio);
+      canvas.height = Math.round(s.height * ratio);
+    }
+    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    ctx.clearRect(0, 0, s.width, s.height);
+    namesShown.current = on;
+    if (!on) return;
+    const props = latest.current.show.props;
+    if (nameOf.current.props !== props) nameOf.current = { props, names: new Map(props.map((p) => [p.id, p.name])) };
+    drawLabels(ctx, deepSpots(propBoxes(effective()), nameOf.current.names, viewProjection(o, s), s), s);
+  };
+
   const saveCamera = () => {
     clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
@@ -241,6 +319,7 @@ export function Layout3dView({ preview, show, photo, storageKey, editable = fals
       cam.current = stepOrbit(cam.current, cam.goal, dt);
       drawSelection(scene, cam.current);
       scene.render(cam.current, cam.current !== cam.goal);
+      drawNames(cam.current);
       if (cam.current !== cam.goal) tick.current.request = requestAnimationFrame(step);
       else {
         tick.current.last = 0;
@@ -304,13 +383,15 @@ export function Layout3dView({ preview, show, photo, storageKey, editable = fals
     const scene = sceneRef.current;
     if (!scene) return;
     const up = uploaded.current;
-    const f = latest.current.frame !== undefined ? latest.current.frame : liveFrame.current;
-    const { editable } = latest.current;
+    const live = latest.current.frame !== undefined ? latest.current.frame : liveFrame.current;
+    const { editable, preview } = latest.current;
+    // The colors as they're shown: dim levels lifted when the viewer boosts them.
+    const f = live ? boostFrame(live, preview.props, useView3d.getState().boost) : null;
     const selected = new Set(editable ? useLayoutEditor.getState().selected : []);
-    fillColors(latest.current.preview.props, f ?? null, selected, (editable ? EDITING : LOOKING).selected, up.colors);
+    fillColors(preview.props, f, selected, (editable ? EDITING : LOOKING).selected, up.colors);
     scene.setColors(up.colors, !!f);
     // While nothing plays, a selected head on the Layout screen shows where it points.
-    scene.setMotion(motionOf(latest.current.preview.props, f ?? null, selected, EDITING.selected));
+    scene.setMotion(motionOf(preview.props, f, selected, EDITING.selected));
   };
 
   const syncBackdrop = () => {
@@ -349,9 +430,9 @@ export function Layout3dView({ preview, show, photo, storageKey, editable = fals
       (scene) => {
         if (cancelled) return;
         sceneRef.current = scene;
-        const { glow, ground } = useView3d.getState();
-        scene.setOptions({ glow, ground });
-        scene.setLook((latest.current.editable ? EDITING : LOOKING).look);
+        syncOptions(scene);
+        lookSent.current = null;
+        syncLook(scene);
         const s = size();
         scene.resize(s, Math.min(MAX_RATIO, window.devicePixelRatio || 1));
         setReady(true);
@@ -367,6 +448,7 @@ export function Layout3dView({ preview, show, photo, storageKey, editable = fals
       if (camera.current) saveShowView(latest.current.storageKey, { orbit: camera.current.goal });
       releaseRenderer(canvas);
       sceneRef.current = null;
+      useView3d.setState({ floor: null });
       // Taken again (the development check), the renderer gets everything afresh.
       uploaded.current.preview = null;
       setReady(false);
@@ -378,6 +460,7 @@ export function Layout3dView({ preview, show, photo, storageKey, editable = fals
     if (!ready) return;
     settlePending(preview.revision);
     syncPositions();
+    syncFloor();
     placeCameraIfNeeded();
     invalidate();
   }, [ready, preview, invalidate]);
@@ -401,6 +484,7 @@ export function Layout3dView({ preview, show, photo, storageKey, editable = fals
   useEffect(() => {
     if (!ready) return;
     syncBackdrop();
+    syncFloor();
     invalidate();
   }, [ready, photo.image, photo.aspect, show.background, invalidate]);
 
@@ -409,6 +493,7 @@ export function Layout3dView({ preview, show, photo, storageKey, editable = fals
   const placeModel = () => {
     const m = latest.current.show.houseModel;
     if (m && sceneRef.current) modelBox.current = sceneRef.current.placeModel(m);
+    syncFloor();
   };
   useEffect(() => {
     const scene = sceneRef.current;
@@ -453,6 +538,14 @@ export function Layout3dView({ preview, show, photo, storageKey, editable = fals
     invalidate();
   }, [ready, frame, invalidate]);
 
+  // Playing or not: with Unlit pixels on Auto, whether pixels that are off show.
+  useEffect(() => {
+    const scene = sceneRef.current;
+    if (!ready || !scene) return;
+    syncLook(scene);
+    invalidate();
+  }, [ready, playing, invalidate]);
+
   // Colors fetched here, when the screen doesn't hand them in.
   useLiveFrame(
     useCallback(
@@ -484,7 +577,9 @@ export function Layout3dView({ preview, show, photo, storageKey, editable = fals
       useView3d.subscribe((st, prev) => {
         const scene = sceneRef.current;
         if (!scene) return;
-        if (st.glow !== prev.glow || st.ground !== prev.ground) scene.setOptions({ glow: st.glow, ground: st.ground });
+        if (st.glow !== prev.glow || st.ground !== prev.ground || st.grid !== prev.grid || st.dotSize !== prev.dotSize) syncOptions(scene);
+        if (st.unlit !== prev.unlit) syncLook(scene);
+        if (st.boost !== prev.boost) syncColors();
         if (st.photoDepth !== prev.photoDepth) syncBackdrop();
         if (st.command && st.command !== prev.command) runCamera(st.command.action);
         invalidate();
@@ -832,6 +927,7 @@ export function Layout3dView({ preview, show, photo, storageKey, editable = fals
         onDoubleClick={onDoubleClick}
         onContextMenu={(e) => e.preventDefault()}
       />
+      <canvas ref={namesRef} aria-hidden className="pointer-events-none absolute inset-0 h-full w-full" />
       <p id={helpId} className="sr-only">
         {editable
           ? "Drag to orbit around the display, right-drag to pan, scroll to zoom. Keys 1 to 5 pick the front, top, left, right, and street views; F fits everything in. Click a prop to select it, then drag the gizmo's arrows to move it, or set its position, depth, and rotation in the properties panel. V switches to the 2D view."

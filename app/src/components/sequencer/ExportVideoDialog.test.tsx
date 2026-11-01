@@ -87,7 +87,7 @@ describe("Export video", () => {
     expect(seq.video.requests).toEqual([
       {
         path: "/Users/you/Movies/Chimes Medley 2020.mp4",
-        request: { width: 1920, height: 1080, fps: 30, startMs: 0, endMs: null, photo: true, pixelSize: 1, glow: 0, ffmpeg: false },
+        request: { width: 1920, height: 1080, fps: 30, startMs: 0, endMs: null, photo: true, pixelSize: 1, glow: 0, hideUnlit: false, boost: 0, ffmpeg: false },
       },
     ]);
     expect(within(dialog).getByText(/H\.264 \(OpenH264\) · AAC 192 kb\/s/)).toBeInTheDocument();
@@ -109,7 +109,7 @@ describe("Export video", () => {
     expect(within(dialog).getByText("40%")).toBeInTheDocument();
     await user.click(within(dialog).getByRole("button", { name: "Export…" }));
     expect(await within(dialog).findByText("Saved Chimes Medley 2020.mp4 (1:00, 720p60).")).toBeInTheDocument();
-    expect(seq.video.requests[0].request).toEqual({ width: 1280, height: 720, fps: 60, startMs: 0, endMs: null, photo: false, pixelSize: 1.5, glow: 0.4, ffmpeg: true });
+    expect(seq.video.requests[0].request).toEqual({ width: 1280, height: 720, fps: 60, startMs: 0, endMs: null, photo: false, pixelSize: 1.5, glow: 0.4, hideUnlit: false, boost: 0, ffmpeg: true });
     await user.click(within(dialog).getByRole("button", { name: "Done" }));
 
     await user.click(screen.getByRole("button", { name: "More ways to export" }));
@@ -155,6 +155,32 @@ describe("Export video", () => {
     expect(within(again).getByRole("slider", { name: "Glow" })).toHaveValue("10");
     // And choosing one here doesn't change the previews.
     expect(useView3d.getState().glow).toBe(1);
+  });
+
+  it("starts with the previews' dot size, pixels that are off and Boost dim (as while the show plays), until they're chosen here", async () => {
+    act(() => useView3d.getState().setViewOptions({ dotSize: "large", unlit: "auto", boost: 2 }));
+    const { seq, user, dialog } = await openScreen();
+    expect(within(dialog).getByLabelText("Pixel size")).toHaveValue("1.5");
+    // Auto hides them while the show plays, and a video plays.
+    expect(within(dialog).getByLabelText("Pixels that are off")).toHaveDisplayValue("Hidden");
+    expect(within(dialog).getByLabelText("Boost dim")).toHaveDisplayValue("Medium");
+    await user.click(within(dialog).getByRole("button", { name: "Export…" }));
+    expect(await within(dialog).findByText(/^Saved /)).toBeInTheDocument();
+    expect(seq.video.requests[0].request).toMatchObject({ pixelSize: 1.5, hideUnlit: true, boost: 2 });
+    await user.click(within(dialog).getByRole("button", { name: "Done" }));
+
+    // Chosen here, they stay, and the previews keep theirs.
+    await user.click(screen.getByRole("button", { name: "More ways to export" }));
+    await user.click(screen.getByRole("menuitem", { name: "Export video…" }));
+    const again = await screen.findByRole("dialog", { name: "Export video" });
+    await user.selectOptions(within(again).getByLabelText("Pixels that are off"), "Dim");
+    await user.selectOptions(within(again).getByLabelText("Boost dim"), "Off");
+    await user.selectOptions(within(again).getByLabelText("Pixel size"), "Small");
+    await user.click(within(again).getByRole("button", { name: "Export…" }));
+    await waitFor(() => expect(seq.video.requests).toHaveLength(2));
+    expect(seq.video.requests[1].request).toMatchObject({ pixelSize: 0.6, hideUnlit: false, boost: 0 });
+    expect(useView3d.getState()).toMatchObject({ dotSize: "large", unlit: "auto", boost: 2 });
+    act(() => useView3d.getState().setViewOptions({ dotSize: "medium", unlit: "dim", boost: 0 }));
   });
 
   it("cancels, saying no file was written", async () => {

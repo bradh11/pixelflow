@@ -23,6 +23,8 @@ import {
   fillColors,
   fitModelPlacement,
   fitOrbit,
+  floorGrid,
+  gridWords,
   modelPoint,
   rotatedBox,
   focusOrbit,
@@ -742,5 +744,35 @@ describe("a lit light's glow in 3D", () => {
     // No halo, no dimming.
     expect(lightDim(lightHalo(0, 40, 1, radius), 4)).toBe(1);
     expect(lightDim(lightHalo(0.5, 5, 1, radius), 2.4)).toBe(1);
+  });
+});
+
+describe("the grid on the ground", () => {
+  const display = (wide: number, deep = 0, tall = 3) => ({ min: v3(-wide / 2, 0, -deep), max: v3(wide / 2, tall, 0) });
+
+  it("has lines a round number of units apart, about a twentieth of the display's width or depth, and a heavier one every fifth", () => {
+    expect(floorGrid(display(24))).toMatchObject({ minor: 1, major: 5 });
+    // An xLights show's usual preview, 1280 of its units wide.
+    expect(floorGrid(display(12.8))).toMatchObject({ minor: 0.5, major: 2.5 });
+    expect(floorGrid(display(50))).toMatchObject({ minor: 2, major: 10 });
+    expect(floorGrid(display(100))).toMatchObject({ minor: 5, major: 25 });
+    expect(floorGrid(display(3))).toMatchObject({ minor: 0.2, major: 1 });
+    // Deeper than it's wide: the depth counts.
+    expect(floorGrid(display(4, 40))).toMatchObject({ minor: 2, major: 10 });
+  });
+
+  it("is measured from the display's height when it has no width or depth, and from 20 units when there's nothing", () => {
+    expect(floorGrid(display(0, 0, 10))).toMatchObject({ minor: 0.5 });
+    expect(floorGrid(null)).toEqual({ minor: 1, major: 5, center: { x: 0, z: 0 }, fade: [40, 120] });
+  });
+
+  it("fades out around the display's middle, from twice its size away to six times", () => {
+    const grid = floorGrid({ min: v3(2, 0, -4), max: v3(22, 6, 0) });
+    expect(grid.center).toEqual({ x: 12, z: -2 });
+    expect(grid.fade).toEqual([40, 120]);
+  });
+
+  it("says how far apart its lines are", () => {
+    expect([gridWords(1), gridWords(0.5), gridWords(25)]).toEqual(["1 unit", "0.5 units", "25 units"]);
   });
 });

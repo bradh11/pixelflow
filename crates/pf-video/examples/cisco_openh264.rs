@@ -79,6 +79,8 @@ fn main() -> anyhow::Result<()> {
         photo: false,
         pixel_size: 1.0,
         glow: 0.3,
+        hide_unlit: false,
+        boost: 0,
         encoder: Encoder::OpenH264(library),
     };
     let out = folder.join("cisco.mp4");

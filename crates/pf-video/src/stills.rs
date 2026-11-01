@@ -123,6 +123,8 @@ pub fn contact_sheet(
         height: options.frame_height.max(16),
         pixel_size: options.pixel_size,
         glow: 0.0,
+        hide_unlit: false,
+        boost: 0,
     };
     let scene = Scene::new(&preview_props_of(job.show()), None, &look).ok_or(VideoError::NothingToShow)?;
     let (fw, fh) = (scene.width(), scene.height());

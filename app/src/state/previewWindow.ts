@@ -12,6 +12,7 @@ import { useEffect, useRef } from "react";
 import { create } from "zustand";
 import { errorMessage } from "../api/backend";
 import type { SequenceTarget } from "../api/sequence";
+import { type ViewOptions, readViewOptions, sameView } from "../lib/viewOptions";
 import { usePreviewSync } from "./previewSync";
 import { useSequencer } from "./sequencer";
 import { useApp } from "./store";
@@ -39,6 +40,8 @@ export interface PreviewFeed {
   transport: boolean;
   mode: LayoutMode;
   glow: number;
+  /** The other View options (names, pixels that are off, dot size, boost, the grid). */
+  view: ViewOptions;
   /** The viewer's preview sync offset (see state/previewSync.ts), so both windows draw the same moment. */
   syncMs: number;
 }
@@ -47,6 +50,7 @@ export interface PreviewFeed {
 export interface PreviewReply {
   mode: LayoutMode;
   glow: number;
+  view: ViewOptions;
   /** How many times play/pause was pressed there. */
   toggles: number;
 }
@@ -71,6 +75,7 @@ export function readFeed(value: unknown): PreviewFeed | null {
     transport: v.transport === true,
     mode: v.mode,
     glow: v.glow as number,
+    view: readViewOptions(v.view),
     syncMs: v.syncMs as number,
   };
 }
@@ -79,7 +84,7 @@ export function readFeed(value: unknown): PreviewFeed | null {
 export function readReply(value: unknown): PreviewReply | null {
   if (typeof value !== "object" || value === null) return null;
   const v = value as Record<string, unknown>;
-  return isMode(v.mode) && isNumber(v.glow) && isNumber(v.toggles) ? { mode: v.mode, glow: v.glow, toggles: v.toggles } : null;
+  return isMode(v.mode) && isNumber(v.glow) && isNumber(v.toggles) ? { mode: v.mode, glow: v.glow, view: readViewOptions(v.view), toggles: v.toggles } : null;
 }
 
 const KEY = "pixelflow.previewPoppedOut";
@@ -146,6 +151,7 @@ export function currentFeed(): PreviewFeed {
     transport: sequence || onPlay,
     mode: sequence ? view.sequenceMode : view.playMode,
     glow: view.glow,
+    view: readViewOptions(view),
     syncMs: usePreviewSync.getState().offsetMs,
   };
 }
@@ -154,6 +160,7 @@ export function currentFeed(): PreviewFeed {
 function adopt(reply: PreviewReply, seen: PreviewReply | null) {
   const view = useView3d.getState();
   if (reply.glow !== seen?.glow && reply.glow !== view.glow) view.setGlow(reply.glow);
+  if ((!seen || !sameView(reply.view, seen.view)) && !sameView(reply.view, readViewOptions(view))) view.setViewOptions(reply.view);
   if (reply.mode !== seen?.mode) {
     if (onSequence()) {
       if (view.sequenceMode !== reply.mode) view.setSequenceMode(reply.mode);

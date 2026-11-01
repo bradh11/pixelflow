@@ -935,7 +935,8 @@ function layerFor(target: HTMLCanvasElement): DotLayer | null {
 /**
  * Draws the props' pixels (see `stampPixels`) on a canvas whose transform is `ratio` device
  * pixels per screen pixel, over what's there. Then, while something plays, the glow around the
- * lit ones: as much as `glow` (0–1) says, none at 0 (see pixelGlow.ts).
+ * lit ones: as much as `glow` (0–1) says, none at 0 (see pixelGlow.ts), sized from the dot a
+ * pixel has in the layout scaled by `dotScale` (the viewer's Dot size, which `radius` has already).
  */
 export function drawPixels(
   ctx: CanvasRenderingContext2D,
@@ -948,8 +949,9 @@ export function drawPixels(
   radius: number,
   ratio: number,
   glow = 0,
+  dotScale = 1,
 ) {
-  const halos = frame && glow > 0 ? planHalos(ctx, glow, view, radius, ratio) : null;
+  const halos = frame && glow > 0 ? planHalos(ctx, glow, view, radius, ratio, dotScale) : null;
   const layer = layerFor(ctx.canvas);
   if (layer) {
     // Only where the last frame's dots were needs emptying.

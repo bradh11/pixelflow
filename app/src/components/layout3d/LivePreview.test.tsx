@@ -26,6 +26,7 @@ vi.mock("./threeScene", () => ({
     setSelectionBox: () => {},
     setGizmo: (g) => fake.gizmo.push(g),
     setOptions: () => {},
+    setFloor: () => {},
     render: () => {},
     dispose: () => {},
   }),

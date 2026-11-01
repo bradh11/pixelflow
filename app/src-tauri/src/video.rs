@@ -47,6 +47,12 @@ pub(crate) struct VideoRequest {
     /// How much each lit dot glows, 0 (crisp dots, when the dialog doesn't say) to 1.
     #[serde(default)]
     pub glow: f32,
+    /// Leave pixels that are off out, only lit ones showing (drawn dim when the dialog doesn't say).
+    #[serde(default)]
+    pub hide_unlit: bool,
+    /// How much dim levels are lifted, 0 (not at all, when the dialog doesn't say) to 3.
+    #[serde(default)]
+    pub boost: u8,
     /// Encode with ffmpeg (when it's installed), not the built-in encoder.
     pub ffmpeg: bool,
 }
@@ -157,6 +163,9 @@ fn options_for(request: &VideoRequest, encoder: Encoder) -> Reply<VideoOptions> 
     if !(request.glow.is_finite() && (0.0..=1.0).contains(&request.glow)) {
         return Err("The glow is out of range.".into());
     }
+    if request.boost > 3 {
+        return Err("Boost dim is out of range.".into());
+    }
     Ok(VideoOptions {
         width: request.width,
         height: request.height,
@@ -166,6 +175,8 @@ fn options_for(request: &VideoRequest, encoder: Encoder) -> Reply<VideoOptions> 
         photo: request.photo,
         pixel_size: request.pixel_size,
         glow: request.glow,
+        hide_unlit: request.hide_unlit,
+        boost: request.boost,
         encoder,
     })
 }
@@ -241,6 +252,8 @@ mod tests {
             photo: false,
             pixel_size: 1.0,
             glow: 0.0,
+            hide_unlit: false,
+            boost: 0,
             ffmpeg: false,
         }
     }
@@ -324,9 +337,21 @@ mod tests {
                 glow: f32::NAN,
                 ..request()
             },
+            VideoRequest {
+                boost: 4,
+                ..request()
+            },
         ] {
             assert!(options_for(&bad, compiled()).is_err(), "{bad:?}");
         }
+        // The viewer's pixels that are off, and Boost dim, go to the export.
+        let night = VideoRequest {
+            hide_unlit: true,
+            boost: 3,
+            ..request()
+        };
+        let options = options_for(&night, compiled()).unwrap();
+        assert_eq!((options.hide_unlit, options.boost), (true, 3));
     }
 
     #[test]
@@ -340,6 +365,14 @@ mod tests {
             (request.start_ms, request.end_ms, request.pixel_size),
             (1500, None, 1.5)
         );
+        // Pixels that are off dim, and no boost, when the dialog doesn't say.
+        assert_eq!((request.hide_unlit, request.boost), (false, 0));
+        let request: VideoRequest = serde_json::from_value(serde_json::json!({
+            "width": 1920, "height": 1080, "fps": 30, "startMs": 0, "endMs": null,
+            "photo": true, "pixelSize": 1, "hideUnlit": true, "boost": 2, "ffmpeg": false
+        }))
+        .unwrap();
+        assert_eq!((request.hide_unlit, request.boost), (true, 2));
     }
 
     #[test]

@@ -456,7 +456,7 @@ async function callTheSequencer(sequencer: SequencerApi) {
   await sequencer.pickSequenceDocSavePath("Carol.pfseq.json");
   await sequencer.pickExportPath("Carol.fseq");
   await sequencer.videoExportChoices();
-  await sequencer.exportVideo(`${DIR}/Carol.mp4`, { width: 1920, height: 1080, fps: 60, startMs: 1500, endMs: 9000, photo: true, pixelSize: 1.5, glow: 0.4, ffmpeg: true }, () => {});
+  await sequencer.exportVideo(`${DIR}/Carol.mp4`, { width: 1920, height: 1080, fps: 60, startMs: 1500, endMs: 9000, photo: true, pixelSize: 1.5, glow: 0.4, hideUnlit: true, boost: 2, ffmpeg: true }, () => {});
   await sequencer.exportVideo(`${DIR}/Carol.mp4`, { width: 1280, height: 720, fps: 30, startMs: 0, endMs: null, photo: false, pixelSize: 1, glow: 0, ffmpeg: false });
   await sequencer.cancelVideoExport();
   await sequencer.pickVideoPath("Carol.mp4");

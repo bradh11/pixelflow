@@ -33,6 +33,7 @@ vi.mock("../layout3d/threeScene", () => ({
       setSelectionBox: () => {},
       setGizmo: () => {},
       setOptions: () => {},
+      setFloor: () => {},
       render: (orbit) => void fake.orbits.push(orbit),
       dispose: () => void fake.disposed++,
     };

@@ -63,6 +63,7 @@ vi.mock("../components/layout3d/threeScene", () => ({
       setSelectionBox: (box) => (record.selectionBox = box),
       setGizmo: (gizmo) => (record.gizmo = gizmo),
       setOptions: () => {},
+      setFloor: () => {},
       render: (orbit) => (record.orbit = orbit),
       dispose: () => record.calls.push("dispose"),
     };

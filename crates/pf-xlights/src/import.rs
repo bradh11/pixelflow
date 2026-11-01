@@ -892,7 +892,7 @@ impl FixtureNotes {
             ),
             (
                 &self.servos,
-                "Matches: these DMX servos became servo fixtures, wired on their controller at the channels xLights gives them, each drawn as an arm that shows where it is",
+                "Matches: these DMX servos became servo fixtures, wired on their controller at the channels xLights gives them, each drawn as an arm that shows where it is; when nothing moves them they rest at Home, between their limits, where xLights would send them 0",
             ),
             (
                 &self.hung,

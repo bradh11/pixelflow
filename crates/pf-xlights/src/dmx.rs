@@ -20,7 +20,8 @@
 //!   16-bit scale, `RangeOfMotion` in degrees, `Reverse`); one after another from channel 1 when
 //!   the file doesn't say. A cell each, where its arm is drawn.
 //!
-//! A head's pan and tilt rest at Home when nothing moves them, as PixelFlow's own heads do.
+//! A head's pan and tilt, and each servo, rest at Home when nothing moves them, as PixelFlow's own
+//! heads and servos do.
 //! Every other channel holds 0, as xLights sends a channel nothing sets. Skulls and other DMX
 //! models stay as they were (a row of channel dots, not wired).
 
@@ -242,8 +243,9 @@ pub(crate) fn fixture(model: &XmlModel, kind: Kind, address: u16) -> Imported {
             out.cells = placed.max(1);
         }
     }
-    if kind == Kind::Head {
-        // Where nothing moves it, a head rests at Home (xLights would send its pan and tilt 0).
+    if matches!(kind, Kind::Head | Kind::Servo) {
+        // Where nothing moves them, a head and a servo rest at Home (xLights would send their
+        // motors 0).
         pf_model::rest_motors_at(&mut channels, 0.0);
     }
     out.fixture.channels = channels;
@@ -637,6 +639,9 @@ mod tests {
         assert_eq!(axes[1].values(-45.0), (64, Some(0)));
         assert_eq!(axes[1].values(90.0), (191, Some(255)));
         assert_eq!(f.problem(2), None);
+        // At rest, Home: the middle of each servo's limits, not the 0 xLights would send.
+        let held: Vec<u8> = f.channels.iter().map(|c| c.value).collect();
+        assert_eq!(held, [128, 0, 128, 0], "the servos rest at Home");
 
         let eight = model(
             "DmxServo",

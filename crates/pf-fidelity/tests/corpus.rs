@@ -435,7 +435,8 @@ fn a_baseline_holds_the_fixtures_and_fails_one_that_looks_worse() {
 
 /// The corpus's moving heads and servos, imported and rendered by PixelFlow alone, are sent what
 /// the sequence's DMX effects set at their channels (where xLights puts them), with the colors
-/// drawn on the heads in their color channels; where nothing sets them, the heads rest at Home.
+/// drawn on the heads in their color channels; where nothing sets them, the heads and servos rest
+/// at Home.
 #[test]
 fn the_corpus_heads_and_servos_get_their_channels() {
     let show = corpus().join("show");
@@ -492,6 +493,11 @@ fn the_corpus_heads_and_servos_get_their_channels() {
         "pan, pan fine, tilt, tilt fine"
     );
     assert_eq!(held("Spot Right", 2), [128, 128], "pan, tilt");
+    assert_eq!(
+        held("Arm", 4),
+        [128, 0, 128, 0],
+        "each servo and its fine channel"
+    );
 
     // From 20 s, xLights' Moving Head and Servo effects, as PixelFlow's own. Where each head
     // points, in degrees from Home, read back through its own motors.

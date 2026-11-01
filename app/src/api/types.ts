@@ -302,7 +302,7 @@ export interface DmxSlot {
   name?: string;
 }
 
-/** A moving head's beam as the previews draw it: how wide (degrees) and how long (layout units). */
+/** A moving head's beam as the previews draw it: how wide (degrees) and how far at full strength (layout units; its light fades on to four times as far). */
 export interface DmxBeam {
   angleDeg: number;
   length: number;

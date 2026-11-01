@@ -27,16 +27,17 @@
 //!
 //! PixelFlow first read fonts with `ttf-parser` (one crate, no dependencies of its own). It gets
 //! no more fixes, so since November 2026 PixelFlow reads them with `skrifa`, the kept-up parser,
-//! for the hard part: TrueType and CFF outlines, in `.ttc` and `.otc` collections too. The rest is
-//! PixelFlow's own, written for this: finding fonts (`find.rs`), reading the tables a letter's
-//! glyph, place, and size come from (`sfnt.rs`, which reads them as `ttf-parser` did, so the move
-//! changed nothing a show draws), and drawing outlines (`raster.rs`).
+//! and lets it do all the reading: which faces a file holds (`.ttc` and `.otc` collections too),
+//! their names, weight and slant, which glyph draws each character (symbol fonts included), the
+//! line metrics, advances and kerning, and the outlines (TrueType, CFF and CFF2, composite letters
+//! placed as FreeType and macOS place them). PixelFlow's own parts are finding the font files and
+//! choosing a face for a family and style (`find.rs`), and drawing the outlines as coverage
+//! (`raster.rs`).
 
 mod find;
 #[cfg(test)]
 mod pinned;
 mod raster;
-mod sfnt;
 mod sized;
 #[doc(hidden)]
 pub mod testing;

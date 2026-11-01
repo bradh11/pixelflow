@@ -1,14 +1,14 @@
 //! What the fonts draw, held to the bit: every letter's coverage, advance, and place at several
 //! sizes, made-up bold and italic included; each font's measurements and kerning; the letters it
-//! lacks; which fonts can't be drawn at all; and how families are found by name.
+//! lacks; how fonts with broken tables draw; and how families are found by name.
 //!
 //! The fonts are made here, using what real fonts use: quadratic curves that start off the curve,
-//! a contour with no point on it, letters made of other letters (moved, scaled, skewed, nested),
-//! a left side bearing that disagrees with the outline, CFF outlines with fractions, subroutines,
-//! hints, and flex, character maps of every kind, kerning of every kind, names in several
-//! languages and encodings, and tables broken in the ways real files are. The expected values
-//! were taken from the font reader PixelFlow used before (ttf-parser), so that a change of reader
-//! is held to drawing exactly what it drew.
+//! a contour with no point on it, letters made of other letters (moved, scaled, skewed, nested,
+//! placed by meeting points), a left side bearing that disagrees with the outline, CFF outlines
+//! with fractions, subroutines, hints, and flex, character maps of every kind (a symbol font's
+//! too), kerning of every kind, names in several languages and encodings and both versions of the
+//! name table, and tables broken in the ways real files are. The expected values are what skrifa
+//! 0.49 reads and PixelFlow's rasterizer draws, so that a change of either shows here.
 
 use crate::find::{FaceInfo, Library};
 use crate::sized;
@@ -687,12 +687,16 @@ fn curve_letters() -> Vec<(Option<char>, Shape, u16, i16)> {
         ),
         // 11: one point and nothing else.
         (Some('j'), Shape::Simple(vec![vec![on(300, 300)]]), 670, 300),
-        // 12: a component placed by meeting points.
+        // 12: a box, and a V placed by meeting points: the V's point 1 (its tip, 300 across and
+        // 0 up) on the box's point 2 (its top right corner, 420 across and 500 up).
         (
             Some('k'),
-            Shape::Composite(vec![part(2, Points(0, 1), Unscaled)], [100, 0, 470, 700]),
+            Shape::Composite(
+                vec![part(6, Words(0, 0), Unscaled), part(15, Points(2, 1), Unscaled)],
+                [120, 0, 720, 1200],
+            ),
             680,
-            100,
+            120,
         ),
         // 13: components that are empty or aren't in the font, beside one that is.
         (
@@ -1004,7 +1008,7 @@ fn advances(face: &FaceInfo, upem: f32, chars: &str) -> Option<Vec<f32>> {
 // ---- The tests ------------------------------------------------------------------------------
 
 #[test]
-fn the_tiny_font_is_unchanged_and_draws_as_before() {
+fn the_tiny_font_is_unchanged_and_draws_as_pinned() {
     let mut d = Digest::new();
     d.bytes(&tiny_font("Pin Tiny", false, false));
     assert_eq!(d.hex(), "743fdd5b3fc9f71b");
@@ -1020,21 +1024,23 @@ fn the_tiny_font_is_unchanged_and_draws_as_before() {
 }
 
 #[test]
-fn truetype_curves_and_composites_draw_as_before() {
+fn truetype_curves_and_composites_draw_as_pinned() {
     let face = only_face(curve_font("Pin Curves", 1100));
-    assert_eq!(drawn(&face, CURVE_TEXT), "c0f57d29086fca1b");
-    // At the em's size, pixels are font units. A box whose left bearing disagrees with its
-    // outline is drawn where its outline is; a component placed by meeting points isn't moved; a
-    // letter of one point draws nothing.
+    assert_eq!(drawn(&face, CURVE_TEXT), "974e025537aa7bfd");
+    // At the em's size, pixels are font units. A letter of one point draws nothing.
     let f = sized::sized(&face, 1100.0, false, false).unwrap();
     let bounds = |c| {
         let g = f.glyph(c);
         (g.left, g.top, g.width, g.height)
     };
-    assert_eq!(bounds('e'), (120, -500, 300, 500));
-    assert_eq!(bounds('k'), bounds('a'));
     assert_eq!(bounds('j'), (0, 0, 0, 0));
     assert_eq!(bounds('g'), (94, -997, 882, 1047));
+    // A box whose left bearing (30) disagrees with where its outline starts (120) is moved to
+    // its bearing, as FreeType and macOS draw it.
+    assert_eq!(bounds('e'), (30, -500, 300, 500));
+    // A component placed by meeting points is placed there: the V's tip on the box's top right
+    // corner, so the V stands on the box (it was drawn where it was stored, over the box).
+    assert_eq!(bounds('k'), (120, -1200, 600, 1200));
     // At the em's size each letter's advance is its glyph's (the last two share one).
     assert_eq!(
         advances(&face, 1100.0, "abcdefghijklV \u{1F642}?").unwrap(),
@@ -1046,16 +1052,17 @@ fn truetype_curves_and_composites_draw_as_before() {
 }
 
 #[test]
-fn cff_outlines_draw_as_before() {
+fn cff_outlines_draw_as_pinned() {
     let face = only_face(post_font("Pin Post"));
-    assert_eq!(drawn(&face, "abcdef ?"), "3891d16c4460b069");
-    // The letter of fractions, at the em's size (pixels are font units).
+    assert_eq!(drawn(&face, "abcdef ?"), "fdf5e4af4d963e8f");
+    // The letter of fractions, at the em's size (pixels are font units): its points are taken
+    // in whole font units, as FreeType takes them.
     let c = sized::sized(&face, 1000.0, false, false).unwrap().glyph('c');
-    assert_eq!((c.left, c.top, c.width, c.height), (120, -509, 252, 476));
+    assert_eq!((c.left, c.top, c.width, c.height), (120, -509, 251, 476));
 }
 
 #[test]
-fn a_collections_faces_of_both_kinds_draw_as_before() {
+fn a_collections_faces_of_both_kinds_draw_as_pinned() {
     let ttc = collection(vec![
         (u32::from_be_bytes(*b"OTTO"), {
             // The CFF font's tables, taken from its file.
@@ -1069,8 +1076,8 @@ fn a_collections_faces_of_both_kinds_draw_as_before() {
     let post = lib.find("pin mixed post", false, false).unwrap().face;
     let curves = lib.find("pin mixed curves", false, false).unwrap().face;
     assert_eq!((post.index, curves.index), (0, 1));
-    assert_eq!(drawn(post, "abcdef ?"), "3891d16c4460b069");
-    assert_eq!(drawn(curves, CURVE_TEXT), "8ee81ffcda5347d3");
+    assert_eq!(drawn(post, "abcdef ?"), "fdf5e4af4d963e8f");
+    assert_eq!(drawn(curves, CURVE_TEXT), "a8bc7b0606d24965");
 }
 
 /// The tables of a font file made by `sfnt`, read back.
@@ -1087,7 +1094,7 @@ fn tables_of(file: &[u8]) -> Tables {
 }
 
 #[test]
-fn line_metrics_come_from_the_same_tables_as_before() {
+fn line_metrics_come_from_the_line_skrifa_picks() {
     // (ascent, descent, line gap) at 1000 pixels to the 1000-unit em: font units.
     let metrics = |os2_table: Option<Vec<u8>>, hhea_table: Vec<u8>| {
         let tables = with(
@@ -1101,22 +1108,32 @@ fn line_metrics_come_from_the_same_tables_as_before() {
     };
     let typo = [905, -297, 61];
     let win = [1010, 330];
-    // The font asks for its typographic metrics (OS/2 version 4 or later).
+    // The font asks for its typographic metrics: in any version of OS/2 that has the flag, one
+    // of an unknown later version, or one cut short.
     assert_eq!(
         metrics(Some(os2(4, 1 << 7, typo, win)), hhea(880, -220, 40, 14)),
         (905.0, 297.0, 61.0)
     );
-    // Before version 4 the request isn't read: the horizontal header's.
     assert_eq!(
         metrics(Some(os2(3, 1 << 7, typo, win)), hhea(880, -220, 40, 14)),
-        (880.0, 220.0, 40.0)
+        (905.0, 297.0, 61.0)
+    );
+    assert_eq!(
+        metrics(Some(os2(6, 1 << 7, typo, win)), hhea(0, -220, 40, 14)),
+        (905.0, 297.0, 61.0)
+    );
+    let mut short = os2(4, 1 << 7, typo, win);
+    short.truncate(90);
+    assert_eq!(
+        metrics(Some(short), hhea(880, -220, 40, 14)),
+        (905.0, 297.0, 61.0)
     );
     // Without the request: the horizontal header's.
     assert_eq!(
         metrics(Some(os2(5, 0, typo, win)), hhea(880, -220, 40, 14)),
         (880.0, 220.0, 40.0)
     );
-    // A header with no ascender or descender takes the typographic ones, and their gap.
+    // A header with no ascender or descender: the typographic ones, and their gap.
     assert_eq!(
         metrics(Some(os2(1, 0, typo, win)), hhea(0, 0, 40, 14)),
         (905.0, 297.0, 61.0)
@@ -1126,25 +1143,16 @@ fn line_metrics_come_from_the_same_tables_as_before() {
         metrics(Some(os2(2, 0, [0, 0, 61], win)), hhea(0, 0, 40, 14)),
         (1010.0, 330.0, 0.0)
     );
-    // An OS/2 table of an unknown version, or too short for its version, isn't read.
-    assert_eq!(
-        metrics(Some(os2(6, 1 << 7, typo, win)), hhea(0, -220, 40, 14)),
-        (0.0, 220.0, 40.0)
-    );
-    let mut short = os2(4, 1 << 7, typo, win);
-    short.truncate(90);
-    assert_eq!(
-        metrics(Some(short), hhea(880, -220, 40, 14)),
-        (880.0, 220.0, 40.0)
-    );
-    // No OS/2 table.
+    // No OS/2 table: the header's.
     assert_eq!(metrics(None, hhea(0, -220, 40, 14)), (0.0, 220.0, 40.0));
 }
 
 #[test]
-fn characters_map_to_the_same_letters_as_before() {
+fn characters_map_through_the_map_skrifa_picks() {
     // The TrueType test font's tables with another character map. Each glyph's advance (at the
-    // em's size) names it: 2 is 560, 3 is 610, 4 is 620, 5 is 630, 0 (none) is 500.
+    // em's size) names it: 2 is 560, 3 is 610, 4 is 620, 5 is 630, 0 (none) is 500. skrifa
+    // reads one map, the fullest: a symbol map first, then full-repertoire ones, then the Basic
+    // Multilingual Plane's.
     let mapped = |subtables: &[(u16, u16, Vec<u8>)], chars: &str| {
         let tables = with(curve_font_tables("Pin Map", 1100), b"cmap", Some(cmap(subtables)));
         let face = only_face(sfnt(0x0001_0000, tables, 0));
@@ -1153,12 +1161,12 @@ fn characters_map_to_the_same_letters_as_before() {
             sized::missing_letters(&face, chars).unwrap(),
         )
     };
-    // A symbol map isn't read: every letter is missing.
+    // A symbol font's letters draw: 'A' through the symbol map's U+F041.
     assert_eq!(
         mapped(&[(3, 0, cmap4(&[(0xF041, 0xF043, 2)], None))], "A\u{F041}"),
-        (vec![500.0, 500.0], vec!['A', '\u{F041}'])
+        (vec![560.0, 560.0], Vec::<char>::new())
     );
-    // The first map that has a letter draws it; later ones fill in what it lacks.
+    // The full-repertoire map is read, not the first: its 'A' and 'B', and nothing else.
     assert_eq!(
         mapped(
             &[
@@ -1167,9 +1175,8 @@ fn characters_map_to_the_same_letters_as_before() {
             ],
             "AB\u{1F600}C"
         ),
-        (vec![560.0, 620.0, 620.0, 500.0], vec!['C'])
+        (vec![610.0, 620.0, 620.0, 500.0], vec!['C'])
     );
-    // A full-repertoire Windows map must be format 12 or 13; the BMP one may be any.
     assert_eq!(
         mapped(
             &[
@@ -1178,9 +1185,9 @@ fn characters_map_to_the_same_letters_as_before() {
             ],
             "A"
         ),
-        (vec![610.0], vec![])
+        (vec![560.0], Vec::<char>::new())
     );
-    // A Mac map isn't read; format 6 maps a run, glyph 0 included (not missing).
+    // A Unicode map before a Mac one; format 6 maps a run, and glyph 0 is no letter.
     assert_eq!(
         mapped(
             &[
@@ -1189,9 +1196,9 @@ fn characters_map_to_the_same_letters_as_before() {
             ],
             "ABCD"
         ),
-        (vec![560.0, 500.0, 610.0, 500.0], vec!['D'])
+        (vec![560.0, 500.0, 610.0, 500.0], vec!['B', 'D'])
     );
-    // Format 0 counts glyph 0 as none, so the next map is asked.
+    // Windows' Basic Multilingual Plane map before Unicode's.
     assert_eq!(
         mapped(
             &[
@@ -1200,9 +1207,9 @@ fn characters_map_to_the_same_letters_as_before() {
             ],
             "AB"
         ),
-        (vec![560.0, 630.0], vec![])
+        (vec![620.0, 630.0], Vec::<char>::new())
     );
-    // Format 4 through its glyph list (0 is none), then format 13 (a range to one glyph).
+    // Format 13 (a range to one glyph), the full-repertoire map, over format 4.
     assert_eq!(
         mapped(
             &[
@@ -1211,9 +1218,9 @@ fn characters_map_to_the_same_letters_as_before() {
             ],
             "ABCDa"
         ),
-        (vec![560.0, 620.0, 610.0, 620.0, 630.0], vec![])
+        (vec![620.0, 620.0, 620.0, 620.0, 500.0], vec!['a'])
     );
-    // Format 2 (single bytes here) and format 10.
+    // Format 10 over format 2 (which maps legacy two-byte encodings, so isn't read).
     assert_eq!(
         mapped(
             &[
@@ -1223,8 +1230,8 @@ fn characters_map_to_the_same_letters_as_before() {
             "ABC\u{1F600}\u{1F601}\u{1F602}"
         ),
         (
-            vec![610.0, 500.0, 620.0, 620.0, 630.0, 500.0],
-            vec!['B', '\u{1F602}']
+            vec![500.0, 500.0, 500.0, 620.0, 630.0, 500.0],
+            vec!['A', 'B', 'C', '\u{1F602}']
         )
     );
     // Groups out of order are searched as they are.
@@ -1232,7 +1239,7 @@ fn characters_map_to_the_same_letters_as_before() {
         mapped(&[(3, 10, cmap12(12, &[(0x42, 0x42, 3), (0x41, 0x41, 2)]))], "AB"),
         (vec![560.0, 500.0], vec!['B'])
     );
-    // A map whose platform isn't known ends the reading: nothing after it is looked at.
+    // A map of an unknown platform, or of a format that isn't known, is passed over.
     assert_eq!(
         mapped(
             &[
@@ -1241,14 +1248,13 @@ fn characters_map_to_the_same_letters_as_before() {
             ],
             "A"
         ),
-        (vec![500.0], vec!['A'])
+        (vec![610.0], Vec::<char>::new())
     );
-    // So does a map of a format that isn't known, or one too short to read.
     let mut unknown = cmap4(&[(0x41, 0x41, 2)], None);
     unknown[0..2].copy_from_slice(&3u16.to_be_bytes());
     assert_eq!(
         mapped(&[(0, 3, unknown), (3, 1, cmap4(&[(0x41, 0x41, 3)], None))], "A"),
-        (vec![500.0], vec!['A'])
+        (vec![610.0], Vec::<char>::new())
     );
     // No character map at all: every letter is missing and drawn as the missing-letter shape.
     let tables = with(curve_font_tables("Pin No Map", 1100), b"cmap", None);
@@ -1258,7 +1264,7 @@ fn characters_map_to_the_same_letters_as_before() {
 }
 
 #[test]
-fn kerning_comes_from_the_same_subtables_as_before() {
+fn kerning_comes_from_the_kern_table() {
     // Kerning between glyphs 2 ('a') and 15 ('V'), each way, at the em's size: font units.
     let kerned = |kern: Option<Vec<u8>>| {
         let tables = with(curve_font_tables("Pin Kern", 1000), b"kern", kern);
@@ -1328,77 +1334,77 @@ fn kerning_comes_from_the_same_subtables_as_before() {
 }
 
 #[test]
-fn fonts_that_could_not_be_drawn_still_cannot() {
-    // Each is found (its names are fine) but can't be drawn: no size, no letters to check.
-    let broken = |tables: Tables| {
-        let face = only_face(sfnt(0x0001_0000, tables, 0));
-        (
-            sized::sized(&face, 20.0, false, false).is_none(),
-            sized::missing_letters(&face, "a").is_none(),
-        )
-    };
+fn fonts_with_broken_tables_draw_as_skrifa_reads_them() {
+    // Each is found (its names are fine) and drawn as skrifa reads it: an em it can't use counts
+    // as 1000 units, a header it can't read gives no line metrics or advances, and a font with
+    // no outlines draws its letters as nothing, with their advances.
     let fine = curve_font_tables("Pin Broken", 1000);
-    assert_eq!(broken(fine.clone()), (false, false));
-    let mut tiny_em = head(15, true);
-    assert_eq!(
-        broken(with(fine.clone(), b"head", Some(tiny_em.clone()))),
-        (true, true)
-    );
-    tiny_em = head(16385, true);
-    assert_eq!(broken(with(fine.clone(), b"head", Some(tiny_em))), (true, true));
     let mut loca_format = head(1000, true);
     loca_format[51] = 2;
-    assert_eq!(
-        broken(with(fine.clone(), b"head", Some(loca_format))),
-        (true, true)
-    );
     let mut short_head = head(1000, true);
     short_head.truncate(53);
-    assert_eq!(
-        broken(with(fine.clone(), b"head", Some(short_head))),
-        (true, true)
-    );
-    assert_eq!(broken(with(fine.clone(), b"head", None)), (true, true));
-    assert_eq!(broken(with(fine.clone(), b"maxp", Some(maxp(0)))), (true, true));
     let mut maxp_version = maxp(16);
     maxp_version[0..4].copy_from_slice(&0x0002_0000u32.to_be_bytes());
-    assert_eq!(
-        broken(with(fine.clone(), b"maxp", Some(maxp_version))),
-        (true, true)
-    );
     let mut short_hhea = hhea(880, -220, 40, 14);
     short_hhea.truncate(35);
+    let variants = [
+        ("fine", fine.clone()),
+        (
+            "an em of 15 units",
+            with(fine.clone(), b"head", Some(head(15, true))),
+        ),
+        (
+            "an em of 16385 units",
+            with(fine.clone(), b"head", Some(head(16385, true))),
+        ),
+        (
+            "an unknown loca format",
+            with(fine.clone(), b"head", Some(loca_format)),
+        ),
+        ("a short head", with(fine.clone(), b"head", Some(short_head))),
+        ("no head", with(fine.clone(), b"head", None)),
+        ("no glyphs in maxp", with(fine.clone(), b"maxp", Some(maxp(0)))),
+        (
+            "an unknown maxp version",
+            with(fine.clone(), b"maxp", Some(maxp_version)),
+        ),
+        ("a short hhea", with(fine.clone(), b"hhea", Some(short_hhea))),
+        ("no hhea", with(fine.clone(), b"hhea", None)),
+        (
+            "no advances counted",
+            with(fine.clone(), b"hhea", Some(hhea(880, -220, 40, 0))),
+        ),
+        ("no hmtx", with(fine.clone(), b"hmtx", None)),
+        ("no loca", with(fine.clone(), b"loca", None)),
+        ("no glyf", with(fine.clone(), b"glyf", None)),
+    ];
+    let digests: Vec<(&str, String)> = variants
+        .into_iter()
+        .map(|(what, tables)| (what, drawn(&only_face(sfnt(0x0001_0000, tables, 0)), "abgV ?")))
+        .collect();
+    let digests: Vec<(&str, &str)> = digests.iter().map(|(w, d)| (*w, d.as_str())).collect();
     assert_eq!(
-        broken(with(fine.clone(), b"hhea", Some(short_hhea))),
-        (true, true)
-    );
-    assert_eq!(broken(with(fine.clone(), b"hhea", None)), (true, true));
-
-    // Fonts missing what letters are drawn with still draw: as nothing, or with no advance.
-    let drawn_without = |tag: &[u8; 4]| {
-        let face = only_face(sfnt(
-            0x0001_0000,
-            with(curve_font_tables("Pin Without", 1000), tag, None),
-            0,
-        ));
-        drawn(&face, "abgV ?")
-    };
-    assert_eq!(drawn_without(b"loca"), "ef9a91d008113246");
-    assert_eq!(drawn_without(b"glyf"), "ef9a91d008113246");
-    assert_eq!(drawn_without(b"hmtx"), "feaa7e8c540e51cc");
-    // No number of advances: the advances aren't read.
-    let tables = with(
-        curve_font_tables("Pin Without", 1000),
-        b"hhea",
-        Some(hhea(880, -220, 40, 0)),
-    );
-    assert_eq!(
-        drawn(&only_face(sfnt(0x0001_0000, tables, 0)), "abgV ?"),
-        "feaa7e8c540e51cc"
+        digests,
+        [
+            ("fine", "57f9efeae68f12e8"),
+            ("an em of 15 units", "57f9efeae68f12e8"),
+            ("an em of 16385 units", "57f9efeae68f12e8"),
+            ("an unknown loca format", "2078cd9b607eb70e"),
+            ("a short head", "ef9a91d008113246"),
+            ("no head", "ef9a91d008113246"),
+            ("no glyphs in maxp", "9e87bbfd22cc3ad2"),
+            ("an unknown maxp version", "57f9efeae68f12e8"),
+            ("a short hhea", "a0f764471563d654"),
+            ("no hhea", "a0f764471563d654"),
+            ("no advances counted", "1b323ac38e2ee9a5"),
+            ("no hmtx", "a0f764471563d654"),
+            ("no loca", "ef9a91d008113246"),
+            ("no glyf", "ef9a91d008113246"),
+        ]
     );
 
-    // A collection face whose offset is past the file's end isn't found; one whose tables are
-    // broken is found and can't be drawn.
+    // A collection face skrifa can't read (its offset is past the file's end) isn't found; one
+    // with a broken table is found and drawn.
     let mut ttc = collection(vec![
         (0x0001_0000, curve_font_tables("Pin Coll A", 1000)),
         (
@@ -1409,7 +1415,7 @@ fn fonts_that_could_not_be_drawn_still_cannot() {
     let lib = library(ttc.clone());
     assert_eq!(lib.families(), ["Pin Coll A", "Pin Coll B"]);
     let b = lib.find("pin coll b", false, false).unwrap().face;
-    assert!(sized::sized(b, 20.0, false, false).is_none());
+    assert!(sized::sized(b, 20.0, false, false).is_some());
     ttc[16..20].copy_from_slice(&u32::MAX.to_be_bytes());
     assert_eq!(library(ttc).families(), ["Pin Coll A"]);
 }
@@ -1440,9 +1446,9 @@ fn named(records: &[(u16, u16, u16, u16, Vec<u8>)]) -> Vec<String> {
 }
 
 #[test]
-fn families_are_named_as_before() {
-    // The Windows US English name is the menu's; every family name the face goes by is kept,
-    // a Mac name's letters past ASCII as '?'.
+fn families_are_named_from_the_names_skrifa_reads() {
+    // The English name is the menu's (US English first); every family name the face goes by is
+    // kept, a Mac name decoded from Mac Roman.
     assert_eq!(
         named(&[
             (1, 0, 0, 1, b"Caf\x8e Pin".to_vec()),
@@ -1451,9 +1457,9 @@ fn families_are_named_as_before() {
             (3, 1, 0x409, 2, utf16("Bold")),
             (3, 1, 0x409, 16, utf16("Café Group")),
         ]),
-        ["Café Pin | caf? pin, ピン, café pin, café group | 400 false"]
+        ["Café Pin | café pin, ピン, café group | 400 false"]
     );
-    // Without a Windows US English name: a Mac or Unicode one before another language.
+    // Without an English name: one with no language before one in another language.
     assert_eq!(
         named(&[
             (3, 1, 0x411, 1, utf16("ピン")),
@@ -1469,8 +1475,9 @@ fn families_are_named_as_before() {
         ]),
         ["Pin Grouped | pin grouped | 400 false"]
     );
-    // Symbol-encoded Windows names are UTF-16 too; a name that isn't valid UTF-16, or in an
-    // encoding not read, is passed over; a blank one is too.
+    // A name that isn't valid UTF-16 is read with a replacement character; one in an encoding
+    // skrifa doesn't read (Mac Japanese), or a blank one, is passed over; symbol-encoded Windows
+    // names are UTF-16 too.
     let mut lone = utf16("Pin");
     lone.extend([0xD8, 0x00]);
     assert_eq!(
@@ -1480,9 +1487,9 @@ fn families_are_named_as_before() {
             (3, 1, 0x409, 1, utf16("   ")),
             (3, 0, 0x409, 1, utf16("Pin Symbol")),
         ]),
-        ["Pin Symbol | pin symbol | 400 false"]
+        ["Pin\u{FFFD} | pin\u{FFFD}, pin symbol | 400 false"]
     );
-    // A name whose text lies past the table ends the reading: names after it aren't read.
+    // A name whose text lies past the table is passed over; the names after it are read.
     let mut table = name(&[
         (3, 1, 0x409, 1, utf16("Pin First")),
         (3, 1, 0x409, 16, utf16("Pin Second")),
@@ -1496,20 +1503,20 @@ fn families_are_named_as_before() {
             with(curve_font_tables("unused", 1000), b"name", Some(table)),
             0
         )),
-        ["Pin First | pin first | 400 false"]
+        ["Pin First | pin first, pin third | 400 false"]
     );
-    // So does a name of an unknown platform.
+    // So is a name of an unknown platform.
     assert_eq!(
         named(&[
             (3, 1, 0x409, 1, utf16("Pin Before")),
             (9, 1, 0x409, 16, utf16("Pin Unknown")),
             (3, 1, 0x409, 16, utf16("Pin After"))
         ]),
-        ["Pin Before | pin before | 400 false"]
+        ["Pin Before | pin before, pin after | 400 false"]
     );
     // A face with no family name isn't found.
     assert!(named(&[(3, 1, 0x409, 2, utf16("Regular"))]).is_empty());
-    // A version 1 name table (language tags after the names), read as before.
+    // A version 1 name table (language tags after the names) is read: the face is found.
     let mut v1 = name(&[
         (3, 1, 0x409, 1, utf16("Pin Version One")),
         (3, 1, 0x409, 16, utf16("Pin Version One Group")),
@@ -1525,6 +1532,6 @@ fn families_are_named_as_before() {
             with(curve_font_tables("unused", 1000), b"name", Some(v1)),
             0
         )),
-        Vec::<String>::new()
+        ["Pin Version One | pin version one, pin version one group | 400 false"]
     );
 }

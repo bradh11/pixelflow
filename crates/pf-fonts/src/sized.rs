@@ -1,8 +1,17 @@
 //! A font face at one size, with its letters drawn once each and kept for every frame after.
+//!
+//! skrifa reads the face: whether it can be read at all, which glyph draws each character, the
+//! line metrics, the advances, the kerning, and each letter's outline (TrueType, CFF or CFF2,
+//! composite letters put together and placed as FreeType and macOS place them). PixelFlow's
+//! own rasterizer (`raster.rs`) draws the outlines.
 
 use crate::find::{FaceInfo, Source};
 use crate::raster::{self, Outline};
-use crate::sfnt::{self, Face};
+use skrifa::font::glyph::outline::DrawOptions;
+use skrifa::font::{Blob, Font};
+use skrifa::raw::TableProvider;
+use skrifa::raw::tables::kern::SubtableKind;
+use skrifa::{DrawMemory, GlyphId};
 use std::collections::HashMap;
 use std::fmt;
 use std::path::PathBuf;
@@ -18,7 +27,7 @@ const EMBOLDEN: f32 = 1.0 / 24.0;
 /// One letter of a [`SizedFont`], drawn.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Glyph {
-    id: u16,
+    id: GlyphId,
     /// How far the next letter starts from where this one does, in pixels.
     pub advance: f32,
     /// The drawing's top left, in pixels from where the letter starts on its baseline: right,
@@ -46,10 +55,7 @@ impl Glyph {
 /// A font face at one size: its measurements, and its letters, each drawn the first time it's
 /// asked for.
 pub struct SizedFont {
-    data: Arc<[u8]>,
-    index: u32,
-    /// The face as skrifa reads it, to draw outlines with (`None` when it can't).
-    outlines: Option<skrifa::font::Font>,
+    font: Font,
     /// Pixels per font unit.
     scale: f32,
     /// How far apart a made-up bold's two drawings are, in pixels (0 for a real face).
@@ -62,14 +68,12 @@ pub struct SizedFont {
     /// The gap the font asks for between lines, in pixels.
     pub line_gap: f32,
     glyphs: RwLock<HashMap<char, Arc<Glyph>>>,
-    kerning: RwLock<HashMap<(u16, u16), f32>>,
+    kerning: RwLock<HashMap<(GlyphId, GlyphId), f32>>,
 }
 
 impl fmt::Debug for SizedFont {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("SizedFont")
-            .field("bytes", &self.data.len())
-            .field("index", &self.index)
             .field("scale", &self.scale)
             .field("embolden", &self.embolden)
             .field("slant", &self.slant)
@@ -81,15 +85,19 @@ impl fmt::Debug for SizedFont {
 }
 
 impl SizedFont {
-    fn new(data: Arc<[u8]>, index: u32, size: f32, fake_bold: bool, fake_italic: bool) -> Option<Self> {
-        let face = Face::parse(&data, index)?;
-        let scale = size / f32::from(face.units_per_em().max(1));
-        let (ascent, descent, line_gap) = (
-            f32::from(face.ascender()) * scale,
-            -f32::from(face.descender()) * scale,
-            f32::from(face.line_gap()) * scale,
-        );
-        Some(Self {
+    fn new(font: Font, size: f32, fake_bold: bool, fake_italic: bool) -> Self {
+        let scale = size / f32::from(font.units_per_em().max(1));
+        // The line skrifa picks: the typographic one when the font asks for it, else the
+        // horizontal header's, the typographic one, or the Windows clipping line.
+        let line = font.metrics().h_line();
+        let (ascent, descent, line_gap) = line.map_or((0.0, 0.0, 0.0), |l| {
+            (
+                l.ascender.to_f32() * scale,
+                -l.descender.to_f32() * scale,
+                l.line_gap.to_f32() * scale,
+            )
+        });
+        Self {
             embolden: if fake_bold { size * EMBOLDEN } else { 0.0 },
             slant: if fake_italic { SLANT } else { 0.0 },
             scale,
@@ -98,10 +106,8 @@ impl SizedFont {
             line_gap,
             glyphs: RwLock::default(),
             kerning: RwLock::default(),
-            outlines: sfnt::outline_font(&data, index),
-            data,
-            index,
-        })
+            font,
+        }
     }
 
     /// The letter `c`, drawn at this size (the font's box for a missing letter). Drawn the first
@@ -120,7 +126,9 @@ impl SizedFont {
     }
 
     fn draw(&self, c: char) -> Glyph {
-        let empty = |id: u16, advance: f32| Glyph {
+        let id = self.font.charmap().map_unicode(c).unwrap_or(GlyphId::NOTDEF);
+        let advance = self.font.glyph_metrics().h_advance(id) * self.scale + self.embolden;
+        let empty = Glyph {
             id,
             advance,
             left: 0,
@@ -129,14 +137,15 @@ impl SizedFont {
             height: 0,
             coverage: Box::new([]),
         };
-        let Some(face) = Face::parse(&self.data, self.index) else {
-            return empty(0, 0.0);
-        };
-        let id = face.glyph_index(c).unwrap_or(0);
-        let advance = f32::from(face.advance(id).unwrap_or(0)) * self.scale + self.embolden;
+        // In font units, as skrifa draws it unhinted; scaled (and slanted) as it is collected.
         let mut outline = Outline::new(self.scale, self.slant);
-        if !face.outline(self.outlines.as_ref(), id, &mut outline) {
-            return empty(id, advance);
+        let drawn = self.font.outline_glyphs().get(id).is_some_and(|glyph| {
+            glyph
+                .draw(&DrawOptions::new(), DrawMemory::Scratch, &mut outline)
+                .is_ok()
+        });
+        if !drawn {
+            return empty;
         }
         let mut lines = outline.lines;
         if self.embolden > 0.0 {
@@ -149,13 +158,12 @@ impl SizedFont {
         }
         let bitmap = raster::fill(&lines);
         Glyph {
-            id,
-            advance,
             left: bitmap.left,
             top: bitmap.top,
             width: bitmap.width,
             height: bitmap.height,
             coverage: bitmap.coverage.into_boxed_slice(),
+            ..empty
         }
     }
 
@@ -166,15 +174,29 @@ impl SizedFont {
         if let Some(&k) = self.kerning.read().unwrap_or_else(|e| e.into_inner()).get(&pair) {
             return k;
         }
-        let k = Face::parse(&self.data, self.index)
-            .and_then(|face| face.kerning(pair.0, pair.1))
-            .map_or(0.0, |units| f32::from(units) * self.scale);
+        let k = kern(&self.font, pair.0, pair.1).map_or(0.0, |units| units as f32 * self.scale);
         self.kerning
             .write()
             .unwrap_or_else(|e| e.into_inner())
             .insert(pair, k);
         k
     }
+}
+
+/// The `kern` table's value for a pair, in font units: from the first horizontal subtable that
+/// has the pair and doesn't vary.
+fn kern(font: &Font, left: GlyphId, right: GlyphId) -> Option<i32> {
+    let kern = font.tables().kern().ok()?;
+    kern.subtables()
+        .filter_map(Result::ok)
+        .filter(|s| s.is_horizontal() && !s.is_variable())
+        .find_map(|s| match s.kind().ok()? {
+            SubtableKind::Format0(t) => t.kerning(left, right),
+            SubtableKind::Format2(t) => t.kerning(left, right),
+            SubtableKind::Format3(t) => t.kerning(left, right),
+            // A state machine: no pairs.
+            SubtableKind::Format1(_) => None,
+        })
 }
 
 /// Which font data a face is, for sharing it between sizes.
@@ -216,14 +238,21 @@ fn data(source: &Source) -> Option<(DataKey, Arc<[u8]>)> {
     }
 }
 
+/// Face `index` of the font file `data`, as skrifa reads it; `None` when it can't.
+pub(crate) fn read(data: &Arc<[u8]>, index: u32) -> Option<Font> {
+    let shared: Arc<dyn AsRef<[u8]> + Send + Sync> = Arc::new(data.clone());
+    Font::new(Blob::from(shared), index)
+}
+
 /// The characters of `text` that `face` has no letter for (line breaks aside); `None` when its
 /// file can't be read.
 pub(crate) fn missing_letters(face: &FaceInfo, text: &str) -> Option<Vec<char>> {
     let (_, bytes) = data(&face.source)?;
-    let parsed = Face::parse(&bytes, face.index)?;
+    let font = read(&bytes, face.index)?;
+    let charmap = font.charmap();
     let mut missing: Vec<char> = Vec::new();
     for c in text.chars().filter(|c| !c.is_control()) {
-        if parsed.glyph_index(c).is_none() && !missing.contains(&c) {
+        if charmap.map_unicode(c).is_none() && !missing.contains(&c) {
             missing.push(c);
         }
     }
@@ -256,7 +285,12 @@ pub(crate) fn sized(
     if let Some(font) = sizes.get(&key) {
         return Some(font.clone());
     }
-    let font = Arc::new(SizedFont::new(bytes, face.index, size, fake_bold, fake_italic)?);
+    let font = Arc::new(SizedFont::new(
+        read(&bytes, face.index)?,
+        size,
+        fake_bold,
+        fake_italic,
+    ));
     sizes.insert(key, font.clone());
     Some(font)
 }
@@ -267,14 +301,8 @@ mod tests {
     use crate::testing::{UNITS_PER_EM, tiny_font};
 
     fn font(bold: bool, italic: bool, size: f32, fake_bold: bool, fake_italic: bool) -> SizedFont {
-        SizedFont::new(
-            Arc::from(tiny_font("Sized", bold, italic)),
-            0,
-            size,
-            fake_bold,
-            fake_italic,
-        )
-        .unwrap()
+        let data: Arc<[u8]> = Arc::from(tiny_font("Sized", bold, italic));
+        SizedFont::new(read(&data, 0).unwrap(), size, fake_bold, fake_italic)
     }
 
     #[test]

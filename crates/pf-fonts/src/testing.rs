@@ -323,21 +323,25 @@ pub fn tiny_collection(faces: &[(&str, bool, bool)]) -> Vec<u8> {
 mod tests {
     use super::*;
     use crate::find::Library;
-    use crate::sfnt::{Face, outline_font};
-    use skrifa::font::glyph::outline::PathElement;
+    use crate::sized::read;
+    use skrifa::GlyphId;
+    use skrifa::font::glyph::outline::{DrawOptions, PathElement};
     use std::sync::Arc;
 
     #[test]
     fn the_tiny_font_reads_as_a_font() {
         let data: Arc<[u8]> = Arc::from(tiny_font("Tiny", false, false));
-        let face = Face::parse(&data, 0).unwrap();
-        assert_eq!(face.units_per_em(), UNITS_PER_EM);
-        assert_eq!((face.ascender(), face.descender()), (800, -200));
-        let o = face.glyph_index('O').unwrap();
-        assert_eq!(o, RING);
-        assert_eq!(face.advance(o), Some(700));
+        let font = read(&data, 0).unwrap();
+        assert_eq!(font.units_per_em(), UNITS_PER_EM);
+        let line = font.metrics().h_line().unwrap();
+        assert_eq!((line.ascender.to_f32(), line.descender.to_f32()), (800.0, -200.0));
+        let o = font.charmap().map_unicode('O').unwrap();
+        assert_eq!(o, GlyphId::new(u32::from(RING)));
+        assert_eq!(font.glyph_metrics().h_advance(o), 700.0);
         let mut path: Vec<PathElement> = Vec::new();
-        assert!(face.outline(outline_font(&data, 0).as_ref(), o, &mut path));
+        let ring = font.outline_glyphs().get(o).unwrap();
+        ring.draw(&DrawOptions::new(), skrifa::DrawMemory::Scratch, &mut path)
+            .unwrap();
         let points: Vec<(f32, f32)> = path
             .iter()
             .filter_map(|el| match *el {
@@ -356,11 +360,11 @@ mod tests {
             ),
             (100.0, 0.0, 600.0, 700.0)
         );
-        assert!(face.glyph_index('\u{e9}').is_none());
-        let both = tiny_collection(&[("A", false, false), ("B", true, false)]);
-        assert!(Face::parse(&both, 1).is_some() && Face::parse(&both, 2).is_none());
+        assert!(font.charmap().map_unicode('\u{e9}').is_none());
+        let both: Arc<[u8]> = Arc::from(tiny_collection(&[("A", false, false), ("B", true, false)]));
+        assert!(read(&both, 1).is_some() && read(&both, 2).is_none());
         let mut lib = Library::default();
-        lib.add_data(Arc::from(both));
+        lib.add_data(both);
         assert_eq!(lib.find("B", false, false).unwrap().face.weight, 700);
     }
 }

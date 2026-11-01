@@ -58,9 +58,10 @@ rayon = "1.12.0"
 # on Windows) and listing serial ports with their USB names (MPL-2.0). Without its default
 # `libudev` feature, so Linux builds need no libudev: ports are listed from /sys instead.
 serialport = { version = "4.10.1", default-features = false }
-# Drawing the outlines of the computer's fonts for the Text effect (TrueType and CFF, collections):
-# Google Fonts' fontations, kept up and used in Chrome (MIT OR Apache-2.0). Only its `std` feature
-# (not the automatic hinter's shaping data, which nothing here uses).
+# Reading the computer's fonts for the Text effect: names, character maps, metrics, kerning, and
+# outlines (TrueType, CFF and CFF2, collections). Google Fonts' fontations, kept up and used in
+# Chrome (MIT OR Apache-2.0). Only its `std` feature (not the automatic hinter's shaping data,
+# which nothing here uses).
 skrifa = { version = "0.49.0", default-features = false, features = ["std"] }
 pf-model = { path = "crates/pf-model" }
 pf-geometry = { path = "crates/pf-geometry" }

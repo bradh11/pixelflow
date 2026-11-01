@@ -184,7 +184,8 @@ pub const MAX_DMX_SLOTS: usize = 64;
 pub struct DmxBeam {
     /// How wide the beam spreads, in degrees (the fixture's beam angle).
     pub angle_deg: f32,
-    /// How far it is drawn, in layout units.
+    /// How far the previews draw it at full strength, in layout units: its light fades on to four
+    /// times as far.
     pub length: f32,
 }
 

@@ -87,8 +87,9 @@ wheel, or cyan, magenta and yellow, usually with a dimmer and a shutter.
    - **Reversed**: it turns the other way as the value rises.
    - **Hung upside down**: it hangs from its base (turned half round in the front plane). To point
      it another way, turn the prop on Layout.
-   - **Beam width** (the fixture's beam angle) and **Beam drawn** (how far the previews draw it).
-     A head with a zoom channel (set a channel's role to **Zoom**) has **Zoom at 0** and **Zoom at
+   - **Beam width** (the fixture's beam angle) and **Beam drawn** (how far the previews draw its
+     beam at full strength; its light fades on to four times as far, so the default of 6 reaches
+     24). A head with a zoom channel (set a channel's role to **Zoom**) has **Zoom at 0** and **Zoom at
      255** instead: how wide its beam is at either end of the channel, from the manual; in
      between, the beam widens in proportion.
 
@@ -139,7 +140,7 @@ on a head's row, or on a group of heads to move them all at once.
   shutter](#strobe-and-shutter)), and at 0 opens it. A head with no strobe channel flashes its
   light instead.
 
-![The Sequence screen with a Moving Head effect on the Lawn Spots group of three heads: its settings show the pan and tilt pad, Pan 0, Tilt 50, the Circle movement 60 by 30 at 0.25 a second. The preview shows three blue beams fanned out from the lawn.](images/dmx-moving-head-effect.png)
+![The Sequence screen with a Moving Head effect on the Lawn Spots group of three heads: its settings show the pan and tilt pad, Pan 0, Tilt 50, the Circle movement 60 by 30 at 0.25 a second. The preview shows three long blue beams fanned out from the lawn, past the house, brighter where they cross.](images/dmx-moving-head-effect.png)
 
 Each head's limits always hold: a position past them stops at the limit. Fades dim the light and
 never move a head. Where it and a DMX effect set one channel, the later row (or the higher layer)
@@ -171,30 +172,47 @@ The head's color comes from what is drawn on it, on a layer below, or from its d
 channels set in the same effect. The previews draw the head's beam where it points, in its color;
 a servo's arm turns.
 
-![The Sequence screen with a DMX effect on the Lawn Spot moving head: 1 · Pan 156, 3 · Tilt 184, 6 · Dimmer 255 and 10 · Blue 255. The preview above the timeline shows a blue beam rising from the head to the right.](images/dmx-head-effect.png)
+![The Sequence screen with a DMX effect on the Lawn Spot moving head: 1 · Pan 156, 3 · Tilt 184, 6 · Dimmer 255 and 10 · Blue 255. The preview above the timeline shows a long blue beam rising from the head to the right, past the house, a flare at its lens.](images/dmx-head-effect.png)
 
 ## In the previews
 
-The previews show a head as the real light would look at night.
+The previews show a head as the real light would look at night, with a little haze in the air.
 
 - **A moving head** shows a beam from where it stands, where its pan and tilt point it, as wide
   as its beam angle (or its zoom channel) makes it. It is in the color the head shows and as
   bright: its dimmer, or the color's own brightness when it has no dimmer, makes it fainter or
-  stronger. Narrow near the head, the beam is bright; where it has spread wide it is softer, as a
-  real beam's light spreads out, and it fades out toward the end of the length it is drawn. So
-  it reads in the small preview beside the timeline and isn't blown out in a big one. Pointing
-  toward you, its end is a soft glow round the head.
+  stronger.
+- **Its reach**: the beam is at full strength as far as **Beam drawn** says, then fades gently
+  with distance, reaching four times as far before it ends softly. A head's beam reaches well
+  past the house, as a real one does at night.
+- **A filled cone**: the beam is brightest along its core and soft to its edges, and widens as it
+  goes. Narrow near the head, it is bright; where it has spread wide it is softer, so it reads in
+  the small preview beside the timeline and isn't blown out in a big one. Pointing toward or away
+  from you, you look along more of it and it is brighter, and its far end shows as a soft disc
+  (straight at you, a soft disc round the head).
+- **Where beams cross** their light adds up, as it does in haze: two orange beams make a
+  brighter orange where they cross, never washed out to white. Beams of different colors mix as
+  light does. Pixels' dots don't add up: each is drawn in its own color, over the beams.
+- **A flare at the lens**: while its light is on, a head shows a bright spot at its lens, larger
+  and whiter the brighter the head is. It flashes with the strobe.
 - **A beam pointing down** stops where it meets the ground and lights a pool of light there,
-  stretched the more the beam slants.
-- **Its shutter and strobe**: a closed shutter is dark, and a strobe flashes (see below).
+  stretched the more the beam slants, and as bright as what is left of the beam there.
+- **Its shutter and strobe**: a closed shutter is dark, with no beam or flare, and a strobe
+  flashes (see below). With the dimmer at 0, or the head at rest and unlit, nothing shows.
 - **Nothing playing**: with the lights off, nothing is lit. On **Layout**, a selected head shows a
-  thin dashed outline of where it points, to help you aim it; it is never drawn as light.
+  thin dashed outline of where it points, as far as **Beam drawn**, to help you aim it; it is
+  never drawn as light.
 - **A servo** shows an arm that turns with it, up at Home.
-- The 2D previews and an exported video draw them alike, from the same numbers; the 3D view draws
-  the beam as a cone by the same rules, which the house model hides where it stands in front of
-  it.
+- The 2D previews and an exported video draw them alike, from the same numbers, the beam cut off
+  at the edge of the picture. The 3D view draws each beam as a cone of lit haze by the same
+  rules, so it reads as a volume from any side, brighter where you look along it; the house model
+  hides it where it stands in front of it, and the ground stops it.
+- **Glow** (beside 2D and 3D) is a separate setting for how much lit pixels glow: it doesn't
+  change the beams, and neither does the **View** options' **Dot size**. **Boost dim** lifts a
+  dimmed head's light as it lifts a dim pixel, beam, flare and pool alike (see
+  [3d-view.md](3d-view.md)).
 
-![The same moment in the 3D view: a blue cone rising from the head, out from the house.](images/dmx-head-3d.png)
+![The same moment in the 3D view: a long blue beam rising from the head, out from the house, a bright flare at its lens.](images/dmx-head-3d.png)
 
 A head moves in the previews to where its channels point it at each moment, at once: a real head
 takes a moment to get there.

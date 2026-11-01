@@ -8,10 +8,13 @@
 // draw one frame when the GPU is made to finish it (the real cost, uncapped) with new colors
 // every frame and with the camera moving only, the time to fill and send the colors, and the
 // time to measure how every prop's pixels are spread out (once for a layout, not each frame).
+// With `heads`, that many moving heads stand in a row in front of the yard, their long beams
+// sweeping across each other every frame, some landing on the ground.
 
 import type { PreviewProp3d } from "../../api/types";
 import { type Orbit, boundsOfXyz, fillColors, fitOrbit, packPositions, packSpread, pickPixel, viewProjection } from "../../lib/layout3d";
 import { PREVIEW_LOOK, lightLook } from "../../lib/pixelLooks";
+import type { Motion3d } from "./scene";
 import { createThreeScene } from "./threeScene";
 
 /** Mega trees of 16 strings × 100 pixels in rows across a yard, `pixels` in all. */
@@ -44,6 +47,49 @@ function pickTime(props: PreviewProp3d[], orbit: Orbit, size: { width: number; h
   return times.sort((a, b) => a - b)[4];
 }
 
+/**
+ * `count` moving heads in a row from `left` to `right` along the front (`front`) of the synthetic
+ * show, at step `i`: each leans out and sweeps the other way from its neighbors, so their beams
+ * cross; every fourth points down onto the ground in a pool of light.
+ */
+export function sweepingHeads(count: number, i: number, [left, right, front]: [number, number, number], reach = 24): Motion3d[] {
+  const out: Motion3d[] = [];
+  const colors: [number, number, number][] = [
+    [255, 128, 0],
+    [160, 0, 255],
+    [0, 200, 255],
+    [255, 30, 60],
+  ];
+  for (let k = 0; k < count; k++) {
+    const origin = { x: count > 1 ? left + ((right - left) * k) / (count - 1) : (left + right) / 2, y: 4, z: front + 2 };
+    const color = colors[k % colors.length];
+    const sweep = Math.sin(i * 0.05 + k * 0.7) * 0.6;
+    const pan = (k % 2 ? 1 : -1) * 0.5 + sweep;
+    const down = k % 4 === 3;
+    const tilt = down ? 2.4 : 0.5 + 0.3 * Math.cos(i * 0.04 + k);
+    const dir = { x: Math.sin(pan) * Math.sin(tilt), y: Math.cos(tilt), z: Math.cos(pan) * Math.sin(tilt) * -0.5 };
+    const n = Math.hypot(dir.x, dir.y, dir.z);
+    const d = { x: dir.x / n, y: dir.y / n, z: dir.z / n };
+    const landed = d.y < 0 ? origin.y / -d.y : null;
+    const drawn = landed !== null && landed < reach ? landed : reach;
+    out.push({ kind: "beam", origin, dir: d, length: drawn, reach, angleDeg: 18, color, level: 1, lands: drawn !== reach });
+    if (drawn !== reach) {
+      const h = Math.hypot(d.x, d.z);
+      const radius = drawn * Math.tan((9 * Math.PI) / 180);
+      out.push({
+        kind: "pool",
+        at: { x: origin.x + d.x * drawn, y: 0, z: origin.z + d.z * drawn },
+        heading: h > 0 ? { x: d.x / h, z: d.z / h } : { x: 1, z: 0 },
+        radius,
+        stretch: radius / Math.max(-d.y, 0.2),
+        color,
+        level: 1,
+      });
+    }
+  }
+  return out;
+}
+
 function rainbow(frame: Uint8Array, shift: number) {
   for (let i = 0; i + 2 < frame.length; i += 3) {
     const hue = ((i / 3) * 0.7 + shift) % 360;
@@ -52,7 +98,7 @@ function rainbow(frame: Uint8Array, shift: number) {
 }
 
 /** `keep` leaves the last frame on screen (for a screenshot) instead of removing the canvas. */
-export async function runScene3dBench({ pixels = 200_000, frames = 300, width = 1280, height = 720, glow = 0.5, keep = false } = {}) {
+export async function runScene3dBench({ pixels = 200_000, frames = 300, width = 1280, height = 720, glow = 0.5, heads = 0, keep = false } = {}) {
   const canvas = document.createElement("canvas");
   Object.assign(canvas.style, { position: "fixed", left: "0", top: "0", width: `${width}px`, height: `${height}px`, zIndex: "9999" });
   document.body.append(canvas);
@@ -68,7 +114,8 @@ export async function runScene3dBench({ pixels = 200_000, frames = 300, width = 
   const spreadMs = performance.now() - t0;
   scene.setPixels(packed.xyz, spread);
   const colors = new Uint8Array(packed.xyz.length);
-  const start = fitOrbit(boundsOfXyz(props.map((p) => p.xyz)), { width, height });
+  const bounds = boundsOfXyz(props.map((p) => p.xyz))!;
+  const start = fitOrbit(bounds, { width, height });
   const orbitAt = (i: number): Orbit => ({ ...start, yaw: start.yaw + i * 0.01 });
   const none = new Set<string>();
 
@@ -85,6 +132,7 @@ export async function runScene3dBench({ pixels = 200_000, frames = 300, width = 
       const t0 = performance.now();
       fillColors(props, liveFrames[i % 3], none, selected, colors);
       scene.setColors(colors, true);
+      if (heads > 0) scene.setMotion(sweepingHeads(heads, i, [bounds.min.x, bounds.max.x, bounds.max.z]));
       fillMs += performance.now() - t0;
     }
     scene.render(orbitAt(i), true);
@@ -128,6 +176,7 @@ export async function runScene3dBench({ pixels = 200_000, frames = 300, width = 
     pixels: packed.xyz.length / 3,
     size: `${width}×${height} @${window.devicePixelRatio || 1}x`,
     glow,
+    heads,
     gpu: renderer && gl ? String(gl.getParameter(renderer.UNMASKED_RENDERER_WEBGL)) : "unknown",
     paintedFps: Math.round(painted * 10) / 10,
     msPerFrameFinished: Math.round(msPerFrame * 100) / 100,

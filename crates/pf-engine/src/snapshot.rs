@@ -77,7 +77,8 @@ pub struct PreviewMotion {
 }
 
 /// A moving head's beam: its pan and tilt (each left out when the head has none), its width in
-/// degrees (or its zoom channel's, when it has one) and how far it is drawn, in layout units.
+/// degrees (or its zoom channel's, when it has one) and how far it is drawn at full strength, in
+/// layout units (its light fades on to four times as far).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PreviewBeam {

@@ -7,20 +7,22 @@ import type { Backend } from "../../api/backend";
 import type { Size } from "../../lib/layoutMath";
 import type { Box3, FloorGrid, GizmoHandle, LightLook, Orbit, Ray, V3 } from "../../lib/layout3d";
 import type { PreviewProp3d } from "../../api/types";
-import { ARM_LENGTH, GRAZING, beamLight, beamWidth, groundReach, headDirection, servoDirection, spread } from "../../lib/beams";
+import { ARM_LENGTH, BEAM_REACH, GRAZING, alongBeam, beamLight, beamWidth, groundReach, headDirection, servoDirection, spread } from "../../lib/beams";
 
 type Rgb = readonly [number, number, number];
 
 /**
- * What the 3D view draws for moving heads and servos, in layout units: a lit head's beam (from
- * `origin`, pointing `dir`, `length` long, `angleDeg` wide, in its hue `color` as bright as
- * `level`; `lands`: it stops at the ground, at full), the pool of light where a beam meets the
- * ground (centred `at`, `radius` across and `stretch` along `heading`, the beam's way across the
- * ground), the dashed outline of where a selected head points while nothing plays (`aim`, never
+ * What the 3D view draws for moving heads and servos, in layout units: a lit head's beam and the
+ * flare at its lens (from `origin`, pointing `dir`, its light reaching `reach`, drawn `length`
+ * of that, `angleDeg` wide, in its hue `color` as bright as `level`; `lands`: it stops at the
+ * ground before the end of its reach), the pool of light where a beam meets the ground (centred
+ * `at`, `radius` across and `stretch` along `heading`, the beam's way across the ground, as bright
+ * as `level` says with what's left of the beam's light there), the dashed outline of where a
+ * selected head points while nothing plays (`aim`, as far as its beam is set to be drawn, never
  * light), or a servo's arm (from `origin`, pointing `dir`, `length` long).
  */
 export type Motion3d =
-  | { kind: "beam"; origin: V3; dir: V3; length: number; angleDeg: number; color: Rgb; level: number; lands: boolean }
+  | { kind: "beam"; origin: V3; dir: V3; length: number; reach: number; angleDeg: number; color: Rgb; level: number; lands: boolean }
   | { kind: "pool"; at: V3; heading: { x: number; z: number }; radius: number; stretch: number; color: Rgb; level: number }
   | { kind: "aim"; origin: V3; dir: V3; length: number; angleDeg: number; color: Rgb }
   | { kind: "arm"; origin: V3; dir: V3; length: number };
@@ -45,19 +47,21 @@ export function motionOf(props: PreviewProp3d[], frame: Uint8Array | null, aimin
       const dir = { x: d[0], y: d[1], z: d[2] };
       const origin = at(0);
       const angleDeg = beamWidth(motion, frame);
-      const landed = groundReach(origin.y, d, beam.length);
-      const length = landed ?? beam.length;
       if (!light) {
-        out.push({ kind: "aim", origin, dir, length, angleDeg, color: aimColor });
+        const landed = groundReach(origin.y, d, beam.length);
+        out.push({ kind: "aim", origin, dir, length: landed ?? beam.length, angleDeg, color: aimColor });
       } else {
+        const reach = BEAM_REACH * beam.length;
+        const landed = groundReach(origin.y, d, reach);
+        const length = landed ?? reach;
         const color: Rgb = [light.rgb & 255, (light.rgb >> 8) & 255, (light.rgb >> 16) & 255];
-        out.push({ kind: "beam", origin, dir, length, angleDeg, color, level: light.level, lands: landed !== null });
+        out.push({ kind: "beam", origin, dir, length, reach, angleDeg, color, level: light.level, lands: landed !== null });
         if (landed !== null) {
           const radius = Math.max(length * spread(angleDeg), 0.02);
           const h = Math.sqrt(d[0] * d[0] + d[2] * d[2]);
           const heading = h > 0 ? { x: d[0] / h, z: d[2] / h } : { x: 1, z: 0 };
           const ground = { x: origin.x + d[0] * length, y: 0, z: origin.z + d[2] * length };
-          out.push({ kind: "pool", at: ground, heading, radius, stretch: radius / Math.max(-d[1], GRAZING), color, level: light.level });
+          out.push({ kind: "pool", at: ground, heading, radius, stretch: radius / Math.max(-d[1], GRAZING), color, level: light.level * alongBeam(landed / reach) });
         }
       }
     }

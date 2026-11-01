@@ -132,8 +132,10 @@ function FlatPreview({
     const fitted = fitDisplay(box, size);
     const view = fitted.view;
     const dotScale = DOT_SCALES[dotSize];
-    // The night sky only behind the display itself (around it, the panel shows through).
+    // The night sky only behind the display itself (around it, the panel shows through), and the
+    // lights inside it: a beam reaching past it is cut off at its edge.
     ctx.fillStyle = BACKDROP;
+    ctx.save();
     if (box) {
       const a = toScreen(view, size, { x: box.minX, y: box.maxY });
       const b = toScreen(view, size, { x: box.maxX, y: box.minY });
@@ -141,6 +143,7 @@ function FlatPreview({
       ctx.beginPath();
       ctx.roundRect(a.x - pad, a.y - pad, b.x - a.x + 2 * pad, b.y - a.y + 2 * pad, 6);
       ctx.fill();
+      ctx.clip();
       const at = { x: Math.max(0, Math.round(a.x - pad)), y: Math.max(0, Math.round(a.y - pad)) };
       setCorner((was) => (was?.x === at.x && was.y === at.y ? was : at));
     } else {
@@ -159,6 +162,7 @@ function FlatPreview({
     // Dim levels lifted when the viewer boosts them: only what's drawn, never the frame.
     const shown = frame && boost > 0 ? boostFrame(frame, props, boost) : frame;
     drawPixels(ctx, props, shown, view, size, NONE, hideOff ? ONLY_LIT : COLORS, fitted.radius * dotScale, ratio, glow, dotScale);
+    ctx.restore();
     if (names && show) drawLabels(ctx, flatSpots(props, new Map(show.props.map((p) => [p.id, p.name])), view, size), size);
   }, [props, frame, size, show, photo, onlyRow, glow, names, hideOff, dotSize, boost]);
 

@@ -1,14 +1,16 @@
 //! Times a short 1080p export of made-up shows of several sizes, for checking that drawing the
 //! frames stays fast: a house's worth of outlines, window frames, trees and canes, and the rest of
-//! the pixels in matrices, every prop playing an effect that keeps most of its pixels lit.
+//! the pixels in matrices, every prop playing an effect that keeps most of its pixels lit. With
+//! `--heads`, that many moving heads stand in a row in front of it, circling and fanned so their
+//! beams sweep across each other.
 //!
 //! cargo run --release -p pf-video --example export_speed -- [PIXELS ...] \
-//!     [--seconds SECONDS] [--glow LEVEL] [--height 720|1080|2160] [--keep FOLDER]
+//!     [--seconds SECONDS] [--glow LEVEL] [--height 720|1080|2160] [--heads N] [--keep FOLDER]
 
 use anyhow::Context;
 use pf_engine::{Edit, Engine};
-use pf_model::{Generator, MatrixWiring, Prop, Rgb, ShapeSource, TreeStyle, Vec3};
-use pf_sequence::{Effect, EffectKind, Row, Target};
+use pf_model::{DmxFixture, Generator, MatrixWiring, Prop, Rgb, ShapeSource, TreeStyle, Vec3, dmx_layout};
+use pf_sequence::{Effect, EffectKind, EffectParams, HeadPattern, MovingHeadParams, Row, Target};
 use pf_video::{VideoOptions, export_video};
 use std::path::PathBuf;
 
@@ -133,6 +135,52 @@ fn props(pixels: u32) -> Vec<Prop> {
         .collect()
 }
 
+/// `count` 16-bit RGBW moving heads in a row `width` wide along the front of the scene.
+fn heads(count: u32, width: f32) -> Vec<Prop> {
+    let layout = dmx_layout("head-rgbw-16").expect("the library's 16-bit RGBW head");
+    (0..count)
+        .map(|k| {
+            let mut head = Prop::new(
+                format!("Head {}", k + 1),
+                ShapeSource::Generator(Generator::Line {
+                    nodes: 1,
+                    length: 0.5,
+                }),
+            );
+            let step = if count > 1 {
+                width / (count - 1) as f32
+            } else {
+                0.0
+            };
+            head.transform.position = Vec3::new(k as f32 * step, 0.3, 1.0);
+            head.dmx = Some(DmxFixture::from_layout(layout, 1, (1 + k * 16) as u16));
+            head
+        })
+        .collect()
+}
+
+/// A Moving Head effect for head `k` of a row: leaning out, circling, every other one turned the
+/// other way so their beams cross.
+fn sweep(k: usize, duration_ms: u64) -> Effect {
+    let colors = [
+        Rgb::new(255, 128, 0),
+        Rgb::new(160, 0, 255),
+        Rgb::new(0, 200, 255),
+    ];
+    let params = MovingHeadParams {
+        pan: if k.is_multiple_of(2) { -35.0 } else { 35.0 },
+        tilt: 25.0,
+        pattern: HeadPattern::Circle,
+        width: 50.0,
+        height: 20.0,
+        speed: 0.5,
+        ..MovingHeadParams::default()
+    };
+    Effect::new(EffectKind::MovingHead, 0, duration_ms)
+        .with_params(EffectParams::MovingHead(params))
+        .with_palette(vec![colors[k % colors.len()]])
+}
+
 fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let value = |name: &str| -> Option<&String> {
@@ -143,6 +191,7 @@ fn main() -> anyhow::Result<()> {
     let glow: f32 = value("--glow").and_then(|v| v.parse().ok()).unwrap_or(0.0);
     let height: u32 = value("--height").and_then(|v| v.parse().ok()).unwrap_or(1080);
     let keep = value("--keep").map(PathBuf::from);
+    let head_count: u32 = value("--heads").and_then(|v| v.parse().ok()).unwrap_or(0);
     let mut sizes: Vec<u32> = Vec::new();
     let mut skip = false;
     for arg in &args {
@@ -180,9 +229,9 @@ fn main() -> anyhow::Result<()> {
     for pixels in sizes {
         let data = tempfile::tempdir()?;
         let mut engine = Engine::new(data.path());
-        let props = props(pixels);
+        let mut props = props(pixels);
         let count: u32 = props.iter().map(Prop::node_count).sum();
-        let rows: Vec<Row> = props
+        let mut rows: Vec<Row> = props
             .iter()
             .enumerate()
             .map(|(n, prop)| {
@@ -194,6 +243,16 @@ fn main() -> anyhow::Result<()> {
                 row
             })
             .collect();
+        let width = props
+            .iter()
+            .map(|p| p.transform.position.x)
+            .fold(0.0f32, f32::max);
+        for (k, head) in heads(head_count, width).into_iter().enumerate() {
+            let mut row = Row::new(Target::Prop(head.id));
+            row.layers[0].effects.push(sweep(k, duration_ms));
+            rows.push(row);
+            props.push(head);
+        }
         engine.apply(props.into_iter().map(|prop| Edit::AddProp { prop }).collect())?;
         engine.new_sequence_doc_with_rows("Speed", duration_ms, None, rows)?;
         let job = engine.sequence_export()?;
@@ -211,7 +270,10 @@ fn main() -> anyhow::Result<()> {
             encoder: pf_video::Encoder::OpenH264FromSource,
         };
         let out = match &keep {
-            Some(folder) => folder.join(format!("speed-{count}-glow{:.0}.mp4", glow * 100.0)),
+            Some(folder) => folder.join(format!(
+                "speed-{count}-glow{:.0}-heads{head_count}.mp4",
+                glow * 100.0
+            )),
             None => data.path().join("speed.mp4"),
         };
         let mut rendering = None;
@@ -224,7 +286,7 @@ fn main() -> anyhow::Result<()> {
         })?;
         let drawn = rendering.unwrap_or_default().as_secs_f64();
         println!(
-            "{count} pixels, {}p, glow {glow}: {} frames in {:.2} s ({:.1} frames a second; drawing and encoding them {:.2} s, {:.1} a second)",
+            "{count} pixels, {head_count} heads, {}p, glow {glow}: {} frames in {:.2} s ({:.1} frames a second; drawing and encoding them {:.2} s, {:.1} a second)",
             summary.height,
             summary.frames,
             summary.elapsed_ms as f64 / 1000.0,

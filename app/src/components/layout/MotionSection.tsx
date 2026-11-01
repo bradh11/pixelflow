@@ -126,7 +126,7 @@ export function MotionSection({ prop, fixture, update }: { prop: Prop; fixture: 
             )}
             <NumberField
               label="Beam drawn"
-              hint="How far the previews draw its beam, in layout units"
+              hint="How far the previews draw its beam at full strength, in layout units; its light fades on to four times as far"
               value={beam.length}
               min={0.5}
               max={100}

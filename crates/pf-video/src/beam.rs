@@ -2,33 +2,50 @@
 //! `app/src/lib/beams.ts` and `stampPixels`, from the same numbers, to the same bits: the scenes
 //! in `app/src/api/contracts/pixels/` hold the two to each other).
 //!
-//! A beam is drawn as the light would look at night, from the color the head shows in the frame
-//! (dark while its shutter is shut), as bright as that color is, in its hue. It runs from the
-//! head's cell the way its pan and tilt point it (seen from the front), `length` layout units
-//! out, widening to `length · tan(angle / 2)` either side (the angle its zoom sets, if it has a
-//! zoom channel; never narrower than `NARROWEST` screen pixels): `along` of the way out and `r` of
-//! the way from its middle line to its edge, it is `(1 - r²)² × beam_strength(half width)` solid,
-//! strong where it is narrow and soft where it is wide. Past `FADE_FROM` of the way it fades out,
-//! except as much as it points at the viewer (`toward²`), whose end then shows as a round glow. A
-//! beam pointing down that reaches the ground (y = 0) stops there and lights a flat pool on it. A
-//! servo's arm turns from its cell in the fixture's front plane, `ARM_LENGTH` layout units long
-//! (never under `SHORTEST_ARM` screen pixels), in `ARM_COLOR`.
+//! A beam is drawn as its light would look at night in a little haze, from the color the head
+//! shows in the frame (dark while its shutter is shut or between a strobe's flashes), as bright
+//! as that color is, in its hue; beams' light adds up where they cross (`shine` in `dots.rs`).
+//! It runs from the head's cell the way its pan and tilt point it (seen from the front), its
+//! light reaching `BEAM_REACH` times its `length`: at full strength that far, then fading gently
+//! to `FAR` of it at the end of its reach (`along_beam`), where it ends softly. It widens by
+//! `tan(angle / 2)` either side for each unit out (the angle its zoom sets, if it has a zoom
+//! channel; never narrower than `NARROWEST` screen pixels): `r` of the way from its middle line to
+//! its edge, it is `(1 - r²)²` as strong as across its middle, which is `beam_strength(half
+//! width)`, strong where it is narrow and softer where wide. Pointing toward or away from the
+//! viewer, it is brighter for being seen along more of it, and its far end shows as a soft disc.
+//! A beam pointing down that reaches the ground (y = 0) stops there and lights a flat pool on it.
+//! At the lens, a flare: larger and whiter the brighter the head is. A servo's arm turns from its
+//! cell in the fixture's front plane, `ARM_LENGTH` layout units long (never under `SHORTEST_ARM`
+//! screen pixels), in `ARM_COLOR`.
 
 use crate::dots::View;
 use pf_engine::{PreviewAxis, PreviewMotion};
 use pf_model::{arm_direction, beam_direction, cos_deg, sin_deg};
 
-/// How solid a beam is at its narrowest.
-const BEAM_PEAK: f64 = 0.9;
-/// A beam this wide either side of its middle (screen pixels) is half as solid as at its
-/// narrowest.
-const BEAM_SOFT: f64 = 10.0;
-/// How far out (of its drawn length) a beam that lands nowhere starts fading to nothing.
-const FADE_FROM: f64 = 0.7;
-/// How solid a pool of light on the ground is at its smallest.
-const POOL_PEAK: f64 = 0.85;
-/// A pool this wide either side of its middle (screen pixels) is half as solid as at its
-/// smallest.
+/// A beam's light reaches this many times as far as it is set to be drawn (its `length`).
+pub(crate) const BEAM_REACH: f64 = 4.0;
+/// It is at full strength for this much of its reach (as far as it is set to be drawn), then
+/// fades gently.
+const FULL: f64 = 0.25;
+/// How much of its light is left at the end of its reach.
+const FAR: f64 = 0.35;
+/// A beam that lands nowhere eases out to nothing over the last this much of its reach.
+const SOFT_END: f64 = 0.06;
+/// How strong a beam is across its middle at its narrowest.
+const BEAM_PEAK: f64 = 0.8;
+/// A beam this wide either side of its middle (screen pixels) is 1/√2 as strong across its
+/// middle as at its narrowest; three times this, half.
+const BEAM_SOFT: f64 = 12.0;
+/// Seen along more of its length, a beam is brighter: up to 1 / `LEAST_SEEN` as bright, pointing
+/// at or away from the viewer.
+const LEAST_SEEN: f64 = 0.35;
+/// How strong a beam's far end is, seen face on, against the beam itself just before it.
+const CAP: f64 = 1.5;
+/// How strong a pool of light on the ground is at its smallest, before what's left of the beam's
+/// light there.
+const POOL_PEAK: f64 = 0.9;
+/// A pool this wide either side of its middle (screen pixels) is 1/√2 as strong as at its
+/// smallest; three times this, half.
 const POOL_SOFT: f64 = 24.0;
 /// A pool on the ground, seen from the front, is drawn this much as deep as it is wide.
 const POOL_FLAT: f64 = 0.3;
@@ -36,6 +53,17 @@ const POOL_FLAT: f64 = 0.3;
 const GRAZING: f64 = 0.2;
 /// The narrowest a beam is drawn, either side of its middle, in screen pixels.
 const NARROWEST: f64 = 1.5;
+/// A lens flare's radius in layout units at full brightness, never under `FLARE_SMALLEST` or
+/// over `FLARE_LARGEST` screen pixels; at its dimmest, `FLARE_FROM` of that.
+const FLARE_SIZE: f64 = 0.4;
+const FLARE_SMALLEST: f64 = 5.0;
+const FLARE_LARGEST: f64 = 28.0;
+const FLARE_FROM: f64 = 0.35;
+/// How strong a flare is at its middle at full brightness: over 1, so its middle is as bright
+/// as its color goes.
+const FLARE_PEAK: f64 = 1.5;
+/// How white a flare is at full brightness (0: the light's hue, 1: white).
+const FLARE_WHITE: f64 = 0.7;
 /// A servo's arm: its length in layout units, its shortest in screen pixels, and half its width
 /// in screen pixels.
 const ARM_LENGTH: f64 = 0.4;
@@ -44,23 +72,40 @@ const ARM_HALF_WIDTH: f64 = 1.0;
 /// A servo's arm: red, green, blue.
 pub(crate) const ARM_COLOR: [u8; 3] = [200, 200, 208];
 
-/// How solid a beam is on its middle line where it is `half` screen pixels wide either side.
+/// How strong a beam is across its middle where it is `half` screen pixels wide either side.
 fn beam_strength(half: f64) -> f64 {
-    BEAM_PEAK * BEAM_SOFT / (BEAM_SOFT + half)
+    BEAM_PEAK * (BEAM_SOFT / (BEAM_SOFT + half)).sqrt()
 }
 
-/// How solid a pool of light is at its middle when it is `half` screen pixels wide either side.
+/// How strong a pool of light is at its middle when it is `half` screen pixels wide either side.
 fn pool_strength(half: f64) -> f64 {
-    POOL_PEAK * POOL_SOFT / (POOL_SOFT + half)
+    POOL_PEAK * (POOL_SOFT / (POOL_SOFT + half)).sqrt()
 }
 
-/// How much of a beam's light is left `t` of the way out.
-fn end_fade(t: f64) -> f64 {
-    if t <= FADE_FROM {
+/// One over the part of a beam's reach over which it fades.
+const TO_FAR: f64 = 1.0 / (1.0 - FULL);
+
+/// How much of a beam's light is left `t` of the way along its reach: 1 until `FULL`, then
+/// easing down to `FAR` at its end.
+fn along_beam(t: f64) -> f64 {
+    if t <= FULL {
         return 1.0;
     }
-    let u = (t - FADE_FROM) / (1.0 - FADE_FROM);
-    1.0 - u * u * (3.0 - 2.0 * u)
+    let u = ((t - FULL) * TO_FAR).min(1.0);
+    1.0 - (1.0 - FAR) * u * u * (3.0 - 2.0 * u)
+}
+
+/// How much of a beam that lands nowhere shows `t` of the way along its reach: all of it, easing
+/// out to nothing over the last `SOFT_END`.
+fn soft_end(t: f64) -> f64 {
+    if t <= 1.0 - SOFT_END {
+        return 1.0;
+    }
+    if t >= 1.0 {
+        return 0.0;
+    }
+    let v = (1.0 - t) / SOFT_END;
+    v * v * (3.0 - 2.0 * v)
 }
 
 /// Where an axis points, in degrees from Home, in `frame`.
@@ -107,19 +152,35 @@ fn ground_reach(head_y: f64, d: [f64; 3], length: f64) -> Option<f64> {
     (s < length).then_some(s)
 }
 
-/// A pool of light in a picture: its middle and how far it reaches across and down, in picture
-/// pixels.
+/// A pool of light in a picture: its middle, how far it reaches across and down (picture
+/// pixels), and how strong it is at its middle.
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct Pool {
     cx: f64,
     cy: f64,
     rx: f64,
     ry: f64,
+    strength: f64,
+}
+
+/// A beam's far end in a picture, seen from the front: a disc across the beam, an ellipse as
+/// wide as the beam there and `depth` deep along its line (`ux`, `uy`, picture pixels), as strong
+/// at its middle as `strength`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Cap {
+    ux: f64,
+    uy: f64,
+    depth: f64,
+    strength: f64,
+    /// One over its depth, and over the beam's half width there.
+    per_depth: f64,
+    per_width: f64,
 }
 
 /// A beam in a picture: where it starts, how far and which way it runs, how wide its end is, how
-/// narrow it may be, picture pixels to a screen pixel, how much it points at the viewer
-/// (squared), and its pool on the ground when it lands on it, in picture pixels.
+/// narrow it may be, how much of its reach it runs (less than 1 where it lands on the ground), how
+/// much brighter it is for being seen along its length, and its far end or (where it lands) its
+/// pool on the ground, in picture pixels.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct BeamShape {
     ax: f64,
@@ -128,57 +189,81 @@ pub(crate) struct BeamShape {
     ey: f64,
     w: f64,
     narrow: f64,
-    ratio: f64,
-    toward: f64,
+    ends: f64,
+    look: f64,
+    cap: Option<Cap>,
     pool: Option<Pool>,
+    /// One over its run's length squared (0 when it runs nowhere), and over picture pixels to a
+    /// screen pixel.
+    per_run: f64,
+    per_ratio: f64,
 }
 
 /// A beam from the picture point (`ax`, `ay`), a head `head_y` above the ground (layout),
-/// pointing `d` (layout), `length` long and `angle_deg` wide, in `view`.
+/// pointing `d` (layout), its light reaching `reach` and `angle_deg` wide, in `view`.
 pub(crate) fn beam_shape(
     (ax, ay): (f64, f64),
     head_y: f64,
     d: [f64; 3],
-    length: f64,
+    reach: f64,
     angle_deg: f64,
     view: &View,
 ) -> BeamShape {
     let scale = view.zoom * view.ratio;
     let narrow = NARROWEST * view.ratio;
     let wide = sin_deg(angle_deg / 2.0) / cos_deg(angle_deg / 2.0);
-    let toward = if d[2] > 0.0 { d[2] } else { 0.0 };
-    let landed = ground_reach(head_y, d, length);
-    let reach = landed.unwrap_or(length);
-    let out = reach * scale;
+    let seen = (d[0] * d[0] + d[1] * d[1]).sqrt();
+    let facing = d[2].abs();
+    let landed = ground_reach(head_y, d, reach);
+    let drawn = landed.unwrap_or(reach);
+    let out = drawn * scale;
     let ex = d[0] * out;
     let ey = -d[1] * out;
-    let pool = landed.map(|_| {
+    let w = (out * wide).max(narrow);
+    let pool = landed.map(|landed| {
         // The cone's footprint: as wide as the cone where it lands, stretched along its slant.
-        let radius = reach * wide;
+        let radius = drawn * wide;
         let stretch = radius / (-d[1]).max(GRAZING);
         let h = (d[0] * d[0] + d[2] * d[2]).sqrt();
         let hx = if h > 0.0 { d[0] / h } else { 1.0 };
         let hz = if h > 0.0 { d[2] / h } else { 0.0 };
         let (sx, sz, rx, rz) = (stretch * hx, stretch * hz, radius * hx, radius * hz);
-        let across = (sx * sx + rz * rz).sqrt();
+        let across = ((sx * sx + rz * rz).sqrt() * scale).max(narrow);
         let deep = (sz * sz + rx * rx).sqrt();
         Pool {
             cx: ax + ex,
             cy: ay + ey,
-            rx: (across * scale).max(narrow),
+            rx: across,
             ry: (deep * scale * POOL_FLAT).max(view.ratio),
+            strength: pool_strength(across / view.ratio) * along_beam(landed / reach),
         }
     });
+    let cap = (landed.is_none() && facing > 0.0).then(|| {
+        let long = (ex * ex + ey * ey).sqrt();
+        let depth = (w * facing).max(view.ratio);
+        Cap {
+            ux: if long > 0.0 { ex / long } else { 1.0 },
+            uy: if long > 0.0 { ey / long } else { 0.0 },
+            depth,
+            strength: CAP * facing * FAR * beam_strength(w / view.ratio),
+            per_depth: 1.0 / depth,
+            per_width: 1.0 / w,
+        }
+    });
+    let run = ex * ex + ey * ey;
     BeamShape {
         ax,
         ay,
         ex,
         ey,
-        w: (out * wide).max(narrow),
+        w,
         narrow,
-        ratio: view.ratio,
-        toward: toward * toward,
+        ends: drawn / reach,
+        look: 1.0 / seen.max(LEAST_SEEN),
+        cap,
         pool,
+        per_run: if run > 0.0 { 1.0 / run } else { 0.0 },
+        per_ratio: 1.0 / view.ratio,
     }
 }
 
@@ -218,59 +303,119 @@ fn edges_box(
 }
 
 impl BeamShape {
-    /// The picture pixels it (and its pool) can touch.
-    pub(crate) fn bounds(&self, width: usize, height: usize) -> (usize, usize, usize, usize) {
+    /// The rows of a picture `height` high it (with its far end and its pool) can touch:
+    /// `y0..y1`.
+    pub(crate) fn rows(&self, height: usize) -> (usize, usize) {
         let reach = self.w + 1.0;
-        let mut edges = (
-            self.ax.min(self.ax + self.ex) - reach,
-            self.ax.max(self.ax + self.ex) + reach,
-            self.ay.min(self.ay + self.ey) - reach,
-            self.ay.max(self.ay + self.ey) + reach,
-        );
+        let mut top = self.ay.min(self.ay + self.ey) - reach;
+        let mut bottom = self.ay.max(self.ay + self.ey) + reach;
         if let Some(p) = self.pool {
-            edges = (
-                edges.0.min(p.cx - p.rx - 1.0),
-                edges.1.max(p.cx + p.rx + 1.0),
-                edges.2.min(p.cy - p.ry - 1.0),
-                edges.3.max(p.cy + p.ry + 1.0),
-            );
+            top = top.min(p.cy - p.ry - 1.0);
+            bottom = bottom.max(p.cy + p.ry + 1.0);
         }
-        edges_box(edges, width, height)
+        let (_, _, y0, y1) = edges_box((0.0, 0.0, top, bottom), 0, height);
+        (y0, y1)
     }
 
-    /// How solid it (and its pool) is at the middle of the picture pixel (`px`, `py`), as a share
-    /// of a full light's (0 outside it).
+    /// The columns of row `py` of a picture `width` wide it (with its far end and its pool) can
+    /// touch: `x0..x1`, none when `x0 >= x1`. Its cone lies within the four-sided shape from its
+    /// start, `narrow` either side, to its end, `w` either side; its far end and its pool within
+    /// their ellipses.
+    pub(crate) fn columns(&self, py: usize, width: usize) -> (usize, usize) {
+        let y = py as f64 + 0.5;
+        let (mut left, mut right) = (f64::INFINITY, f64::NEG_INFINITY);
+        let (ex, ey) = (self.ax + self.ex, self.ay + self.ey);
+        let long = (self.ex * self.ex + self.ey * self.ey).sqrt();
+        if long > 0.0 {
+            let (nx, ny) = (-self.ey / long, self.ex / long);
+            let corners = [
+                (self.ax + nx * self.narrow, self.ay + ny * self.narrow),
+                (ex + nx * self.w, ey + ny * self.w),
+                (ex - nx * self.w, ey - ny * self.w),
+                (self.ax - nx * self.narrow, self.ay - ny * self.narrow),
+            ];
+            for i in 0..4 {
+                let ((x0, y0), (x1, y1)) = (corners[i], corners[(i + 1) % 4]);
+                if (y0 - y) * (y1 - y) > 0.0 {
+                    continue;
+                }
+                if y0 == y1 {
+                    left = left.min(x0).min(x1);
+                    right = right.max(x0).max(x1);
+                } else {
+                    let x = x0 + (y - y0) * (x1 - x0) / (y1 - y0);
+                    left = left.min(x);
+                    right = right.max(x);
+                }
+            }
+        }
+        let mut round = |cx: f64, cy: f64, rx: f64, ry: f64| {
+            let dy = (y - cy) / ry;
+            if dy * dy < 1.0 {
+                let across = rx * (1.0 - dy * dy).sqrt();
+                left = left.min(cx - across);
+                right = right.max(cx + across);
+            }
+        };
+        if let Some(p) = self.pool {
+            round(p.cx, p.cy, p.rx, p.ry);
+        }
+        if let Some(c) = self.cap {
+            // Where the row crosses the ellipse `depth` deep along (ux, uy) and `w` across it.
+            let dy = y - ey;
+            let (dd, ww) = (c.depth * c.depth, self.w * self.w);
+            let a = c.ux * c.ux / dd + c.uy * c.uy / ww;
+            let b = c.ux * c.uy * dy * (1.0 / dd - 1.0 / ww);
+            let k = dy * dy * (c.uy * c.uy / dd + c.ux * c.ux / ww) - 1.0;
+            let disc = b * b - a * k;
+            if disc > 0.0 {
+                let r = disc.sqrt();
+                left = left.min(ex + (-b - r) / a);
+                right = right.max(ex + (-b + r) / a);
+            }
+        }
+        if left > right {
+            return (0, 0);
+        }
+        let (x0, x1, _, _) = edges_box((left - 1.0, right + 1.0, 0.0, 0.0), width, 0);
+        (x0, x1)
+    }
+
+    /// How much light it (with its far end and its pool) gives at the middle of the picture pixel
+    /// (`px`, `py`), as a share of a full light's (0 outside it; more than 1 where it is that
+    /// bright).
     pub(crate) fn at(&self, px: usize, py: usize) -> f64 {
         let qx = px as f64 + 0.5 - self.ax;
         let qy = py as f64 + 0.5 - self.ay;
-        let ee = self.ex * self.ex + self.ey * self.ey;
-        let t = if ee > 0.0 {
-            (qx * self.ex + qy * self.ey) / ee
-        } else {
-            1.0
-        };
         let mut lit = 0.0;
-        if (0.0..=1.0).contains(&t) {
-            let rx = qx - t * self.ex;
-            let ry = qy - t * self.ey;
-            let half = (t * self.w).max(self.narrow);
-            let r2 = (rx * rx + ry * ry) / (half * half);
-            if r2 < 1.0 {
-                let s = 1.0 - r2;
-                let along = if self.pool.is_some() {
-                    1.0
-                } else {
-                    self.toward + (1.0 - self.toward) * end_fade(t)
-                };
-                lit = s * s * along * beam_strength(half / self.ratio);
+        if self.per_run > 0.0 {
+            let t = (qx * self.ex + qy * self.ey) * self.per_run;
+            if (0.0..=1.0).contains(&t) {
+                let rx = qx - t * self.ex;
+                let ry = qy - t * self.ey;
+                let half = (t * self.w).max(self.narrow);
+                let r2 = (rx * rx + ry * ry) / (half * half);
+                if r2 < 1.0 {
+                    let s = 1.0 - r2;
+                    let along = t * self.ends;
+                    let left = if self.pool.is_some() {
+                        along_beam(along)
+                    } else {
+                        along_beam(along) * soft_end(along)
+                    };
+                    lit = s * s * left * beam_strength(half * self.per_ratio) * self.look;
+                }
             }
-        } else if t > 1.0 && self.pool.is_none() && self.toward > 0.0 {
-            let rx = qx - self.ex;
-            let ry = qy - self.ey;
-            let r2 = (rx * rx + ry * ry) / (self.w * self.w);
-            if r2 < 1.0 {
-                let s = 1.0 - r2;
-                lit = s * s * self.toward * beam_strength(self.w / self.ratio);
+        }
+        if let Some(c) = self.cap {
+            let cx = qx - self.ex;
+            let cy = qy - self.ey;
+            let along = (cx * c.ux + cy * c.uy) * c.per_depth;
+            let across = (cy * c.ux - cx * c.uy) * c.per_width;
+            let q = along * along + across * across;
+            if q < 1.0 {
+                let s = 1.0 - q;
+                lit += s * s * c.strength;
             }
         }
         if let Some(p) = self.pool {
@@ -279,11 +424,60 @@ impl BeamShape {
             let q = dx * dx + dy * dy;
             if q < 1.0 {
                 let s = 1.0 - q;
-                let pool = s * s * pool_strength(p.rx / self.ratio);
-                lit = lit + pool - lit * pool;
+                lit += s * s * p.strength;
             }
         }
         lit
+    }
+}
+
+/// A lens flare in a picture: its middle and radius (picture pixels), how strong it is at its
+/// middle, and its red, green and blue.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct FlareShape {
+    x: f64,
+    y: f64,
+    r: f64,
+    strength: f64,
+    pub(crate) rgb: [u32; 3],
+}
+
+/// The flare at a head's lens, at the picture point (`x`, `y`), for its light: its hue at full
+/// and how bright it is (see [`beam_light`]), in `view`.
+pub(crate) fn flare_shape((x, y): (f64, f64), (hue, level): ([u32; 3], f64), view: &View) -> FlareShape {
+    let size = (FLARE_SIZE * view.zoom).clamp(FLARE_SMALLEST, FLARE_LARGEST);
+    let white = FLARE_WHITE * level;
+    let whiter = |c: u32| (f64::from(c) + f64::from(255 - c) * white + 0.5).floor() as u32;
+    FlareShape {
+        x,
+        y,
+        r: size * (FLARE_FROM + (1.0 - FLARE_FROM) * level) * view.ratio,
+        strength: FLARE_PEAK * level,
+        rgb: hue.map(whiter),
+    }
+}
+
+impl FlareShape {
+    /// The picture pixels it can touch.
+    pub(crate) fn bounds(&self, width: usize, height: usize) -> (usize, usize, usize, usize) {
+        edges_box(
+            (self.x - self.r, self.x + self.r, self.y - self.r, self.y + self.r),
+            width,
+            height,
+        )
+    }
+
+    /// How much light it gives at the middle of the picture pixel (`px`, `py`), as a share of a
+    /// full light's (0 outside it).
+    pub(crate) fn at(&self, px: usize, py: usize) -> f64 {
+        let dx = (px as f64 + 0.5 - self.x) / self.r;
+        let dy = (py as f64 + 0.5 - self.y) / self.r;
+        let q = dx * dx + dy * dy;
+        if q >= 1.0 {
+            return 0.0;
+        }
+        let s = 1.0 - q;
+        s * s * s * self.strength
     }
 }
 
@@ -347,46 +541,99 @@ mod tests {
         }
     }
 
-    #[test]
-    fn a_beam_up_is_strong_where_narrow_softer_where_wide_and_fades_out_at_its_end() {
-        let b = beam_shape((50.5, 80.0), 1.0, [0.0, 1.0, 0.0], 6.0, 30.0, &view());
-        // 60 pixels up; at the far end 60 × tan 15° ≈ 16 either side.
-        let near = b.at(50, 79);
-        assert!(near > 0.7, "{near}");
-        let middle = b.at(50, 49);
-        assert!(middle > 0.3 && middle < near, "{middle}");
-        let late = b.at(50, 24);
-        assert!(late < middle * 0.8, "fading out: {late}");
-        assert_eq!(b.at(50, 85), 0.0, "nothing behind the head");
-        assert_eq!(b.at(80, 49), 0.0, "nothing past its edge");
-        assert_eq!(b.at(50, 15), 0.0, "nothing past its end");
-        let (x0, x1, y0, y1) = b.bounds(100, 100);
-        assert!(x0 <= 33 && x1 >= 67 && y0 <= 3 && y1 >= 81);
+    /// Every picture pixel of a 100 × 100 picture a beam gives light at lies in the rows and
+    /// columns it says it can touch.
+    fn covered(b: &BeamShape) -> bool {
+        let (y0, y1) = b.rows(100);
+        (0..100).all(|py| {
+            let (x0, x1) = if (y0..y1).contains(&py) {
+                b.columns(py, 100)
+            } else {
+                (0, 0)
+            };
+            (0..100).all(|px| b.at(px, py) == 0.0 || (x0..x1).contains(&px))
+        })
     }
 
     #[test]
-    fn a_beam_at_the_viewer_is_a_glow_round_the_head() {
-        let b = beam_shape((50.0, 50.0), 1.0, [0.0, 0.0, 1.0], 6.0, 30.0, &view());
-        assert!(b.at(49, 49) > 0.2);
-        assert!(b.at(60, 49) > 0.0);
-        assert_eq!(b.at(70, 49), 0.0);
+    fn a_beam_up_is_strong_where_narrow_and_fades_gently_to_the_end_of_its_reach() {
+        // Reaching 8 up (80 pixels), at full for the first 2; 30° wide.
+        let b = beam_shape((50.5, 90.0), 1.0, [0.0, 1.0, 0.0], 8.0, 30.0, &view());
+        let near = b.at(50, 89);
+        assert!(near > 0.7, "{near}");
+        let full = b.at(50, 71);
+        assert!(full > 0.4 && full < near, "softer where wider: {full}");
+        let middle = b.at(50, 49);
+        assert!(middle < full && middle > 0.2, "fading gently: {middle}");
+        let late = b.at(50, 15);
+        assert!(
+            late > 0.05 && late < middle * 0.8,
+            "still there near its end: {late}"
+        );
+        assert!(b.at(50, 49) > b.at(56, 49), "brightest along its middle");
+        assert_eq!(b.at(50, 95), 0.0, "nothing behind the head");
+        assert_eq!(b.at(80, 49), 0.0, "nothing past its edge");
+        assert_eq!(b.at(50, 8), 0.0, "nothing past its end");
+        assert!(covered(&b));
+    }
+
+    #[test]
+    fn a_beam_seen_along_is_brighter_and_its_far_end_a_soft_disc() {
+        // Leaning right, then the same leaning toward the viewer too: shorter, and brighter.
+        let side = beam_shape((20.0, 80.0), 1.0, [0.6, 0.8, 0.0], 6.0, 20.0, &view());
+        let toward = beam_shape((20.0, 80.0), 1.0, [0.6, 0.48, 0.64], 6.0, 20.0, &view());
+        assert!(toward.at(26, 75) > side.at(26, 72) * 1.2);
+        assert!(side.cap.is_none(), "seen from the side, no disc");
+        let cap = toward.cap.expect("its far end, seen at a slant");
+        assert!(cap.depth < toward.w, "an ellipse, squashed along the beam");
+        // Straight at the viewer: a soft disc round the head, as wide as the beam's end.
+        let at = beam_shape((50.0, 50.0), 1.0, [0.0, 0.0, 1.0], 6.0, 30.0, &view());
+        assert!(at.at(49, 49) > 0.1);
+        assert!(at.at(60, 49) > 0.0 && at.at(60, 49) < at.at(49, 49));
+        assert_eq!(at.at(70, 49), 0.0);
+        for b in [side, toward, at] {
+            assert!(covered(&b));
+        }
     }
 
     #[test]
     fn a_beam_down_stops_at_the_ground_and_lights_a_flat_pool_there() {
         // A head 2 up pointing straight down: 20 pixels to the ground at y 70.
-        let b = beam_shape((50.0, 50.0), 2.0, [0.0, -1.0, 0.0], 6.0, 30.0, &view());
-        assert!(b.at(49, 65) > 0.3, "the beam, full to the ground");
-        assert!(b.at(49, 69) > 0.4, "the pool");
+        let b = beam_shape((50.0, 50.0), 2.0, [0.0, -1.0, 0.0], 24.0, 30.0, &view());
+        assert!(b.at(49, 65) > 0.3, "the beam, to the ground");
+        assert!(b.at(49, 69) > b.at(49, 65), "the pool adds to it");
         assert!(b.at(53, 69) > 0.0, "wider than it is deep");
         assert_eq!(b.at(49, 75), 0.0, "nothing below the ground");
-        assert_eq!(b.at(49, 66).min(1.0), b.at(49, 66));
+        assert!(b.cap.is_none());
+        assert!(covered(&b));
+        // Landing far out, less of the beam's light is left for its pool.
+        let far = beam_shape((50.0, 20.0), 6.0, [0.0, -1.0, 0.0], 8.0, 10.0, &view());
+        assert!(far.pool.unwrap().strength < b.pool.unwrap().strength);
         // A head on the ground pointing up lands nowhere.
         assert!(
             beam_shape((50.0, 50.0), 0.0, [0.0, 1.0, 0.0], 6.0, 30.0, &view())
                 .pool
                 .is_none()
         );
+    }
+
+    #[test]
+    fn a_flare_at_the_lens_is_larger_and_whiter_the_brighter_the_head() {
+        let bright = flare_shape((50.0, 50.0), ([0, 0, 255], 1.0), &view());
+        let dim = flare_shape((50.0, 50.0), ([0, 0, 255], 0.25), &view());
+        assert!(bright.r > dim.r);
+        assert!(bright.rgb[0] > dim.rgb[0] && dim.rgb[0] > 0);
+        assert_eq!(bright.rgb[2], 255, "still its hue");
+        assert!(bright.at(49, 49) > 1.0, "white-hot at its middle");
+        assert!(bright.at(49, 49) > dim.at(49, 49));
+        let (x0, x1, y0, y1) = bright.bounds(100, 100);
+        for py in 0..100 {
+            for px in 0..100 {
+                if bright.at(px, py) > 0.0 {
+                    assert!((x0..x1).contains(&px) && (y0..y1).contains(&py));
+                }
+            }
+        }
     }
 
     #[test]

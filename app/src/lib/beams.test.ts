@@ -5,10 +5,21 @@ import { mapFixtures } from "../api/memoryMapping";
 import { newEffect, newRow, type Sequence } from "../api/sequence";
 import type { PreviewMotion, PreviewProp3d } from "../api/types";
 import { motionOf } from "../components/layout3d/scene";
-import { aimAt, aimOutline, armAt, armShape, beamAt, beamLight, beamShape, beamWidth, headDirection, previewMotionOf, rotationBasis } from "./beams";
+import { type BeamShape, aimAt, aimOutline, alongBeam, armAt, armShape, beamAt, beamColumns, beamLight, beamRows, beamShape, beamWidth, flareAt, flareBox, flareShape, headDirection, previewMotionOf, rotationBasis } from "./beams";
 import { newMovingHead, newServo } from "./dmx";
+import { boostFrame } from "./viewOptions";
 
 const near = (a: number[], b: number[], within = 1e-9) => a.every((v, i) => Math.abs(v - b[i]) < within);
+
+/** Whether every pixel of a 100 × 100 picture a beam gives light at lies in the rows and columns it says it can touch. */
+function covered(b: BeamShape): boolean {
+  const [y0, y1] = beamRows(b, 100);
+  for (let py = 0; py < 100; py++) {
+    const [x0, x1] = py >= y0 && py < y1 ? beamColumns(b, py, 100) : [0, 0];
+    for (let px = 0; px < 100; px++) if (beamAt(b, px, py) !== 0 && !(px >= x0 && px < x1)) return false;
+  }
+  return true;
+}
 
 /** A 16-bit head whose pan is at frame byte 3 (fine 4) and tilt at 5 (fine 6). */
 const motion: PreviewMotion = {
@@ -28,30 +39,70 @@ describe("moving heads' beams and servos' arms in the previews (the same cases a
     expect(near(headDirection(motion, [0, 0, 0, 170, 170, 213, 85]), [1, 0, 0], 1e-4)).toBe(true);
   });
 
-  it("draw a beam strong where it is narrow, softer where wide, fading out at its end", () => {
-    const view = { zoom: 10, ratio: 1 };
-    const b = beamShape(50.5, 80, 1, [0, 1, 0], 6, 30, view.zoom, view.ratio);
-    const near = beamAt(b, 50, 79);
-    expect(near).toBeGreaterThan(0.7);
+  it("draw a beam strong where it is narrow, fading gently to the end of its reach", () => {
+    // Reaching 8 up (80 pixels), at full for the first 2; 30° wide.
+    const b = beamShape(50.5, 90, 1, [0, 1, 0], 8, 30, 10, 1);
+    const close = beamAt(b, 50, 89);
+    expect(close).toBeGreaterThan(0.7);
+    const full = beamAt(b, 50, 71);
+    expect(full).toBeGreaterThan(0.4);
+    expect(full).toBeLessThan(close);
     const middle = beamAt(b, 50, 49);
-    expect(middle).toBeGreaterThan(0.3);
-    expect(middle).toBeLessThan(near);
-    expect(beamAt(b, 50, 24)).toBeLessThan(middle * 0.8);
-    expect([beamAt(b, 50, 85), beamAt(b, 80, 49), beamAt(b, 50, 15)]).toEqual([0, 0, 0]);
-    const glow = beamShape(50, 50, 1, [0, 0, 1], 6, 30, view.zoom, view.ratio);
-    expect(beamAt(glow, 49, 49)).toBeGreaterThan(0.2);
-    expect(beamAt(glow, 70, 49)).toBe(0);
-    const arm = armShape(50, 50, [1, 0, 0], view.zoom, view.ratio);
+    expect(middle).toBeLessThan(full);
+    expect(middle).toBeGreaterThan(0.2);
+    const late = beamAt(b, 50, 15);
+    expect(late).toBeGreaterThan(0.05);
+    expect(late).toBeLessThan(middle * 0.8);
+    expect(beamAt(b, 50, 49)).toBeGreaterThan(beamAt(b, 56, 49));
+    expect([beamAt(b, 50, 95), beamAt(b, 80, 49), beamAt(b, 50, 8)]).toEqual([0, 0, 0]);
+    expect(covered(b)).toBe(true);
+    expect([alongBeam(0.2), alongBeam(1)]).toEqual([1, 0.35]);
+    const arm = armShape(50, 50, [1, 0, 0], 10, 1);
     expect([armAt(arm, 55, 49), armAt(arm, 60, 52), armAt(arm, 50, 49), armAt(arm, 95, 49)]).toEqual([1, 0, 1, 0]);
   });
 
+  it("brighten a beam seen along its length, its far end a soft disc", () => {
+    // Leaning right, then the same leaning toward the viewer too: shorter, and brighter.
+    const side = beamShape(20, 80, 1, [0.6, 0.8, 0], 6, 20, 10, 1);
+    const toward = beamShape(20, 80, 1, [0.6, 0.48, 0.64], 6, 20, 10, 1);
+    expect(beamAt(toward, 26, 75)).toBeGreaterThan(beamAt(side, 26, 72) * 1.2);
+    expect(side.cap).toBeNull();
+    expect(toward.cap!.depth).toBeLessThan(toward.w);
+    // Straight at the viewer: a soft disc round the head, as wide as the beam's end.
+    const at = beamShape(50, 50, 1, [0, 0, 1], 6, 30, 10, 1);
+    expect(beamAt(at, 49, 49)).toBeGreaterThan(0.1);
+    expect(beamAt(at, 60, 49)).toBeGreaterThan(0);
+    expect(beamAt(at, 60, 49)).toBeLessThan(beamAt(at, 49, 49));
+    expect(beamAt(at, 70, 49)).toBe(0);
+    for (const b of [side, toward, at]) expect(covered(b)).toBe(true);
+  });
+
   it("stop a beam pointing down at the ground, in a flat pool of light", () => {
-    const b = beamShape(50, 50, 2, [0, -1, 0], 6, 30, 10, 1);
+    // A head 2 up pointing straight down: 20 pixels to the ground at y 70.
+    const b = beamShape(50, 50, 2, [0, -1, 0], 24, 30, 10, 1);
     expect(beamAt(b, 49, 65)).toBeGreaterThan(0.3);
-    expect(beamAt(b, 49, 69)).toBeGreaterThan(0.4);
+    expect(beamAt(b, 49, 69)).toBeGreaterThan(beamAt(b, 49, 65));
     expect(beamAt(b, 53, 69)).toBeGreaterThan(0);
     expect(beamAt(b, 49, 75)).toBe(0);
+    expect(b.cap).toBeNull();
+    expect(covered(b)).toBe(true);
+    // Landing far out, less of the beam's light is left for its pool.
+    expect(beamShape(50, 20, 6, [0, -1, 0], 8, 10, 10, 1).pool!.strength).toBeLessThan(b.pool!.strength);
     expect(beamShape(50, 50, 0, [0, 1, 0], 6, 30, 10, 1).pool).toBeNull();
+  });
+
+  it("flare at the lens, larger and whiter the brighter the head", () => {
+    const blue = 255 << 16;
+    const bright = flareShape(50, 50, { rgb: blue, level: 1 }, 10, 1);
+    const dim = flareShape(50, 50, { rgb: blue, level: 0.25 }, 10, 1);
+    expect(bright.r).toBeGreaterThan(dim.r);
+    expect(bright.rgb & 255).toBeGreaterThan(dim.rgb & 255);
+    expect(dim.rgb & 255).toBeGreaterThan(0);
+    expect((bright.rgb >> 16) & 255).toBe(255);
+    expect(flareAt(bright, 49, 49)).toBeGreaterThan(1);
+    expect(flareAt(bright, 49, 49)).toBeGreaterThan(flareAt(dim, 49, 49));
+    const [x0, x1, y0, y1] = flareBox(bright, 100, 100);
+    for (let py = 0; py < 100; py++) for (let px = 0; px < 100; px++) if (flareAt(bright, px, py) > 0) expect(px >= x0 && px < x1 && py >= y0 && py < y1).toBe(true);
   });
 
   it("draw a light in its hue, as bright as it is, and nothing when it's dark", () => {
@@ -96,11 +147,25 @@ describe("moving heads' beams and servos' arms in the previews (the same cases a
   it("go to the 3D view as cones and arms from the cells, a dark head showing none", () => {
     const prop: PreviewProp3d = { prop: "h", frameOffset: 0, channelsPerPixel: 3, xyz: new Float32Array([1, 2, 3]), motion: { ...motion, servos: [motion.beam!.pan!] } };
     const lit = motionOf([prop], new Uint8Array([255, 0, 0, 128, 0, 128, 0]));
-    expect(lit[0]).toMatchObject({ kind: "beam", origin: { x: 1, y: 2, z: 3 }, color: [255, 0, 0], level: 1, lands: false, length: 6, angleDeg: 30 });
+    // Its light reaches four times as far as its beam is set to be drawn.
+    expect(lit[0]).toMatchObject({ kind: "beam", origin: { x: 1, y: 2, z: 3 }, color: [255, 0, 0], level: 1, lands: false, length: 24, reach: 24, angleDeg: 30 });
     expect(lit[1]).toMatchObject({ kind: "arm", origin: { x: 1, y: 2, z: 3 } });
     // Dimmed: the same hue, less bright.
     expect(motionOf([prop], new Uint8Array([100, 50, 0, 128, 0, 128, 0]))[0]).toMatchObject({ color: [255, 128, 0], level: 100 / 255 });
     expect(motionOf([prop], new Uint8Array(7)).map((m) => m.kind)).toEqual(["arm"]);
+  });
+
+  it("lift a dimmed head's light in 3D as Boost dim lifts it in the flat previews, leaving where it points", () => {
+    const prop: PreviewProp3d = { prop: "h", frameOffset: 0, channelsPerPixel: 3, xyz: new Float32Array([1, 2, 3]), motion };
+    const frame = new Uint8Array([100, 50, 0, 170, 170, 213, 85]);
+    const [plain] = motionOf([prop], frame);
+    const [boosted] = motionOf([prop], boostFrame(frame, [prop], 2));
+    expect(boosted).toMatchObject({ kind: "beam", color: [255, 128, 0] });
+    expect(boosted.kind === "beam" && plain.kind === "beam" && boosted.level > plain.level).toBe(true);
+    expect(boosted.kind === "beam" && boosted.dir).toEqual(plain.kind === "beam" && plain.dir);
+    // A head at full, or dark, is as it was.
+    expect(motionOf([prop], boostFrame(new Uint8Array([255, 0, 0, 128, 0, 128, 0]), [prop], 3))[0]).toMatchObject({ level: 1 });
+    expect(motionOf([prop], boostFrame(new Uint8Array(7), [prop], 3))).toEqual([]);
   });
 
   it("show no light in 3D while nothing plays, only a selected head's aim", () => {
@@ -114,7 +179,7 @@ describe("moving heads' beams and servos' arms in the previews (the same cases a
     const hung: PreviewMotion = { ...motion, basis: [-1, 0, 0, 0, -1, 0, 0, 0, 1] };
     const prop: PreviewProp3d = { prop: "h", frameOffset: 0, channelsPerPixel: 3, xyz: new Float32Array([1, 2, 3]), motion: hung };
     const [beam, pool] = motionOf([prop], new Uint8Array([0, 0, 200, 128, 0, 128, 0]));
-    expect(beam).toMatchObject({ kind: "beam", lands: true });
+    expect(beam).toMatchObject({ kind: "beam", lands: true, reach: 24 });
     expect(beam.kind === "beam" && beam.length).toBeCloseTo(2, 3);
     expect(pool).toMatchObject({ kind: "pool", color: [0, 0, 255], level: 200 / 255 });
     expect(pool.kind === "pool" && [pool.at.x, pool.at.y, pool.at.z]).toEqual([expect.closeTo(1, 3), 0, expect.closeTo(3, 3)]);

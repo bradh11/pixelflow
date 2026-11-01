@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PreviewProp } from "../api/types";
-import { type DotImage, FAINT, FINE_FROM, drawPixels, dotShapes, dotSize, packColor, pixelRoom, pixelSpacing, pixelSpread3d, pixelsAllRound, stampPixels } from "./pixelBatches";
+import { type DotImage, FAINT, FINE_FROM, drawPixels, dotShapes, dotSize, packColor, pixelRoom, pixelSpacing, pixelSpread3d, pixelsAllRound, shine, stampPixels } from "./pixelBatches";
 
 const COLORS = { unlit: "rgba(200, 200, 200, 0.5)", selected: "#a78bfa", dark: "rgba(80, 80, 80, 0.5)" };
 const SIZE = { width: 100, height: 100 };
@@ -625,6 +625,79 @@ describe("a moving head's beam in the flat previews", () => {
     expect(at(full.image, 50, 30).slice(0, 3)).toEqual([0, 0, 255]);
     expect(at(dim.image, 50, 30).slice(0, 3)).toEqual([0, 0, 255]);
     expect(solid(dim.image, 50, 30)).toBeLessThan(solid(full.image, 50, 30) / 2);
-    expect(solid(stamped([head], new Uint8Array([0, 0, 0, 128, 128])).image, 50, 30)).toBe(0);
+    // No beam, and no flare beside its dot.
+    const dark = stamped([head], new Uint8Array([0, 0, 0, 128, 128]));
+    expect([solid(dark.image, 50, 30), solid(dark.image, 50, 55), solid(dark.image, 55, 50)]).toEqual([0, 0, 0]);
+  });
+
+  it("draws a beam's light four times as far as it is set to be drawn", () => {
+    // Set to 4 (40 pixels): it reaches 160, past the top of the picture.
+    const lit = stamped([head], new Uint8Array([0, 0, 255, 128, 128]));
+    expect(solid(lit.image, 50, 2)).toBeGreaterThan(0);
+  });
+
+  it("shows a flare at the lens, whiter and larger the brighter the head, under the head's own dot", () => {
+    const full = stamped([head], new Uint8Array([0, 0, 255, 128, 128]));
+    const dim = stamped([head], new Uint8Array([0, 0, 64, 128, 128]));
+    // Beside the dot, below the head where its beam isn't.
+    const [r, g, b] = at(full.image, 50, 53);
+    expect(b).toBe(255);
+    expect(Math.min(r, g)).toBeGreaterThan(100);
+    expect(solid(dim.image, 50, 53)).toBeLessThan(solid(full.image, 50, 53));
+    expect(at(dim.image, 50, 53)[0]).toBeLessThan(r);
+    const reach = (image: DotImage) => Array.from({ length: 20 }, (_, k) => solid(image, 50, 51 + k)).filter((a) => a > 0).length;
+    expect(reach(full.image)).toBeGreaterThan(reach(dim.image));
+    // The head's own dot is in its color, over the flare.
+    expect(at(full.image, 50, 50).slice(0, 3)).toEqual([0, 0, 255]);
+  });
+
+  it("adds beams' light where they cross, keeping its hue", () => {
+    const leaning = (id: string, x: number, offset: number): PreviewProp => ({
+      ...prop(id, [x, 0], offset),
+      motion: {
+        basis: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+        beam: {
+          pan: { at: offset + 3, rest: [128, 0], motor: { rangeDeg: 540, homeDeg: 270 } },
+          tilt: { at: offset + 4, rest: [128, 0], motor: { rangeDeg: 270, homeDeg: 135 } },
+          angleDeg: 20,
+          length: 1,
+        },
+      },
+    });
+    // Leaning 45° right from 2 left of the middle, and 45° left from 2 right: they cross 2 up.
+    const pair = [leaning("left", -2, 0), leaning("right", 2, 5)];
+    const orange = [255, 128, 0];
+    const frame = new Uint8Array([...orange, 170, 170, ...orange, 85, 170]);
+    const both = stamped(pair, frame);
+    const one = stamped([pair[0]], frame);
+    const crossing = at(both.image, 50, 30);
+    expect(crossing[3]).toBeGreaterThan(at(one.image, 50, 30)[3] * 1.5);
+    expect(crossing.slice(0, 3)).toEqual([255, 128, 0]);
+  });
+});
+
+describe("light added to a picture pixel", () => {
+  const pixel = (r: number, g: number, b: number, a: number) => new Int32Array([(a << 24) | (b << 16) | (g << 8) | r]);
+  const read = (p: Int32Array) => [p[0] & 255, (p[0] >> 8) & 255, (p[0] >> 16) & 255, p[0] >>> 24];
+  const ORANGE = (0 << 16) | (128 << 8) | 255;
+
+  it("over nothing, is the light itself", () => {
+    const p = new Int32Array(1);
+    shine(p, 0, ORANGE, 100);
+    expect(read(p)).toEqual([255, 128, 0, 100]);
+  });
+
+  it("adds up in the same hue, and past full stays that hue rather than turning white", () => {
+    const p = pixel(255, 128, 0, 100);
+    shine(p, 0, ORANGE, 100);
+    expect(read(p)).toEqual([255, 128, 0, 200]);
+    shine(p, 0, ORANGE, 200);
+    expect(read(p)).toEqual([255, 128, 0, 255]);
+  });
+
+  it("mixes two hues as light does", () => {
+    const p = pixel(255, 0, 0, 128);
+    shine(p, 0, 255 << 16, 128);
+    expect(read(p)).toEqual([255, 0, 255, 128]);
   });
 });

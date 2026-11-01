@@ -305,8 +305,8 @@ impl BeamShape {
 
     /// The columns of row `py` of a picture `width` wide it (with its far end and its pool) can
     /// touch: `x0..x1`, none when `x0 >= x1`. Its cone lies within the four-sided shape from its
-    /// start, `narrow` either side, to its end, `w` either side; its end within a circle round it;
-    /// its pool within its ellipse.
+    /// start, `narrow` either side, to its end, `w` either side; its far end and its pool within
+    /// their ellipses.
     pub(crate) fn columns(&self, py: usize, width: usize) -> (usize, usize) {
         let y = py as f64 + 0.5;
         let (mut left, mut right) = (f64::INFINITY, f64::NEG_INFINITY);
@@ -343,12 +343,22 @@ impl BeamShape {
                 right = right.max(cx + across);
             }
         };
-        if let Some(c) = self.cap {
-            let r = self.w.max(c.depth);
-            round(ex, ey, r, r);
-        }
         if let Some(p) = self.pool {
             round(p.cx, p.cy, p.rx, p.ry);
+        }
+        if let Some(c) = self.cap {
+            // Where the row crosses the ellipse `depth` deep along (ux, uy) and `w` across it.
+            let dy = y - ey;
+            let (dd, ww) = (c.depth * c.depth, self.w * self.w);
+            let a = c.ux * c.ux / dd + c.uy * c.uy / ww;
+            let b = c.ux * c.uy * dy * (1.0 / dd - 1.0 / ww);
+            let k = dy * dy * (c.uy * c.uy / dd + c.ux * c.ux / ww) - 1.0;
+            let disc = b * b - a * k;
+            if disc > 0.0 {
+                let r = disc.sqrt();
+                left = left.min(ex + (-b - r) / a);
+                right = right.max(ex + (-b + r) / a);
+            }
         }
         if left > right {
             return (0, 0);

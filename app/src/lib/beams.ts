@@ -283,8 +283,8 @@ export function beamRows(b: BeamShape, height: number): [number, number] {
 /**
  * The columns of row `py` of a picture `width` wide a beam (its far end and its pool too) can
  * touch: x0..x1, none when x0 ≥ x1. Its cone lies within the four-sided shape from its start,
- * `narrow` either side, to its end, `w` either side; its end within a circle `w` (or its cap's
- * depth) round it; its pool within its ellipse.
+ * `narrow` either side, to its end, `w` either side; its far end and its pool within their
+ * ellipses.
  */
 export function beamColumns(b: BeamShape, py: number, width: number): [number, number] {
   const y = py + 0.5;
@@ -316,11 +316,22 @@ export function beamColumns(b: BeamShape, py: number, width: number): [number, n
     left = Math.min(left, cx - across);
     right = Math.max(right, cx + across);
   };
-  if (b.cap) {
-    const r = Math.max(b.w, b.cap.depth);
-    round(ex, ey, r, r);
-  }
   if (b.pool) round(b.pool.cx, b.pool.cy, b.pool.rx, b.pool.ry);
+  if (b.cap) {
+    // Where the row crosses the ellipse `depth` deep along (ux, uy) and `w` across it.
+    const { ux, uy } = b.cap;
+    const dy = y - ey;
+    const [dd, ww] = [b.cap.depth * b.cap.depth, b.w * b.w];
+    const a = (ux * ux) / dd + (uy * uy) / ww;
+    const bb = ux * uy * dy * (1 / dd - 1 / ww);
+    const k = dy * dy * ((uy * uy) / dd + (ux * ux) / ww) - 1;
+    const disc = bb * bb - a * k;
+    if (disc > 0) {
+      const r = Math.sqrt(disc);
+      left = Math.min(left, ex + (-bb - r) / a);
+      right = Math.max(right, ex + (-bb + r) / a);
+    }
+  }
   if (left > right) return [0, 0];
   return [Math.max(0, Math.floor(left) - 1), Math.min(width, Math.ceil(right) + 1)];
 }

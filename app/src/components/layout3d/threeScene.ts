@@ -1,6 +1,6 @@
-// The 3D view drawn with three.js: a night scene (sky, ground and its measured grid), the photo as
-// an upright backdrop, an optional house model, and every pixel as a crisp dot, by the flat previews' rules
-// (lib/pixelBatches.ts) worked out in perspective. All pixels are one set of points whose
+// The 3D view drawn with three.js: a night scene (sky, ground and its measured grid), the photo
+// as an upright backdrop, an optional house model, and every pixel as a crisp dot, by the flat
+// previews' rules (lib/pixelBatches.ts) worked out in perspective. All pixels are one set of points whose
 // positions and colors are updated in place; their shader sizes each dot from how far apart its
 // prop's pixels are and how far it is from the camera (see `lightWidth` in lib/layout3d.ts).
 //
@@ -498,7 +498,7 @@ const SKY_FRAGMENT = /* glsl */ `
 
 // The grid on the ground: the ground's own plane, drawn again with its lines alone. `vAt` is where
 // on the ground a place is (layout x, z). Its place on the screen is worked out as the ground's
-// is, to the last bit, so the two never flicker against each other.
+// is (and its material pulls it a hair toward the camera), so the two never flicker.
 const GRID_VERTEX = /* glsl */ `
   #include <fog_pars_vertex>
   varying vec2 vAt;

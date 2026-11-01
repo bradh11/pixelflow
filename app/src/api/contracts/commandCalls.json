@@ -1397,6 +1397,8 @@
           "photo": true,
           "pixelSize": 1.5,
           "glow": 0.4,
+          "hideUnlit": true,
+          "boost": 2,
           "ffmpeg": true
         }
       }

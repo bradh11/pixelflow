@@ -12,10 +12,12 @@
 //! in a letterboxed film. Behind the display is the preview's night sky, with the photo over it,
 //! dimmed to half its strength so the lights stand out. Over that go the pixels as crisp dots
 //! (the `dots` module): each sized from its prop's own spacing, a pixel that's off as the
-//! preview's quiet gray dot, lit ones over those. Last comes the glow around the lit ones, as much
-//! as the look asks for (the `glow` module). Colors are drawn as they are in the frame, with no
-//! gamma change, like the preview.
+//! preview's quiet gray dot (or nothing, with the viewer's Unlit pixels hidden), lit ones over
+//! those. Last comes the glow around the lit ones, as much as the look asks for (the `glow`
+//! module). Colors are drawn as they are in the frame, with no gamma change, like the preview,
+//! unless the look asks for Boost dim (the `boost` module).
 
+use crate::boost::Lift;
 use crate::dots::{DOT_RADIUS, Dots, Layer, PixelBox, View};
 use crate::glow::{Halos, Sums};
 use pf_engine::PreviewProp;
@@ -25,6 +27,8 @@ const BACKDROP: [u16; 3] = [10, 10, 12];
 /// A pixel that's off: the preview's "dark" color, gray at 55% (red, green, blue, and how solid
 /// it is of 255).
 const UNLIT: [u8; 4] = [70, 70, 70, 140];
+/// A pixel that's off, with Unlit pixels hidden: nothing.
+const HIDDEN: [u8; 4] = [0; 4];
 /// The width of the preview the picture is drawn as, in screen pixels: about what the Play screen
 /// has in a laptop's window.
 const PREVIEW_WIDTH: f64 = 1500.0;
@@ -50,6 +54,10 @@ pub struct Look {
     pub pixel_size: f32,
     /// How much each lit dot glows, 0 (crisp dots) to 1, as the previews' Glow setting.
     pub glow: f32,
+    /// Pixels that are off aren't drawn, only lit ones (as the previews' Unlit pixels: Hidden).
+    pub hide_unlit: bool,
+    /// How much dim levels are lifted, 0 (not at all) to 3, as the previews' Boost dim.
+    pub boost: u8,
 }
 
 /// The layout photo, read from its file, and where it sits in the layout.
@@ -120,6 +128,8 @@ fn fit(bounds: Bounds, (width, height): (f64, f64), ratio: f64) -> View {
 struct Scratch {
     dots: Layer,
     glow: Sums,
+    /// The frame with Boost dim's lift, when the look asks for it.
+    lifted: Vec<u8>,
 }
 
 /// A picture being drawn: red, green and blue for each pixel.
@@ -161,6 +171,8 @@ pub struct Scene {
     radius: f64,
     dots: Dots,
     halos: Option<Halos>,
+    /// Boost dim, when the look asks for it.
+    lift: Option<Lift>,
 }
 
 impl Scene {
@@ -211,7 +223,8 @@ impl Scene {
         let picture = (width as usize, height as usize);
         let halos = Halos::new(props, &view, picture, (lamp * scale).min(radius), look.glow);
         let dim = |dot: f64| halos.as_ref().map_or(1.0, |halos| halos.dim(dot));
-        let dots = Dots::new(props, &view, picture, radius, UNLIT, dim);
+        let dark = if look.hide_unlit { HIDDEN } else { UNLIT };
+        let dots = Dots::new(props, &view, picture, radius, dark, dim);
         let mut scene = Self {
             width,
             height,
@@ -220,6 +233,7 @@ impl Scene {
             radius,
             dots,
             halos,
+            lift: Lift::new(props, look.boost),
         };
         scene.background = scene.paint_background(bounds, photo);
         Some(scene)
@@ -307,12 +321,25 @@ impl Scene {
         rgb
     }
 
+    /// `frame` as it's drawn: with Boost dim's lift (into `lifted`) when the look asks for it.
+    fn shown<'a>(&self, frame: &'a [u8], lifted: &'a mut Vec<u8>) -> &'a [u8] {
+        match &self.lift {
+            Some(lift) => {
+                lift.apply(frame, lifted);
+                lifted
+            }
+            None => frame,
+        }
+    }
+
     /// Draws `frame` (a show frame: prop order, RGB or RGBW per pixel) onto `canvas`.
     pub fn draw(&self, frame: &[u8], canvas: &mut Canvas) {
         canvas.width = self.width;
         canvas.height = self.height;
         canvas.rgb.clear();
         canvas.rgb.extend_from_slice(&self.background);
+        let mut lifted = std::mem::take(&mut canvas.scratch.lifted);
+        let frame = self.shown(frame, &mut lifted);
         self.dots.stamp(frame, &mut canvas.scratch.dots);
         if let Some(bounds) = self.dots.bounds() {
             lay_over(&canvas.scratch.dots, bounds, self.width as usize, &mut canvas.rgb);
@@ -320,6 +347,7 @@ impl Scene {
         if let Some(halos) = &self.halos {
             halos.add(frame, &mut canvas.scratch.glow, &mut canvas.rgb);
         }
+        canvas.scratch.lifted = lifted;
     }
 }
 
@@ -364,6 +392,8 @@ mod tests {
         height: 180,
         pixel_size: 1.0,
         glow: 0.0,
+        hide_unlit: false,
+        boost: 0,
     };
     /// Picture pixels to a screen pixel in a picture as wide as `LOOK`'s.
     const RATIO: f32 = 320.0 / 1500.0;
@@ -372,8 +402,8 @@ mod tests {
         Look {
             width: 1920,
             height: 1080,
-            pixel_size: 1.0,
             glow,
+            ..LOOK
         }
     }
 
@@ -398,6 +428,48 @@ mod tests {
     fn nothing_to_draw_without_pixels() {
         assert!(Scene::new(&[], None, &LOOK).is_none());
         assert!(Scene::new(&[prop(&[], 0)], None, &LOOK).is_none());
+    }
+
+    #[test]
+    fn pixels_that_are_off_show_dim_unless_the_look_hides_them() {
+        // A lit pixel and one that's off, well apart.
+        let props = [prop(&[0.0, 0.0, 10.0, 0.0], 0)];
+        let frame = [255, 0, 0, 0, 0, 0];
+        let dim = Scene::new(&props, None, &LOOK).unwrap();
+        let canvas = drawn(&dim, &frame);
+        assert_eq!(color_at(&dim, &canvas, 0.0, 0.0), [255, 0, 0]);
+        let off = color_at(&dim, &canvas, 10.0, 0.0);
+        assert!(off[0] > 10 && off[0] == off[1], "a quiet gray dot: {off:?}");
+        let hidden = Scene::new(
+            &props,
+            None,
+            &Look {
+                hide_unlit: true,
+                ..LOOK
+            },
+        )
+        .unwrap();
+        let canvas = drawn(&hidden, &frame);
+        assert_eq!(color_at(&hidden, &canvas, 0.0, 0.0), [255, 0, 0]);
+        // Only the night sky where the pixel that's off is.
+        assert_eq!(color_at(&hidden, &canvas, 10.0, 0.0), [10, 10, 12]);
+    }
+
+    #[test]
+    fn boost_dim_lifts_dim_levels_in_the_picture_and_leaves_the_frame_as_it_is() {
+        let props = [prop(&[0.0, 0.0, 10.0, 0.0], 0)];
+        let frame = [200, 100, 0, 255, 255, 255];
+        let plain = Scene::new(&props, None, &LOOK).unwrap();
+        let boosted = Scene::new(&props, None, &Look { boost: 2, ..LOOK }).unwrap();
+        let canvas = drawn(&plain, &frame);
+        assert_eq!(color_at(&plain, &canvas, 0.0, 0.0), [200, 100, 0]);
+        let canvas = drawn(&boosted, &frame);
+        let lifted = crate::boost::boost_table(2)[200];
+        // Brighter, and as orange as it was: half as much green as red.
+        let green = ((u32::from(lifted) * 100 + 100) / 200) as u8;
+        assert_eq!(color_at(&boosted, &canvas, 0.0, 0.0), [lifted, green, 0]);
+        assert_eq!(color_at(&boosted, &canvas, 10.0, 0.0), [255, 255, 255]);
+        assert_eq!(frame, [200, 100, 0, 255, 255, 255]);
     }
 
     #[test]
@@ -812,6 +884,9 @@ mod tests {
             view: Fitted,
             radius: f64,
             dark: [u8; 4],
+            /// Boost dim's step (none when missing).
+            #[serde(default)]
+            boost: u8,
             props: Vec<Wired>,
             frame: String,
             picture: Picture,
@@ -871,11 +946,15 @@ mod tests {
                     .collect();
                 let picture = &shared.picture;
                 let (width, height) = (picture.width, picture.height);
+                // A scene whose pixels that are off have no color is one with them hidden.
+                let hide_unlit = shared.dark == HIDDEN;
                 let look = Look {
                     width,
                     height,
                     pixel_size: 1.0,
                     glow: 0.0,
+                    hide_unlit,
+                    boost: shared.boost,
                 };
                 let size = (shared.size.width, shared.size.height);
                 let scene =
@@ -898,17 +977,21 @@ mod tests {
                         scene.radius, shared.radius
                     ));
                 }
-                if UNLIT != shared.dark {
+                let dark = if hide_unlit { HIDDEN } else { UNLIT };
+                if dark != shared.dark {
                     problems.push(format!(
-                        "{file}: the export draws a pixel that's off as {UNLIT:?}, the preview as {:?}.",
+                        "{file}: the export draws a pixel that's off as {dark:?}, the preview as {:?}.",
                         shared.dark
                     ));
                 }
 
-                // The same picture, to the last bit of every pixel.
+                // The same picture, to the last bit of every pixel (from the frame lifted by
+                // Boost dim, when the scene asks for it).
                 let expected = picture.pixels();
                 let mut layer = Layer::default();
-                scene.dots.stamp(&hex(&shared.frame), &mut layer);
+                let mut lifted = Vec::new();
+                let frame = hex(&shared.frame);
+                scene.dots.stamp(scene.shown(&frame, &mut lifted), &mut layer);
                 let differ: Vec<usize> = (0..expected.len())
                     .filter(|&i| layer.pixels[i] != expected[i])
                     .collect();
@@ -935,6 +1018,15 @@ mod tests {
             for way in [Way::Apart, Way::Crowded, Way::Merged] {
                 assert!(ways.contains(&way), "no scene draws a prop {way:?}");
             }
+            // And with the viewer's View options: pixels that are off hidden, and Boost dim.
+            assert!(
+                scenes.iter().any(|(_, s)| s.dark == HIDDEN),
+                "no scene hides pixels that are off"
+            );
+            assert!(
+                scenes.iter().any(|(_, s)| s.boost > 0),
+                "no scene boosts dim levels"
+            );
         }
     }
 }

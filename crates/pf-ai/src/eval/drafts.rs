@@ -188,6 +188,8 @@ pub fn render(
         photo: false,
         pixel_size: PIXEL_SIZE,
         glow: 0.0,
+        hide_unlit: false,
+        boost: 0,
         // The harness runs from source, with OpenH264 compiled in (pf-ai's dev-dependencies).
         encoder: pf_video::Encoder::compiled_in()
             .ok_or("This build has no H.264 encoder: turn on pf-video's encoder-from-source feature.")?,

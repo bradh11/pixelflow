@@ -610,6 +610,16 @@ A head's aim and what it holds show only while it is lit, so they count on the f
 render lights it. A head turning in the dark is getting ready for its next cue, and nobody sees
 it. A servo makes no light, and counts on every frame.
 
+**Resting at Home.** Where nothing moves an imported head or servo, PixelFlow holds it at Home
+on purpose, where xLights sends its motors 0 (one end of their travel). On such a frame a head is
+dark in both renders, so it isn't counted. A servo would be: the comparison doesn't know a
+servo at rest from one an effect put there, so an idle servo counts as off by however far Home is
+from the end. Read that as the rest, not a fault. xLights 2026 writes only the span of channels
+that the models with effects take, so a fixture idle for a whole sequence is usually not in the
+reference and not compared (the corpus's heads and servos in its four other sequences: "not
+compared"). In the corpus's heads sequence no fixture is ever idle: each has an effect from the
+first frame to the last.
+
 Each of PixelFlow's frames is held against xLights' from the frame before to the frame after.
 Anywhere between, within the tolerance, is the same: a move or a fade a frame early or late
 isn't counted.
@@ -690,15 +700,18 @@ and five sequences with no music.
 | Washes and shapes | 24 s of 50 ms frames | Shockwave, Color Wash, Plasma, Fan, Pinwheel, Spirals, Butterfly, Morph, Bars, Twinkle, On, Fill; two layers on the tree blended Additive, Average, and Max; fades in and out; value curves on a Fan's revolutions, a Butterfly's speed, a Fill's position, and a blur; a group drawn per prop; an effect on a submodel; sparkles |
 | Chance | 20 s of 25 ms frames | Snowflakes, Fireworks, Circles, Shape, Fire, Twinkle, and sparkles: what no two renders draw alike |
 | Marks, words, and pictures | 20 s of 50 ms frames | A timing track and Shapes it sets off, Text, a picture standing and scrolling, PixelFlow's own Prism shader on a group and on the tree, a Shockwave whose size follows a curve, a Color Wash cycling three colors |
-| Moving heads and servos | 20 s of 50 ms frames | The DMX effect sweeping two heads' pan and tilt and turning two servos, with curves; an On and Color Washes giving the heads their color (red, green, blue and white on one, a color wheel on the other) |
+| Moving heads and servos | 40 s of 50 ms frames | The DMX effect sweeping two heads' pan and tilt and turning two servos, with curves, under an On and Color Washes giving the heads their color (red, green, blue and white on one, a color wheel on the other); then xLights' Moving Head effect on both heads (a position, a fan, a circle with a dimmer, a pan swept by a curve) and its Servo effect on each servo |
 | Words in the computer's fonts | 16 s of 50 ms frames | Text in Arial, Times New Roman, Verdana, and Courier New (fonts every Mac and Windows computer has), bold and italic, still and moving, on the matrix and around the tree |
 
 The heads and servos are DMX fixtures: the look score doesn't judge them (it reads pixels), but
 their channels are in xLights' renders, so the references hold what xLights sends them, and
 each is held to those channels instead ("DMX fixtures"). A test holds PixelFlow's own render of
-them to the channels the sequence sets.
+them to the channels the sequence sets. They are written as xLights 2026 keeps DMX models: single
+channels (`StringType="Single Color White"`), the head's dimmer as `MhDimmerChannel`, a shutter
+sent its on value (`DmxShutterOnValue`), presets holding one head's dimmer and shutter, and a
+servo reversed by its limits ("The references", below, says why).
 
-50 effects in all, covering the kinds the real corpus uses most, and DMX fixtures.
+57 effects in all, covering the kinds the real corpus uses most, and DMX fixtures.
 `src/madeup.rs` writes every file (`cargo run -p pf-fidelity -- corpus-files`), and a test fails
 when the files and the module disagree. Nothing in it comes from anyone's show, and nothing was downloaded: the
 picture is drawn by the module, and the shader is PixelFlow's own.
@@ -767,14 +780,15 @@ A Text effect in a font the checking computer hasn't got (Linux has none of the 
 uses) is drawn in the pixel font there, while the baseline is of the font: the check lists it
 under "Not held on this computer" and leaves it out.
 
-**Until the references exist**, the second check passes and says so: "The corpus has no xLights
-references yet … no import was held against xLights", in the log, as a notice on the run, and
-on its summary page. `baseline.json` holds no sequences until then.
+**Without references** (a corpus whose `.fseq` files are missing), the second check passes and
+says so: "The corpus has no xLights references yet … no import was held against xLights", in
+the log, as a notice on the run, and on its summary page, and `baseline.json` holds no
+sequences. The corpus has had its references since November 2026 ("The references", below).
 
-**Rendering the references** is done once, by the maintainer, in xLights, and again whenever
-`madeup.rs` changes the corpus: `corpus/README.md` has the steps, and
-`scripts/fidelity-corpus.sh` copies the show to a folder of its own and brings the renders back.
-Then `pf-fidelity regress --accept` makes the baseline, and both are committed.
+**Rendering the references** is done by the maintainer, in xLights, whenever `madeup.rs` changes
+the corpus: `scripts/fidelity-corpus.sh` copies the show to a folder of its own, renders it with
+xLights headless, and brings the renders back; `corpus/README.md` has the steps. Then
+`pf-fidelity regress --accept` makes the baseline, and both are committed.
 
 **Accepting a change on purpose.** A change to how a sequence is imported or drawn that shows on
 the lights moves the fingerprint: run `cargo run --release -p pf-fidelity -- fingerprint
@@ -782,6 +796,128 @@ the lights moves the fingerprint: run `cargo run --release -p pf-fidelity -- fin
 moves the picture. An import made better next to xLights moves the baseline: run `cargo run
 --release -p pf-fidelity -- regress --accept` and commit `baseline.json`. A change to the
 corpus itself (`madeup.rs`) needs both, and the references rendered again.
+
+## The references
+
+### How they were made
+
+The five references (`crates/pf-fidelity/corpus/show/*.fseq`) were rendered on 1 November 2026
+by xLights 2026.19 for macOS, the official build, with no window: xLights' headless render
+(`--headless`, from 2026.13) renders sequences to `.fseq` files and exits. All five took under a
+second. To render them again:
+
+```sh
+scripts/fidelity-corpus.sh prepare                            # a copy of the corpus's show
+scripts/fidelity-corpus.sh render /Applications/xLights.app   # xLights, headless, on that copy
+scripts/fidelity-corpus.sh collect                            # the five .fseq files into the corpus
+cargo run --release -p pf-fidelity -- regress --accept         # the baseline from them
+cargo run --release -p pf-fidelity -- regress
+```
+
+`render` runs `xLights --headless -q -s <folder> -od <folder>` on the five sequences. It never
+sends anything to lights. xLights for macOS is sandboxed: run from the command line, it reads
+only folders inside its own container, `~/Library/Containers/org.xlights/Data`, so on a Mac
+`prepare` puts the copy there (`render` refuses a folder elsewhere). Its log is
+`~/Library/Containers/org.xlights/Data/Library/Logs/xLights_spdlog.log`. xLights tries the
+corpus's controller, at a documentation address where nothing answers, and gives up after a
+couple of seconds; that is harmless.
+
+### What the first real comparison found
+
+The first scoring against xLights' own renders read 75% of the effect-time as matching, 21% as
+close, and 3% as different, with a look score of 92, and every moving head and servo different.
+Most of that was right, and two parts were not: the heads and servos, and the pictures. In both,
+xLights had read the corpus otherwise than its writer meant, and PixelFlow's import had missed
+something real xLights files hold. Run against xLights headless on copies of the corpus, changed
+one setting at a time, and held against the files of a public set of xLights render tests
+([github.com/derwin12/xlights-tests](https://github.com/derwin12/xlights-tests): its show and
+xLights' renders of it), they came down to these:
+
+- **xLights applied none of the heads' and servos' 15 effects**, and counted 27 DMX channels where
+  PixelFlow counts 24. The corpus wrote its DMX models without `StringType`; without it xLights
+  evidently takes each channel for a pixel of three (the three extra channels ramped together).
+  xLights writes `StringType="Single Color White"` for a DMX model; the corpus does now.
+- **On top, the DMX effect left the heads dark.** xLights' DMX effect sends every channel it has,
+  0 where it sets nothing, so the On and Color Washes under it never showed. Under an ordinary
+  effect it keeps what that effect doesn't set (pan and tilt). The corpus has the colors on top
+  now.
+- **A head's dimmer and shutter stayed at 0.** xLights 2026 keeps a head's dimmer as
+  `MhDimmerChannel` (`DmxDimmerChannel` is a color wheel's brightness), and a shutter as the value
+  it opens from (`DmxShutterOpen`) and the value it is sent to open (`DmxShutterOnValue`; without
+  one, it is never sent). A basic head is sent it whenever an ordinary effect lights it; an
+  advanced head only when a Moving Head effect opens its shutter. Presets
+  (`DmxPresetChannel<n>`, `DmxPresetValue<n>`) hold channels while an ordinary effect lights the
+  model. The import read none of these: it reads all of them now, and the corpus uses them.
+- **The second servo turned the wrong way.** xLights 2026 sends the same channels whatever a
+  servo's `Reverse` says; a servo turns the other way when its `MinLimit` is the larger. The
+  import and the corpus both reversed it by `Reverse`; both use the limits now.
+- **Upright heads pointed the other way.** xLights sends a pan or tilt of 45° as Home less 45° on
+  an upright head, and as Home and 45° on one reversed or hung upside down (both together cancel);
+  the public tests' baseline has the same. The import turned an upright head the other way, so a
+  real show's upright heads were sent the other way from xLights by every Moving Head effect.
+  They aren't now. (A DMX effect's channels were always sent as xLights sends them; the previews
+  now draw them turning the way the Moving Head effect turns them.)
+- **The pictures.** xLights 2026 reads a Pictures effect's file from
+  `E_TEXTCTRL_Pictures_Filename` (the public tests' sequences have it), and fills the prop red
+  when it has none. The corpus wrote the older `E_FILEPICKERCTRL_…`, so what xLights showed was
+  that red fill, not the picture. PixelFlow, for its part, didn't find a picture named from the
+  show folder (`pictures/corpus-picture.png`, as xLights reads it), and drew nothing. The corpus
+  writes the newer setting, and the import finds such a file.
+
+With those fixed, the references were rendered again and scored. "Before" is the corpus and
+import as they were, scored again on a fresh render of their own; it reads a little better than
+the first scoring because the Chance sequence moves with the seeds it is held against.
+
+| Sequence | Before: matches / close / different, look | After |
+|---|---|---|
+| Washes and shapes | 95% / 5% / 0%, 98 | 95% / 5% / 0%, 98 |
+| Chance | 80% / 20% / 0%, 93 | 80–100% / 0–20% / 0%, 93–95 (chance moves it) |
+| Marks, words, and pictures | 75% / 12% / 12%, 88 | 88% / 12% / 0%, 96 |
+| Words in the computer's fonts | 38% / 62% / 0%, 84 | 38% / 62% / 0%, 84 |
+| All | 81% / 16% / 3%, 93 | 88% / 12% / 0%, 96 |
+| Moving heads and servos | Spot Left, Spot Right, Arm all different (frames of 100 the same: 1, 1, 0) | Arm matches (100), Spot Left close (77), Spot Right different (35) |
+
+What still differs is real, and is for the import or the render to take up, not the corpus:
+
+- **A color wheel shows only its own colors.** xLights turns Spot Right's wheel to a color whose
+  hue is on it (red at any brightness: the red slot, dimmed) and leaves it dark for any other: the
+  orange and yellow of its warm wash. PixelFlow turns the wheel to the nearest color. That is the
+  "lit where xLights is dark in 46% of frames".
+- **The Circle pattern is twice the size.** xLights swings it the whole pattern width and height
+  each way (pan ±90°, tilt ±45°) about Home; PixelFlow half that, about the effect's tilt. The
+  importer already notes "its pattern's size and pace read as PixelFlow's". That is the pan and
+  tilt off in 12% of frames.
+- **A preset beats the effect's dimmer.** Through the circle the Moving Head effect dims the
+  heads; xLights holds Spot Left's dimmer at its preset and Spot Right's at its wheel's
+  brightness, and PixelFlow dims both: "light dimmer in 10% of frames".
+- The rest, as before: Text in a font drawn another size or a step behind ("Words in the
+  computer's fonts"), Shockwave and Fill pulsing out of step.
+
+No fixture in the heads sequence is ever idle, so PixelFlow's resting at Home doesn't show here
+("DMX fixtures" says how the comparison treats it).
+
+### Side by side
+
+`pf-fidelity strips` draws frames of a prop with xLights' render above PixelFlow's. The scrolling
+picture on the matrix (Marks, words, and pictures, 15.95 s to 19.95 s), which matches: the same
+picture moving the same way, a pixel apart here and there, and in the last frame PixelFlow
+already brings in the next pass.
+
+![Five frames of a rainbow picture with a white frame and diagonal scrolling left across the matrix, xLights' row above PixelFlow's: the same picture in the same place in each pair, PixelFlow's a pixel to the right in some, and in the last frame a magenta sliver at PixelFlow's right edge where xLights is dark.](images/fidelity-pictures.png)
+
+PixelFlow's own Prism shader on the tree, run by xLights and by PixelFlow (10 s to 20 s): the
+same to the pixel.
+
+![Six frames of rainbow bands flowing up the tree, xLights' row above PixelFlow's, the two rows the same.](images/fidelity-shader.png)
+
+"PEACE" in Verdana 9 rising up the matrix (Words in the computer's fonts, 8.6 s to 11.6 s), which
+is close: the same word in the same colors moving the same way, but xLights draws the letters
+larger and crisper, and they rise at another pace.
+
+![Five frames of the word PEACE in cyan, blue and magenta rising on the matrix, xLights' row above PixelFlow's: xLights' letters larger and sharper, PixelFlow's smaller and softer, at another height in each frame.](images/fidelity-text.png)
+
+The heads and servos have no picture: `strips` draws pixels, and a fixture is held to its
+channels, which the scorecard's "DMX fixtures" table sums up in numbers.
 
 ## Limits
 

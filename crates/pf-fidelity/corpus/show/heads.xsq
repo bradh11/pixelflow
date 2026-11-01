@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- PixelFlow's made-up fidelity corpus (crates/pf-fidelity/src/madeup.rs writes this file).
      Moving heads and servos: the DMX effect pointing two heads and turning two servos,
-     over colors drawn on the heads by ordinary effects, then xLights' Moving Head and
+     under colors drawn on the heads by ordinary effects, then xLights' Moving Head and
      Servo effects. 40 seconds of 50 ms frames.
      Render it in xLights on this show folder and save the .fseq beside it: see ../README.md. -->
 <xsequence BaseChannel="0" ChanCtrlBasic="0" ChanCtrlColor="0" FixedPointTiming="1" ModelBlending="true">
@@ -14,16 +14,16 @@
     <sequenceDuration>40.000</sequenceDuration>
   </head>
   <ColorPalettes>
-    <ColorPalette>C_BUTTON_Palette1=#FFFFFF,C_CHECKBOX_Palette1=1</ColorPalette>
     <ColorPalette>C_BUTTON_Palette1=#FF0000,C_CHECKBOX_Palette1=1</ColorPalette>
     <ColorPalette>C_BUTTON_Palette1=#00FFFF,C_BUTTON_Palette2=#0000FF,C_BUTTON_Palette3=#FF00FF,C_CHECKBOX_Palette1=1,C_CHECKBOX_Palette2=1,C_CHECKBOX_Palette3=1</ColorPalette>
+    <ColorPalette>C_BUTTON_Palette1=#FFFFFF,C_CHECKBOX_Palette1=1</ColorPalette>
     <ColorPalette>C_BUTTON_Palette1=#FF0000,C_BUTTON_Palette2=#FF8000,C_BUTTON_Palette3=#FFFF00,C_CHECKBOX_Palette1=1,C_CHECKBOX_Palette2=1,C_CHECKBOX_Palette3=1</ColorPalette>
   </ColorPalettes>
   <EffectDB>
-    <Effect>E_SLIDER_DMX2=0,E_SLIDER_DMX3=96,E_SLIDER_DMX4=0,E_SLIDER_DMX1=0,E_VALUECURVE_DMX1=Active=TRUE|Id=ID_VALUECURVE_DMX1|Type=Ramp|Min=0.00|Max=255.00|P1=0.00|P2=255.00|RV=TRUE|</Effect>
-    <Effect>E_SLIDER_DMX1=200,E_SLIDER_DMX2=128,E_SLIDER_DMX4=0,E_SLIDER_DMX3=255,E_VALUECURVE_DMX3=Active=TRUE|Id=ID_VALUECURVE_DMX3|Type=Ramp|Min=0.00|Max=255.00|P1=255.00|P2=0.00|RV=TRUE|</Effect>
     <Effect>E_CHECKBOX_On_Shimmer=0,E_TEXTCTRL_Eff_On_End=100,E_TEXTCTRL_Eff_On_Start=100,E_TEXTCTRL_On_Cycles=1.0</Effect>
     <Effect>E_CHECKBOX_ColorWash_CircularPalette=0,E_CHECKBOX_ColorWash_HFade=0,E_CHECKBOX_ColorWash_Shimmer=0,E_CHECKBOX_ColorWash_VFade=0,E_TEXTCTRL_ColorWash_Cycles=2.0</Effect>
+    <Effect>E_SLIDER_DMX2=0,E_SLIDER_DMX3=96,E_SLIDER_DMX4=0,E_SLIDER_DMX1=0,E_VALUECURVE_DMX1=Active=TRUE|Id=ID_VALUECURVE_DMX1|Type=Ramp|Min=0.00|Max=255.00|P1=0.00|P2=255.00|RV=TRUE|</Effect>
+    <Effect>E_SLIDER_DMX1=200,E_SLIDER_DMX2=128,E_SLIDER_DMX4=0,E_SLIDER_DMX3=255,E_VALUECURVE_DMX3=Active=TRUE|Id=ID_VALUECURVE_DMX3|Type=Ramp|Min=0.00|Max=255.00|P1=255.00|P2=0.00|RV=TRUE|</Effect>
     <Effect>E_SLIDER_DMX2=128,E_SLIDER_DMX1=255,E_VALUECURVE_DMX1=Active=TRUE|Id=ID_VALUECURVE_DMX1|Type=Ramp|Min=0.00|Max=255.00|P1=255.00|P2=0.00|RV=TRUE|</Effect>
     <Effect>B_CHOICE_BufferStyle=Per Model Default,E_TEXTCTRL_MH1_Settings=Pan: 45.0;Tilt: 20.0;Heads: 1&amp;comma;2;Color: 0.000000&amp;comma;1.000000&amp;comma;1.000000,E_TEXTCTRL_MH2_Settings=Pan: 45.0;Tilt: 20.0;Heads: 1&amp;comma;2;Color: 0.000000&amp;comma;1.000000&amp;comma;1.000000</Effect>
     <Effect>B_CHOICE_BufferStyle=Per Model Default,E_TEXTCTRL_MH1_Settings=Pan: 0.0;Tilt: 30.0;PanOffset: 30.0;TiltOffset: 10.0;Heads: 1&amp;comma;2;Color: 0.333333&amp;comma;1.000000&amp;comma;1.000000,E_TEXTCTRL_MH2_Settings=Pan: 0.0;Tilt: 30.0;PanOffset: 30.0;TiltOffset: 10.0;Heads: 1&amp;comma;2;Color: 0.333333&amp;comma;1.000000&amp;comma;1.000000</Effect>
@@ -44,39 +44,39 @@
   <ElementEffects>
     <Element type="model" name="Spot Left">
       <EffectLayer>
-        <Effect ref="0" name="DMX" palette="0" startTime="0" endTime="10000"/>
-        <Effect ref="1" name="DMX" palette="0" startTime="10000" endTime="20000"/>
+        <Effect ref="0" name="On" palette="0" startTime="0" endTime="10000"/>
+        <Effect ref="1" name="Color Wash" palette="1" startTime="10000" endTime="20000"/>
       </EffectLayer>
       <EffectLayer>
-        <Effect ref="2" name="On" palette="1" startTime="0" endTime="10000"/>
-        <Effect ref="3" name="Color Wash" palette="2" startTime="10000" endTime="20000"/>
+        <Effect ref="2" name="DMX" palette="2" startTime="0" endTime="10000"/>
+        <Effect ref="3" name="DMX" palette="2" startTime="10000" endTime="20000"/>
       </EffectLayer>
     </Element>
     <Element type="model" name="Spot Right">
       <EffectLayer>
-        <Effect ref="4" name="DMX" palette="0" startTime="0" endTime="20000"/>
+        <Effect ref="1" name="Color Wash" palette="3" startTime="0" endTime="20000"/>
       </EffectLayer>
       <EffectLayer>
-        <Effect ref="3" name="Color Wash" palette="3" startTime="0" endTime="20000"/>
+        <Effect ref="4" name="DMX" palette="2" startTime="0" endTime="20000"/>
       </EffectLayer>
     </Element>
     <Element type="model" name="Heads">
       <EffectLayer>
-        <Effect ref="5" name="Moving Head" palette="0" startTime="20000" endTime="25000"/>
-        <Effect ref="6" name="Moving Head" palette="0" startTime="25000" endTime="30000"/>
-        <Effect ref="7" name="Moving Head" palette="0" startTime="30000" endTime="35000"/>
-        <Effect ref="8" name="Moving Head" palette="0" startTime="35000" endTime="40000"/>
+        <Effect ref="5" name="Moving Head" palette="2" startTime="20000" endTime="25000"/>
+        <Effect ref="6" name="Moving Head" palette="2" startTime="25000" endTime="30000"/>
+        <Effect ref="7" name="Moving Head" palette="2" startTime="30000" endTime="35000"/>
+        <Effect ref="8" name="Moving Head" palette="2" startTime="35000" endTime="40000"/>
       </EffectLayer>
     </Element>
     <Element type="model" name="Arm">
       <EffectLayer>
-        <Effect ref="9" name="DMX" palette="0" startTime="0" endTime="10000"/>
-        <Effect ref="10" name="DMX" palette="0" startTime="10000" endTime="20000"/>
-        <Effect ref="11" name="Servo" palette="0" startTime="20000" endTime="30000"/>
-        <Effect ref="12" name="Servo" palette="0" startTime="30000" endTime="40000"/>
+        <Effect ref="9" name="DMX" palette="2" startTime="0" endTime="10000"/>
+        <Effect ref="10" name="DMX" palette="2" startTime="10000" endTime="20000"/>
+        <Effect ref="11" name="Servo" palette="2" startTime="20000" endTime="30000"/>
+        <Effect ref="12" name="Servo" palette="2" startTime="30000" endTime="40000"/>
       </EffectLayer>
       <EffectLayer>
-        <Effect ref="13" name="Servo" palette="0" startTime="20000" endTime="40000"/>
+        <Effect ref="13" name="Servo" palette="2" startTime="20000" endTime="40000"/>
       </EffectLayer>
     </Element>
   </ElementEffects>

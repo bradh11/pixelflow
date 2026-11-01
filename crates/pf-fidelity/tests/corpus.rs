@@ -459,7 +459,7 @@ fn the_corpus_heads_and_servos_get_their_channels() {
         &[0, 96, 0],
         "pan fine, tilt, tilt fine as set"
     );
-    assert_eq!(first[left + 5], 255, "the dimmer, from the red On under it");
+    assert_eq!(first[left + 5], 255, "the dimmer, from the red On over it");
     assert_eq!(&first[left + 6..left + 10], &[255, 0, 0, 0], "red");
     assert_eq!(first[left + 10], 255, "the shutter held open");
     // Its sweep runs the whole 20 seconds: halfway at 9.75 s, all the way down at the end.
@@ -530,4 +530,7 @@ fn the_corpus_heads_and_servos_get_their_channels() {
     assert!(near(degrees(&fanned, "Spot Right", right, Tilt), 35.0));
     // 25 s: the first servo half way from 10% to 90% of its travel, at Home.
     assert!(near(degrees(&at(500), "Arm", arm, Servo), 0.0));
+    // 20 s: the second servo at the start of its travel, its lower limit, which is the larger
+    // (49151): it turns the other way, as xLights turns it.
+    assert_eq!(&at(400)[arm + 2..arm + 4], &[191, 255]);
 }

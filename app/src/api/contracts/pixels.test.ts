@@ -292,6 +292,23 @@ const SCENES: Record<string, Scene> = {
       .head(row(1, 0, -3 / 4, 0), [85, 43, 0], UPRIGHT, [128, 0], [128, 0], 20, 5 / 16)
       .add(row(8, 1 / 8, 3 / 16, 3 / 8), run(8, RED)),
   },
+  boostedBeams: {
+    about:
+      "Moving heads with the viewer's View options: pixels that are off hidden, and Boost dim at High lifting a dimmed head's light as it lifts a pixel's, so its beam, its flare and its pool are brighter in the same hue; a head at full stays as it is, and one whose shutter is shut stays dark.",
+    size: { width: 120, height: 80 },
+    ratio: 2,
+    hidden: true,
+    boost: 3,
+    layout: new Layout()
+      // Straight up: at full, then dimmed to a fifth.
+      .head(row(1, 0, 0, 0), ORANGE, UPRIGHT, [128, 0], [128, 0], 16, 3 / 8)
+      .head(row(1, 0, 3 / 4, 0), [51, 26, 0], UPRIGHT, [128, 0], [128, 0], 16, 3 / 8)
+      // Hung 1 up and dimmed to a fifth, at Home: straight down to the ground, in a pool.
+      .head(row(1, 0, 3 / 2, 1), [0, 40, 51], HUNG, [128, 0], [128, 0], 20, 1 / 2)
+      // Its shutter shut: its cell shows nothing.
+      .head(row(1, 0, 9 / 4, 0), OFF, UPRIGHT, [128, 0], [128, 0])
+      .add(row(8, 1 / 8, 0, -1 / 4), [...run(4, [20, 0, 0]), ...run(4, OFF)]),
+  },
   closerThanAPixel: {
     about: "A string and a matrix with several pixels to a screen pixel: those in one screen pixel are merged into one light with their average color, the dots of ones that are off showing through.",
     size: { width: 72, height: 56 },

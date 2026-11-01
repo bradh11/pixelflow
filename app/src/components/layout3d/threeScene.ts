@@ -620,9 +620,10 @@ const FLARE_VERTEX = /* glsl */ `
   attribute vec3 tint;
   attribute float level;
   uniform float cell;
+  uniform float scale;
+  uniform float ratio;
   varying vec3 vColor;
   varying vec2 vSize;
-  ${VIEW_DOT}
   ${HIDDEN}
   void main() {
     vec4 mv = modelViewMatrix * vec4(position, 1.0);
@@ -1068,7 +1069,7 @@ export function createThreeScene(canvas: HTMLCanvasElement, makeRenderer: (canva
   const flares = new Points(
     flareGeometry,
     new ShaderMaterial({
-      uniforms: { scale: dots.scale, ratio: dots.ratio, radius: dots.radius, cell: haloCell, hides: dots.hides, hiding: dots.hiding, project: dots.project },
+      uniforms: { scale: dots.scale, ratio: dots.ratio, cell: haloCell, hides: dots.hides, hiding: dots.hiding, project: dots.project },
       vertexShader: FLARE_VERTEX,
       fragmentShader: FLARE_FRAGMENT,
       transparent: true,

@@ -7,6 +7,7 @@ import type { PreviewMotion, PreviewProp3d } from "../api/types";
 import { motionOf } from "../components/layout3d/scene";
 import { type BeamShape, aimAt, aimOutline, alongBeam, armAt, armShape, beamAt, beamColumns, beamLight, beamRows, beamShape, beamWidth, flareAt, flareBox, flareShape, headDirection, previewMotionOf, rotationBasis } from "./beams";
 import { newMovingHead, newServo } from "./dmx";
+import { boostFrame } from "./viewOptions";
 
 const near = (a: number[], b: number[], within = 1e-9) => a.every((v, i) => Math.abs(v - b[i]) < within);
 
@@ -152,6 +153,19 @@ describe("moving heads' beams and servos' arms in the previews (the same cases a
     // Dimmed: the same hue, less bright.
     expect(motionOf([prop], new Uint8Array([100, 50, 0, 128, 0, 128, 0]))[0]).toMatchObject({ color: [255, 128, 0], level: 100 / 255 });
     expect(motionOf([prop], new Uint8Array(7)).map((m) => m.kind)).toEqual(["arm"]);
+  });
+
+  it("lift a dimmed head's light in 3D as Boost dim lifts it in the flat previews, leaving where it points", () => {
+    const prop: PreviewProp3d = { prop: "h", frameOffset: 0, channelsPerPixel: 3, xyz: new Float32Array([1, 2, 3]), motion };
+    const frame = new Uint8Array([100, 50, 0, 170, 170, 213, 85]);
+    const [plain] = motionOf([prop], frame);
+    const [boosted] = motionOf([prop], boostFrame(frame, [prop], 2));
+    expect(boosted).toMatchObject({ kind: "beam", color: [255, 128, 0] });
+    expect(boosted.kind === "beam" && plain.kind === "beam" && boosted.level > plain.level).toBe(true);
+    expect(boosted.kind === "beam" && boosted.dir).toEqual(plain.kind === "beam" && plain.dir);
+    // A head at full, or dark, is as it was.
+    expect(motionOf([prop], boostFrame(new Uint8Array([255, 0, 0, 128, 0, 128, 0]), [prop], 3))[0]).toMatchObject({ level: 1 });
+    expect(motionOf([prop], boostFrame(new Uint8Array(7), [prop], 3))).toEqual([]);
   });
 
   it("show no light in 3D while nothing plays, only a selected head's aim", () => {

@@ -208,7 +208,9 @@ The previews show a head as the real light would look at night, with a little ha
   rules, so it reads as a volume from any side, brighter where you look along it; the house model
   hides it where it stands in front of it, and the ground stops it.
 - **Glow** (beside 2D and 3D) is a separate setting for how much lit pixels glow: it doesn't
-  change the beams.
+  change the beams, and neither does the **View** options' **Dot size**. **Boost dim** lifts a
+  dimmed head's light as it lifts a dim pixel, beam, flare and pool alike (see
+  [3d-view.md](3d-view.md)).
 
 ![The same moment in the 3D view: a long blue beam rising from the head, out from the house, a bright flare at its lens.](images/dmx-head-3d.png)
 

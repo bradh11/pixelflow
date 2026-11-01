@@ -94,11 +94,13 @@ the Layout screen's tool bar in 2D, beside Glow.
   When nothing plays at all, every prop shows in its quiet color whatever you choose.
 - **Dot size:** **Small**, **Medium** (the usual) or **Large**. Dots still stop short of the
   next pixel of their prop, so only props with room between their pixels get bigger dots. A
-  dense string stays a clean line.
+  dense string stays a clean line. Moving heads' beams and the flares at their lenses are light
+  in the air, not dots, so Dot size leaves them as they are.
 - **Boost dim:** **Off** (the usual), **Low**, **Medium** or **High**. A screen shows dim levels
   darker than your eyes see real lights at night, so slow fades can disappear in the preview.
   Boost dim lifts dim levels so fades show, and keeps each light's hue. Full brightness and off
-  stay as they are.
+  stay as they are. A dimmed moving head is lifted the same way: its beam, its flare and its
+  pool on the ground.
 
 ![The Layout screen in 2D with the View options open from the tool bar, beside Glow: Prop names checked, Pixels that are off Dim, Dot size Medium, Boost dim Off. The names Porch Star, Window Matrix, Garage Arch and Mega Tree show under their props.](images/layout-view-options.png)
 

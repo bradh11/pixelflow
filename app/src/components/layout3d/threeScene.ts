@@ -23,6 +23,11 @@
 // Lit pixels glow as much as the viewer's Glow setting says, none at 0: each light that isn't
 // hidden has the flat previews' halo (lib/pixelGlow.ts), drawn into a coarse picture of its own
 // and added over the dots. Selection outlines and the move gizmo are drawn over the top.
+//
+// Moving heads' light (their beams as cones of lit haze, the pools where they meet the ground,
+// and the flares at their lenses, by lib/beams.ts's rules) is added up in a coarse picture of its
+// own, as light adds where beams cross, and laid over the scene under the dots as the flat
+// previews lay it: as bright as its hue goes where there's more than can show.
 
 import {
   AdditiveBlending,
@@ -99,7 +104,26 @@ import {
   pixelsPerUnit,
 } from "../../lib/layout3d";
 import { DOT_RADIUS, FAINT, FILL, FINE_FROM, SMALLEST } from "../../lib/pixelBatches";
-import { ARM_COLOR, AIM_DASH, AIM_GAP, BEAM_PEAK, BEAM_SOFT, FADE_FROM, NARROWEST, POOL_PEAK, POOL_SOFT, spread } from "../../lib/beams";
+import {
+  ARM_COLOR,
+  AIM_DASH,
+  AIM_GAP,
+  BEAM_PEAK,
+  BEAM_SOFT,
+  CAP,
+  FAR,
+  FLARE_FROM,
+  FLARE_LARGEST,
+  FLARE_PEAK,
+  FLARE_SIZE,
+  FLARE_SMALLEST,
+  FULL,
+  POOL_PEAK,
+  POOL_SOFT,
+  SOFT_END,
+  flareTint,
+  spread,
+} from "../../lib/beams";
 import { cosDeg, sinDeg } from "../../lib/motion";
 import { FLOOD_RADIUS, FLOOD_STRENGTH, SMALLEST_WASH, UNLIT_WASH } from "../../lib/floodWash";
 import { GLOW_STEPS, GLOW_STRENGTH, GLOW_WIDTH, glowStep } from "../../lib/pixelGlow";
@@ -377,63 +401,185 @@ const WASH_FRAGMENT = /* glsl */ `
   }
 `;
 
-// A moving head's beam: a cone from the head opening along its direction, drawn as the flat
-// previews draw it (lib/beams.ts): in its hue, as bright as `level`, strong where it looks narrow
-// on the screen and soft where it looks wide (`beamStrength`, from how many screen pixels wide it
-// is there), fading out past FADE_FROM of its length unless it `lands` on the ground; softening
-// toward its edges as seen from the camera.
+/** A beam's lens: how wide (layout units, either side) its cone is where it leaves the head. */
+const LENS = 0.05;
+/** Points along each look through a beam where its light is added up. */
+const BEAM_STEPS = 12;
+/** What a slice across a beam, `(1 - q²)^1.5` strong `q` of the way out, adds up to straight across its middle, for each unit of its radius. */
+const ACROSS = (3 * Math.PI) / 8;
+
+/** How a beam's light goes along it and across it (as lib/beams.ts's `alongBeam`, `softEnd` and `beamStrength`). */
+const BEAM_LIGHT = /* glsl */ `
+  float alongBeam(float t) {
+    if (t <= ${glsl(FULL)}) return 1.0;
+    float u = min((t - ${glsl(FULL)}) / ${glsl(1 - FULL)}, 1.0);
+    return 1.0 - ${glsl(1 - FAR)} * u * u * (3.0 - 2.0 * u);
+  }
+  float softEnd(float t) {
+    if (t <= ${glsl(1 - SOFT_END)}) return 1.0;
+    if (t >= 1.0) return 0.0;
+    float v = (1.0 - t) / ${glsl(SOFT_END)};
+    return v * v * (3.0 - 2.0 * v);
+  }
+  float beamStrength(float across) {
+    return ${glsl(BEAM_PEAK)} * sqrt(${glsl(BEAM_SOFT)} / (${glsl(BEAM_SOFT)} + across));
+  }
+`;
+
+/**
+ * Where something stands in front of this place of the beams' picture: how far along a look in
+ * the direction `v` from the camera (1e9: nothing does).
+ */
+const NEAREST = /* glsl */ `
+  uniform sampler2D hides;
+  uniform vec3 hiding;
+  uniform vec2 project;
+  uniform vec2 target;
+  uniform vec3 forward;
+  float nearest(vec3 v) {
+    if (hiding.x < 0.5) return 1e9;
+    float d = texture2D(hides, gl_FragCoord.xy / target).r;
+    if (d >= 1.0) return 1e9;
+    return project.y / (2.0 * d - 1.0 + project.x) / max(dot(v, forward), 1e-4);
+  }
+`;
+
+// A moving head's beam as a cone of lit haze (lib/beams.ts): each place of the beams' picture
+// adds up the light along the look through it, inside the cone, between the lens and the end of
+// its reach, above the ground, and in front of whatever hides it. Across a slice of the cone the
+// haze is (1 - q²)^1.5 bright q of the way out from its middle, so seen from the side it is the
+// flat previews' (1 - r²)²; each slice is as bright, across its middle, as `beamStrength` says for
+// how many screen pixels wide it looks, and fades along it as `alongBeam` says. Looked along,
+// more of it adds up, and it is brighter; its far end, where it lands nowhere, is a soft disc as
+// strong as the flat previews' `cap`. The cone's apex is `a0` behind the lens, so it leaves the
+// head `LENS` wide either side.
 const BEAM_VERTEX = /* glsl */ `
-  uniform float width;
-  uniform float scale;
-  uniform float ratio;
-  varying float vAlong;
-  varying float vHalf;
-  varying vec3 vNormal;
-  varying vec3 vView;
+  varying vec3 vWorld;
   void main() {
-    vAlong = -position.y;
-    vec4 seen = modelViewMatrix * vec4(position, 1.0);
-    // How wide the beam is either side of its middle here, in screen pixels.
-    vHalf = vAlong * width * scale / max(-seen.z, 1e-4) / ratio;
-    vNormal = normalize(normalMatrix * normal);
-    vView = normalize(-seen.xyz);
-    gl_Position = projectionMatrix * seen;
+    vec4 world = modelMatrix * vec4(position, 1.0);
+    vWorld = world.xyz;
+    gl_Position = projectionMatrix * viewMatrix * world;
   }
 `;
 
 const BEAM_FRAGMENT = /* glsl */ `
   uniform vec3 color;
   uniform float level;
+  uniform vec3 apex;
+  uniform vec3 axis;
+  uniform float spread;
+  uniform float a0;
+  uniform float reach;
+  uniform float drawn;
   uniform float lands;
-  varying float vAlong;
-  varying float vHalf;
-  varying vec3 vNormal;
-  varying vec3 vView;
+  uniform float ground;
+  uniform float scale;
+  uniform float ratio;
+  varying vec3 vWorld;
+  ${BEAM_LIGHT}
+  ${NEAREST}
   void main() {
-    float facing = abs(dot(normalize(vNormal), normalize(vView)));
-    float wide = max(vHalf, ${glsl(NARROWEST)});
-    float strength = ${glsl(BEAM_PEAK * BEAM_SOFT)} / (${glsl(BEAM_SOFT)} + wide);
-    float u = clamp((vAlong - ${glsl(FADE_FROM)}) / ${glsl(1 - FADE_FROM)}, 0.0, 1.0);
-    float fade = max(lands, 1.0 - u * u * (3.0 - 2.0 * u));
-    // The near and far sides of the cone are each drawn: each is half as solid, so together
-    // they are as solid as the beam.
-    float solid = clamp(level * strength * fade * facing * facing, 0.0, 1.0);
-    gl_FragColor = vec4(color, 1.0 - sqrt(1.0 - solid));
+    vec3 eye = cameraPosition;
+    vec3 v = normalize(vWorld - eye);
+    vec3 w = eye - apex;
+    float va = dot(v, axis);
+    float wa = dot(w, axis);
+    // Inside the cone where (1 + spread²)·a² ≥ |x|² (a along its axis, x from its apex).
+    float k = 1.0 + spread * spread;
+    float qa = k * va * va - 1.0;
+    float qb = k * va * wa - dot(v, w);
+    float qc = k * wa * wa - dot(w, w);
+    float t0 = 0.0;
+    float t1 = 1e9;
+    // From the lens to as far as it's drawn.
+    float end = a0 + drawn;
+    if (abs(va) > 1e-6) {
+      float ta = (a0 - wa) / va;
+      float tb = (end - wa) / va;
+      t0 = max(t0, min(ta, tb));
+      t1 = min(t1, max(ta, tb));
+    } else if (wa < a0 || wa > end) {
+      discard;
+    }
+    float disc = qb * qb - qa * qc;
+    if (abs(qa) < 1e-6) {
+      if (abs(qb) > 1e-9) {
+        float t = -qc / (2.0 * qb);
+        if (qb > 0.0) t0 = max(t0, t); else t1 = min(t1, t);
+      } else if (qc < 0.0) {
+        discard;
+      }
+    } else if (qa < 0.0) {
+      if (disc < 0.0) discard;
+      float r = sqrt(disc);
+      float ta = (-qb + r) / qa;
+      float tb = (-qb - r) / qa;
+      t0 = max(t0, min(ta, tb));
+      t1 = min(t1, max(ta, tb));
+    } else if (disc > 0.0) {
+      // Looking nearly along it: inside on the far side of one crossing, the one ahead along it.
+      float r = sqrt(disc);
+      if (va > 0.0) t0 = max(t0, (-qb + r) / qa); else t1 = min(t1, (-qb - r) / qa);
+    }
+    // Not below the ground.
+    if (ground > 0.5) {
+      if (v.y < 0.0) t1 = min(t1, -eye.y / v.y);
+      else if (eye.y < 0.0) t0 = max(t0, -eye.y / max(v.y, 1e-9));
+    }
+    t1 = min(t1, nearest(v));
+    if (t1 <= t0) discard;
+    float deep = max(dot(v, forward), 1e-4);
+    float dt = (t1 - t0) / ${glsl(BEAM_STEPS)};
+    float sum = 0.0;
+    for (int i = 0; i < ${BEAM_STEPS}; i++) {
+      float t = t0 + (float(i) + 0.5) * dt;
+      vec3 x = w + t * v;
+      float a = dot(x, axis);
+      float radius = spread * a;
+      float q = (dot(x, x) - a * a) / (radius * radius);
+      if (q < 1.0) {
+        float s = 1.0 - q;
+        float f = (a - a0) / reach;
+        float left = alongBeam(f) * (lands > 0.5 ? 1.0 : softEnd(f));
+        float across = radius * scale / (t * deep) / ratio;
+        sum += s * sqrt(s) * left * beamStrength(across) / radius;
+      }
+    }
+    float lit = sum * dt / ${glsl(ACROSS)};
+    // Its far end, crossed on the way through.
+    if (lands < 0.5 && abs(va) > 1e-6) {
+      float t = (end - wa) / va;
+      if (t >= t0 * 0.9999 && t <= t1 * 1.0001) {
+        vec3 x = w + t * v;
+        float radius = spread * end;
+        float q = (dot(x, x) - end * end) / (radius * radius);
+        if (q < 1.0) {
+          float s = 1.0 - q;
+          float across = radius * scale / (t * deep) / ratio;
+          lit += s * s * ${glsl(CAP * FAR)} * abs(va) * beamStrength(across);
+        }
+      }
+    }
+    if (lit <= 0.0) discard;
+    gl_FragColor = vec4(color * (level * lit), 1.0);
   }
 `;
 
-// A pool of light where a beam meets the ground: a flat disc on it, its hue as bright as `level`,
-// solid at its middle (as `poolStrength` says for how many screen pixels wide it looks) and soft
-// to its edge, as the flat previews draw it.
+// A pool of light where a beam meets the ground: a flat disc on it, its hue as bright as `level`
+// (with what's left of the beam's light there), strong at its middle (as `poolStrength` says for
+// how many screen pixels wide it looks) and soft to its edge, as the flat previews draw it.
 const POOL_VERTEX = /* glsl */ `
   uniform float radius;
   uniform float scale;
   uniform float ratio;
   varying vec2 vAt;
   varying float vHalf;
+  varying vec3 vWorld;
   void main() {
     vAt = position.xz;
-    vec4 seen = modelViewMatrix * vec4(position, 1.0);
+    vec4 world = modelMatrix * vec4(position, 1.0);
+    vWorld = world.xyz;
+    vec4 seen = viewMatrix * world;
     vHalf = radius * scale / max(-seen.z, 1e-4) / ratio;
     gl_Position = projectionMatrix * seen;
   }
@@ -444,11 +590,67 @@ const POOL_FRAGMENT = /* glsl */ `
   uniform float level;
   varying vec2 vAt;
   varying float vHalf;
+  varying vec3 vWorld;
+  ${NEAREST}
   void main() {
     float q = dot(vAt, vAt);
     if (q >= 1.0) discard;
+    vec3 v = vWorld - cameraPosition;
+    float far = length(v);
+    if (far > nearest(v / far)) discard;
     float s = 1.0 - q;
-    gl_FragColor = vec4(color, level * ${glsl(POOL_PEAK * POOL_SOFT)} / (${glsl(POOL_SOFT)} + vHalf) * s * s);
+    gl_FragColor = vec4(color * (level * ${glsl(POOL_PEAK)} * sqrt(${glsl(POOL_SOFT)} / (${glsl(POOL_SOFT)} + vHalf)) * s * s), 1.0);
+  }
+`;
+
+// The flare at a lit head's lens, as the flat previews draw it (`flareShape`): at full, a radius
+// of `FLARE_SIZE` layout units (never under `FLARE_SMALLEST` or over `FLARE_LARGEST` screen
+// pixels), smaller when dimmer, in its whitened hue (`tint`), `FLARE_PEAK` × (1 - r²)³ strong r
+// of the way out; hidden behind what stands in front of the head.
+const FLARE_VERTEX = /* glsl */ `
+  attribute vec3 tint;
+  attribute float level;
+  uniform float cell;
+  varying vec3 vColor;
+  varying vec2 vSize;
+  ${VIEW_DOT}
+  ${HIDDEN}
+  void main() {
+    vec4 mv = modelViewMatrix * vec4(position, 1.0);
+    gl_Position = projectionMatrix * mv;
+    float depth = max(-mv.z, 1e-3);
+    if (level <= 0.0 || hidden(gl_Position, depth)) ${SKIP}
+    float size = clamp(${glsl(FLARE_SIZE)} * scale / depth / ratio, ${glsl(FLARE_SMALLEST)}, ${glsl(FLARE_LARGEST)});
+    float r = size * (${glsl(FLARE_FROM)} + ${glsl(1 - FLARE_FROM)} * level) * ratio / cell;
+    gl_PointSize = 2.0 * r + 1.0;
+    vSize = vec2(gl_PointSize, r);
+    vColor = tint * (${glsl(FLARE_PEAK)} * level);
+  }
+`;
+
+const FLARE_FRAGMENT = /* glsl */ `
+  varying vec3 vColor;
+  varying vec2 vSize;
+  void main() {
+    vec2 p = (gl_PointCoord - 0.5) * vSize.x;
+    float q = dot(p, p) / (vSize.y * vSize.y);
+    if (q >= 1.0) discard;
+    float s = 1.0 - q;
+    gl_FragColor = vec4(vColor * (s * s * s), 1.0);
+  }
+`;
+
+// The heads' light, added up, laid over the scene as the flat previews lay theirs (`shine` in
+// lib/pixelBatches.ts): where it is brighter than can show, as bright as its hue goes; elsewhere
+// covering what's behind it as much as its brightest part is bright.
+const SHINE_FRAGMENT = /* glsl */ `
+  uniform sampler2D light;
+  varying vec2 vUv;
+  void main() {
+    vec3 sum = texture2D(light, vUv).rgb;
+    float most = max(sum.r, max(sum.g, sum.b));
+    if (most <= 0.0) discard;
+    gl_FragColor = most > 1.0 ? vec4(sum / most, 1.0) : vec4(sum, most);
   }
 `;
 
@@ -720,6 +922,9 @@ export function createThreeScene(canvas: HTMLCanvasElement, makeRenderer: (canva
     return points;
   });
 
+  /** Device pixels to a pixel of the halos' and the heads' light's pictures. */
+  const haloCell = { value: 1 };
+
   // DMX floods' washes, over the finished scene and under the dots. The points share their
   // geometry with the dots'; only floods' cells (`flood`) are drawn.
   const washLit = { value: 0 };
@@ -739,18 +944,61 @@ export function createThreeScene(canvas: HTMLCanvasElement, makeRenderer: (canva
   washScene.add(washes);
   let anyFloods = false;
 
-  // Moving heads' beams, their pools on the ground, a selected head's aim, and servos' arms, over
-  // the scene (behind the house model where it stands in front of them) and under the dots. A
-  // beam's cone has its point at the origin and opens along -y, one unit long and one wide; a
+  // Moving heads' light: their beams, their pools on the ground and the flares at their lenses,
+  // added up in a picture a screen pixel to each of its own (behind the house model where it
+  // stands in front of them), then laid over the scene under the dots. A beam's cone has its
+  // point at the origin and opens along -y, one unit long and one wide, closed at its far end; a
   // pool is a disc one unit across, flat on the ground: each is placed, turned and stretched to
-  // its own.
-  const motionScene = new Scene();
-  const beamCone = new ConeGeometry(1, 1, 32, 1, true);
+  // its own. Only their back faces are drawn: each place a beam covers is looked through once.
+  const beamScene = new Scene();
+  beamScene.background = new Color(0x000000);
+  const beamCone = new ConeGeometry(1, 1, 32, 1, false);
   beamCone.translate(0, -0.5, 0);
   const poolDisc = new PlaneGeometry(2, 2);
   poolDisc.rotateX(-Math.PI / 2);
   const beamMeshes: Mesh<ConeGeometry, ShaderMaterial>[] = [];
   const poolMeshes: Mesh<PlaneGeometry, ShaderMaterial>[] = [];
+  const beamTarget = new WebGLRenderTarget(1, 1, { type: HalfFloatType, depthBuffer: false });
+  const beamView = {
+    scale: dots.scale,
+    ratio: dots.ratio,
+    hides: dots.hides,
+    hiding: dots.hiding,
+    project: dots.project,
+    target: { value: new Vector2(1, 1) },
+    forward: { value: new Vector3(0, 0, -1) },
+  };
+  const flareGeometry = new BufferGeometry();
+  const flares = new Points(
+    flareGeometry,
+    new ShaderMaterial({
+      uniforms: { scale: dots.scale, ratio: dots.ratio, radius: dots.radius, cell: haloCell, hides: dots.hides, hiding: dots.hiding, project: dots.project },
+      vertexShader: FLARE_VERTEX,
+      fragmentShader: FLARE_FRAGMENT,
+      transparent: true,
+      depthTest: false,
+      depthWrite: false,
+      blending: AdditiveBlending,
+    }),
+  );
+  flares.frustumCulled = false;
+  beamScene.add(flares);
+  const shineOver = new FullScreenQuad(
+    new ShaderMaterial({
+      uniforms: { light: { value: beamTarget.texture } },
+      vertexShader: OVER_VERTEX,
+      fragmentShader: SHINE_FRAGMENT,
+      transparent: true,
+      depthTest: false,
+      depthWrite: false,
+      blending: CustomBlending,
+      blendSrc: OneFactor,
+      blendDst: OneMinusSrcAlphaFactor,
+    }),
+  );
+  let anyLight = false;
+  // A selected head's aim and servos' arms, over the scene and under the dots.
+  const motionScene = new Scene();
   const arms = new LineSegments(new BufferGeometry(), new LineBasicMaterial({ color: new Color(ARM_COLOR[0] / 255, ARM_COLOR[1] / 255, ARM_COLOR[2] / 255) }));
   arms.frustumCulled = false;
   const aims = new LineSegments(new BufferGeometry(), new LineDashedMaterial({ color: new Color(), transparent: true, opacity: 0.85, dashSize: 1, gapSize: 1 }));
@@ -762,7 +1010,6 @@ export function createThreeScene(canvas: HTMLCanvasElement, makeRenderer: (canva
   // The points share their geometry with the dots'.
   const haloScene = new Scene();
   haloScene.background = new Color(0x000000);
-  const haloCell = { value: 1 };
   const halos = new Points(
     pixelGeometry,
     new ShaderMaterial({
@@ -878,6 +1125,8 @@ export function createThreeScene(canvas: HTMLCanvasElement, makeRenderer: (canva
       haloCell.value = Math.max(1, ratio);
       const [across, down] = [Math.max(1, Math.round((size.width * ratio) / haloCell.value)), Math.max(1, Math.round((size.height * ratio) / haloCell.value))];
       haloTarget.setSize(across, down);
+      beamTarget.setSize(across, down);
+      beamView.target.value.set(across, down);
       hidingTarget.setSize(across, down);
       dots.hiding.value.set(dots.hiding.value.x, 1 / across, 1 / down);
       camera.aspect = size.width / size.height;
@@ -927,41 +1176,52 @@ export function createThreeScene(canvas: HTMLCanvasElement, makeRenderer: (canva
     setMotion(items) {
       const beams = items.flatMap((m) => (m.kind === "beam" ? [m] : []));
       const pools = items.flatMap((m) => (m.kind === "pool" ? [m] : []));
-      const placed = { scale: dots.scale, ratio: dots.ratio };
       while (beamMeshes.length < beams.length) {
         const mesh = new Mesh(
           beamCone,
           new ShaderMaterial({
-            uniforms: { color: { value: new Color() }, level: { value: 0 }, lands: { value: 0 }, width: { value: 1 }, ...placed },
+            uniforms: {
+              color: { value: new Color() },
+              level: { value: 0 },
+              apex: { value: new Vector3() },
+              axis: { value: new Vector3(0, 1, 0) },
+              spread: { value: 0.1 },
+              a0: { value: 0 },
+              reach: { value: 1 },
+              drawn: { value: 1 },
+              lands: { value: 0 },
+              ground: { value: 1 },
+              ...beamView,
+            },
             vertexShader: BEAM_VERTEX,
             fragmentShader: BEAM_FRAGMENT,
             transparent: true,
+            depthTest: false,
             depthWrite: false,
-            side: DoubleSide,
+            side: BackSide,
+            blending: AdditiveBlending,
           }),
         );
         mesh.frustumCulled = false;
-        motionScene.add(mesh);
+        beamScene.add(mesh);
         beamMeshes.push(mesh);
       }
       while (poolMeshes.length < pools.length) {
         const mesh = new Mesh(
           poolDisc,
           new ShaderMaterial({
-            uniforms: { color: { value: new Color() }, level: { value: 0 }, radius: { value: 1 }, ...placed },
+            uniforms: { color: { value: new Color() }, level: { value: 0 }, radius: { value: 1 }, ...beamView },
             vertexShader: POOL_VERTEX,
             fragmentShader: POOL_FRAGMENT,
             transparent: true,
+            depthTest: false,
             depthWrite: false,
             side: DoubleSide,
-            // Drawn over the ground's grid lines, which lie in the same plane, never mixed with them.
-            polygonOffset: true,
-            polygonOffsetFactor: -4,
-            polygonOffsetUnits: -4,
+            blending: AdditiveBlending,
           }),
         );
         mesh.frustumCulled = false;
-        motionScene.add(mesh);
+        beamScene.add(mesh);
         poolMeshes.push(mesh);
       }
       const down = new Vector3(0, -1, 0);
@@ -970,15 +1230,34 @@ export function createThreeScene(canvas: HTMLCanvasElement, makeRenderer: (canva
         const dir = beam ? new Vector3(beam.dir.x, beam.dir.y, beam.dir.z) : null;
         mesh.visible = !!beam && !!dir && dir.lengthSq() > 0 && beam.length > 0;
         if (!beam || !dir || !mesh.visible) return;
-        const width = beam.length * spread(beam.angleDeg);
-        mesh.position.set(beam.origin.x, beam.origin.y, beam.origin.z);
-        mesh.quaternion.setFromUnitVectors(down, dir.normalize());
-        mesh.scale.set(width, beam.length, width);
+        dir.normalize();
+        const wide = spread(beam.angleDeg);
+        // The cone's apex, behind the lens so that it leaves the head LENS wide.
+        const a0 = LENS / wide;
+        // Landing, drawn on to where its upper edge meets the ground (the ground cuts it there).
+        let drawn = beam.length;
+        if (beam.lands) {
+          const below = Math.asin(Math.min(1, -dir.y)) - Math.atan(wide);
+          drawn = below > 0 ? Math.min(beam.reach, Math.max(beam.length, (beam.origin.y / Math.sin(below)) * Math.cos(Math.atan(wide)))) : beam.reach;
+        }
+        const long = a0 + drawn;
+        // A hair wider than the cone, which its 32 sides would otherwise cut into.
+        const width = long * wide * 1.02;
+        const apex = new Vector3(beam.origin.x, beam.origin.y, beam.origin.z).addScaledVector(dir, -a0);
+        mesh.position.copy(apex);
+        mesh.quaternion.setFromUnitVectors(down, dir);
+        mesh.scale.set(width, long, width);
         const u = mesh.material.uniforms;
         u.color.value.setRGB(beam.color[0] / 255, beam.color[1] / 255, beam.color[2] / 255);
         u.level.value = beam.level;
+        u.apex.value.copy(apex);
+        u.axis.value.copy(dir);
+        u.spread.value = wide;
+        u.a0.value = a0;
+        u.reach.value = beam.reach;
+        u.drawn.value = drawn;
         u.lands.value = beam.lands ? 1 : 0;
-        u.width.value = width;
+        u.ground.value = beam.origin.y >= 0 ? 1 : 0;
       });
       poolMeshes.forEach((mesh, i) => {
         const pool = pools[i];
@@ -993,6 +1272,21 @@ export function createThreeScene(canvas: HTMLCanvasElement, makeRenderer: (canva
         u.level.value = pool.level;
         u.radius.value = pool.radius;
       });
+      // A flare at each lit head's lens, in its hue made whiter the brighter it is.
+      const at = new Float32Array(beams.length * 3);
+      const tint = new Float32Array(beams.length * 3);
+      const level = new Float32Array(beams.length);
+      beams.forEach((beam, k) => {
+        at.set([beam.origin.x, beam.origin.y, beam.origin.z], 3 * k);
+        tint.set(beam.color.map((c) => flareTint(c, beam.level) / 255), 3 * k);
+        level[k] = beam.level;
+      });
+      flareGeometry.setAttribute("position", new BufferAttribute(at, 3));
+      flareGeometry.setAttribute("tint", new BufferAttribute(tint, 3));
+      flareGeometry.setAttribute("level", new BufferAttribute(level, 1));
+      flareGeometry.setDrawRange(0, beams.length);
+      flares.visible = beams.length > 0;
+      anyLight = beams.length > 0 || pools.length > 0;
       const ends = items.flatMap((m) =>
         m.kind === "arm" ? [m.origin.x, m.origin.y, m.origin.z, m.origin.x + m.dir.x * m.length, m.origin.y + m.dir.y * m.length, m.origin.z + m.dir.z * m.length] : [],
       );
@@ -1031,7 +1325,7 @@ export function createThreeScene(canvas: HTMLCanvasElement, makeRenderer: (canva
       aims.geometry = new BufferGeometry();
       aims.geometry.setAttribute("position", new BufferAttribute(new Float32Array(outline), 3));
       aims.computeLineDistances();
-      anyMotion = items.length > 0;
+      anyMotion = outline.length > 0 || ends.length > 0;
     },
 
     updatePixels(start, xyz) {
@@ -1195,12 +1489,19 @@ export function createThreeScene(canvas: HTMLCanvasElement, makeRenderer: (canva
         renderer.setRenderTarget(haloTarget);
         renderer.render(haloScene, camera);
       }
+      // The heads' light, added up.
+      if (anyLight) {
+        camera.getWorldDirection(beamView.forward.value);
+        renderer.setRenderTarget(beamTarget);
+        renderer.render(beamScene, camera);
+      }
       renderer.setRenderTarget(null);
       renderer.render(scene, camera);
       renderer.autoClear = false;
       // Floods' washes over the scene, under the dots.
       if (anyFloods) renderer.render(washScene, camera);
-      // Heads' beams and servos' arms, the same.
+      // Heads' light, aims and servos' arms, the same.
+      if (anyLight) shineOver.render(renderer);
       if (anyMotion) renderer.render(motionScene, camera);
       // The lights go over the finished scene, with the depth buffer to themselves.
       renderer.clearDepth();
@@ -1221,8 +1522,12 @@ export function createThreeScene(canvas: HTMLCanvasElement, makeRenderer: (canva
       disposeTree(haloScene);
       disposeTree(washScene);
       disposeTree(motionScene);
+      disposeTree(beamScene);
       beamCone.dispose();
       poolDisc.dispose();
+      beamTarget.dispose();
+      shineOver.material.dispose();
+      shineOver.dispose();
       disposeTree(hidingScene);
       occluder.dispose();
       hidingTarget.dispose();

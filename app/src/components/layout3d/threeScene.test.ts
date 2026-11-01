@@ -1,9 +1,11 @@
 import {
   AdditiveBlending,
+  BackSide,
   BufferAttribute,
   CustomBlending,
   DepthTexture,
   EqualDepth,
+  HalfFloatType,
   type InterleavedBufferAttribute,
   LessDepth,
   Mesh,
@@ -108,15 +110,15 @@ describe("the three.js scene", () => {
     }
   });
 
-  it("frees everything it made when it's taken down, its two pictures and the WebGL context too", () => {
+  it("frees everything it made when it's taken down, its three pictures and the WebGL context too", () => {
     const targets = vi.spyOn(WebGLRenderTarget.prototype, "dispose");
     const quads = vi.spyOn(FullScreenQuad.prototype, "dispose");
     const { renderer, scene } = made();
     scene.setPixels(new Float32Array([0, 0, 0, 1, 1, 1]), spreadFor(2));
     scene.dispose();
-    // The halos' picture, and the depth picture of what hides lights.
-    expect(targets).toHaveBeenCalledTimes(2);
-    expect(quads).toHaveBeenCalledOnce();
+    // The halos' picture, the heads' light's, and the depth picture of what hides lights.
+    expect(targets).toHaveBeenCalledTimes(3);
+    expect(quads).toHaveBeenCalledTimes(2);
     expect(renderer.calls).toEqual(["renderLists.dispose", "dispose", "forceContextLoss"]);
   });
 
@@ -329,33 +331,71 @@ describe("the three.js scene", () => {
     expect(renderer.drawn.filter((d) => d.into === null)).toHaveLength(2);
   });
 
-  it("draws a head's beam, its pool on the ground and a selected head's dashed aim over the scene and under the dots", () => {
+  it("adds up heads' beams, pools and lens flares in a picture of their own, laid over the scene under the dots as light", () => {
     const { renderer, scene } = made();
     scene.setPixels(new Float32Array(3), spreadFor(1));
     const origin = v3(0, 2, 0);
     scene.setMotion([
-      { kind: "beam", origin, dir: v3(0, -1, 0), length: 2, angleDeg: 20, color: [0, 0, 255], level: 0.5, lands: true },
+      { kind: "beam", origin, dir: v3(0, -1, 0), length: 2, reach: 8, angleDeg: 20, color: [0, 0, 255], level: 0.5, lands: true },
       { kind: "pool", at: v3(0, 0, 0), heading: { x: 1, z: 0 }, radius: 0.35, stretch: 0.35, color: [0, 0, 255], level: 0.5 },
       { kind: "aim", origin: v3(3, 0, 0), dir: v3(0, 1, 0), length: 4, angleDeg: 15, color: [167, 139, 250] },
     ]);
     scene.render(ORBIT);
+    // The heads' light into its own picture, which nothing else is drawn in.
+    const light = renderer.drawn.filter((d) => d.into !== null);
+    expect(light).toHaveLength(1);
+    const target = light[0].into!;
+    expect(target.texture.type).toBe(HalfFloatType);
     const onScreen = renderer.drawn.filter((d) => d.into === null);
-    // The scene, the heads' beams and pools, then the lights.
-    expect(onScreen).toHaveLength(3);
+    // The scene, the heads' light laid over it, the aim, then the lights.
+    expect(onScreen).toHaveLength(4);
+    const over = (onScreen[1].what as Mesh).material as ShaderMaterial;
+    expect(over.uniforms.light.value).toBe(target.texture);
+    expect([over.blending, over.blendSrc, over.blendDst]).toEqual([CustomBlending, OneFactor, OneMinusSrcAlphaFactor]);
+    // Each look through a beam is added up once: only the cone's far side is drawn.
     const meshes: Mesh[] = [];
-    onScreen[1].what.traverse((o) => void (o instanceof Mesh && meshes.push(o)));
-    const [beam, pool] = meshes.filter((m) => m.visible).map((m) => (m.material as ShaderMaterial).uniforms);
-    expect([beam.level.value, beam.lands.value]).toEqual([0.5, 1]);
-    expect(beam.color.value.toArray()).toEqual([0, 0, 1]);
-    expect([pool.level.value, pool.radius.value]).toEqual([0.5, 0.35]);
-    for (const m of meshes) expect((m.material as ShaderMaterial).depthWrite).toBe(false);
-    // The aim's lines, dashed.
+    light[0].what.traverse((o) => void (o instanceof Mesh && meshes.push(o)));
+    const [beam, pool] = meshes.filter((m) => m.visible).map((m) => m.material as ShaderMaterial);
+    expect([beam.side, beam.blending, beam.depthTest]).toEqual([BackSide, AdditiveBlending, false]);
+    expect([beam.uniforms.level.value, beam.uniforms.lands.value, beam.uniforms.reach.value]).toEqual([0.5, 1, 8]);
+    expect(beam.uniforms.color.value.toArray()).toEqual([0, 0, 1]);
+    // Straight down from 2 up: drawn to the ground, which its whole end meets at once.
+    expect(beam.uniforms.drawn.value).toBeCloseTo(2, 6);
+    expect([pool.uniforms.level.value, pool.uniforms.radius.value, pool.blending]).toEqual([0.5, 0.35, AdditiveBlending]);
+    // A flare at the lit head's lens, whiter than its hue.
+    const flare = light[0].what.children.find((o): o is Points => o instanceof Points)!;
+    expect(flare.visible).toBe(true);
+    expect(Array.from(flare.geometry.getAttribute("position").array)).toEqual([0, 2, 0]);
+    const tint = Array.from(flare.geometry.getAttribute("tint").array);
+    expect(tint[2]).toBe(1);
+    expect(tint[0]).toBeGreaterThan(0.3);
+    // The aim's lines, dashed, drawn straight over the scene.
     let dashed = 0;
-    onScreen[1].what.traverse((o) => {
+    onScreen[2].what.traverse((o) => {
       const line = o as Object3D & { isLineSegments?: boolean; geometry?: { getAttribute(n: string): { count: number } | undefined } };
       if (line.isLineSegments && (line as unknown as { material: { isLineDashedMaterial?: boolean } }).material.isLineDashedMaterial) dashed = line.geometry?.getAttribute("position")?.count ?? 0;
     });
     expect(dashed).toBeGreaterThan(24);
+    // Once no head is lit, no light is drawn.
+    renderer.drawn.length = 0;
+    scene.setMotion([]);
+    scene.render(ORBIT);
+    expect(renderer.drawn).toHaveLength(2);
+    scene.dispose();
+  });
+
+  it("draws a beam slanting onto the ground on to where its upper edge meets it, so the ground cuts it, not its end", () => {
+    const { renderer, scene } = made();
+    scene.setPixels(new Float32Array(3), spreadFor(1));
+    // 2 up, 45° down, 20° wide: its middle meets the ground 2.83 out, its upper edge (35° down) 3.43 out along it.
+    const d = Math.SQRT1_2;
+    scene.setMotion([{ kind: "beam", origin: v3(0, 2, 0), dir: v3(d, -d, 0), length: 2 * Math.SQRT2, reach: 8, angleDeg: 20, color: [255, 0, 0], level: 1, lands: true }]);
+    scene.render(ORBIT);
+    const meshes: Mesh[] = [];
+    renderer.drawn.find((d) => d.into !== null)!.what.traverse((o) => void (o instanceof Mesh && o.visible && meshes.push(o)));
+    const beam = meshes[0].material as ShaderMaterial;
+    expect(beam.uniforms.drawn.value).toBeCloseTo((2 / Math.sin((35 * Math.PI) / 180)) * Math.cos((10 * Math.PI) / 180), 3);
+    expect(beam.uniforms.ground.value).toBe(1);
     scene.dispose();
   });
 

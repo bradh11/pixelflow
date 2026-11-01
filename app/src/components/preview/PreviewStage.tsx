@@ -113,8 +113,10 @@ function FlatPreview({
     const bg = show?.background ?? null;
     const box = unionBox([...props.map((p) => boxOfPoints(p.points)), bg && !onlyRow ? backgroundBox(bg, photo.aspect) : null]);
     const { view, radius } = fitDisplay(box, size);
-    // The night sky only behind the display itself (around it, the panel shows through).
+    // The night sky only behind the display itself (around it, the panel shows through), and the
+    // lights inside it: a beam reaching past it is cut off at its edge.
     ctx.fillStyle = BACKDROP;
+    ctx.save();
     if (box) {
       const a = toScreen(view, size, { x: box.minX, y: box.maxY });
       const b = toScreen(view, size, { x: box.maxX, y: box.minY });
@@ -122,6 +124,7 @@ function FlatPreview({
       ctx.beginPath();
       ctx.roundRect(a.x - pad, a.y - pad, b.x - a.x + 2 * pad, b.y - a.y + 2 * pad, 6);
       ctx.fill();
+      ctx.clip();
     } else {
       ctx.fillRect(0, 0, size.width, size.height);
     }
@@ -135,6 +138,7 @@ function FlatPreview({
       ctx.globalAlpha = 1;
     }
     drawPixels(ctx, props, frame, view, size, NONE, COLORS, radius, ratio, glow);
+    ctx.restore();
   }, [props, frame, size, show?.background, photo, onlyRow, glow]);
 
   return <canvas ref={canvasRef} role="img" aria-label={label} className="h-full w-full rounded-md" />;

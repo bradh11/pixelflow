@@ -206,42 +206,59 @@ const SCENES: Record<string, Scene> = {
   },
   movingHeads: {
     about:
-      "Moving heads and servos: a beam from each head's cell where its pan and tilt point it, in its color, widening, softer where wider, and fading out toward its end, under every dot; a 16-bit head leaning right, an 8-bit head hung upside down, one pointing at the viewer (a glow round the head), one turned to face the left, a dark one with no beam; and two servos' arms, at Home and turned 90°.",
+      "Moving heads and servos: a beam from each head's cell where its pan and tilt point it, in its color, a filled cone widening and softening, its light reaching four times as far as it is set to be drawn and fading gently to its end, with a flare at the lens, under every dot; a 16-bit head leaning right, an 8-bit head hung upside down, one pointing at the viewer (its far end a soft disc round the head), one turned to face the left, a dark one with no beam or flare; and two servos' arms, at Home and turned 90°.",
     size: { width: 112, height: 72 },
     ratio: 1.28,
     layout: new Layout()
       // Pan 90° and tilt 45° toward the street (each 43690).
-      .head(row(1, 0, 0, 0), ORANGE, UPRIGHT, [170, 170], [170, 170], 20, 1)
+      .head(row(1, 0, 0, 0), ORANGE, UPRIGHT, [170, 170], [170, 170], 20, 1 / 4)
       // Hung, tilted 60° the other way: pointing down and away.
-      .head(row(1, 0, 3 / 2, 1), CYAN, HUNG, [128], [71], 30, 3 / 4)
+      .head(row(1, 0, 3 / 2, 1), CYAN, HUNG, [128], [71], 30, 3 / 16)
       // Tilted 90° toward the street at Home pan: straight at the viewer.
-      .head(row(1, 0, 3 / 4, 1 / 2), PURPLE, UPRIGHT, [128, 0], [213, 85], 24, 1)
+      .head(row(1, 0, 3 / 4, 1 / 2), PURPLE, UPRIGHT, [128, 0], [213, 85], 24, 1 / 4)
       // Facing left, tilted forward 45°.
-      .head(row(1, 0, 2, 0), GREEN, LEFTWARD, [128, 0], [170, 170], 16, 1)
+      .head(row(1, 0, 2, 0), GREEN, LEFTWARD, [128, 0], [170, 170], 16, 1 / 4)
       .head(row(1, 0, 1, -1 / 4), OFF, UPRIGHT, [0, 0], [255, 255])
       .servos(row(2, 1 / 2, -1 / 2, 1), [[128], [255]])
       .add(row(6, 1 / 8, 1 / 4, -1 / 8), run(6, WHITE)),
   },
   headLight: {
     about:
-      "Moving heads as their light looks at night: strong where the beam is narrow and soft where it is wide; a head dimmed to a third, fainter in the same hue; one whose zoom channel widens its beam; one hung high pointing straight down, stopping at the ground in a flat pool, and one slanting down onto it, its pool stretched; one leaning toward the viewer, its end a glow; and one whose shutter is shut, dark, with no beam.",
+      "Moving heads as their light looks at night: strong where the beam is narrow and soft where it is wide, fading gently to the end of its reach; a head dimmed to a third, fainter in the same hue, its flare smaller and less white; one whose zoom channel widens its beam; one hung high pointing straight down, stopping at the ground in a flat pool, and one slanting down onto it, its pool stretched; one leaning toward the viewer, brighter for being seen along it, its far end a soft disc; and one whose shutter is shut, dark, with no beam or flare.",
     size: { width: 120, height: 80 },
     ratio: 2,
     layout: new Layout()
       // Straight up: white, then the same dimmed to a third.
-      .head(row(1, 0, 0, 0), WHITE, UPRIGHT, [128, 0], [128, 0], 8, 2)
-      .head(row(1, 0, 1 / 2, 0), [85, 85, 85], UPRIGHT, [128, 0], [128, 0], 8, 2)
+      .head(row(1, 0, 0, 0), WHITE, UPRIGHT, [128, 0], [128, 0], 8, 1 / 2)
+      .head(row(1, 0, 1 / 2, 0), [85, 85, 85], UPRIGHT, [128, 0], [128, 0], 8, 1 / 2)
       // Its zoom channel at 200 of 255, from 5° to 45°.
-      .head(row(1, 0, 1, 0), ORANGE, UPRIGHT, [128, 0], [128, 0], 15, 2, { value: 200, fromDeg: 5, toDeg: 45 })
+      .head(row(1, 0, 1, 0), ORANGE, UPRIGHT, [128, 0], [128, 0], 15, 1 / 2, { value: 200, fromDeg: 5, toDeg: 45 })
       // Hung 1.5 up, at Home: straight down to the ground.
-      .head(row(1, 0, 7 / 4, 3 / 2), CYAN, HUNG, [128, 0], [128, 0], 20, 3)
+      .head(row(1, 0, 7 / 4, 3 / 2), CYAN, HUNG, [128, 0], [128, 0], 20, 3 / 4)
       // 1 up, panned 30° and tilted 135°: down and toward the street, onto the ground.
-      .head(row(1, 0, 5 / 2, 1), PURPLE, UPRIGHT, [142, 56], [255, 255], 20, 3)
+      .head(row(1, 0, 5 / 2, 1), PURPLE, UPRIGHT, [142, 56], [255, 255], 20, 3 / 4)
       // Leaning 60° toward the viewer.
-      .head(row(1, 0, 13 / 4, 1 / 4), GREEN, UPRIGHT, [128, 0], [184, 227], 24, 1)
+      .head(row(1, 0, 13 / 4, 1 / 4), GREEN, UPRIGHT, [128, 0], [184, 227], 24, 1 / 4)
       // Its shutter shut: its cell shows nothing.
       .head(row(1, 0, 15 / 4, 0), OFF, UPRIGHT, [128, 0], [128, 0])
       .add(row(8, 1 / 8, 1 / 8, 3 / 4), run(8, RED)),
+  },
+  beamsCrossing: {
+    about:
+      "Beams crossing as in haze: two orange beams cross and their light adds up, still orange where it is brighter than it can show, not washed to white; a purple beam up the middle mixes with each; a cyan one leaning away from the viewer shows its far end as a soft disc; a dimmed head's flare is smaller and less white than a bright one's; a string's dots stay whole over the beams, adding nothing.",
+    size: { width: 120, height: 80 },
+    ratio: 2,
+    layout: new Layout()
+      // Leaning 45° right, and 45° left from 1.25 over: they cross half way across.
+      .head(row(1, 0, 0, 0), ORANGE, UPRIGHT, [170, 170], [170, 170], 20, 5 / 16)
+      .head(row(1, 0, 5 / 4, 0), ORANGE, UPRIGHT, [85, 85], [170, 170], 20, 5 / 16)
+      // Straight up between them, through where they cross.
+      .head(row(1, 0, 5 / 8, 0), PURPLE, UPRIGHT, [128, 0], [128, 0], 16, 5 / 16)
+      // Turned round (pan 180°) and tilted 45°: up and away from the viewer.
+      .head(row(1, 0, 9 / 4, 1 / 4), CYAN, UPRIGHT, [213, 85], [170, 170], 24, 5 / 16)
+      // Dimmed to a third, straight up.
+      .head(row(1, 0, -3 / 4, 0), [85, 43, 0], UPRIGHT, [128, 0], [128, 0], 20, 5 / 16)
+      .add(row(8, 1 / 8, 3 / 16, 3 / 8), run(8, RED)),
   },
   closerThanAPixel: {
     about: "A string and a matrix with several pixels to a screen pixel: those in one screen pixel are merged into one light with their average color, the dots of ones that are off showing through.",

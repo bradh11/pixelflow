@@ -52,7 +52,7 @@ function pickTime(props: PreviewProp3d[], orbit: Orbit, size: { width: number; h
  * show, at step `i`: each leans out and sweeps the other way from its neighbors, so their beams
  * cross; every fourth points down onto the ground in a pool of light.
  */
-export function sweepingHeads(count: number, i: number, [left, right, front]: [number, number, number], length = 24): Motion3d[] {
+export function sweepingHeads(count: number, i: number, [left, right, front]: [number, number, number], reach = 24): Motion3d[] {
   const out: Motion3d[] = [];
   const colors: [number, number, number][] = [
     [255, 128, 0],
@@ -71,14 +71,14 @@ export function sweepingHeads(count: number, i: number, [left, right, front]: [n
     const n = Math.hypot(dir.x, dir.y, dir.z);
     const d = { x: dir.x / n, y: dir.y / n, z: dir.z / n };
     const landed = d.y < 0 ? origin.y / -d.y : null;
-    const reach = landed !== null && landed < length ? landed : length;
-    out.push({ kind: "beam", origin, dir: d, length: reach, angleDeg: 18, color, level: 1, lands: reach !== length });
-    if (reach !== length) {
+    const drawn = landed !== null && landed < reach ? landed : reach;
+    out.push({ kind: "beam", origin, dir: d, length: drawn, reach, angleDeg: 18, color, level: 1, lands: drawn !== reach });
+    if (drawn !== reach) {
       const h = Math.hypot(d.x, d.z);
-      const radius = reach * Math.tan((9 * Math.PI) / 180);
+      const radius = drawn * Math.tan((9 * Math.PI) / 180);
       out.push({
         kind: "pool",
-        at: { x: origin.x + d.x * reach, y: 0, z: origin.z + d.z * reach },
+        at: { x: origin.x + d.x * drawn, y: 0, z: origin.z + d.z * drawn },
         heading: h > 0 ? { x: d.x / h, z: d.z / h } : { x: 1, z: 0 },
         radius,
         stretch: radius / Math.max(-d.y, 0.2),

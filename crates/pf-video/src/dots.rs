@@ -354,6 +354,31 @@ fn pack(red: u32, green: u32, blue: u32, solid: u32) -> u32 {
     (solid << 24) | (blue << 16) | (green << 8) | red
 }
 
+/// Adds light (red, green and blue as one number, `amount` of it out of 255, more where it's
+/// that bright) to a picture pixel, as light adds where beams cross in haze: the pixel's color and
+/// the light's, each times how much of it there is, summed. Too bright to show, it's drawn as
+/// bright as its hue goes (its brightest part at 255), not washed toward white.
+pub(crate) fn shine(pixel: &mut u32, rgb: u32, amount: u32) {
+    let under = *pixel;
+    let under_alpha = under >> 24;
+    let sum = |shift: u32| ((under >> shift) & 255) * under_alpha + ((rgb >> shift) & 255) * amount;
+    let (r, g, b) = (sum(0), sum(8), sum(16));
+    let most = r.max(g).max(b);
+    if most > 255 * 255 {
+        let half = u64::from(most / 2);
+        let full = |c: u32| ((u64::from(c) * 255 + half) / u64::from(most)) as u32;
+        *pixel = pack(full(r), full(g), full(b), 255);
+        return;
+    }
+    let alpha = (most + 127) / 255;
+    if alpha == 0 {
+        return;
+    }
+    let half = alpha >> 1;
+    let part = |c: u32| ((c + half) / alpha).min(255);
+    *pixel = pack(part(r), part(g), part(b), alpha);
+}
+
 /// Puts a color (red, green and blue as one number, and how solid it is of 255) over a picture
 /// pixel.
 fn blend(pixel: &mut u32, rgb: u32, alpha: u32) {
@@ -976,30 +1001,45 @@ impl Dots {
             }
         }
 
-        // Then heads' beams and servos' arms, also under every dot (see `beam.rs`).
+        // Then heads' beams and the flares at their lenses, their light added to what's there,
+        // and servos' arms, also under every dot (see `beam.rs`).
         for mover in &self.movers {
             let Some(&(ax, ay)) = mover.cells.first() else {
                 continue;
             };
             if let Some(beam) = &mover.motion.beam
-                && let Some(([r, g, b], level)) = color_at(mover.offset).and_then(crate::beam::beam_light)
+                && let Some(light) = color_at(mover.offset).and_then(crate::beam::beam_light)
             {
+                let ([r, g, b], level) = light;
                 let direction = crate::beam::head_direction(&mover.motion, frame);
                 let shape = crate::beam::beam_shape(
                     (ax, ay),
                     mover.head_y,
                     direction,
-                    beam.length,
+                    crate::beam::BEAM_REACH * beam.length,
                     beam.width(Some(frame)),
                     &self.view,
                 );
                 let rgb = pack(r, g, b, 0);
-                let (x0, x1, y0, y1) = shape.bounds(self.width, self.height);
+                let (y0, y1) = shape.rows(self.height);
+                for py in y0..y1 {
+                    let (x0, x1) = shape.columns(py, self.width);
+                    for px in x0..x1 {
+                        let amount = (level * shape.at(px, py) * 255.0 + 0.5).floor() as u32;
+                        if amount > 0 {
+                            shine(&mut layer.pixels[py * self.width + px], rgb, amount);
+                        }
+                    }
+                }
+                let flare = crate::beam::flare_shape((ax, ay), light, &self.view);
+                let [r, g, b] = flare.rgb;
+                let rgb = pack(r, g, b, 0);
+                let (x0, x1, y0, y1) = flare.bounds(self.width, self.height);
                 for py in y0..y1 {
                     for px in x0..x1 {
-                        let alpha = (level * shape.at(px, py) * 255.0 + 0.5).floor() as u32;
-                        if alpha > 0 {
-                            blend(&mut layer.pixels[py * self.width + px], rgb, alpha);
+                        let amount = (flare.at(px, py) * 255.0 + 0.5).floor() as u32;
+                        if amount > 0 {
+                            shine(&mut layer.pixels[py * self.width + px], rgb, amount);
                         }
                     }
                 }

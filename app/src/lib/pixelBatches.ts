@@ -29,7 +29,7 @@ import type { PreviewProp } from "../api/types";
 import type { Size, View } from "./layoutMath";
 import { DOT_RADIUS, type HaloPlan, type PixelBox, coreDim, drawHalos, planHalos } from "./pixelGlow";
 import { FLOOD_STRENGTH, UNLIT_WASH, washAt, washRadius } from "./floodWash";
-import { ARM_COLOR, aimAt, aimOutline, armAt, armBox, armShape, beamAt, beamBox, beamLight, beamShape, beamWidth, headDirection, servoDirection } from "./beams";
+import { ARM_COLOR, BEAM_REACH, aimAt, aimOutline, armAt, armBox, armShape, beamAt, beamColumns, beamLight, beamRows, beamShape, beamWidth, flareAt, flareBox, flareShape, headDirection, servoDirection } from "./beams";
 
 export { DOT_RADIUS };
 
@@ -446,6 +446,32 @@ function blend(pixels: Int32Array, at: number, rgb: number, alpha: number) {
 }
 
 /**
+ * Adds light (red, green and blue as one number, `amount` of it out of 255, more where it's that
+ * bright) to the image pixel at `at`, as light adds where beams cross in haze: the pixel's color
+ * and the light's, each times how much of it there is, summed. Too bright to show, it's drawn as
+ * bright as its hue goes (its brightest part at 255), not washed toward white.
+ */
+export function shine(pixels: Int32Array, at: number, rgb: number, amount: number) {
+  const under = pixels[at];
+  const underAlpha = under >>> 24;
+  const r = (under & 255) * underAlpha + (rgb & 255) * amount;
+  const g = ((under >> 8) & 255) * underAlpha + ((rgb >> 8) & 255) * amount;
+  const b = ((under >> 16) & 255) * underAlpha + ((rgb >> 16) & 255) * amount;
+  const most = Math.max(r, g, b);
+  if (most > 65025) {
+    const half = Math.floor(most / 2);
+    const full = (c: number) => Math.floor((c * 255 + half) / most);
+    pixels[at] = (255 << 24) | (full(b) << 16) | (full(g) << 8) | full(r);
+    return;
+  }
+  const alpha = Math.floor((most + 127) / 255);
+  if (alpha === 0) return;
+  const half = alpha >> 1;
+  const part = (c: number) => Math.min(255, Math.floor((c + half) / alpha));
+  pixels[at] = (alpha << 24) | (part(b) << 16) | (part(g) << 8) | part(r);
+}
+
+/**
  * Stamps one dot with the top left of its square at `x0`, `y0`, clipped at the image's edges. A
  * dot stamped `over` covers what's there; otherwise it's one of the dots under the lit ones,
  * where two overlapping never add up to more than either alone.
@@ -728,10 +754,10 @@ export function stampPixels(
   };
 
   /**
-   * Stamps a moving head's beam from its first cell while something plays, in its color and as
-   * bright as it is (nothing while it's dark), or, not playing, the outline of where a selected
-   * head points when `colors.aim` says how; and a servo's arm at each of its cells, over what's
-   * there (see beams.ts).
+   * Stamps a moving head's beam and its lens flare from its first cell while something plays, in
+   * its color and as bright as it is (nothing while it's dark), their light added to what's
+   * there; or, not playing, the outline of where a selected head points when `colors.aim` says
+   * how; and a servo's arm at each of its cells, over what's there (see beams.ts).
    */
   const stampMotion = (p: PreviewProp) => {
     const motion = p.motion!;
@@ -750,17 +776,30 @@ export function stampPixels(
     const light = frame && o + 2 < frame.length ? beamLight(frame[o], frame[o + 1], frame[o + 2]) : null;
     const aiming = !frame && aim !== 0 && selected.has(p.prop);
     if (motion.beam && cells > 0 && (light || aiming)) {
-      const shape = beamShape(placeX(0), placeY(0), pts[1], headDirection(motion, frame), motion.beam.length, beamWidth(motion, frame), zoom, ratio);
+      const direction = headDirection(motion, frame);
+      const angle = beamWidth(motion, frame);
       if (light) {
-        const [x0, x1, y0, y1] = beamBox(shape, width, height);
+        const shape = beamShape(placeX(0), placeY(0), pts[1], direction, BEAM_REACH * motion.beam.length, angle, zoom, ratio);
+        const [y0, y1] = beamRows(shape, height);
         for (let py = y0; py < y1; py++) {
+          const [x0, x1] = beamColumns(shape, py, width);
           for (let px = x0; px < x1; px++) {
-            const alpha = Math.floor(light.level * beamAt(shape, px, py) * 255 + 0.5);
-            if (alpha > 0) blend(pixels, py * width + px, light.rgb, alpha);
+            const amount = Math.floor(light.level * beamAt(shape, px, py) * 255 + 0.5);
+            if (amount > 0) shine(pixels, py * width + px, light.rgb, amount);
+          }
+          stretch(x0, x1, py, py + 1);
+        }
+        const flare = flareShape(placeX(0), placeY(0), light, zoom, ratio);
+        const [x0, x1, fy0, fy1] = flareBox(flare, width, height);
+        for (let py = fy0; py < fy1; py++) {
+          for (let px = x0; px < x1; px++) {
+            const amount = Math.floor(flareAt(flare, px, py) * 255 + 0.5);
+            if (amount > 0) shine(pixels, py * width + px, flare.rgb, amount);
           }
         }
-        stretch(x0, x1, y0, y1);
+        stretch(x0, x1, fy0, fy1);
       } else {
+        const shape = beamShape(placeX(0), placeY(0), pts[1], direction, motion.beam.length, angle, zoom, ratio);
         const path = aimOutline(shape);
         const solid = aim >>> 24;
         let [x0, x1, y0, y1] = [width, 0, height, 0];

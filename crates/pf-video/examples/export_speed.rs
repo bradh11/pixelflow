@@ -168,7 +168,7 @@ fn sweep(k: usize, duration_ms: u64) -> Effect {
         Rgb::new(0, 200, 255),
     ];
     let params = MovingHeadParams {
-        pan: if k % 2 == 0 { -35.0 } else { 35.0 },
+        pan: if k.is_multiple_of(2) { -35.0 } else { 35.0 },
         tilt: 25.0,
         pattern: HeadPattern::Circle,
         width: 50.0,

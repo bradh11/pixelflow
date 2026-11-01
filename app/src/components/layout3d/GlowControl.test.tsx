@@ -38,7 +38,7 @@ describe("the Glow control", () => {
     expect(slider()).toHaveAttribute("aria-valuetext", "45%");
     expect(screen.getByRole("dialog", { name: "Glow" })).toHaveTextContent("45%");
     expect(button()).toHaveAttribute("title", "Glow around lit pixels: 45%");
-    expect(JSON.parse(localStorage.getItem("pixelflow.view3dOptions")!)).toEqual({ glow: 0.45, ground: true });
+    expect(JSON.parse(localStorage.getItem("pixelflow.view3dOptions")!)).toMatchObject({ glow: 0.45, ground: true });
     fireEvent.change(slider(), { target: { value: "0" } });
     expect(useView3d.getState().glow).toBe(0);
     expect(slider()).toHaveAttribute("aria-valuetext", "None");

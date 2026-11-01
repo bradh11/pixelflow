@@ -1,16 +1,18 @@
-// How the layout is shown: in 2D or 3D, how much lit pixels glow in every preview, and the 3D
-// view's settings. None of it is part of the show: it's how this viewer likes to look at it,
-// remembered on this computer (the 3D camera and the photo's depth for each show file).
+// How the layout is shown: in 2D or 3D, how much lit pixels glow in every preview, the other view
+// options (lib/viewOptions.ts), and the 3D view's settings. None of it is part of the show: it's
+// how this viewer likes to look at it, remembered on this computer (the 3D camera and the photo's
+// depth for each show file).
 
 import { create } from "zustand";
-import { type Box3, type Orbit, type Preset, parseOrbit } from "../lib/layout3d";
+import { type Box3, type FloorGrid, type Orbit, type Preset, parseOrbit } from "../lib/layout3d";
+import { type ViewOptions, readViewOptions } from "../lib/viewOptions";
 
 export type LayoutMode = "2d" | "3d";
 
 /** Something for the open 3D view to do with its camera. */
 export type CameraAction = { kind: "fit" } | { kind: "preset"; preset: Preset } | { kind: "zoom"; factor: number };
 
-interface View3dState {
+interface View3dState extends ViewOptions {
   /** The Layout screen's view. */
   mode: LayoutMode;
   /** The Play screen's preview. */
@@ -22,8 +24,10 @@ interface View3dState {
    * (none: crisp dots, as bare bulbs look) to 1 (as lights behind diffusers look).
    */
   glow: number;
-  /** The ground and its grid. */
+  /** The 3D view's ground. */
   ground: boolean;
+  /** The grid the open 3D view draws on the ground (worked out from the display's size), for saying how far apart its lines are. */
+  floor: FloorGrid | null;
   /** The latest camera request; `seq` tells a repeat from the one before. */
   command: { seq: number; action: CameraAction } | null;
   /** The show whose view settings these are (see `showViewKey`), and its photo's depth. */
@@ -39,6 +43,8 @@ interface View3dState {
   setSequenceMode(mode: LayoutMode): void;
   setGlow(level: number): void;
   setGround(on: boolean): void;
+  /** Changes some of the view options (`ViewOptions`), remembered on this computer. */
+  setViewOptions(change: Partial<ViewOptions>): void;
   camera(action: CameraAction): void;
   /** Reads the remembered settings for the show `key`. */
   openShow(key: string): void;
@@ -70,18 +76,27 @@ function write(key: string, value: string) {
 
 const glowLevel = (level: number) => (Number.isFinite(level) ? Math.min(1, Math.max(0, level)) : 0);
 
+/** Everything kept under `OPTIONS_KEY`. */
+type SavedOptions = ViewOptions & { glow: number; ground: boolean };
+
 /**
  * The options remembered on this computer. Settings saved without a glow level may hold the 3D
  * view's Glow button, on or off, instead (`bloom`): on reads as half way, about how that looked.
  */
-export function loadViewOptions(): { glow: number; ground: boolean } {
+export function loadViewOptions(): SavedOptions {
+  let o: Record<string, unknown> = {};
   try {
-    const o = JSON.parse(read(OPTIONS_KEY) ?? "{}") as Record<string, unknown>;
-    const glow = typeof o.glow === "number" ? glowLevel(o.glow) : o.bloom === true ? 0.5 : 0;
-    return { glow, ground: o.ground !== false };
+    o = (JSON.parse(read(OPTIONS_KEY) ?? "{}") as Record<string, unknown> | null) ?? {};
   } catch {
-    return { glow: 0, ground: true };
+    // Not readable: the usual options.
   }
+  const glow = typeof o.glow === "number" ? glowLevel(o.glow) : o.bloom === true ? 0.5 : 0;
+  return { glow, ground: o.ground !== false, ...readViewOptions(o) };
+}
+
+/** Remembers the options in `state` on this computer. */
+function saveOptions({ glow, ground, grid, names, unlit, dotSize, boost }: SavedOptions) {
+  write(OPTIONS_KEY, JSON.stringify({ glow, ground, grid, names, unlit, dotSize, boost }));
 }
 
 /** What's remembered about a show's 3D view on this computer. */
@@ -123,6 +138,7 @@ export const useView3d = create<View3dState>((set, get) => ({
   playMode: read(PLAY_MODE_KEY) === "3d" ? "3d" : "2d",
   sequenceMode: read(SEQUENCE_MODE_KEY) === "3d" ? "3d" : "2d",
   ...loadViewOptions(),
+  floor: null,
   command: null,
   showKey: null,
   photoDepth: DEFAULT_PHOTO_DEPTH,
@@ -143,12 +159,17 @@ export const useView3d = create<View3dState>((set, get) => ({
   },
   setGlow(level) {
     const glow = glowLevel(level);
-    write(OPTIONS_KEY, JSON.stringify({ glow, ground: get().ground }));
+    saveOptions({ ...get(), glow });
     set({ glow });
   },
   setGround(ground) {
-    write(OPTIONS_KEY, JSON.stringify({ glow: get().glow, ground }));
+    saveOptions({ ...get(), ground });
     set({ ground });
+  },
+  setViewOptions(change) {
+    const next = readViewOptions({ ...get(), ...change });
+    saveOptions({ ...get(), ...next });
+    set(next);
   },
   camera: (action) => set({ command: { seq: (get().command?.seq ?? 0) + 1, action } }),
   openShow(key) {

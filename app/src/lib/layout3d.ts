@@ -843,3 +843,51 @@ export function lightDim(halo: { bell: number; strength: number }, width: number
   const w = (2 * halo.bell) / width;
   return 1 - halo.strength * w * w * (1 - Math.exp(-1 / (w * w)));
 }
+
+// ---- The ground's grid -----------------------------------------------------------------
+
+/**
+ * The 3D view's grid on the ground: lines every `minor` layout units, heavier every `major`, on
+ * whole multiples of them from the layout's origin; it fades away from `center` (on the ground),
+ * from `fade[0]` units out to nothing at `fade[1]`.
+ */
+export interface FloorGrid {
+  minor: number;
+  major: number;
+  center: { x: number; z: number };
+  fade: readonly [number, number];
+}
+
+/** About how many of the grid's squares the display spans. */
+const FLOOR_SQUARES = 20;
+/** Every this many lines of the grid is a heavier one. */
+export const FLOOR_MAJOR_EVERY = 5;
+
+/** The 1, 2 or 5 times a power of ten nearest to `v` (as a ratio). */
+function roundNumber(v: number): number {
+  const power = Math.pow(10, Math.floor(Math.log10(v)));
+  let best = power;
+  for (const step of [2, 5, 10]) if (Math.abs(Math.log(v / (step * power))) < Math.abs(Math.log(v / best))) best = step * power;
+  return Number(best.toPrecision(12));
+}
+
+/**
+ * The grid for a display in `box`. Layout units have no size in the world (a show can be drawn
+ * at any scale; one imported from xLights comes out at about a unit to a meter), so the grid
+ * takes its measure from the display: its lines are the round number (1, 2 or 5 times a power of
+ * ten) nearest a twentieth of the display's width or depth, whichever is more, with a heavier
+ * one every fifth. Around the display it stays as a stage floor would, fading out from twice the
+ * display's size away from its middle to six times that.
+ */
+export function floorGrid(box: Box3 | null): FloorGrid {
+  const [wide, deep, tall] = box ? [box.max.x - box.min.x, box.max.z - box.min.z, box.max.y - box.min.y] : [0, 0, 0];
+  let span = Math.max(wide, deep);
+  if (!(span > 1e-3)) span = tall > 1e-3 ? tall : FLOOR_SQUARES;
+  const minor = roundNumber(span / FLOOR_SQUARES);
+  const major = Number((minor * FLOOR_MAJOR_EVERY).toPrecision(12));
+  const center = box ? { x: (box.min.x + box.max.x) / 2, z: (box.min.z + box.max.z) / 2 } : { x: 0, z: 0 };
+  return { minor, major, center, fade: [Math.max(2 * span, 10 * minor), Math.max(6 * span, 30 * minor)] };
+}
+
+/** How far apart a grid's lines are, in words ("1 unit", "0.5 units"). */
+export const gridWords = (units: number) => `${units} ${units === 1 ? "unit" : "units"}`;

@@ -143,8 +143,8 @@ Code and data taken from xLights and other projects' **source** are a different 
 
 | Scope | Third-party packages | Shipped | Build-time only | Tests only | Not used on desktop targets |
 | --- | --- | --- | --- | --- | --- |
-| (a) Engine workspace (`Cargo.toml`) | 432 | 305 | 41 | 35 | 51 |
-| (b) Desktop app (`app/src-tauri/Cargo.toml`) | 643 | 462 | 96 | 1 | 84 |
+| (a) Engine workspace (`Cargo.toml`) | 441 | 310 | 45 | 35 | 51 |
+| (b) Desktop app (`app/src-tauri/Cargo.toml`) | 646 | 464 | 97 | 1 | 84 |
 | (c) App UI, production (`app/package.json`) | 34 | 34 | 0 | 0 | 0 |
 
 "Shipped" means linked into a binary for macOS, Windows, or Linux. "Build-time only" covers build scripts and procedural macros, which run while compiling and are not in the binary. "Not used on desktop targets" are packages the lockfile lists for other platforms (Android, iOS, WebAssembly).
@@ -155,9 +155,9 @@ All 26 of PixelFlow's own packages state `GPL-3.0-only`: the GNU General Public 
 
 ## Shipped packages against PixelFlow's licence (`GPL-3.0-only`)
 
-Of the 512 packages shipped (engine, app, and UI together), 494 offer a licence the Free Software Foundation's licence list names as compatible with the GNU GPL, version 3. Where a package offers a choice, one compatible option is enough.
+Of the 515 packages shipped (engine, app, and UI together), 496 offer a licence the Free Software Foundation's licence list names as compatible with the GNU GPL, version 3. Where a package offers a choice, one compatible option is enough.
 
-**Shipped under a permissive licence that list does not name (read, and nothing in it limits distribution under the GPL; not confirmed by anyone with authority)** (18):
+**Shipped under a permissive licence that list does not name (read, and nothing in it limits distribution under the GPL; not confirmed by anyone with authority)** (19):
 
 - `icu_collections` 2.3.0: `Unicode-3.0`
 - `icu_locale_core` 2.3.0: `Unicode-3.0`
@@ -174,6 +174,7 @@ Of the 512 packages shipped (engine, app, and UI together), 494 offer a licence 
 - `webpki-roots` 1.0.11: `CDLA-Permissive-2.0`
 - `writeable` 0.6.4: `Unicode-3.0`
 - `yoke` 0.8.3: `Unicode-3.0`
+- `yoke` 0.8.4: `Unicode-3.0`
 - `zerofrom` 0.1.8: `Unicode-3.0`
 - `zerotrie` 0.2.5: `Unicode-3.0`
 - `zerovec` 0.11.8: `Unicode-3.0`
@@ -184,7 +185,7 @@ Of the 512 packages shipped (engine, app, and UI together), 494 offer a licence 
 
 | Licence (as the package states it) | Packages | Flag |
 | --- | --- | --- |
-| `Apache-2.0 OR MIT` | 207 |  |
+| `Apache-2.0 OR MIT` | 210 |  |
 | `MIT` | 35 |  |
 | `MPL-2.0` | 14 | copyleft |
 | `Apache-2.0 OR MIT OR Zlib` | 13 |  |
@@ -196,6 +197,7 @@ Of the 512 packages shipped (engine, app, and UI together), 494 offer a licence 
 | `Apache-2.0 OR Apache-2.0 WITH LLVM-exception OR MIT` | 2 |  |
 | `Apache-2.0 OR BSD-3-Clause` | 2 |  |
 | `BSD-2-Clause` | 2 |  |
+| `Unicode-3.0` | 2 | own terms |
 | `Zlib` | 2 |  |
 | `(Apache-2.0 OR MIT) AND BSD-3-Clause` | 1 |  |
 | `(MIT OR Apache-2.0) AND Unicode-3.0` | 1 | own terms |
@@ -211,7 +213,7 @@ Of the 512 packages shipped (engine, app, and UI together), 494 offer a licence 
 
 | Licence (as the package states it) | Packages | Flag |
 | --- | --- | --- |
-| `Apache-2.0 OR MIT` | 279 |  |
+| `Apache-2.0 OR MIT` | 281 |  |
 | `MIT` | 82 |  |
 | `Apache-2.0 OR MIT OR Zlib` | 20 |  |
 | `MPL-2.0` | 18 | copyleft |
@@ -279,7 +281,7 @@ Across both Cargo workspaces (every use, not only shipped) and the app UI's prod
 - `r-efi` 6.0.0: `MIT OR Apache-2.0 OR LGPL-2.1-or-later` (not used on desktop targets)
 - `unescaper` 0.1.10: `MIT OR GPL-3.0-only` (shipped: Linux)
 
-**Permissive, with terms of their own** (20):
+**Permissive, with terms of their own** (21):
 
 - `icu_collections` 2.3.0: `Unicode-3.0` (shipped: all)
 - `icu_locale_core` 2.3.0: `Unicode-3.0` (shipped: all)
@@ -295,6 +297,7 @@ Across both Cargo workspaces (every use, not only shipped) and the app UI's prod
 - `webpki-roots` 1.0.11: `CDLA-Permissive-2.0` (shipped: all)
 - `writeable` 0.6.4: `Unicode-3.0` (shipped: all)
 - `yoke` 0.8.3: `Unicode-3.0` (shipped: all)
+- `yoke` 0.8.4: `Unicode-3.0` (shipped: all)
 - `yoke-derive` 0.8.4: `Unicode-3.0` (build)
 - `zerofrom` 0.1.8: `Unicode-3.0` (shipped: all)
 - `zerofrom-derive` 0.1.8: `Unicode-3.0` (build)
@@ -407,6 +410,7 @@ Across both Cargo workspaces (every use, not only shipped) and the app UI's prod
 | `bumpalo` | 3.20.3 | `MIT OR Apache-2.0` | not on desktop | not on desktop |
 | `bytecount` | 0.6.9 | `Apache-2.0 OR MIT` | tests |  |
 | `bytemuck` | 1.25.2 | `Zlib OR Apache-2.0 OR MIT` | shipped (all) | shipped (all) |
+| `bytemuck_derive` | 1.12.1 | `Zlib OR Apache-2.0 OR MIT` | build | build |
 | `byteorder` | 1.5.0 | `Unlicense OR MIT` | shipped (all) | shipped (all) |
 | `byteorder-lite` | 0.1.0 | `Unlicense OR MIT` | shipped (all) | shipped (all) |
 | `bytes` | 1.12.1 | `MIT` | shipped (all) | shipped (all) |
@@ -516,6 +520,7 @@ Across both Cargo workspaces (every use, not only shipped) and the app UI's prod
 | `flume` | 0.12.0 | `Apache-2.0 OR MIT` | shipped (all) | shipped (all) |
 | `fnv` | 1.0.7 | `Apache-2.0 OR MIT` | tests | shipped (all) |
 | `foldhash` | 0.2.0 | `Zlib` | shipped (all) | shipped (all) |
+| `font-types` | 0.12.7 | `MIT OR Apache-2.0` | shipped (all) | shipped (all) |
 | `foreign-types` | 0.5.0 | `MIT OR Apache-2.0` |  | shipped (macOS) |
 | `foreign-types-macros` | 0.2.4 | `MIT OR Apache-2.0` |  | build |
 | `foreign-types-shared` | 0.3.1 | `MIT OR Apache-2.0` |  | shipped (macOS) |
@@ -755,6 +760,7 @@ Across both Cargo workspaces (every use, not only shipped) and the app UI's prod
 | `rawpointer` | 0.2.1 | `MIT OR Apache-2.0` | shipped (all) | shipped (all) |
 | `rayon` | 1.12.0 | `MIT OR Apache-2.0` | shipped (all) | shipped (all) |
 | `rayon-core` | 1.13.0 | `MIT OR Apache-2.0` | shipped (all) | shipped (all) |
+| `read-fonts` | 0.46.0 | `MIT OR Apache-2.0` | shipped (all) | shipped (all) |
 | `realfft` | 3.5.0 | `MIT` | shipped (all) | shipped (all) |
 | `redox_syscall` | 0.5.18 | `MIT` | not on desktop | not on desktop |
 | `redox_users` | 0.5.3 | `MIT` |  | not on desktop |
@@ -814,6 +820,7 @@ Across both Cargo workspaces (every use, not only shipped) and the app UI's prod
 | `simd-adler32` | 0.3.10 | `MIT` | shipped (all) | shipped (all) |
 | `simdutf8` | 0.1.5 | `MIT OR Apache-2.0` | shipped (all) | shipped (all) |
 | `siphasher` | 1.0.4 | `MIT OR Apache-2.0` |  | shipped (all) |
+| `skrifa` | 0.49.0 | `MIT OR Apache-2.0` | shipped (all) | shipped (all) |
 | `slab` | 0.4.12 | `MIT` | shipped (Linux) | shipped (Linux) |
 | `smallvec` | 1.16.2 | `MIT OR Apache-2.0` | shipped (all) | shipped (all) |
 | `socket-pktinfo` | 0.4.1 | `MIT` | shipped (all) | shipped (all) |
@@ -822,7 +829,7 @@ Across both Cargo workspaces (every use, not only shipped) and the app UI's prod
 | `soup3` | 0.5.0 | `MIT` |  | shipped (Linux) |
 | `soup3-sys` | 0.5.0 | `MIT` |  | shipped (Linux) |
 | `spin` | 0.9.9 | `MIT` | shipped (all) | shipped (all) |
-| `stable_deref_trait` | 1.2.1 | `MIT OR Apache-2.0` |  | shipped (all) |
+| `stable_deref_trait` | 1.2.1 | `MIT OR Apache-2.0` | shipped (all) | shipped (all) |
 | `strength_reduce` | 0.2.4 | `MIT OR Apache-2.0` | shipped (all) | shipped (all) |
 | `string-interner` | 0.20.0 | `MIT OR Apache-2.0` | shipped (all) | shipped (all) |
 | `string_cache` | 0.9.0 | `MIT OR Apache-2.0` |  | shipped (all) |
@@ -848,7 +855,7 @@ Across both Cargo workspaces (every use, not only shipped) and the app UI's prod
 | `syn` | 2.0.119 | `MIT OR Apache-2.0` | build | build |
 | `syn` | 3.0.6 | `MIT OR Apache-2.0` | shipped (Linux) | shipped (Linux) |
 | `sync_wrapper` | 1.0.2 | `Apache-2.0` |  | not on desktop |
-| `synstructure` | 0.14.0 | `MIT` |  | build |
+| `synstructure` | 0.14.0 | `MIT` | build | build |
 | `system-deps` | 6.2.2 | `MIT OR Apache-2.0` |  | build |
 | `tao` | 0.37.1 | `Apache-2.0` |  | shipped (all) |
 | `tao-macros` | 0.1.4 | `MIT OR Apache-2.0` |  | not on desktop |
@@ -907,7 +914,6 @@ Across both Cargo workspaces (every use, not only shipped) and the app UI's prod
 | `tray-icon` | 0.25.1 | `MIT OR Apache-2.0` |  | shipped (all) |
 | `triple_buffer` | 9.0.0 | `MPL-2.0` | shipped (all) | shipped (all) |
 | `try-lock` | 0.2.5 | `MIT` |  | not on desktop |
-| `ttf-parser` | 0.25.1 | `MIT OR Apache-2.0` | shipped (all) | shipped (all) |
 | `typed-path` | 0.13.0 | `MIT OR Apache-2.0` | shipped (all) | shipped (all) |
 | `typeid` | 1.0.3 | `MIT OR Apache-2.0` | shipped (all) | shipped (all) |
 | `typenum` | 1.20.1 | `MIT OR Apache-2.0` | shipped (all) | shipped (all) |
@@ -1014,7 +1020,8 @@ Across both Cargo workspaces (every use, not only shipped) and the app UI's prod
 | `x11-dl` | 2.21.0 | `MIT` |  | shipped (Linux) |
 | `xattr` | 1.6.1 | `MIT OR Apache-2.0` | shipped (macOS, Linux) | shipped (macOS, Linux) |
 | `yoke` | 0.8.3 | `Unicode-3.0` |  | shipped (all) |
-| `yoke-derive` | 0.8.4 | `Unicode-3.0` |  | build |
+| `yoke` | 0.8.4 | `Unicode-3.0` | shipped (all) |  |
+| `yoke-derive` | 0.8.4 | `Unicode-3.0` | build | build |
 | `zbus` | 5.19.0 | `MIT` | shipped (Linux) | shipped (Linux) |
 | `zbus-secret-service-keyring-store` | 1.0.1 | `MIT OR Apache-2.0` | shipped (Linux) | shipped (Linux) |
 | `zbus_macros` | 5.19.0 | `MIT` | build | build |
@@ -1024,8 +1031,8 @@ Across both Cargo workspaces (every use, not only shipped) and the app UI's prod
 | `zerocopy` | 0.8.62 | `BSD-2-Clause OR Apache-2.0 OR MIT` |  | shipped (all) |
 | `zerocopy-derive` | 0.8.59 | `BSD-2-Clause OR Apache-2.0 OR MIT` | build |  |
 | `zerocopy-derive` | 0.8.62 | `BSD-2-Clause OR Apache-2.0 OR MIT` |  | build |
-| `zerofrom` | 0.1.8 | `Unicode-3.0` |  | shipped (all) |
-| `zerofrom-derive` | 0.1.8 | `Unicode-3.0` |  | build |
+| `zerofrom` | 0.1.8 | `Unicode-3.0` | shipped (all) | shipped (all) |
+| `zerofrom-derive` | 0.1.8 | `Unicode-3.0` | build | build |
 | `zeroize` | 1.9.0 | `Apache-2.0 OR MIT` | shipped (all) | shipped (all) |
 | `zerotrie` | 0.2.5 | `Unicode-3.0` |  | shipped (all) |
 | `zerovec` | 0.11.8 | `Unicode-3.0` |  | shipped (all) |

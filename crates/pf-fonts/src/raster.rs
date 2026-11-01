@@ -8,7 +8,7 @@
 //! drawn as several pieces, or drawn twice to thicken it) count once, and a hole drawn the other
 //! way round takes its area back out.
 
-use ttf_parser::OutlineBuilder;
+use skrifa::PathSink;
 
 /// A straight piece of outline, in pixels: x to the right and y down.
 pub(crate) type Line = [f32; 4];
@@ -21,7 +21,8 @@ const MAX_STEPS: f32 = 64.0;
 const MAX_SIDE: i32 = 2048;
 
 /// Collects a letter's outline as straight lines, scaled from font units to pixels and, for a
-/// made-up italic, slanted.
+/// made-up italic, slanted. The pen skrifa draws outlines with (its `PathSink`, which it also
+/// calls `OutlinePen`).
 pub(crate) struct Outline {
     scale: f32,
     /// How far right a point moves per pixel above the baseline.
@@ -63,7 +64,7 @@ fn steps(bend: f32) -> usize {
     (bend / TOLERANCE).sqrt().ceil().clamp(1.0, MAX_STEPS) as usize
 }
 
-impl OutlineBuilder for Outline {
+impl PathSink for Outline {
     fn move_to(&mut self, x: f32, y: f32) {
         self.close();
         self.start = self.point(x, y);

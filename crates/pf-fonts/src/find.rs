@@ -1,15 +1,19 @@
-//! Finding the computer's fonts by family name. PixelFlow's own: it reads only each font file's
-//! table directory and its `name`, `OS/2` and `head` tables, so looking through the few hundred
-//! font files a computer has takes a moment, once.
+//! Finding the computer's fonts by family name. It reads only each font file's table directory
+//! and the tables a face's names, weight and slant come from (`name`, `OS/2`, `head`, `post`), so
+//! looking through the few hundred font files a computer has takes a moment, once. skrifa reads
+//! them: the directory, the names (in English where the font has them), and the weight and slant.
 
+use skrifa::font::attribute::Style;
+use skrifa::font::name::Localized;
+use skrifa::font::{Blob, Font, TableFunction};
+use skrifa::raw::types::{NameId, Tag};
+use skrifa::raw::{FileRef, FontRef};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::fs::File;
 use std::io::{Cursor, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use ttf_parser::PlatformId;
-use ttf_parser::name::{self, name_id};
 
 /// Where a face's font file is.
 #[derive(Clone)]
@@ -75,8 +79,17 @@ pub struct Library {
 const MAX_DEPTH: usize = 8;
 /// The most font files looked at.
 const MAX_FILES: usize = 50_000;
-/// The largest `name` table read (real ones are a few kilobytes).
-const MAX_NAME_TABLE: u32 = 1 << 20;
+/// How much of a font file's start is read for its table directories, which fonts keep there (a
+/// file whose directories lie further in is read whole).
+const DIRECTORY_BYTES: u64 = 1 << 16;
+/// The tables a face's names, weight and slant come from, and the most read of each (real ones
+/// are a few kilobytes at most).
+const NAMING_TABLES: [(Tag, u32); 4] = [
+    (Tag::new(b"name"), 1 << 20),
+    (Tag::new(b"OS/2"), 1 << 10),
+    (Tag::new(b"head"), 1 << 10),
+    (Tag::new(b"post"), 1 << 10),
+];
 
 impl Library {
     /// The fonts in `dirs` and the folders inside them: TrueType and OpenType files (`.ttf`,
@@ -263,14 +276,6 @@ fn is_font_file(path: &Path) -> bool {
         .is_some_and(|e| matches!(e.to_ascii_lowercase().as_str(), "ttf" | "otf" | "ttc" | "otc"))
 }
 
-fn be16(b: &[u8], at: usize) -> Option<u16> {
-    Some(u16::from_be_bytes(b.get(at..at + 2)?.try_into().ok()?))
-}
-
-fn be32(b: &[u8], at: usize) -> Option<u32> {
-    Some(u32::from_be_bytes(b.get(at..at + 4)?.try_into().ok()?))
-}
-
 fn read_at<R: Read + Seek>(r: &mut R, offset: u64, len: usize) -> Option<Vec<u8>> {
     r.seek(SeekFrom::Start(offset)).ok()?;
     let mut buf = vec![0; len];
@@ -281,130 +286,111 @@ fn read_at<R: Read + Seek>(r: &mut R, offset: u64, len: usize) -> Option<Vec<u8>
 /// The faces in a font file (one, or each of a collection's), with their index. Only the
 /// family, weight, and slant are filled in.
 fn faces<R: Read + Seek>(r: &mut R) -> Vec<(u32, FaceInfo)> {
-    let Some(head) = read_at(r, 0, 12) else {
+    let Ok(len) = r.seek(SeekFrom::End(0)) else {
         return Vec::new();
     };
-    let offsets: Vec<u32> = if &head[..4] == b"ttcf" {
-        let count = be32(&head, 8).unwrap_or(0).min(1024) as usize;
-        match read_at(r, 12, count * 4) {
-            Some(table) => (0..count).filter_map(|i| be32(&table, i * 4)).collect(),
-            None => Vec::new(),
-        }
-    } else {
-        vec![0]
+    let Some(mut start) = read_at(r, 0, len.min(DIRECTORY_BYTES) as usize) else {
+        return Vec::new();
     };
-    offsets
-        .into_iter()
-        .enumerate()
-        .filter_map(|(i, offset)| Some((i as u32, face(r, u64::from(offset))?)))
-        .collect()
+    let count = |data: &[u8]| match FileRef::new(data) {
+        Ok(FileRef::Collection(collection)) => Some(collection.len()),
+        Ok(FileRef::Font(_)) => Some(1),
+        Err(_) => None,
+    };
+    // A file whose directories don't all lie in its start (rare) is read whole.
+    let mut whole = start.len() as u64 == len;
+    let mut read_whole = |r: &mut R, start: &mut Vec<u8>| {
+        if !whole && let Some(data) = read_at(r, 0, len as usize) {
+            *start = data;
+        }
+        whole = true;
+    };
+    let faces = match count(&start) {
+        Some(n) => n,
+        None => {
+            read_whole(r, &mut start);
+            count(&start).unwrap_or(0)
+        }
+    };
+    let mut found = Vec::new();
+    for index in 0..faces {
+        let mut records = directory(&start, index);
+        if records.is_none() {
+            read_whole(r, &mut start);
+            records = directory(&start, index);
+        }
+        let Some(records) = records else {
+            continue;
+        };
+        let mut tables = HashMap::new();
+        for (tag, most) in NAMING_TABLES {
+            if let Some(&(at, length)) = records.get(&tag)
+                && let Some(data) = read_at(r, u64::from(at), length.min(most) as usize)
+            {
+                tables.insert(tag, Blob::from(data));
+            }
+        }
+        let tables = TableFunction::new(Arc::new(move |tag| tables.get(&tag).cloned()));
+        if let Some(face) = Font::new(tables, 0).and_then(|font| face_info(&font)) {
+            found.push((index, face));
+        }
+    }
+    found
 }
 
-/// One face, from its table directory at `offset`.
-fn face<R: Read + Seek>(r: &mut R, offset: u64) -> Option<FaceInfo> {
-    let header = read_at(r, offset, 12)?;
-    // TrueType outlines, CFF outlines ("OTTO"), or an older Mac TrueType ("true").
-    if !matches!(be32(&header, 0)?, 0x0001_0000 | 0x4F54_544F | 0x7472_7565) {
-        return None;
-    }
-    let tables = usize::from(be16(&header, 4)?);
-    let records = read_at(r, offset + 12, tables * 16)?;
-    let table = |tag: &[u8; 4]| -> Option<(u64, u32)> {
-        (0..tables).find_map(|i| {
-            let at = i * 16;
-            (records.get(at..at + 4)? == tag)
-                .then(|| Some((u64::from(be32(&records, at + 8)?), be32(&records, at + 12)?)))?
-        })
-    };
-    let (name_at, name_len) = table(b"name")?;
-    let name_data = read_at(r, name_at, name_len.min(MAX_NAME_TABLE) as usize)?;
-    let names = name::Table::parse(&name_data)?.names;
-    let (family, all) = family_names(names)?;
+/// Where face `index`'s tables are in `data` (the start of its file, at least): each one's
+/// offset and length by tag. A face whose directory can't be read has none.
+fn directory(data: &[u8], index: u32) -> Option<HashMap<Tag, (u32, u32)>> {
+    let font = FontRef::from_index(data, index).ok()?;
+    let records = font.table_directory().table_records();
+    Some(
+        records
+            .iter()
+            .map(|r| (r.tag(), (r.offset(), r.length())))
+            .collect(),
+    )
+}
 
-    // Bold and italic from the OS/2 table, or from the older `head` table's style bits.
-    let mac_style = table(b"head")
-        .and_then(|(at, len)| read_at(r, at, len.min(54) as usize))
-        .and_then(|head| be16(&head, 44))
-        .unwrap_or(0);
-    let os2 = table(b"OS/2").and_then(|(at, len)| read_at(r, at, len.min(64) as usize));
-    let weight = os2.as_ref().and_then(|t| be16(t, 4)).filter(|&w| w > 0);
-    let selection = os2.as_ref().and_then(|t| be16(t, 62));
-    let weight = match weight {
+/// A face's family, every name it goes by, its weight, and its slant, as skrifa reads them.
+fn face_info(font: &Font) -> Option<FaceInfo> {
+    let names = font.names();
+    let text = |name: Localized<'_>| name.name().chars().collect::<String>().trim().to_string();
+    // The family as the font menus show it, in English where the font has it; else the family
+    // its maker groups it in.
+    let family = [NameId::FAMILY_NAME, NameId::TYPOGRAPHIC_FAMILY_NAME]
+        .into_iter()
+        .find_map(|id| {
+            let name = names.get(id)?;
+            name.english_or_first()
+                .map(text)
+                .filter(|t| !t.is_empty())
+                .or_else(|| name.iter().map(text).find(|t| !t.is_empty()))
+        })?;
+    let mut all: Vec<String> = Vec::new();
+    for id in [NameId::FAMILY_NAME, NameId::TYPOGRAPHIC_FAMILY_NAME] {
+        for name in names.get(id).into_iter().flat_map(|name| name.iter()) {
+            let lower = text(name).to_lowercase();
+            if !lower.is_empty() && !all.contains(&lower) {
+                all.push(lower);
+            }
+        }
+    }
+    let attributes = font.default_attributes();
+    let weight = match attributes.weight.value().round().clamp(0.0, 1000.0) as u16 {
+        // No weight stated.
+        0 => 400,
         // Some older fonts count weights 1 to 9.
-        Some(w) if w < 10 => w * 100,
-        Some(w) => w.min(1000),
-        None if mac_style & 1 != 0 => 700,
-        None => 400,
-    };
-    let italic = match selection {
-        // Italic, or oblique.
-        Some(s) => s & 1 != 0 || s & (1 << 9) != 0,
-        None => mac_style & 2 != 0,
+        w if w < 10 => w * 100,
+        w => w,
     };
     Some(FaceInfo {
         family,
         names: all,
         weight,
-        italic,
+        italic: !matches!(attributes.style, Style::Normal),
         source: Source::Memory(Arc::from(Vec::new())),
         index: 0,
     })
-}
-
-/// The family as the font menus show it (its English name where the font has one), and every
-/// family name the face goes by, lowercased.
-fn family_names(names: name::Names<'_>) -> Option<(String, Vec<String>)> {
-    let mut menu: Option<(u8, String)> = None;
-    let mut grouped: Option<(u8, String)> = None;
-    let mut all: Vec<String> = Vec::new();
-    for n in names {
-        if n.name_id != name_id::FAMILY && n.name_id != name_id::TYPOGRAPHIC_FAMILY {
-            continue;
-        }
-        let Some(text) = decode(&n) else {
-            continue;
-        };
-        let text = text.trim().to_string();
-        if text.is_empty() {
-            continue;
-        }
-        // English names first: Windows' US English, then a Mac's English, then any.
-        let rank = match (n.platform_id, n.language_id) {
-            (PlatformId::Windows, 0x0409) => 0,
-            (PlatformId::Macintosh, 0) | (PlatformId::Unicode, _) => 1,
-            _ => 2,
-        };
-        let slot = if n.name_id == name_id::FAMILY {
-            &mut menu
-        } else {
-            &mut grouped
-        };
-        if slot.as_ref().is_none_or(|(r, _)| rank < *r) {
-            *slot = Some((rank, text.clone()));
-        }
-        let lower = text.to_lowercase();
-        if !all.contains(&lower) {
-            all.push(lower);
-        }
-    }
-    let (_, family) = menu.or(grouped)?;
-    Some((family, all))
-}
-
-/// A name's text: UTF-16 for Unicode and Windows names, Mac Roman (its ASCII part) for a Mac's.
-fn decode(n: &name::Name<'_>) -> Option<String> {
-    if n.is_unicode() {
-        return n.to_string();
-    }
-    if n.platform_id == PlatformId::Macintosh && n.encoding_id == 0 {
-        return Some(
-            n.name
-                .iter()
-                .map(|&b| if b.is_ascii() { char::from(b) } else { '?' })
-                .collect(),
-        );
-    }
-    None
 }
 
 #[cfg(test)]

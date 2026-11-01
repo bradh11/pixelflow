@@ -81,19 +81,19 @@ fn glyph_for(c: char) -> Option<u16> {
     })
 }
 
-fn u16s(out: &mut Vec<u8>, values: &[u16]) {
+pub(crate) fn u16s(out: &mut Vec<u8>, values: &[u16]) {
     for v in values {
         out.extend(v.to_be_bytes());
     }
 }
 
-fn i16s(out: &mut Vec<u8>, values: &[i16]) {
+pub(crate) fn i16s(out: &mut Vec<u8>, values: &[i16]) {
     for v in values {
         out.extend(v.to_be_bytes());
     }
 }
 
-fn pad4(out: &mut Vec<u8>) {
+pub(crate) fn pad4(out: &mut Vec<u8>) {
     while !out.len().is_multiple_of(4) {
         out.push(0);
     }
@@ -259,13 +259,18 @@ fn tables(family: &str, bold: bool, italic: bool) -> Vec<([u8; 4], Vec<u8>)> {
 
 /// A font file whose table offsets count from `base` (where it starts in a collection).
 fn build(family: &str, bold: bool, italic: bool, base: u32) -> Vec<u8> {
-    let mut tables = tables(family, bold, italic);
+    sfnt(0x0001_0000, tables(family, bold, italic), base)
+}
+
+/// A font file made of `tables`, starting with `flavor` (0x00010000 for TrueType outlines, "OTTO"
+/// for CFF), its table offsets counting from `base` (where it starts in a collection).
+pub(crate) fn sfnt(flavor: u32, mut tables: Vec<([u8; 4], Vec<u8>)>, base: u32) -> Vec<u8> {
     tables.sort_by_key(|t| t.0);
     let n = tables.len() as u16;
     let selector = 15 - n.leading_zeros() as u16;
     let range = (1u16 << selector) * 16;
     let mut out = Vec::new();
-    out.extend(0x0001_0000u32.to_be_bytes());
+    out.extend(flavor.to_be_bytes());
     u16s(&mut out, &[n, range, selector, n * 16 - range]);
     let mut offset = 12 + 16 * u32::from(n);
     for (tag, data) in &tables {
@@ -317,25 +322,49 @@ pub fn tiny_collection(faces: &[(&str, bool, bool)]) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ttf_parser::{Face, GlyphId};
+    use crate::find::Library;
+    use crate::sized::read;
+    use skrifa::GlyphId;
+    use skrifa::font::glyph::outline::{DrawOptions, PathElement};
+    use std::sync::Arc;
 
     #[test]
     fn the_tiny_font_reads_as_a_font() {
-        let data = tiny_font("Tiny", false, false);
-        let face = Face::parse(&data, 0).unwrap();
-        assert_eq!(face.units_per_em(), UNITS_PER_EM);
-        assert_eq!((face.ascender(), face.descender()), (800, -200));
-        let o = face.glyph_index('O').unwrap();
-        assert_eq!(o, GlyphId(RING));
-        assert_eq!(face.glyph_hor_advance(o), Some(700));
-        let bbox = face.glyph_bounding_box(o).unwrap();
+        let data: Arc<[u8]> = Arc::from(tiny_font("Tiny", false, false));
+        let font = read(&data, 0).unwrap();
+        assert_eq!(font.units_per_em(), UNITS_PER_EM);
+        let line = font.metrics().h_line().unwrap();
+        assert_eq!((line.ascender.to_f32(), line.descender.to_f32()), (800.0, -200.0));
+        let o = font.charmap().map_unicode('O').unwrap();
+        assert_eq!(o, GlyphId::new(u32::from(RING)));
+        assert_eq!(font.glyph_metrics().h_advance(o), 700.0);
+        let mut path: Vec<PathElement> = Vec::new();
+        let ring = font.outline_glyphs().get(o).unwrap();
+        ring.draw(&DrawOptions::new(), skrifa::DrawMemory::Scratch, &mut path)
+            .unwrap();
+        let points: Vec<(f32, f32)> = path
+            .iter()
+            .filter_map(|el| match *el {
+                PathElement::MoveTo { x, y } | PathElement::LineTo { x, y } => Some((x, y)),
+                _ => None,
+            })
+            .collect();
+        let xs = points.iter().map(|p| p.0);
+        let ys = points.iter().map(|p| p.1);
         assert_eq!(
-            (bbox.x_min, bbox.y_min, bbox.x_max, bbox.y_max),
-            (100, 0, 600, 700)
+            (
+                xs.clone().fold(f32::MAX, f32::min),
+                ys.clone().fold(f32::MAX, f32::min),
+                xs.fold(f32::MIN, f32::max),
+                ys.fold(f32::MIN, f32::max)
+            ),
+            (100.0, 0.0, 600.0, 700.0)
         );
-        assert!(face.glyph_index('\u{e9}').is_none());
-        let both = tiny_collection(&[("A", false, false), ("B", true, false)]);
-        assert_eq!(ttf_parser::fonts_in_collection(&both), Some(2));
-        assert!(Face::parse(&both, 1).unwrap().is_bold());
+        assert!(font.charmap().map_unicode('\u{e9}').is_none());
+        let both: Arc<[u8]> = Arc::from(tiny_collection(&[("A", false, false), ("B", true, false)]));
+        assert!(read(&both, 1).is_some() && read(&both, 2).is_none());
+        let mut lib = Library::default();
+        lib.add_data(both);
+        assert_eq!(lib.find("B", false, false).unwrap().face.weight, 700);
     }
 }

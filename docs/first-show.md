@@ -367,6 +367,8 @@ computer without that font, the words show in the pixel font, and the settings s
 - **Glow** (the sparkle button beside **2D** and **3D**) softens the lit pixels so they look like
   bulbs behind a diffuser. Slide it to none for bare bulbs. Glow changes only how the preview and
   exported videos look.
+- **View** (over the preview's corner) shows prop names, hides pixels that are off, changes the
+  dot size, and lifts dim fades so they show on screen. See [The 3D view](3d-view.md#how-the-lights-look).
 - **Pop out the preview** opens the preview in its own window, which you can drag to another
   display. **Bigger preview** gives the preview most of the screen.
 

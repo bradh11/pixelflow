@@ -70,7 +70,8 @@ function DocStage({ durationMs }: { durationMs: number }) {
   const doc = useSequencer((s) => s.doc);
   const mode = useView3d((s) => s.playMode);
   const frame = useSequenceFrame(durationMs, doc);
-  return <PreviewStage frame={frame} mode={mode} />;
+  const playing = useSequencer((s) => s.status?.state === "playing");
+  return <PreviewStage frame={frame} mode={mode} playing={playing} />;
 }
 
 /**
@@ -675,7 +676,7 @@ export function PlayScreen() {
           <>
             <div className="relative flex min-h-0 flex-1 flex-col">
               <div data-theme="dark" className={`relative min-h-0 flex-1 text-neutral-100 ${theatre ? "bg-black" : "bg-neutral-950"}`}>
-                {poppedOut ? <PoppedOutNote tall /> : nowIsDoc ? <DocStage durationMs={doc?.durationMs ?? 0} /> : <LivePreview frame={frame} />}
+                {poppedOut ? <PoppedOutNote tall /> : nowIsDoc ? <DocStage durationMs={doc?.durationMs ?? 0} /> : <LivePreview frame={frame} playing={playing} />}
               </div>
               {fseq && unwired.length > 0 && !theatre && (
                 <div className="flex max-h-40 shrink-0 flex-col gap-3 overflow-auto border-t border-neutral-200 p-3 dark:border-neutral-800">

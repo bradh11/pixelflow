@@ -10,6 +10,7 @@ import { demoShow } from "../../api/demo";
 import { DEMO_SEQUENCE_PATH, demoSequence } from "../../api/demoSequence";
 import { MemoryBackend } from "../../api/memory";
 import { MemorySequencer } from "../../api/memorySequencer";
+import { VIEW_DEFAULTS } from "../../lib/viewOptions";
 import { usePreviewSync } from "../../state/previewSync";
 import { type PreviewFeed, type PreviewReply, usePreviewWindow } from "../../state/previewWindow";
 import { useSequencer } from "../../state/sequencer";
@@ -97,23 +98,30 @@ describe("the preview in its own window, from the Sequence screen", () => {
     act(() => useView3d.getState().setSequenceMode("3d"));
     act(() => usePreviewSync.getState().setOffset(60));
     await waitFor(async () => expect(await feed(backend)).toMatchObject({ glow: 0.5, mode: "3d", syncMs: 60 }));
+    // And the other View options.
+    act(() => useView3d.getState().setViewOptions({ names: true, boost: 1 }));
+    await waitFor(async () => expect((await feed(backend)).view).toEqual({ ...VIEW_DEFAULTS, names: true, boost: 1 }));
+    act(() => useView3d.getState().setViewOptions(VIEW_DEFAULTS));
   });
 
   it("takes on what's chosen in the window, and plays or pauses when asked there", async () => {
     const { backend, seq, user } = await openApp("sequence");
     await user.click(within(preview()).getByRole("button", { name: "Pop out the preview" }));
-    await reply(backend, { mode: "2d", glow: 0, toggles: 0 });
-    await reply(backend, { mode: "3d", glow: 0.75, toggles: 0 });
+    await reply(backend, { mode: "2d", glow: 0, view: VIEW_DEFAULTS, toggles: 0 });
+    await reply(backend, { mode: "3d", glow: 0.75, view: { ...VIEW_DEFAULTS, unlit: "hidden", dotSize: "large" }, toggles: 0 });
     await waitFor(() => expect(useView3d.getState().sequenceMode).toBe("3d"));
     expect(useView3d.getState().glow).toBe(0.75);
+    await waitFor(() => expect(useView3d.getState()).toMatchObject({ unlit: "hidden", dotSize: "large" }));
+    await reply(backend, { mode: "3d", glow: 0.75, view: VIEW_DEFAULTS, toggles: 0 });
+    await waitFor(() => expect(useView3d.getState()).toMatchObject({ unlit: "dim", dotSize: "medium" }));
     // The Play screen's own choice is left alone: the Sequence screen is in front.
     expect(useView3d.getState().playMode).toBe("2d");
     expect(seq.calls).not.toContain("playSequenceDoc@0");
 
-    await reply(backend, { mode: "3d", glow: 0.75, toggles: 1 });
+    await reply(backend, { mode: "3d", glow: 0.75, view: VIEW_DEFAULTS, toggles: 1 });
     await waitFor(() => expect(useSequencer.getState().status?.state).toBe("playing"));
     expect(seq.calls).toContain("playSequenceDoc@0");
-    await reply(backend, { mode: "3d", glow: 0.75, toggles: 2 });
+    await reply(backend, { mode: "3d", glow: 0.75, view: VIEW_DEFAULTS, toggles: 2 });
     await waitFor(() => expect(useSequencer.getState().status?.state).toBe("paused"));
     await act(() => useSequencer.getState().stop());
   });
@@ -151,8 +159,8 @@ describe("the preview in its own window, from the Layout screen", () => {
     expect(await feed(backend)).toMatchObject({ source: "live", transport: false, only: null });
 
     // The window's 2D | 3D is its own: the editor's view doesn't follow it.
-    await reply(backend, { mode: "2d", glow: 0, toggles: 0 });
-    await reply(backend, { mode: "3d", glow: 0, toggles: 0 });
+    await reply(backend, { mode: "2d", glow: 0, view: VIEW_DEFAULTS, toggles: 0 });
+    await reply(backend, { mode: "3d", glow: 0, view: VIEW_DEFAULTS, toggles: 0 });
     await waitFor(() => expect(useView3d.getState().playMode).toBe("3d"));
     expect(useView3d.getState().mode).toBe("2d");
 

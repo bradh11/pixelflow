@@ -29,6 +29,10 @@ export interface VideoRequest {
   pixelSize: number;
   /** How much each lit dot glows, 0 (crisp dots) to 1. */
   glow: number;
+  /** Leave pixels that are off out: only lit ones show, as at night (dim when left out). */
+  hideUnlit?: boolean;
+  /** How much dim levels are lifted so fades show on a screen, 0 (not at all, when left out) to 3. */
+  boost?: number;
   /** Encode with ffmpeg instead of the built-in encoders. */
   ffmpeg: boolean;
 }

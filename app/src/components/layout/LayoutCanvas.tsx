@@ -49,8 +49,10 @@ import {
   resizeView,
   type Rect,
 } from "../../lib/layoutMath";
-import { DOT_RADIUS, drawPixels } from "../../lib/pixelBatches";
+import { DOT_RADIUS, type PixelColors, drawPixels } from "../../lib/pixelBatches";
 import { LAYOUT_LOOK } from "../../lib/pixelLooks";
+import { drawLabels, flatSpots } from "../../lib/propLabels";
+import { DOT_SCALES, boostFrame, hidesUnlit } from "../../lib/viewOptions";
 import { updateEdits } from "../../lib/layoutEdits";
 import {
   type LineEnd,
@@ -115,6 +117,8 @@ const GROUND = "rgba(200, 200, 200, 0.4)";
 /** The ring showing a point will join another line's end. */
 const JOIN_COLOR = "#4ade80";
 const PIXEL_COLORS = LAYOUT_LOOK.colors;
+/** The Layout screen's colors with pixels that are off left out (the viewer's Unlit pixels: Hidden). */
+const ONLY_LIT: PixelColors = { ...PIXEL_COLORS, dark: undefined };
 
 type Drag =
   /** `from`/`clear`: pressed on empty space; a click there (no drag) clears the selection. */
@@ -477,8 +481,14 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
 
     const props = effectivePreview();
     const selected = new Set(editor.selected);
-    const radius = Math.min(LAYOUT_LOOK.radius[1], Math.max(LAYOUT_LOOK.radius[0], view.zoom * DOT_RADIUS));
-    drawPixels(ctx, props, frame.current, view, s, selected, PIXEL_COLORS, radius, ratio, useView3d.getState().glow);
+    // As the viewer likes to look at the lights. Editing, Auto shows pixels that are off, so every prop can be seen.
+    const look = useView3d.getState();
+    const dotScale = DOT_SCALES[look.dotSize];
+    const radius = Math.min(LAYOUT_LOOK.radius[1], Math.max(LAYOUT_LOOK.radius[0], view.zoom * DOT_RADIUS)) * dotScale;
+    const live = frame.current && look.boost > 0 ? boostFrame(frame.current, props, look.boost) : frame.current;
+    const colors = hidesUnlit(look.unlit, false) ? ONLY_LIT : PIXEL_COLORS;
+    drawPixels(ctx, props, live, view, s, selected, colors, radius, ratio, look.glow, dotScale);
+    if (look.names) drawLabels(ctx, flatSpots(props, new Map(latest.current.show.props.map((p) => [p.id, p.name])), view, s), s);
 
     // A submodel or face picked in the properties panel, drawn over its prop: a little bigger, where its pixels have the room.
     const hl = editor.highlight;
@@ -638,8 +648,14 @@ export function LayoutCanvas({ preview, show, photo, ref }: LayoutCanvasProps) {
     [redraw],
   );
 
-  // So does the glow around lit pixels.
-  useEffect(() => useView3d.subscribe((st, prev) => st.glow !== prev.glow && redraw()), [redraw]);
+  // So do the glow around lit pixels and the other View options.
+  useEffect(
+    () =>
+      useView3d.subscribe(
+        (st, prev) => (st.glow !== prev.glow || st.names !== prev.names || st.unlit !== prev.unlit || st.dotSize !== prev.dotSize || st.boost !== prev.boost) && redraw(),
+      ),
+    [redraw],
+  );
 
   // Gestures the engine's new positions include no longer need drawing on top.
   useEffect(() => {

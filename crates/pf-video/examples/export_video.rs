@@ -103,6 +103,8 @@ fn main() -> anyhow::Result<()> {
         photo: !flag("--no-photo"),
         pixel_size: 1.0,
         glow: 0.0,
+        hide_unlit: false,
+        boost: 0,
         encoder,
     };
     println!(

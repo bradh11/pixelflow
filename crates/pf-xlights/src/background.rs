@@ -75,7 +75,8 @@ fn parts(path: &str) -> Vec<&str> {
 }
 
 /// Where the photo (or a Pictures effect's picture) is on this computer: as written, else by
-/// name in `folder`, else under `folder` with the old show folder's part of the path removed.
+/// name in `folder`, else under `folder` with the old show folder's part of the path removed
+/// (or, for a path written from the show folder, such as `pictures/a.png`, all of it).
 /// A path written as a network share the user hasn't chosen from is never looked at as written
 /// (see [`pf_model::network_path_refusal`]): only its name is looked for in `folder`.
 pub(crate) fn find(written: &str, folder: &Path) -> Option<PathBuf> {
@@ -90,8 +91,9 @@ pub(crate) fn find(written: &str, folder: &Path) -> Option<PathBuf> {
         return Some(by_name);
     }
     // `/Users/me/Documents/xlights/Assets/a.jpg` -> `<folder>/Assets/a.jpg`: the longest tail
-    // that exists wins, so nothing is assumed about how deep the old show folder was.
-    (2..parts.len()).rev().find_map(|keep| {
+    // that exists wins, so nothing is assumed about how deep the old show folder was. The whole
+    // path is a tail too: xLights reads `Assets/a.jpg` from the show folder.
+    (2..=parts.len()).rev().find_map(|keep| {
         let mut tail = folder.to_path_buf();
         tail.extend(&parts[parts.len() - keep..]);
         tail.is_file().then_some(tail)
@@ -344,6 +346,18 @@ mod tests {
         );
         assert_eq!(find("/Users/x/Documents/xlights/Assets/missing.png", &dir), None);
         assert_eq!(find("../../etc/house.png", &dir), Some(dir.join("house.png")));
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_path_written_from_the_show_folder_is_found_in_its_folder() {
+        // xLights reads a picture named `pictures/a.png` from the show folder's `pictures`.
+        let dir = scratch("relative");
+        fs::create_dir_all(dir.join("pictures")).unwrap();
+        fs::write(dir.join("pictures/a.png"), png(10, 10)).unwrap();
+        assert_eq!(find("pictures/a.png", &dir), Some(dir.join("pictures/a.png")));
+        assert_eq!(find("pictures\\a.png", &dir), Some(dir.join("pictures/a.png")));
+        assert_eq!(find("pictures/missing.png", &dir), None);
         fs::remove_dir_all(&dir).unwrap();
     }
 

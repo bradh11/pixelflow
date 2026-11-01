@@ -6,6 +6,7 @@
 
 import { Maximize, Minimize, Pause, Play } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { appWindow } from "./api/appWindow";
 import { type Backend, errorMessage } from "./api/backend";
 import type { SequencerApi } from "./api/sequencer";
@@ -18,6 +19,7 @@ import { useSequenceFrame } from "./components/sequencer/useSequenceFrame";
 import { TooltipLayer } from "./components/Tooltip";
 import { readingFrom } from "./lib/avSync";
 import { clock } from "./lib/format";
+import { readViewOptions, sameView } from "./lib/viewOptions";
 import { type PreviewFeed, type PreviewReply, readFeed } from "./state/previewWindow";
 import { playClock, usePreviewSync } from "./state/previewSync";
 import { useSequencer } from "./state/sequencer";
@@ -49,17 +51,17 @@ export async function connectPreviewWindow(backend: Backend, sequencer: Sequence
 }
 
 /** The open sequence at the main window's playhead, and live while it plays. */
-function SequenceStage({ feed, mode }: { feed: PreviewFeed; mode: LayoutMode }) {
+function SequenceStage({ feed, mode, playing }: { feed: PreviewFeed; mode: LayoutMode; playing: boolean }) {
   const frame = useSequenceFrame(feed.durationMs, feed.stamp);
   // The same row from one note to the next is the same thing to draw.
   const key = JSON.stringify(feed.only);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const only = useMemo(() => feed.only, [key]);
-  return <PreviewStage frame={frame} mode={mode} only={only} />;
+  return <PreviewStage frame={frame} mode={mode} only={only} playing={playing} />;
 }
 
 /** The lights as the engine is sending them now (a rendered sequence playing, a test pattern). */
-function LiveStage({ mode }: { mode: LayoutMode }) {
+function LiveStage({ mode, playing }: { mode: LayoutMode; playing: boolean }) {
   const backend = useApp((s) => s.backend);
   const [frame, setFrame] = useState<Uint8Array | null>(null);
   useEffect(() => {
@@ -84,13 +86,14 @@ function LiveStage({ mode }: { mode: LayoutMode }) {
       clearTimeout(timer);
     };
   }, [backend]);
-  return <PreviewStage frame={frame} mode={mode} label="Preview of the lights" />;
+  return <PreviewStage frame={frame} mode={mode} playing={playing} label="Preview of the lights" />;
 }
 
 export function PreviewWindow() {
   const backend = useApp((s) => s.backend);
   const showName = useApp((s) => s.snapshot?.show.name ?? null);
   const glow = useView3d((s) => s.glow);
+  const view = useView3d(useShallow((s) => readViewOptions(s)));
   const [feed, setFeed] = useState<PreviewFeed | null>(null);
   const [mode, setMode] = useState<LayoutMode>(() => useView3d.getState().playMode);
   const [toggles, setToggles] = useState(0);
@@ -105,8 +108,8 @@ export function PreviewWindow() {
   }, []);
 
   // The two notes: the main window's is read, and this window's is left when it has changed.
-  const mine = useRef<PreviewReply>({ mode, glow, toggles });
-  mine.current = { mode, glow, toggles };
+  const mine = useRef<PreviewReply>({ mode, glow, view, toggles });
+  mine.current = { mode, glow, view, toggles };
   useEffect(() => {
     if (!backend) return;
     let live = true;
@@ -129,6 +132,7 @@ export function PreviewWindow() {
         got = text;
         if (next.mode !== last?.mode) setMode(next.mode);
         if (next.glow !== last?.glow && next.glow !== useView3d.getState().glow) useView3d.setState({ glow: next.glow });
+        if ((!last || !sameView(next.view, last.view)) && !sameView(next.view, readViewOptions(useView3d.getState()))) useView3d.setState(next.view);
         if (next.syncMs !== last?.syncMs) usePreviewSync.setState({ offsetMs: next.syncMs });
         last = next;
         setFeed(next);
@@ -279,7 +283,9 @@ export function PreviewWindow() {
           {full ? <Minimize size={16} aria-hidden /> : <Maximize size={16} aria-hidden />}
         </BarButton>
       </header>
-      <main className="relative min-h-0 flex-1">{sequence && feed ? <SequenceStage feed={feed} mode={mode} /> : <LiveStage mode={mode} />}</main>
+      <main className="relative min-h-0 flex-1">
+        {sequence && feed ? <SequenceStage feed={feed} mode={mode} playing={running} /> : <LiveStage mode={mode} playing={playing} />}
+      </main>
       <TooltipLayer />
     </div>
   );

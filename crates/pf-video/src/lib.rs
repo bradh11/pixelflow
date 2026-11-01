@@ -16,6 +16,7 @@
 
 pub mod aac;
 mod beam;
+mod boost;
 pub mod cisco;
 mod dots;
 mod export;

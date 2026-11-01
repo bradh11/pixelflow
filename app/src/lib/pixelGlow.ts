@@ -220,14 +220,15 @@ export interface HaloPlan {
 
 /**
  * Gets ready to draw halos on `ctx`'s canvas (`ratio` device pixels per screen pixel) for a glow
- * level (0–1), in a view whose largest dots are drawn with `radius` (screen pixels). Null when
- * there's no glow, the halos would be too small to see, or they can't be drawn here: then dots
- * are drawn as they are.
+ * level (0–1), in a view whose largest dots are drawn with `radius` (screen pixels), the dot a
+ * pixel has in the layout scaled by `dotScale` (the viewer's Dot size, as the export's). Null
+ * when there's no glow, the halos would be too small to see, or they can't be drawn here: then
+ * dots are drawn as they are.
  */
-export function planHalos(ctx: CanvasRenderingContext2D, glow: number, view: View, radius: number, ratio: number): HaloPlan | null {
+export function planHalos(ctx: CanvasRenderingContext2D, glow: number, view: View, radius: number, ratio: number, dotScale = 1): HaloPlan | null {
   const step = glowStep(glow);
   if (step <= 0) return null;
-  const around = Math.min(radius, view.zoom * DOT_RADIUS);
+  const around = Math.min(radius, view.zoom * DOT_RADIUS * dotScale);
   const bell = around * ratio * bellWidth(step);
   if (!(bell >= NARROWEST_BELL)) return null;
   const { width, height } = ctx.canvas;

@@ -1,7 +1,1530 @@
 {
-  "about": "No sequence of the corpus has an xLights reference yet, so there is nothing to hold imports to. Render them (crates/pf-fidelity/corpus/README.md), then make this file with `pf-fidelity regress --accept`. See docs/fidelity.md.",
+  "about": "How each effect of the corpus looks next to xLights' own render, in each of several scorings from other seeds. `pf-fidelity regress` holds the import to it; `pf-fidelity regress --accept` makes it again. See docs/fidelity.md.",
   "tool": "pf-fidelity 0.1.0",
   "margin": 3.0,
   "runs": 5,
-  "sequences": []
+  "sequences": [
+    {
+      "label": "Washes and shapes",
+      "looks": [
+        98.4327,
+        98.4343,
+        98.4321,
+        98.4329,
+        98.4375
+      ],
+      "effects": [
+        {
+          "index": 0,
+          "kind": "Shockwave",
+          "target": "Matrix",
+          "startMs": 0,
+          "endMs": 4000,
+          "looks": [
+            100.0,
+            100.0,
+            100.0,
+            100.0,
+            100.0
+          ],
+          "verdicts": [
+            "matches",
+            "matches",
+            "matches",
+            "matches",
+            "matches"
+          ]
+        },
+        {
+          "index": 1,
+          "kind": "Color Wash",
+          "target": "Matrix",
+          "startMs": 4000,
+          "endMs": 8000,
+          "looks": [
+            100.0,
+            100.0,
+            100.0,
+            100.0,
+            100.0
+          ],
+          "verdicts": [
+            "matches",
+            "matches",
+            "matches",
+            "matches",
+            "matches"
+          ]
+        },
+        {
+          "index": 2,
+          "kind": "Plasma",
+          "target": "Matrix",
+          "startMs": 8000,
+          "endMs": 12000,
+          "looks": [
+            99.53,
+            99.53,
+            99.53,
+            99.53,
+            99.53
+          ],
+          "verdicts": [
+            "matches",
+            "matches",
+            "matches",
+            "matches",
+            "matches"
+          ]
+        },
+        {
+          "index": 3,
+          "kind": "Fan",
+          "target": "Matrix",
+          "startMs": 12000,
+          "endMs": 16000,
+          "looks": [
+            99.99,
+            99.99,
+            99.99,
+            99.99,
+            99.99
+          ],
+          "verdicts": [
+            "matches",
+            "matches",
+            "matches",
+            "matches",
+            "matches"
+          ]
+        },
+        {
+          "index": 4,
+          "kind": "Pinwheel",
+          "target": "Matrix",
+          "startMs": 16000,
+          "endMs": 20000,
+          "looks": [
+            99.43,
+            99.43,
+            99.43,
+            99.43,
+            99.43
+          ],
+          "verdicts": [
+            "matches",
+            "matches",
+            "matches",
+            "matches",
+            "matches"
+          ]
+        },
+        {
+          "index": 5,
+          "kind": "Spirals",
+          "target": "Matrix",
+          "startMs": 20000,
+          "endMs": 24000,
+          "looks": [
+            100.0,
+            100.0,
+            100.0,
+            100.0,
+            100.0
+          ],
+          "verdicts": [
+            "matches",
+            "matches",
+            "matches",
+            "matches",
+            "matches"
+          ]
+        },
+        {
+          "index": 6,
+          "kind": "Spirals",
+          "target": "Tree",
+          "startMs": 0,
+          "endMs": 6000,
+          "looks": [
+            99.66,
+            99.63,
+            99.63,
+            99.62,
+            99.67
+          ],
+          "verdicts": [
+            "matches",
+            "matches",
+            "matches",
+            "matches",
+            "matches"
+          ]
+        },
+        {
+          "index": 7,
+          "kind": "Butterfly",
+          "target": "Tree",
+          "startMs": 6000,
+          "endMs": 12000,
+          "looks": [
+            100.0,
+            100.0,
+            100.0,
+            100.0,
+            100.0
+          ],
+          "verdicts": [
+            "matches",
+            "matches",
+            "matches",
+            "matches",
+            "matches"
+          ]
+        },
+        {
+          "index": 8,
+          "kind": "Morph",
+          "target": "Tree",
+          "startMs": 12000,
+          "endMs": 18000,
+          "looks": [
+            99.98,
+            99.98,
+            99.98,
+            99.98,
+            99.98
+          ],
+          "verdicts": [
+            "matches",
+            "matches",
+            "matches",
+            "matches",
+            "matches"
+          ]
+        },
+        {
+          "index": 9,
+          "kind": "Bars",
+          "target": "Tree",
+          "startMs": 18000,
+          "endMs": 24000,
+          "looks": [
+            95.17,
+            95.17,
+            95.17,
+            95.17,
+            95.17
+          ],
+          "verdicts": [
+            "matches",
+            "matches",
+            "matches",
+            "matches",
+            "matches"
+          ]
+        },
+        {
+          "index": 10,
+          "kind": "Twinkle",
+          "target": "Tree",
+          "startMs": 0,
+          "endMs": 6000,
+          "looks": [
+            99.66,
+            99.63,
+            99.63,
+            99.62,
+            99.67
+          ],
+          "verdicts": [
+            "matches",
+            "matches",
+            "matches",
+            "matches",
+            "matches"
+          ]
+        },
+        {
+          "index": 11,
+          "kind": "On",
+          "target": "Tree",
+          "startMs": 12000,
+          "endMs": 18000,
+          "looks": [
+            99.98,
+            99.98,
+            99.98,
+            99.98,
+            99.98
+          ],
+          "verdicts": [
+            "matches",
+            "matches",
+            "matches",
+            "matches",
+            "matches"
+          ]
+        },
+        {
+          "index": 12,
+          "kind": "Color Wash",
+          "target": "Tree",
+          "startMs": 18000,
+          "endMs": 24000,
+          "looks": [
+            95.17,
+            95.17,
+            95.17,
+            95.17,
+            95.17
+          ],
+          "verdicts": [
+            "matches",
+            "matches",
+            "matches",
+            "matches",
+            "matches"
+          ]
+        },
+        {
+          "index": 13,
+          "kind": "Color Wash",
+          "target": "Outlines",
+          "startMs": 0,
+          "endMs": 6000,
+          "looks": [
+            100.0,
+            100.0,
+            100.0,
+            100.0,
+            100.0
+          ],
+          "verdicts": [
+            "matches",
+            "matches",
+            "matches",
+            "matches",
+            "matches"
+          ]
+        },
+        {
+          "index": 14,
+          "kind": "Bars",
+          "target": "Outlines",
+          "startMs": 6000,
+          "endMs": 12000,
+          "looks": [
+            100.0,
+            100.0,
+            100.0,
+            100.0,
+            100.0
+          ],
+          "verdicts": [
+            "matches",
+            "matches",
+            "matches",
+            "matches",
+            "matches"
+          ]
+        },
+        {
+          "index": 15,
+          "kind": "Fill",
+          "target": "Outlines",
+          "startMs": 12000,
+          "endMs": 18000,
+          "looks": [
+            78.26,
+            78.26,
+            78.26,
+            78.26,
+            78.26
+          ],
+          "verdicts": [
+            "close",
+            "close",
+            "close",
+            "close",
+            "close"
+          ]
+        },
+        {
+          "index": 16,
+          "kind": "On",
+          "target": "Outlines",
+          "startMs": 18000,
+          "endMs": 24000,
+          "looks": [
+            100.0,
+            100.0,
+            100.0,
+            100.0,
+            100.0
+          ],
+          "verdicts": [
+            "matches",
+            "matches",
+            "matches",
+            "matches",
+            "matches"
+          ]
+        },
+        {
+          "index": 17,
+          "kind": "On",
+          "target": "Arches/Middle Arch",
+          "startMs": 0,
+          "endMs": 12000,
+          "looks": [
+            100.0,
+            100.0,
+            100.0,
+            100.0,
+            100.0
+          ],
+          "verdicts": [
+            "matches",
+            "matches",
+            "matches",
+            "matches",
+            "matches"
+          ]
+        },
+        {
+          "index": 18,
+          "kind": "On",
+          "target": "Flake",
+          "startMs": 0,
+          "endMs": 24000,
+          "looks": [
+            99.98,
+            100.0,
+            99.99,
+            100.0,
+            100.0
+          ],
+          "verdicts": [
+            "matches",
+            "matches",
+            "matches",
+            "matches",
+            "matches"
+          ]
+        }
+      ],
+      "fixtures": [
+        {
+          "name": "Spot Left",
+          "scores": [
+            null,
+            null,
+            null,
+            null,
+            null
+          ],
+          "verdicts": [
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "name": "Spot Right",
+          "scores": [
+            null,
+            null,
+            null,
+            null,
+            null
+          ],
+          "verdicts": [
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "name": "Arm",
+          "scores": [
+            null,
+            null,
+            null,
+            null,
+            null
+          ],
+          "verdicts": [
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        }
+      ]
+    },
+    {
+      "label": "Chance",
+      "looks": [
+        91.1822,
+        88.8433,
+        94.3306,
+        92.7867,
+        91.2209
+      ],
+      "effects": [
+        {
+          "index": 0,
+          "kind": "Snowflakes",
+          "target": "Matrix",
+          "startMs": 0,
+          "endMs": 5000,
+          "looks": [
+            99.92,
+            100.0,
+            100.0,
+            99.99,
+            100.0
+          ],
+          "verdicts": [
+            "matches",
+            "matches",
+            "matches",
+            "matches",
+            "matches"
+          ]
+        },
+        {
+          "index": 1,
+          "kind": "Fireworks",
+          "target": "Matrix",
+          "startMs": 5000,
+          "endMs": 12000,
+          "looks": [
+            92.57,
+            93.06,
+            92.39,
+            91.36,
+            93.9
+          ],
+          "verdicts": [
+            "matches",
+            "matches",
+            "matches",
+            "matches",
+            "matches"
+          ]
+        },
+        {
+          "index": 2,
+          "kind": "Circles",
+          "target": "Matrix",
+          "startMs": 12000,
+          "endMs": 16000,
+          "looks": [
+            99.73,
+            99.99,
+            99.04,
+            99.6,
+            99.57
+          ],
+          "verdicts": [
+            "matches",
+            "matches",
+            "matches",
+            "matches",
+            "matches"
+          ]
+        },
+        {
+          "index": 3,
+          "kind": "Shape",
+          "target": "Matrix",
+          "startMs": 16000,
+          "endMs": 20000,
+          "looks": [
+            100.0,
+            99.99,
+            99.89,
+            100.0,
+            99.97
+          ],
+          "verdicts": [
+            "matches",
+            "matches",
+            "matches",
+            "matches",
+            "matches"
+          ]
+        },
+        {
+          "index": 4,
+          "kind": "Fire",
+          "target": "Tree",
+          "startMs": 0,
+          "endMs": 10000,
+          "looks": [
+            94.72,
+            94.53,
+            94.84,
+            94.61,
+            94.58
+          ],
+          "verdicts": [
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "index": 5,
+          "kind": "Twinkle",
+          "target": "Tree",
+          "startMs": 10000,
+          "endMs": 20000,
+          "looks": [
+            78.58,
+            79.93,
+            80.98,
+            81.32,
+            79.69
+          ],
+          "verdicts": [
+            "close",
+            "close",
+            "close",
+            "close",
+            "close"
+          ]
+        },
+        {
+          "index": 6,
+          "kind": "Twinkle",
+          "target": "Outlines",
+          "startMs": 0,
+          "endMs": 10000,
+          "looks": [
+            89.99,
+            91.28,
+            94.33,
+            89.6,
+            88.93
+          ],
+          "verdicts": [
+            "matches",
+            "matches",
+            "matches",
+            "matches",
+            "matches"
+          ]
+        },
+        {
+          "index": 7,
+          "kind": "On",
+          "target": "Outlines",
+          "startMs": 10000,
+          "endMs": 20000,
+          "looks": [
+            100.0,
+            99.99,
+            100.0,
+            100.0,
+            99.97
+          ],
+          "verdicts": [
+            "matches",
+            "matches",
+            "matches",
+            "matches",
+            "matches"
+          ]
+        },
+        {
+          "index": 8,
+          "kind": "Twinkle",
+          "target": "Flake",
+          "startMs": 0,
+          "endMs": 20000,
+          "looks": [
+            87.53,
+            77.78,
+            95.38,
+            92.4,
+            87.21
+          ],
+          "verdicts": [
+            "matches",
+            "close",
+            "matches",
+            "matches",
+            "matches"
+          ]
+        }
+      ],
+      "fixtures": [
+        {
+          "name": "Spot Left",
+          "scores": [
+            null,
+            null,
+            null,
+            null,
+            null
+          ],
+          "verdicts": [
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "name": "Spot Right",
+          "scores": [
+            null,
+            null,
+            null,
+            null,
+            null
+          ],
+          "verdicts": [
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "name": "Arm",
+          "scores": [
+            null,
+            null,
+            null,
+            null,
+            null
+          ],
+          "verdicts": [
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        }
+      ]
+    },
+    {
+      "label": "Marks, words, and pictures",
+      "looks": [
+        96.3091,
+        96.3091,
+        96.3091,
+        96.3091,
+        96.3089
+      ],
+      "effects": [
+        {
+          "index": 0,
+          "kind": "Text",
+          "target": "Matrix",
+          "startMs": 0,
+          "endMs": 5000,
+          "looks": [
+            92.71,
+            92.71,
+            92.71,
+            92.71,
+            92.71
+          ],
+          "verdicts": [
+            "matches",
+            "matches",
+            "matches",
+            "matches",
+            "matches"
+          ]
+        },
+        {
+          "index": 1,
+          "kind": "Pictures",
+          "target": "Matrix",
+          "startMs": 5000,
+          "endMs": 10000,
+          "looks": [
+            100.0,
+            100.0,
+            100.0,
+            100.0,
+            100.0
+          ],
+          "verdicts": [
+            "matches",
+            "matches",
+            "matches",
+            "matches",
+            "matches"
+          ]
+        },
+        {
+          "index": 2,
+          "kind": "Shape",
+          "target": "Matrix",
+          "startMs": 10000,
+          "endMs": 15000,
+          "looks": [
+            100.0,
+            100.0,
+            100.0,
+            100.0,
+            100.0
+          ],
+          "verdicts": [
+            "matches",
+            "matches",
+            "matches",
+            "matches",
+            "matches"
+          ]
+        },
+        {
+          "index": 3,
+          "kind": "Pictures",
+          "target": "Matrix",
+          "startMs": 15000,
+          "endMs": 20000,
+          "looks": [
+            99.94,
+            99.94,
+            99.94,
+            99.94,
+            99.94
+          ],
+          "verdicts": [
+            "matches",
+            "matches",
+            "matches",
+            "matches",
+            "matches"
+          ]
+        },
+        {
+          "index": 4,
+          "kind": "Morph",
+          "target": "Tree",
+          "startMs": 0,
+          "endMs": 10000,
+          "looks": [
+            100.0,
+            100.0,
+            100.0,
+            100.0,
+            100.0
+          ],
+          "verdicts": [
+            "matches",
+            "matches",
+            "matches",
+            "matches",
+            "matches"
+          ]
+        },
+        {
+          "index": 5,
+          "kind": "Shader",
+          "target": "Tree",
+          "startMs": 10000,
+          "endMs": 20000,
+          "looks": [
+            100.0,
+            100.0,
+            100.0,
+            100.0,
+            100.0
+          ],
+          "verdicts": [
+            "matches",
+            "matches",
+            "matches",
+            "matches",
+            "matches"
+          ]
+        },
+        {
+          "index": 6,
+          "kind": "Shader",
+          "target": "Outlines",
+          "startMs": 0,
+          "endMs": 10000,
+          "looks": [
+            100.0,
+            100.0,
+            100.0,
+            100.0,
+            100.0
+          ],
+          "verdicts": [
+            "matches",
+            "matches",
+            "matches",
+            "matches",
+            "matches"
+          ]
+        },
+        {
+          "index": 7,
+          "kind": "Shockwave",
+          "target": "Outlines",
+          "startMs": 10000,
+          "endMs": 20000,
+          "looks": [
+            74.8,
+            74.8,
+            74.8,
+            74.8,
+            74.8
+          ],
+          "verdicts": [
+            "close",
+            "close",
+            "close",
+            "close",
+            "close"
+          ]
+        },
+        {
+          "index": 8,
+          "kind": "Color Wash",
+          "target": "Flake",
+          "startMs": 0,
+          "endMs": 20000,
+          "looks": [
+            99.68,
+            99.68,
+            99.68,
+            99.68,
+            99.68
+          ],
+          "verdicts": [
+            "matches",
+            "matches",
+            "matches",
+            "matches",
+            "matches"
+          ]
+        }
+      ],
+      "fixtures": [
+        {
+          "name": "Spot Left",
+          "scores": [
+            null,
+            null,
+            null,
+            null,
+            null
+          ],
+          "verdicts": [
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "name": "Spot Right",
+          "scores": [
+            null,
+            null,
+            null,
+            null,
+            null
+          ],
+          "verdicts": [
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "name": "Arm",
+          "scores": [
+            null,
+            null,
+            null,
+            null,
+            null
+          ],
+          "verdicts": [
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        }
+      ]
+    },
+    {
+      "label": "Moving heads and servos",
+      "looks": [
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "effects": [
+        {
+          "index": 0,
+          "kind": "DMX",
+          "target": "Spot Left",
+          "startMs": 0,
+          "endMs": 10000,
+          "looks": [
+            null,
+            null,
+            null,
+            null,
+            null
+          ],
+          "verdicts": [
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "index": 1,
+          "kind": "DMX",
+          "target": "Spot Left",
+          "startMs": 10000,
+          "endMs": 20000,
+          "looks": [
+            null,
+            null,
+            null,
+            null,
+            null
+          ],
+          "verdicts": [
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "index": 2,
+          "kind": "On",
+          "target": "Spot Left",
+          "startMs": 0,
+          "endMs": 10000,
+          "looks": [
+            null,
+            null,
+            null,
+            null,
+            null
+          ],
+          "verdicts": [
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "index": 3,
+          "kind": "Color Wash",
+          "target": "Spot Left",
+          "startMs": 10000,
+          "endMs": 20000,
+          "looks": [
+            null,
+            null,
+            null,
+            null,
+            null
+          ],
+          "verdicts": [
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "index": 4,
+          "kind": "DMX",
+          "target": "Spot Right",
+          "startMs": 0,
+          "endMs": 20000,
+          "looks": [
+            null,
+            null,
+            null,
+            null,
+            null
+          ],
+          "verdicts": [
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "index": 5,
+          "kind": "Color Wash",
+          "target": "Spot Right",
+          "startMs": 0,
+          "endMs": 20000,
+          "looks": [
+            null,
+            null,
+            null,
+            null,
+            null
+          ],
+          "verdicts": [
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "index": 6,
+          "kind": "Moving Head",
+          "target": "Heads",
+          "startMs": 20000,
+          "endMs": 25000,
+          "looks": [
+            null,
+            null,
+            null,
+            null,
+            null
+          ],
+          "verdicts": [
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "index": 7,
+          "kind": "Moving Head",
+          "target": "Heads",
+          "startMs": 25000,
+          "endMs": 30000,
+          "looks": [
+            null,
+            null,
+            null,
+            null,
+            null
+          ],
+          "verdicts": [
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "index": 8,
+          "kind": "Moving Head",
+          "target": "Heads",
+          "startMs": 30000,
+          "endMs": 35000,
+          "looks": [
+            null,
+            null,
+            null,
+            null,
+            null
+          ],
+          "verdicts": [
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "index": 9,
+          "kind": "Moving Head",
+          "target": "Heads",
+          "startMs": 35000,
+          "endMs": 40000,
+          "looks": [
+            null,
+            null,
+            null,
+            null,
+            null
+          ],
+          "verdicts": [
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "index": 10,
+          "kind": "Servo",
+          "target": "Arm",
+          "startMs": 20000,
+          "endMs": 40000,
+          "looks": [
+            null,
+            null,
+            null,
+            null,
+            null
+          ],
+          "verdicts": [
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "index": 11,
+          "kind": "DMX",
+          "target": "Arm",
+          "startMs": 0,
+          "endMs": 10000,
+          "looks": [
+            null,
+            null,
+            null,
+            null,
+            null
+          ],
+          "verdicts": [
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "index": 12,
+          "kind": "DMX",
+          "target": "Arm",
+          "startMs": 10000,
+          "endMs": 20000,
+          "looks": [
+            null,
+            null,
+            null,
+            null,
+            null
+          ],
+          "verdicts": [
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "index": 13,
+          "kind": "Servo",
+          "target": "Arm",
+          "startMs": 20000,
+          "endMs": 30000,
+          "looks": [
+            null,
+            null,
+            null,
+            null,
+            null
+          ],
+          "verdicts": [
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "index": 14,
+          "kind": "Servo",
+          "target": "Arm",
+          "startMs": 30000,
+          "endMs": 40000,
+          "looks": [
+            null,
+            null,
+            null,
+            null,
+            null
+          ],
+          "verdicts": [
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        }
+      ],
+      "fixtures": [
+        {
+          "name": "Spot Left",
+          "scores": [
+            76.75,
+            76.75,
+            76.75,
+            76.75,
+            76.75
+          ],
+          "verdicts": [
+            "close",
+            "close",
+            "close",
+            "close",
+            "close"
+          ]
+        },
+        {
+          "name": "Spot Right",
+          "scores": [
+            35.0,
+            35.0,
+            35.0,
+            35.0,
+            35.0
+          ],
+          "verdicts": [
+            "different",
+            "different",
+            "different",
+            "different",
+            "different"
+          ]
+        },
+        {
+          "name": "Arm",
+          "scores": [
+            100.0,
+            100.0,
+            100.0,
+            100.0,
+            100.0
+          ],
+          "verdicts": [
+            "matches",
+            "matches",
+            "matches",
+            "matches",
+            "matches"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "Words in the computer's fonts",
+      "looks": [
+        83.8973,
+        83.8973,
+        83.8973,
+        83.8973,
+        83.8973
+      ],
+      "effects": [
+        {
+          "index": 0,
+          "kind": "Text",
+          "target": "Matrix",
+          "startMs": 0,
+          "endMs": 4000,
+          "looks": [
+            95.85,
+            95.85,
+            95.85,
+            95.85,
+            95.85
+          ],
+          "verdicts": [
+            "matches",
+            "matches",
+            "matches",
+            "matches",
+            "matches"
+          ]
+        },
+        {
+          "index": 1,
+          "kind": "Text",
+          "target": "Matrix",
+          "startMs": 4000,
+          "endMs": 8000,
+          "looks": [
+            87.09,
+            87.09,
+            87.09,
+            87.09,
+            87.09
+          ],
+          "verdicts": [
+            "matches",
+            "matches",
+            "matches",
+            "matches",
+            "matches"
+          ]
+        },
+        {
+          "index": 2,
+          "kind": "Text",
+          "target": "Matrix",
+          "startMs": 8000,
+          "endMs": 12000,
+          "looks": [
+            57.01,
+            57.01,
+            57.01,
+            57.01,
+            57.01
+          ],
+          "verdicts": [
+            "close",
+            "close",
+            "close",
+            "close",
+            "close"
+          ]
+        },
+        {
+          "index": 3,
+          "kind": "Text",
+          "target": "Matrix",
+          "startMs": 12000,
+          "endMs": 16000,
+          "looks": [
+            96.83,
+            96.83,
+            96.83,
+            96.83,
+            96.83
+          ],
+          "verdicts": [
+            "matches",
+            "matches",
+            "matches",
+            "matches",
+            "matches"
+          ]
+        },
+        {
+          "index": 4,
+          "kind": "Text",
+          "target": "Tree",
+          "startMs": 0,
+          "endMs": 16000,
+          "looks": [
+            83.6,
+            83.6,
+            83.6,
+            83.6,
+            83.6
+          ],
+          "verdicts": [
+            "close",
+            "close",
+            "close",
+            "close",
+            "close"
+          ]
+        }
+      ],
+      "fixtures": [
+        {
+          "name": "Spot Left",
+          "scores": [
+            null,
+            null,
+            null,
+            null,
+            null
+          ],
+          "verdicts": [
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "name": "Spot Right",
+          "scores": [
+            null,
+            null,
+            null,
+            null,
+            null
+          ],
+          "verdicts": [
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "name": "Arm",
+          "scores": [
+            null,
+            null,
+            null,
+            null,
+            null
+          ],
+          "verdicts": [
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        }
+      ]
+    }
+  ]
 }

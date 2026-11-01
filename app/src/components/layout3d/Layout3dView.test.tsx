@@ -2,9 +2,10 @@ import { act, render, waitFor } from "@testing-library/react";
 import { StrictMode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { emptyShow } from "../../api/memory";
-import { type LightLook, SPREAD_SIZE, packSpread } from "../../lib/layout3d";
+import { type FloorGrid, type LightLook, SPREAD_SIZE, floorGrid, packSpread, v3 } from "../../lib/layout3d";
 import { pixelSpread3d } from "../../lib/pixelBatches";
 import { LAYOUT_LOOK, PREVIEW_LOOK, lightLook } from "../../lib/pixelLooks";
+import { VIEW_DEFAULTS, boostFrame } from "../../lib/viewOptions";
 import { useLayoutEditor } from "../../state/layoutEditor";
 import { useView3d } from "../../state/view3d";
 import { Layout3dView } from "./Layout3dView";
@@ -25,6 +26,7 @@ const stub: Scene3d = {
   setSelectionBox: () => {},
   setGizmo: () => {},
   setOptions: () => {},
+  setFloor: () => {},
   render: () => {},
   dispose: () => {},
 };
@@ -55,7 +57,7 @@ describe("the 3D view's renderer", () => {
   });
 
   it("is told how much the viewer has the lights glow, and again whenever that changes", async () => {
-    const options: { glow: number; ground: boolean }[] = [];
+    const options: Parameters<Scene3d["setOptions"]>[0][] = [];
     useView3d.getState().setGlow(0.35);
     render(
       <Layout3dView
@@ -67,12 +69,92 @@ describe("the 3D view's renderer", () => {
         sceneFactory={async () => ({ ...stub, setOptions: (o) => void options.push(o) })}
       />,
     );
-    await waitFor(() => expect(options).toEqual([{ glow: 0.35, ground: true }]));
+    await waitFor(() => expect(options).toEqual([{ glow: 0.35, ground: true, grid: true, dotScale: 1 }]));
     act(() => useView3d.getState().setGlow(0));
-    expect(options.at(-1)).toEqual({ glow: 0, ground: true });
+    expect(options.at(-1)).toEqual({ glow: 0, ground: true, grid: true, dotScale: 1 });
     act(() => useView3d.getState().setGround(false));
-    expect(options.at(-1)).toEqual({ glow: 0, ground: false });
+    expect(options.at(-1)).toEqual({ glow: 0, ground: false, grid: true, dotScale: 1 });
     expect(options).toHaveLength(3);
+    // The grid and the dot size, too.
+    act(() => useView3d.getState().setViewOptions({ grid: false }));
+    expect(options.at(-1)).toEqual({ glow: 0, ground: false, grid: false, dotScale: 1 });
+    act(() => useView3d.getState().setViewOptions({ dotSize: "large" }));
+    expect(options.at(-1)).toEqual({ glow: 0, ground: false, grid: false, dotScale: 1.5 });
+    act(() => useView3d.getState().setViewOptions({ dotSize: "small" }));
+    expect(options.at(-1)).toMatchObject({ dotScale: 0.6 });
+    // Names only redraw.
+    const count = options.length;
+    act(() => useView3d.getState().setViewOptions({ names: true }));
+    expect(options).toHaveLength(count);
+    act(() => {
+      useView3d.getState().setGround(true);
+      useView3d.getState().setViewOptions(VIEW_DEFAULTS);
+    });
+  });
+
+  it("measures the grid on the ground from the display, and says how far apart its lines are", async () => {
+    const floors: FloorGrid[] = [];
+    const preview = { revision: 1, props: [{ prop: "wide", frameOffset: 0, channelsPerPixel: 3, xyz: new Float32Array([-12, 0, 0, 12, 4, 0]) }] };
+    const { unmount } = render(
+      <Layout3dView
+        preview={preview}
+        show={emptyShow("Home")}
+        photo={{ image: null, aspect: 0.75, problem: null, reload: () => {} }}
+        storageKey="k"
+        frame={null}
+        sceneFactory={async () => ({ ...stub, setFloor: (f) => void floors.push(f) })}
+      />,
+    );
+    await waitFor(() => expect(floors.at(-1)).toEqual(floorGrid({ min: v3(-12, 0, 0), max: v3(12, 4, 0) })));
+    expect(floors.at(-1)).toMatchObject({ minor: 1, major: 5 });
+    expect(useView3d.getState().floor).toMatchObject({ minor: 1, major: 5 });
+    unmount();
+    // With no 3D view open, there's no grid to speak of.
+    expect(useView3d.getState().floor).toBeNull();
+  });
+
+  it("leaves pixels that are off out when the viewer hides them, and with Auto only while the show plays", async () => {
+    const looks: LightLook[] = [];
+    const factory: SceneFactory = async () => ({ ...stub, setLook: (look) => void looks.push(look) });
+    const photo = { image: null, aspect: 0.75, problem: null, reload: () => {} };
+    const view = (playing: boolean) => (
+      <Layout3dView preview={{ revision: 0, props: [] }} show={emptyShow("Home")} photo={photo} storageKey="k" frame={null} playing={playing} sceneFactory={factory} />
+    );
+    const shown = lightLook(PREVIEW_LOOK).look;
+    const { rerender } = render(view(false));
+    await waitFor(() => expect(looks).toEqual([shown]));
+    act(() => useView3d.getState().setViewOptions({ unlit: "hidden" }));
+    expect(looks.at(-1)).toEqual({ ...shown, dark: [0, 0, 0, 0] });
+    // Nothing playing still shows every prop in its quiet color.
+    expect(looks.at(-1)!.unlit).toEqual(shown.unlit);
+    act(() => useView3d.getState().setViewOptions({ unlit: "auto" }));
+    expect(looks.at(-1)).toEqual(shown);
+    rerender(view(true));
+    await waitFor(() => expect(looks.at(-1)).toEqual({ ...shown, dark: [0, 0, 0, 0] }));
+    rerender(view(false));
+    await waitFor(() => expect(looks.at(-1)).toEqual(shown));
+    // Told only when it changes.
+    const count = looks.length;
+    rerender(view(false));
+    await act(async () => {});
+    expect(looks).toHaveLength(count);
+    act(() => useView3d.getState().setViewOptions({ unlit: "dim" }));
+  });
+
+  it("shows dim levels lifted when the viewer boosts them, and the colors as they are otherwise", async () => {
+    const colors: number[][] = [];
+    const factory: SceneFactory = async () => ({ ...stub, setColors: (rgb) => void colors.push(Array.from(rgb)) });
+    const preview = { revision: 1, props: [{ prop: "one", frameOffset: 0, channelsPerPixel: 3, xyz: new Float32Array([0, 0, 0]) }] };
+    const frame = new Uint8Array([20, 10, 0]);
+    render(<Layout3dView preview={preview} show={emptyShow("Home")} photo={{ image: null, aspect: 0.75, problem: null, reload: () => {} }} storageKey="k" frame={frame} sceneFactory={factory} />);
+    await waitFor(() => expect(colors.at(-1)).toEqual([20, 10, 0]));
+    act(() => useView3d.getState().setViewOptions({ boost: 2 }));
+    expect(colors.at(-1)).toEqual(Array.from(boostFrame(frame, preview.props, 2)));
+    expect(colors.at(-1)![0]).toBeGreaterThan(20);
+    // The frame itself is left as it was.
+    expect(Array.from(frame)).toEqual([20, 10, 0]);
+    act(() => useView3d.getState().setViewOptions({ boost: 0 }));
+    expect(colors.at(-1)).toEqual([20, 10, 0]);
   });
 
   it("is handed every pixel's place with how its prop is spread out, and the look of the screen it's on", async () => {

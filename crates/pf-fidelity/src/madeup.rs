@@ -1,4 +1,4 @@
-//! The made-up corpus: an xLights show folder and four short sequences written here, for CI to
+//! The made-up corpus: an xLights show folder and five short sequences written here, for CI to
 //! hold imports to. Everything in it is PixelFlow's own (made-up props, made-up sequences, a
 //! picture drawn here, and one of PixelFlow's own shader files), so it can be published with
 //! the code. No music: every sequence is an animation.
@@ -111,34 +111,42 @@ const MODELS: [Model; 10] = [
         inside: "",
     },
     // A 16-bit moving head standing on the ground: pan and tilt with their fine channels, a
-    // dimmer, red, green, blue and white, and a shutter held open.
+    // dimmer, red, green, blue and white, and a shutter. As xLights 2026 keeps them: a DMX
+    // model's channels are single channels ("Single Color White"; without it xLights takes each
+    // for a pixel of three), the head's dimmer is `MhDimmerChannel`, the shutter opens from
+    // `DmxShutterOpen` and is sent `DmxShutterOnValue` to open it, and presets hold the dimmer
+    // and the shutter open while ordinary effects light the head (an advanced head doesn't
+    // open its shutter by itself).
     Model {
         name: "Spot Left",
-        attributes: r#"DisplayAs="DmxMovingHeadAdv" DmxChannelCount="12" DmxFixture="MH1" DmxColorType="0" DmxDimmerChannel="6" DmxRedChannel="7" DmxGreenChannel="8" DmxBlueChannel="9" DmxWhiteChannel="10" DmxShutterChannel="11" DmxShutterOpen="255" DmxBeamWidth="20" WorldPosX="380.0" WorldPosY="40.0" WorldPosZ="0.0" ScaleX="1.0" ScaleY="1.0" ScaleZ="1.0""#,
+        attributes: r#"DisplayAs="DmxMovingHeadAdv" StringType="Single Color White" DmxChannelCount="12" DmxFixture="MH1" DmxColorType="0" MhDimmerChannel="6" DmxRedChannel="7" DmxGreenChannel="8" DmxBlueChannel="9" DmxWhiteChannel="10" DmxShutterChannel="11" DmxShutterOpen="1" DmxShutterOnValue="255" DmxPresetChannel0="6" DmxPresetValue0="255" DmxPresetDesc0="Dimmer full" DmxPresetChannel1="11" DmxPresetValue1="255" DmxPresetDesc1="Shutter open" DmxBeamWidth="20" WorldPosX="380.0" WorldPosY="40.0" WorldPosZ="0.0" ScaleX="1.0" ScaleY="1.0" ScaleZ="1.0""#,
         pixels: 0,
         dmx: 12,
         inside: r#"      <PanMotor ChannelCoarse="1" ChannelFine="2" MinLimit="-180" MaxLimit="180" RangeOfMotion="540" OrientZero="0" OrientHome="270" SlewLimit="0" Reverse="0" UpsideDown="0"/>
       <TiltMotor ChannelCoarse="3" ChannelFine="4" MinLimit="-90" MaxLimit="90" RangeOfMotion="270" OrientZero="0" OrientHome="135" SlewLimit="0" Reverse="0" UpsideDown="0"/>
 "#,
     },
-    // An 8-bit moving head hung upside down, its color from a wheel of four colors.
+    // An 8-bit moving head hung upside down, its color from a wheel of four colors, the wheel's
+    // brightness on its dimmer (`DmxDimmerChannel`, which is the head's dimmer too). A basic
+    // head sends `DmxShutterOnValue` whenever an ordinary effect lights it.
     Model {
         name: "Spot Right",
-        attributes: r##"DisplayAs="DmxMovingHead" DmxStyle="Moving Head Top" DmxChannelCount="8" DmxFixture="MH2" DmxColorType="1" DmxColorWheelChannel="5" DmxDimmerChannel="6" DmxShutterChannel="7" DmxShutterOpen="255" DmxColorWheelColor0="#FFFFFF" DmxColorWheelDMX0="0" DmxColorWheelColor1="#FF0000" DmxColorWheelDMX1="16" DmxColorWheelColor2="#00FF00" DmxColorWheelDMX2="32" DmxColorWheelColor3="#0000FF" DmxColorWheelDMX3="48" WorldPosX="900.0" WorldPosY="700.0" WorldPosZ="0.0" ScaleX="1.0" ScaleY="1.0" ScaleZ="1.0""##,
+        attributes: r##"DisplayAs="DmxMovingHead" StringType="Single Color White" DmxStyle="Moving Head Top" DmxChannelCount="8" DmxFixture="MH2" DmxColorType="1" DmxColorWheelChannel="5" DmxDimmerChannel="6" MhDimmerChannel="6" DmxShutterChannel="7" DmxShutterOpen="1" DmxShutterOnValue="255" DmxColorWheelColor0="#FFFFFF" DmxColorWheelDMX0="0" DmxColorWheelColor1="#FF0000" DmxColorWheelDMX1="16" DmxColorWheelColor2="#00FF00" DmxColorWheelDMX2="32" DmxColorWheelColor3="#0000FF" DmxColorWheelDMX3="48" WorldPosX="900.0" WorldPosY="700.0" WorldPosZ="0.0" ScaleX="1.0" ScaleY="1.0" ScaleZ="1.0""##,
         pixels: 0,
         dmx: 8,
         inside: r#"      <PanMotor ChannelCoarse="1" ChannelFine="0" RangeOfMotion="540" OrientZero="0" OrientHome="270" SlewLimit="0" Reverse="0" UpsideDown="1"/>
       <TiltMotor ChannelCoarse="2" ChannelFine="0" RangeOfMotion="270" OrientZero="0" OrientHome="135" SlewLimit="0" Reverse="1" UpsideDown="1"/>
 "#,
     },
-    // Two 16-bit servos: the first over its whole travel, the second within limits, reversed.
+    // Two 16-bit servos: the first over its whole travel, the second within limits, reversed
+    // (xLights turns a servo the other way when its lower limit is the larger).
     Model {
         name: "Arm",
-        attributes: r#"DisplayAs="DmxServo" DmxChannelCount="4" NumServos="2" Bits16="1" WorldPosX="1180.0" WorldPosY="40.0" WorldPosZ="0.0" ScaleX="1.0" ScaleY="1.0" ScaleZ="1.0""#,
+        attributes: r#"DisplayAs="DmxServo" StringType="Single Color White" DmxChannelCount="4" NumServos="2" Bits16="1" WorldPosX="1180.0" WorldPosY="40.0" WorldPosZ="0.0" ScaleX="1.0" ScaleY="1.0" ScaleZ="1.0""#,
         pixels: 0,
         dmx: 4,
-        inside: r#"      <Servo1 Channel="1" MinLimit="1" MaxLimit="65535" RangeOfMotion="180" Style="Rotate Z" Reverse="0"/>
-      <Servo2 Channel="3" MinLimit="16384" MaxLimit="49151" RangeOfMotion="180" Style="Rotate Z" Reverse="1"/>
+        inside: r#"      <Servo1 Channel="1" MinLimit="1" MaxLimit="65535" RangeOfMotion="180" ServoStyle="Rotate Z"/>
+      <Servo2 Channel="3" MinLimit="49151" MaxLimit="16384" RangeOfMotion="180" ServoStyle="Rotate Z"/>
 "#,
     },
 ];
@@ -439,13 +447,16 @@ const FILL: &str = "E_CHECKBOX_Fill_Offset_In_Pixels=1,E_CHECKBOX_Fill_Wrap=1,E_
      E_SLIDER_Fill_Band_Size=0,E_SLIDER_Fill_Offset=0,E_SLIDER_Fill_Position=0,E_SLIDER_Fill_Skip_Size=0,\
      E_VALUECURVE_Fill_Position=Active=TRUE|Id=ID_VALUECURVE_Fill_Position|Type=Ramp|Min=0.00|Max=100.00|P1=0.00|P2=100.00|RV=TRUE|";
 
+/// A Pictures effect showing the corpus's picture. xLights 2026 reads the file from
+/// `E_TEXTCTRL_Pictures_Filename` (it shows a red fill for the older `E_FILEPICKERCTRL_…`), named
+/// from the show folder as xLights writes a file inside it.
 fn pictures(direction: &str, scaling: &str, speed: &str) -> String {
     format!(
         "E_CHECKBOX_LoopGIF=0,E_CHECKBOX_Pictures_PixelOffsets=0,E_CHECKBOX_Pictures_Shimmer=0,\
          E_CHECKBOX_Pictures_TransparentBlack=0,E_CHECKBOX_Pictures_WrapX=0,E_CHECKBOX_SuppressGIFBackground=1,\
          E_CHOICE_Pictures_Direction={direction},E_CHOICE_Scaling={scaling},\
-         E_FILEPICKERCTRL_Pictures_Filename=pictures/corpus-picture.png,E_SLIDER_PicturesEndXC=0,\
-         E_SLIDER_PicturesEndYC=0,E_SLIDER_PicturesXC=0,E_SLIDER_PicturesYC=0,\
+         E_SLIDER_PicturesEndXC=0,E_SLIDER_PicturesEndYC=0,E_SLIDER_PicturesXC=0,E_SLIDER_PicturesYC=0,\
+         E_TEXTCTRL_Pictures_Filename=pictures/corpus-picture.png,\
          E_TEXTCTRL_Pictures_FrameRateAdj=1.0,E_TEXTCTRL_Pictures_Speed={speed}"
     )
 }
@@ -924,9 +935,16 @@ fn servo(n: u32, start: u32, end: u32) -> String {
 /// effect on each servo (from one share of its travel to another, and by a value curve). 40
 /// seconds of 50 ms frames.
 fn heads() -> Xsq {
+    // The colors on the layer above the DMX effect: xLights' DMX effect sends every channel it
+    // has (0 where it sets nothing), so on top it would leave the heads dark; under an ordinary
+    // effect it keeps the channels that effect doesn't light (pan and tilt).
     let left = row(
         "Spot Left",
         vec![
+            vec![
+                fx("On", 0, 10000, ON, palette(&["#FF0000"], "")),
+                fx("Color Wash", 10000, 20000, &color_wash("2.0"), palette(COOL, "")),
+            ],
             vec![
                 fx(
                     "DMX",
@@ -943,15 +961,12 @@ fn heads() -> Xsq {
                     palette(WHITE, ""),
                 ),
             ],
-            vec![
-                fx("On", 0, 10000, ON, palette(&["#FF0000"], "")),
-                fx("Color Wash", 10000, 20000, &color_wash("2.0"), palette(COOL, "")),
-            ],
         ],
     );
     let right = row(
         "Spot Right",
         vec![
+            vec![fx("Color Wash", 0, 20000, &color_wash("2.0"), palette(WARM, ""))],
             vec![fx(
                 "DMX",
                 0,
@@ -959,7 +974,6 @@ fn heads() -> Xsq {
                 &dmx(&[(2, 128)], &[(1, 255, 0)]),
                 palette(WHITE, ""),
             )],
-            vec![fx("Color Wash", 0, 20000, &color_wash("2.0"), palette(WARM, ""))],
         ],
     );
     // Colors as hue, saturation and value: red, green, blue, white.
@@ -1039,7 +1053,7 @@ fn heads() -> Xsq {
     Xsq {
         title: "Moving heads and servos",
         about: "Moving heads and servos: the DMX effect pointing two heads and turning two servos,\n     \
-                over colors drawn on the heads by ordinary effects, then xLights' Moving Head and\n     \
+                under colors drawn on the heads by ordinary effects, then xLights' Moving Head and\n     \
                 Servo effects. 40 seconds of 50 ms frames.",
         frame_ms: 50,
         duration_ms: 40_000,

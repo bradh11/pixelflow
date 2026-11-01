@@ -122,7 +122,7 @@ describe("the three.js scene", () => {
 
   it("frees every geometry and material in its scenes, and the material the halos are laid over with", () => {
     const { renderer, scene } = made();
-    scene.setOptions({ glow: 0.5, ground: true });
+    scene.setOptions({ glow: 0.5, ground: true, grid: true, dotScale: 1 });
     scene.setBackdrop(photo(1));
     scene.setPixels(new Float32Array([0, 0, 0]), spreadFor(1));
     scene.setColors(new Uint8Array([255, 0, 0]), true);
@@ -149,7 +149,7 @@ describe("the three.js scene", () => {
 
   it("uploads every position after a full update, even when a partial one follows before the next frame", () => {
     const { scene, passes } = made();
-    scene.setOptions({ glow: 0, ground: true });
+    scene.setOptions({ glow: 0, ground: true, grid: true, dotScale: 1 });
     scene.setPixels(new Float32Array(9), spreadFor(3));
     scene.render(ORBIT);
     const position = passes()[0].points.geometry.getAttribute("position") as BufferAttribute;
@@ -362,7 +362,7 @@ describe("the three.js scene", () => {
   it("with no glow draws the scene and the lights straight to the screen: nothing is added", () => {
     const { renderer, scene } = made();
     scene.setPixels(new Float32Array(6), spreadFor(2));
-    scene.setOptions({ glow: 0, ground: true });
+    scene.setOptions({ glow: 0, ground: true, grid: true, dotScale: 1 });
     scene.setColors(new Uint8Array([255, 0, 0, 0, 255, 0]), true);
     scene.render(ORBIT);
     expect(renderer.drawn).toHaveLength(2);
@@ -381,7 +381,7 @@ describe("the three.js scene", () => {
     scene.resize({ width: 800, height: 600 }, 2);
     scene.setPixels(new Float32Array(6), spreadFor(2));
     const colors = new Uint8Array([255, 0, 0, 0, 255, 0]);
-    scene.setOptions({ glow: 0.5, ground: true });
+    scene.setOptions({ glow: 0.5, ground: true, grid: true, dotScale: 1 });
     scene.setColors(colors, true);
     scene.render(ORBIT);
     const [halos, main, lights, over] = renderer.drawn;
@@ -409,27 +409,80 @@ describe("the three.js scene", () => {
     // The level reaches the halos and the dots (which dim by what their halo adds back).
     const level = () => [halo.uniforms.glow.value, passes()[1].material.uniforms.glow.value];
     expect(level()).toEqual([0.5, 0.5]);
-    scene.setOptions({ glow: 1, ground: true });
+    scene.setOptions({ glow: 1, ground: true, grid: true, dotScale: 1 });
     expect(level()).toEqual([1, 1]);
     // It's drawn at the step the flat previews draw it at; a level out of range is kept in range.
-    scene.setOptions({ glow: 0.52, ground: true });
+    scene.setOptions({ glow: 0.52, ground: true, grid: true, dotScale: 1 });
     expect(level()).toEqual([0.5, 0.5]);
-    scene.setOptions({ glow: 9, ground: true });
+    scene.setOptions({ glow: 9, ground: true, grid: true, dotScale: 1 });
     expect(level()).toEqual([1, 1]);
-    scene.setOptions({ glow: NaN, ground: true });
+    scene.setOptions({ glow: NaN, ground: true, grid: true, dotScale: 1 });
     expect(level()).toEqual([0, 0]);
 
     // Lights that aren't lit (nothing is playing) don't glow, whatever the level.
-    scene.setOptions({ glow: 1, ground: true });
+    scene.setOptions({ glow: 1, ground: true, grid: true, dotScale: 1 });
     scene.setColors(colors, false);
     renderer.drawn.length = 0;
     scene.render(ORBIT);
     expect(renderer.drawn).toHaveLength(2);
     expect(level()).toEqual([0, 0]);
     // Lit again, they glow at the level set meanwhile.
-    scene.setOptions({ glow: 0.25, ground: true });
+    scene.setOptions({ glow: 0.25, ground: true, grid: true, dotScale: 1 });
     scene.setColors(colors, true);
     expect(level()).toEqual([0.25, 0.25]);
+  });
+
+  it("draws the viewer's Dot size: the view's smallest and largest dots and the dot a pixel has in the layout all scale", () => {
+    const { scene, passes } = made();
+    scene.setPixels(new Float32Array(6), spreadFor(2));
+    scene.render(ORBIT);
+    const all = [passes()[0].material, passes()[1].material];
+    expect(all.map((m) => m.uniforms.dotScale.value)).toEqual([1, 1]);
+    scene.setOptions({ glow: 0, ground: true, grid: true, dotScale: 1.5 });
+    for (const m of all) {
+      expect(m.uniforms.dotScale.value).toBe(1.5);
+      expect((m.uniforms.radius.value as Vector2).toArray()).toEqual([1.2 * 1.5, 4 * 1.5]);
+      expect(m.vertexShader).toContain("dotScale * unit");
+    }
+    // A new look keeps the scale.
+    scene.setLook({ ...LOOK, radius: [1, 2] });
+    expect((all[0].uniforms.radius.value as Vector2).toArray()).toEqual([1.5, 3]);
+  });
+
+  it("draws a measured grid on the ground, with the ground or without, fading out round the display", () => {
+    const { scene, onScreen } = made();
+    scene.resize({ width: 800, height: 600 }, 2);
+    scene.render(ORBIT);
+    let grid: Mesh | undefined;
+    let ground: Mesh | undefined;
+    onScreen()[0].what.traverse((o) => {
+      if (!(o instanceof Mesh)) return;
+      if ((o.material as ShaderMaterial).uniforms?.spacing) grid = o;
+      else if (o.geometry.type === "PlaneGeometry" && o.position.y < 0) ground = o;
+    });
+    const material = grid!.material as ShaderMaterial;
+    const u = material.uniforms;
+    // On the ground's own plane, and drawn after the photo and the model (so where they stand in
+    // front of it they hide it), never into the depth the lights are kept by.
+    expect(grid!.geometry).toBe(ground!.geometry);
+    expect(grid!.position.y).toBe(ground!.position.y);
+    expect(grid!.renderOrder).toBeGreaterThan(0);
+    expect(material).toMatchObject({ transparent: true, depthWrite: false, fog: true, polygonOffset: true });
+    expect(u.ratio.value).toBe(2);
+    const shown = () => ({ ground: ground!.visible, grid: grid!.visible });
+    scene.setOptions({ glow: 0, ground: true, grid: true, dotScale: 1 });
+    expect(shown()).toEqual({ ground: true, grid: true });
+    scene.setOptions({ glow: 0, ground: true, grid: false, dotScale: 1 });
+    expect(shown()).toEqual({ ground: true, grid: false });
+    // The grid alone: lines over the night.
+    scene.setOptions({ glow: 0, ground: false, grid: true, dotScale: 1 });
+    expect(shown()).toEqual({ ground: false, grid: true });
+    scene.setFloor({ minor: 0.5, major: 2.5, center: { x: 3, z: -1 }, fade: [25, 75] });
+    expect((u.spacing.value as Vector2).toArray()).toEqual([0.5, 2.5]);
+    expect((u.fade.value as Vector4).toArray()).toEqual([3, -1, 25, 75]);
+    // Lines fade as they crowd together, and away from the display.
+    expect(material.fragmentShader).toContain("fwidth");
+    expect(material.fragmentShader).toContain("smoothstep(fade.z, fade.w");
   });
 
   it("explains a model it can't read in plain words", () => {

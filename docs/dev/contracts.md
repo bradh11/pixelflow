@@ -39,7 +39,9 @@ the video export draws them in Rust (`crates/pf-video/src/dots.rs` and `raster.r
 of a video must be the preview's picture of that moment. Each file is a scene: a small made-up
 layout and a frame of colors (a sparse string, a dense one, strings crossing, matrices, lit beside
 unlit, a fade, pixels closer than a screen pixel), a preview's canvas, and the picture of dots the
-preview draws there with no glow. `pixels.test.ts` draws every scene with the preview's own code
+preview draws there with no glow. A few draw with the viewer's View options too: pixels that are
+off hidden (`dark` is all zeros) and Boost dim (`boost`, its step; the frame on file is the show's,
+and each side lifts it with its own code). `pixels.test.ts` draws every scene with the preview's own code
 and writes the files. The export's test (`shared_scenes` in `crates/pf-video/src/raster.rs`) draws
 the same scenes with the export's code. It fails unless it fits each display in the same view,
 uses the same dot size and the same color for a pixel that's off, and draws every pixel of the

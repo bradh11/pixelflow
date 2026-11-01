@@ -1,10 +1,12 @@
 import { CheckCircle2, Download, Film } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { errorMessage } from "../../api/backend";
 import type { Sequence } from "../../api/sequence";
 import type { H264Encoder, H264Progress, VideoChoices, VideoProgress, VideoRequest, VideoSummary } from "../../api/video";
 import { clock, fileName, sizeText } from "../../lib/format";
 import { formatTime, parseTime } from "../../lib/timelineMath";
+import { BOOST_CHOICES, DOT_SCALES, hidesUnlit } from "../../lib/viewOptions";
 import { useSequencer } from "../../state/sequencer";
 import { useView3d } from "../../state/view3d";
 import { EncoderConsent, downloadSize } from "../CiscoEncoder";
@@ -18,13 +20,18 @@ interface Settings {
   height: 720 | 1080;
   fps: 30 | 60;
   photo: boolean;
-  pixelSize: number;
+  /** Against the preview's; null until one is chosen here: the video then has the previews' Dot size. */
+  pixelSize: number | null;
   /** 0 (crisp dots) to 1; null until one is chosen here: the video then glows as the previews do. */
   glow: number | null;
+  /** Pixels that are off; null until chosen here: then as the previews show them while the show plays. */
+  unlit: "dim" | "hidden" | null;
+  /** Boost dim's step; null until one is chosen here: then the previews'. */
+  boost: number | null;
   ffmpeg: boolean;
 }
 
-const DEFAULTS: Settings = { height: 1080, fps: 30, photo: true, pixelSize: 1, glow: null, ffmpeg: false };
+const DEFAULTS: Settings = { height: 1080, fps: 30, photo: true, pixelSize: null, glow: null, unlit: null, boost: null, ffmpeg: false };
 
 const PIXEL_SIZES = [
   { value: 0.6, label: "Small" },
@@ -40,8 +47,10 @@ function loadSettings(): Settings {
       height: saved.height === 720 ? 720 : 1080,
       fps: saved.fps === 60 ? 60 : 30,
       photo: saved.photo !== false,
-      pixelSize: PIXEL_SIZES.some((p) => p.value === saved.pixelSize) ? saved.pixelSize! : 1,
+      pixelSize: PIXEL_SIZES.some((p) => p.value === saved.pixelSize) ? saved.pixelSize! : null,
       glow: typeof saved.glow === "number" && Number.isFinite(saved.glow) ? Math.min(1, Math.max(0, saved.glow)) : null,
+      unlit: saved.unlit === "dim" || saved.unlit === "hidden" ? saved.unlit : null,
+      boost: BOOST_CHOICES.some((b) => b.value === saved.boost) ? saved.boost! : null,
       ffmpeg: saved.ffmpeg === true,
     };
   } catch {
@@ -112,9 +121,13 @@ export function ExportVideoDialog({ onClose }: { onClose: () => void }) {
   const [choices, setChoices] = useState<VideoChoices | null>(null);
   const [h264, setH264] = useState<H264Encoder | null>(null);
   const [settings, setSettings] = useState<Settings>(loadSettings);
-  // Until a glow is chosen here, the video starts with the glow the previews are shown with.
-  const previewGlow = useView3d((s) => s.glow);
-  const glow = settings.glow ?? previewGlow;
+  // Until they're chosen here, the video starts with the glow, dot size, pixels that are off, and
+  // boost the previews are shown with (as they look while the show plays: a video plays).
+  const preview = useView3d(useShallow((s) => ({ glow: s.glow, dotSize: s.dotSize, unlit: s.unlit, boost: s.boost })));
+  const glow = settings.glow ?? preview.glow;
+  const pixelSize = settings.pixelSize ?? DOT_SCALES[preview.dotSize];
+  const unlit = settings.unlit ?? (hidesUnlit(preview.unlit, true) ? "hidden" : "dim");
+  const boost = settings.boost ?? preview.boost;
   const span = doc ? selectionSpan(doc, selection) : null;
   const [range, setRange] = useState<Range>(span ? "selection" : "all");
   const [from, setFrom] = useState(() => formatTime(span?.startMs ?? playheadMs, 100));
@@ -259,8 +272,10 @@ export function ExportVideoDialog({ onClose }: { onClose: () => void }) {
       startMs,
       endMs: range === "all" ? null : endMs,
       photo,
-      pixelSize: settings.pixelSize,
+      pixelSize,
       glow,
+      hideUnlit: unlit === "hidden",
+      boost,
       ffmpeg,
     };
     setPhase({ kind: "exporting", progress: null, cancelling: false });
@@ -357,10 +372,27 @@ export function ExportVideoDialog({ onClose }: { onClose: () => void }) {
               )}
               <label className="flex flex-col gap-1">
                 <span className={label}>Pixel size</span>
-                <Select value={settings.pixelSize} onChange={(e) => update({ pixelSize: Number(e.target.value) })}>
+                <Select value={pixelSize} onChange={(e) => update({ pixelSize: Number(e.target.value) })}>
                   {PIXEL_SIZES.map((p) => (
                     <option key={p.value} value={p.value}>
                       {p.label}
+                    </option>
+                  ))}
+                </Select>
+              </label>
+              <label className="flex flex-col gap-1" title="Dim shows every prop; hidden shows only lit pixels, as at night">
+                <span className={label}>Pixels that are off</span>
+                <Select value={unlit} onChange={(e) => update({ unlit: e.target.value as "dim" | "hidden" })}>
+                  <option value="dim">Dim</option>
+                  <option value="hidden">Hidden</option>
+                </Select>
+              </label>
+              <label className="flex flex-col gap-1" title="Lifts dim levels so fades show on a screen">
+                <span className={label}>Boost dim</span>
+                <Select value={boost} onChange={(e) => update({ boost: Number(e.target.value) })}>
+                  {BOOST_CHOICES.map((b) => (
+                    <option key={b.value} value={b.value}>
+                      {b.label}
                     </option>
                   ))}
                 </Select>

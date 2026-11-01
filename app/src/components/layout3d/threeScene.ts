@@ -1,6 +1,6 @@
-// The 3D view drawn with three.js: a night scene (sky, ground), the photo as an upright
-// backdrop, an optional house model, and every pixel as a crisp dot, by the flat previews' rules
-// (lib/pixelBatches.ts) worked out in perspective. All pixels are one set of points whose
+// The 3D view drawn with three.js: a night scene (sky, ground and its measured grid), the photo
+// as an upright backdrop, an optional house model, and every pixel as a crisp dot, by the flat
+// previews' rules (lib/pixelBatches.ts) worked out in perspective. All pixels are one set of points whose
 // positions and colors are updated in place; their shader sizes each dot from how far apart its
 // prop's pixels are and how far it is from the camera (see `lightWidth` in lib/layout3d.ts).
 //
@@ -42,7 +42,6 @@ import {
   EqualDepth,
   Euler,
   Fog,
-  GridHelper,
   Group,
   HalfFloatType,
   HemisphereLight,
@@ -71,6 +70,8 @@ import {
   ShaderMaterial,
   SphereGeometry,
   Texture,
+  UniformsLib,
+  UniformsUtils,
   Vector2,
   Vector3,
   Vector4,
@@ -108,6 +109,9 @@ import type { Scene3d } from "./scene";
 const SKY_TOP = new Color("#04060f");
 const SKY_HORIZON = new Color("#141b33");
 const GROUND = new Color("#070a09");
+/** The grid's lines, and how strong its fine and its heavier ones are over the ground. */
+const GRID_LINE = new Color("#6b7a99");
+const GRID_STRENGTH = [0.13, 0.28] as const;
 const ACCENT = new Color("#a78bfa");
 const HIGHLIGHT = new Color("#facc15");
 const AXIS_COLORS: Record<"x" | "y" | "z", Color> = { x: new Color("#ef4444"), y: new Color("#22c55e"), z: new Color("#3b82f6") };
@@ -125,13 +129,18 @@ const HALO_REACH = 2.4;
 /** A halo's bell is drawn no narrower than this in the coarse picture (its pixels), fainter to make up: narrower, the picture couldn't hold its shape. */
 const NARROWEST_BELL = 0.75;
 
-/** The view's dot at a light (`largest`, device pixels) from `unit`, the device pixels to a layout unit there. */
+/**
+ * The view's dot at a light (`largest`, device pixels) from `unit`, the device pixels to a layout
+ * unit there. `dotScale` is the viewer's Dot size: it scales the dot a pixel has in the layout
+ * (`radius`, the view's smallest and largest, comes scaled already).
+ */
 const VIEW_DOT = /* glsl */ `
   uniform float scale;
   uniform float ratio;
   uniform vec2 radius;
+  uniform float dotScale;
   float viewDot(float unit) {
-    return clamp(2.0 * ${glsl(DOT_RADIUS)} * unit, 2.0 * radius.x * ratio, 2.0 * radius.y * ratio);
+    return clamp(2.0 * ${glsl(DOT_RADIUS)} * dotScale * unit, 2.0 * radius.x * ratio, 2.0 * radius.y * ratio);
   }
 `;
 
@@ -139,7 +148,7 @@ const VIEW_DOT = /* glsl */ `
 const HALO = /* glsl */ `
   uniform float glow;
   vec2 haloOf(float unit) {
-    float bell = min(radius.y * ratio, ${glsl(DOT_RADIUS)} * unit) * (${glsl(GLOW_WIDTH[0])} + ${glsl(GLOW_WIDTH[1] - GLOW_WIDTH[0])} * glow);
+    float bell = min(radius.y * ratio, ${glsl(DOT_RADIUS)} * dotScale * unit) * (${glsl(GLOW_WIDTH[0])} + ${glsl(GLOW_WIDTH[1] - GLOW_WIDTH[0])} * glow);
     float strength = (${glsl(GLOW_STRENGTH[0])} + ${glsl(GLOW_STRENGTH[1] - GLOW_STRENGTH[0])} * glow) * smoothstep(${glsl(HALO_FROM[0])}, ${glsl(HALO_FROM[1])}, bell);
     return vec2(bell, strength);
   }
@@ -487,6 +496,54 @@ const SKY_FRAGMENT = /* glsl */ `
   }
 `;
 
+// The grid on the ground: the ground's own plane, drawn again with its lines alone. `vAt` is where
+// on the ground a place is (layout x, z). Its place on the screen is worked out as the ground's
+// is (and its material pulls it a hair toward the camera), so the two never flicker.
+const GRID_VERTEX = /* glsl */ `
+  #include <fog_pars_vertex>
+  varying vec2 vAt;
+  void main() {
+    vAt = (modelMatrix * vec4(position, 1.0)).xz;
+    vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+    gl_Position = projectionMatrix * mvPosition;
+    #include <fog_vertex>
+  }
+`;
+
+// The grid's lines: fine ones every `spacing.x` units and heavier ones every `spacing.y`, on whole
+// multiples of them, `ratio` device pixels to a screen pixel. Each way across, a set of lines fades
+// out as it crowds closer than a few screen pixels (so the far ground never shimmers), and the
+// whole grid fades out between `fade.z` and `fade.w` units from its middle (`fade.xy`).
+const GRID_FRAGMENT = /* glsl */ `
+  uniform vec3 line;
+  uniform vec2 spacing;
+  uniform vec2 strength;
+  uniform vec4 fade;
+  uniform float ratio;
+  varying vec2 vAt;
+  #include <fog_pars_fragment>
+  // How much of this device pixel the lines "every" units apart cover, drawn "width" device pixels wide.
+  float grid(float every, float width) {
+    vec2 at = vAt / every;
+    // Squares to a device pixel, along x and along z.
+    vec2 per = max(fwidth(at), vec2(1e-6));
+    // Device pixels to the nearest line each way, and how much of this one a line that far covers.
+    vec2 off = abs(fract(at + 0.5) - 0.5) / per;
+    vec2 cover = clamp(0.5 * width + 0.5 - off, 0.0, 1.0);
+    // Squares narrower than 8 screen pixels start to fade; at 3 they're gone.
+    vec2 shown = smoothstep(3.0, 8.0, 1.0 / (per * ratio));
+    return max(cover.x * shown.x, cover.y * shown.y);
+  }
+  void main() {
+    float near = 1.0 - smoothstep(fade.z, fade.w, distance(vAt, fade.xy));
+    float drawn = max(grid(spacing.x, ratio) * strength.x, grid(spacing.y, 1.5 * ratio) * strength.y) * near;
+    if (drawn <= 0.0) discard;
+    gl_FragColor = vec4(line, drawn);
+    #include <colorspace_fragment>
+    #include <fog_fragment>
+  }
+`;
+
 function disposeTree(root: Object3D) {
   root.traverse((o) => {
     const mesh = o as Mesh;
@@ -669,16 +726,43 @@ export function createThreeScene(canvas: HTMLCanvasElement, makeRenderer: (canva
   sky.renderOrder = -10;
   scene.add(sky);
 
-  const ground = new Group();
-  const groundPlane = new Mesh(new PlaneGeometry(1, 1), new MeshBasicMaterial({ color: GROUND }));
-  groundPlane.rotation.x = -Math.PI / 2;
-  groundPlane.scale.setScalar(4000);
-  groundPlane.position.y = -0.02;
-  const grid = new GridHelper(200, 200, 0x23302a, 0x141c18);
-  (grid.material as Material).transparent = true;
-  (grid.material as Material).opacity = 0.55;
-  ground.add(groundPlane, grid);
+  const ground = new Mesh(new PlaneGeometry(1, 1), new MeshBasicMaterial({ color: GROUND }));
+  ground.rotation.x = -Math.PI / 2;
+  ground.scale.setScalar(4000);
+  ground.position.y = -0.02;
   scene.add(ground);
+  // The grid on it (see `GRID_FRAGMENT`), its own plane so it shows with the ground or without:
+  // drawn after the photo and the house model, so where they stand in front of it they hide it
+  // (as they hide lights); the lights and beams are drawn over it all.
+  const floor = {
+    line: { value: GRID_LINE },
+    spacing: { value: new Vector2(1, 5) },
+    strength: { value: new Vector2(GRID_STRENGTH[0], GRID_STRENGTH[1]) },
+    fade: { value: new Vector4(0, 0, 40, 120) },
+    ratio: { value: 1 },
+  };
+  const grid = new Mesh(
+    ground.geometry,
+    new ShaderMaterial({
+      uniforms: UniformsUtils.merge([UniformsLib.fog, {}]),
+      vertexShader: GRID_VERTEX,
+      fragmentShader: GRID_FRAGMENT,
+      fog: true,
+      transparent: true,
+      depthWrite: false,
+      // Never behind the ground it lies on.
+      polygonOffset: true,
+      polygonOffsetFactor: -1,
+      polygonOffsetUnits: -1,
+    }),
+  );
+  // Merging copies values: the floor's own are shared, so changing one changes the drawing.
+  Object.assign(grid.material.uniforms, floor);
+  grid.rotation.copy(ground.rotation);
+  grid.scale.copy(ground.scale);
+  grid.position.copy(ground.position);
+  grid.renderOrder = 1;
+  scene.add(grid);
 
   const moon = new DirectionalLight(0xa9b8ff, 0.45);
   moon.position.set(-30, 60, 40);
@@ -695,6 +779,8 @@ export function createThreeScene(canvas: HTMLCanvasElement, makeRenderer: (canva
     scale: { value: 600 },
     ratio: { value: 1 },
     radius: { value: new Vector2(1, 4) },
+    /** The viewer's Dot size, against the usual (see `VIEW_DOT`). */
+    dotScale: { value: 1 },
     glow: { value: 0 },
     quiet: { value: new Vector4() },
     faint: { value: 0 },
@@ -727,7 +813,17 @@ export function createThreeScene(canvas: HTMLCanvasElement, makeRenderer: (canva
   const washes = new Points(
     pixelGeometry,
     new ShaderMaterial({
-      uniforms: { scale: dots.scale, ratio: dots.ratio, radius: dots.radius, quiet: dots.quiet, lit: washLit, project: dots.project, hides: dots.hides, hiding: dots.hiding },
+      uniforms: {
+        scale: dots.scale,
+        ratio: dots.ratio,
+        radius: dots.radius,
+        dotScale: dots.dotScale,
+        quiet: dots.quiet,
+        lit: washLit,
+        project: dots.project,
+        hides: dots.hides,
+        hiding: dots.hiding,
+      },
       vertexShader: WASH_VERTEX,
       fragmentShader: WASH_FRAGMENT,
       transparent: true,
@@ -766,7 +862,17 @@ export function createThreeScene(canvas: HTMLCanvasElement, makeRenderer: (canva
   const halos = new Points(
     pixelGeometry,
     new ShaderMaterial({
-      uniforms: { scale: dots.scale, ratio: dots.ratio, radius: dots.radius, glow: dots.glow, cell: haloCell, project: dots.project, hides: dots.hides, hiding: dots.hiding },
+      uniforms: {
+        scale: dots.scale,
+        ratio: dots.ratio,
+        radius: dots.radius,
+        dotScale: dots.dotScale,
+        glow: dots.glow,
+        cell: haloCell,
+        project: dots.project,
+        hides: dots.hides,
+        hiding: dots.hiding,
+      },
       vertexShader: HALO_VERTEX,
       fragmentShader: HALO_FRAGMENT,
       transparent: true,
@@ -823,7 +929,8 @@ export function createThreeScene(canvas: HTMLCanvasElement, makeRenderer: (canva
 
   /** The uniforms that follow the look and whether the colors are live. */
   const applyLook = () => {
-    dots.radius.value.set(look.radius[0], look.radius[1]);
+    const k = dots.dotScale.value;
+    dots.radius.value.set(look.radius[0] * k, look.radius[1] * k);
     // Playing, a pixel that's off; otherwise one that isn't selected. As light: each color times how solid it is.
     const [r, g, b, a] = lit ? look.dark : look.unlit;
     dots.quiet.value.set((r / 255) * a, (g / 255) * a, (b / 255) * a, a);
@@ -876,6 +983,7 @@ export function createThreeScene(canvas: HTMLCanvasElement, makeRenderer: (canva
       // The halos' picture, and the depth picture of what hides lights, have a pixel to a screen
       // pixel (to a device pixel, where those are bigger).
       haloCell.value = Math.max(1, ratio);
+      floor.ratio.value = ratio;
       const [across, down] = [Math.max(1, Math.round((size.width * ratio) / haloCell.value)), Math.max(1, Math.round((size.height * ratio) / haloCell.value))];
       haloTarget.setSize(across, down);
       hidingTarget.setSize(across, down);
@@ -1160,8 +1268,15 @@ export function createThreeScene(canvas: HTMLCanvasElement, makeRenderer: (canva
 
     setOptions(options) {
       glow = glowStep(options.glow) / GLOW_STEPS;
+      dots.dotScale.value = options.dotScale;
       applyLook();
       ground.visible = options.ground;
+      grid.visible = options.grid;
+    },
+
+    setFloor(grid) {
+      floor.spacing.value.set(grid.minor, grid.major);
+      floor.fade.value.set(grid.center.x, grid.center.z, grid.fade[0], grid.fade[1]);
     },
 
     render(orbit, moving = false) {

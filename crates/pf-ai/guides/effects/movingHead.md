@@ -34,6 +34,7 @@ Curves work on every number here; `fans` and `seed` take whole numbers, so a cur
 ## When to use it
 
 - Beams moving over the house give a show scale: a sweep or a wander reads from far down the street, above everything else.
+- Where beams cross, their light adds up, as it does in haze: heads of one color crossing make a bright knot of that color in the sky; different colors mix as light does.
 - Slow movement looks grand; fast movement looks frantic. Real heads take a second or more to swing right round, so a big jump on a short beat may not arrive in time.
 - Moves that land on the music: one `still` effect per beat or bar, each at its own pan and tilt, snaps the heads from place to place. Curves on `pan` and `tilt` glide them instead.
 - Light that follows the music: `color` `drawn`, with a `pulse`, a `fade`, or a `colorWash` on the heads' row. This effect moves them; the other lights them.

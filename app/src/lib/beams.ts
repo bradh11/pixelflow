@@ -132,10 +132,13 @@ export function poolStrength(half: number): number {
   return POOL_PEAK * Math.sqrt(POOL_SOFT / (POOL_SOFT + half));
 }
 
+/** One over the part of a beam's reach over which it fades. */
+const TO_FAR = 1 / (1 - FULL);
+
 /** How much of a beam's light is left `t` of the way along its reach: 1 until `FULL`, then easing down to `FAR` at its end. */
 export function alongBeam(t: number): number {
   if (t <= FULL) return 1;
-  const u = Math.min((t - FULL) / (1 - FULL), 1);
+  const u = Math.min((t - FULL) * TO_FAR, 1);
   return 1 - (1 - FAR) * u * u * (3 - 2 * u);
 }
 
@@ -209,13 +212,16 @@ export interface CapShape {
   uy: number;
   depth: number;
   strength: number;
+  /** One over its depth, and over the beam's half width there. */
+  perDepth: number;
+  perWidth: number;
 }
 
 /**
  * A beam in a picture: where it starts, how far and which way it runs, how wide its end is, how
- * narrow it may be, picture pixels to a screen pixel, how much of its reach it runs (less than 1
- * where it lands on the ground), how much brighter it is for being seen along its length, and
- * its far end or (where it lands) its pool on the ground, in picture pixels.
+ * narrow it may be, how much of its reach it runs (less than 1 where it lands on the ground), how
+ * much brighter it is for being seen along its length, and its far end or (where it lands) its
+ * pool on the ground, in picture pixels.
  */
 export interface BeamShape {
   ax: number;
@@ -224,11 +230,13 @@ export interface BeamShape {
   ey: number;
   w: number;
   narrow: number;
-  ratio: number;
   ends: number;
   look: number;
   cap: CapShape | null;
   pool: PoolShape | null;
+  /** One over its run's length squared (0 when it runs nowhere), and over picture pixels to a screen pixel. */
+  perRun: number;
+  perRatio: number;
 }
 
 /**
@@ -263,9 +271,11 @@ export function beamShape(ax: number, ay: number, headY: number, d: ArrayLike<nu
     pool = { cx: ax + ex, cy: ay + ey, rx: across, ry: Math.max(deep * scale * POOL_FLAT, ratio), strength: poolStrength(across / ratio) * alongBeam(landed / reach) };
   } else if (facing > 0) {
     const long = Math.sqrt(ex * ex + ey * ey);
-    cap = { ux: long > 0 ? ex / long : 1, uy: long > 0 ? ey / long : 0, depth: Math.max(w * facing, ratio), strength: CAP * facing * FAR * beamStrength(w / ratio) };
+    const depth = Math.max(w * facing, ratio);
+    cap = { ux: long > 0 ? ex / long : 1, uy: long > 0 ? ey / long : 0, depth, strength: CAP * facing * FAR * beamStrength(w / ratio), perDepth: 1 / depth, perWidth: 1 / w };
   }
-  return { ax, ay, ex, ey, w, narrow, ratio, ends: drawn / reach, look: 1 / Math.max(seen, LEAST_SEEN), cap, pool };
+  const run = ex * ex + ey * ey;
+  return { ax, ay, ex, ey, w, narrow, ends: drawn / reach, look: 1 / Math.max(seen, LEAST_SEEN), cap, pool, perRun: run > 0 ? 1 / run : 0, perRatio: 1 / ratio };
 }
 
 /** The rows of a picture `height` high a beam (its far end and its pool too) can touch: rows y0..y1. */
@@ -340,10 +350,9 @@ export function beamColumns(b: BeamShape, py: number, width: number): [number, n
 export function beamAt(b: BeamShape, px: number, py: number): number {
   const qx = px + 0.5 - b.ax;
   const qy = py + 0.5 - b.ay;
-  const ee = b.ex * b.ex + b.ey * b.ey;
   let lit = 0;
-  if (ee > 0) {
-    const t = (qx * b.ex + qy * b.ey) / ee;
+  if (b.perRun > 0) {
+    const t = (qx * b.ex + qy * b.ey) * b.perRun;
     if (t >= 0 && t <= 1) {
       const rx = qx - t * b.ex;
       const ry = qy - t * b.ey;
@@ -353,15 +362,15 @@ export function beamAt(b: BeamShape, px: number, py: number): number {
         const s = 1 - r2;
         const along = t * b.ends;
         const left = b.pool ? alongBeam(along) : alongBeam(along) * softEnd(along);
-        lit = s * s * left * beamStrength(half / b.ratio) * b.look;
+        lit = s * s * left * beamStrength(half * b.perRatio) * b.look;
       }
     }
   }
   if (b.cap) {
     const cx = qx - b.ex;
     const cy = qy - b.ey;
-    const along = (cx * b.cap.ux + cy * b.cap.uy) / b.cap.depth;
-    const across = (cy * b.cap.ux - cx * b.cap.uy) / b.w;
+    const along = (cx * b.cap.ux + cy * b.cap.uy) * b.cap.perDepth;
+    const across = (cy * b.cap.ux - cx * b.cap.uy) * b.cap.perWidth;
     const q = along * along + across * across;
     if (q < 1) {
       const s = 1 - q;

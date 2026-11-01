@@ -700,10 +700,4 @@ describe("light added to a picture pixel", () => {
     shine(p, 0, 255 << 16, 128);
     expect(read(p)).toEqual([255, 0, 255, 128]);
   });
-
-  it("leaves a pixel as it was when there's too little to show", () => {
-    const p = new Int32Array(1);
-    shine(p, 0, ORANGE, 0);
-    expect(p[0]).toBe(0);
-  });
 });

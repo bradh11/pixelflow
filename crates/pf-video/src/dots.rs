@@ -354,14 +354,20 @@ fn pack(red: u32, green: u32, blue: u32, solid: u32) -> u32 {
     (solid << 24) | (blue << 16) | (green << 8) | red
 }
 
-/// Adds light (red, green and blue as one number, `amount` of it out of 255, more where it's
-/// that bright) to a picture pixel, as light adds where beams cross in haze: the pixel's color and
-/// the light's, each times how much of it there is, summed. Too bright to show, it's drawn as
-/// bright as its hue goes (its brightest part at 255), not washed toward white.
-pub(crate) fn shine(pixel: &mut u32, rgb: u32, amount: u32) {
+/// Adds light in a hue at full (red, green and blue as one number, its brightest part 255),
+/// `amount` of it out of 255 (more where it's that bright), to a picture pixel, as light adds
+/// where beams cross in haze: the pixel's color and the light's, each times how much of it there
+/// is, summed. Too bright to show, it's drawn as bright as its hue goes (its brightest part at
+/// 255), not washed toward white. Only for some light: `amount` is at least 1.
+pub(crate) fn shine(pixel: &mut u32, hue: u32, amount: u32) {
     let under = *pixel;
     let under_alpha = under >> 24;
-    let sum = |shift: u32| ((under >> shift) & 255) * under_alpha + ((rgb >> shift) & 255) * amount;
+    // Over nothing, it's the light itself, as solid as there is of it.
+    if under_alpha == 0 {
+        *pixel = pack(hue & 255, (hue >> 8) & 255, (hue >> 16) & 255, amount.min(255));
+        return;
+    }
+    let sum = |shift: u32| ((under >> shift) & 255) * under_alpha + ((hue >> shift) & 255) * amount;
     let (r, g, b) = (sum(0), sum(8), sum(16));
     let most = r.max(g).max(b);
     if most > 255 * 255 {
@@ -1125,5 +1131,40 @@ impl Dots {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A picture pixel as red, green, blue, and how solid it is.
+    fn read(pixel: u32) -> [u32; 4] {
+        [pixel & 255, (pixel >> 8) & 255, (pixel >> 16) & 255, pixel >> 24]
+    }
+
+    const ORANGE: u32 = 255 | (128 << 8);
+
+    #[test]
+    fn light_over_nothing_is_the_light_itself() {
+        let mut pixel = 0;
+        shine(&mut pixel, ORANGE, 100);
+        assert_eq!(read(pixel), [255, 128, 0, 100]);
+    }
+
+    #[test]
+    fn light_adds_up_in_its_hue_and_past_full_stays_that_hue() {
+        let mut pixel = pack(255, 128, 0, 100);
+        shine(&mut pixel, ORANGE, 100);
+        assert_eq!(read(pixel), [255, 128, 0, 200]);
+        shine(&mut pixel, ORANGE, 200);
+        assert_eq!(read(pixel), [255, 128, 0, 255], "not washed to white");
+    }
+
+    #[test]
+    fn two_hues_mix_as_light_does() {
+        let mut pixel = pack(255, 0, 0, 128);
+        shine(&mut pixel, 255 << 16, 128);
+        assert_eq!(read(pixel), [255, 0, 255, 128]);
     }
 }

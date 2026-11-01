@@ -446,17 +446,23 @@ function blend(pixels: Int32Array, at: number, rgb: number, alpha: number) {
 }
 
 /**
- * Adds light (red, green and blue as one number, `amount` of it out of 255, more where it's that
- * bright) to the image pixel at `at`, as light adds where beams cross in haze: the pixel's color
- * and the light's, each times how much of it there is, summed. Too bright to show, it's drawn as
- * bright as its hue goes (its brightest part at 255), not washed toward white.
+ * Adds light in a hue at full (red, green and blue as one number, its brightest part 255),
+ * `amount` of it out of 255 (more where it's that bright), to the image pixel at `at`, as light
+ * adds where beams cross in haze: the pixel's color and the light's, each times how much of it
+ * there is, summed. Too bright to show, it's drawn as bright as its hue goes (its brightest part
+ * at 255), not washed toward white. Only for some light: `amount` is at least 1.
  */
-export function shine(pixels: Int32Array, at: number, rgb: number, amount: number) {
+export function shine(pixels: Int32Array, at: number, hue: number, amount: number) {
   const under = pixels[at];
   const underAlpha = under >>> 24;
-  const r = (under & 255) * underAlpha + (rgb & 255) * amount;
-  const g = ((under >> 8) & 255) * underAlpha + ((rgb >> 8) & 255) * amount;
-  const b = ((under >> 16) & 255) * underAlpha + ((rgb >> 16) & 255) * amount;
+  // Over nothing, it's the light itself, as solid as there is of it.
+  if (underAlpha === 0) {
+    pixels[at] = (Math.min(amount, 255) << 24) | hue;
+    return;
+  }
+  const r = (under & 255) * underAlpha + (hue & 255) * amount;
+  const g = ((under >> 8) & 255) * underAlpha + ((hue >> 8) & 255) * amount;
+  const b = ((under >> 16) & 255) * underAlpha + ((hue >> 16) & 255) * amount;
   const most = Math.max(r, g, b);
   if (most > 65025) {
     const half = Math.floor(most / 2);

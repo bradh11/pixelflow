@@ -82,13 +82,16 @@ fn pool_strength(half: f64) -> f64 {
     POOL_PEAK * (POOL_SOFT / (POOL_SOFT + half)).sqrt()
 }
 
+/// One over the part of a beam's reach over which it fades.
+const TO_FAR: f64 = 1.0 / (1.0 - FULL);
+
 /// How much of a beam's light is left `t` of the way along its reach: 1 until `FULL`, then
 /// easing down to `FAR` at its end.
 fn along_beam(t: f64) -> f64 {
     if t <= FULL {
         return 1.0;
     }
-    let u = ((t - FULL) / (1.0 - FULL)).min(1.0);
+    let u = ((t - FULL) * TO_FAR).min(1.0);
     1.0 - (1.0 - FAR) * u * u * (3.0 - 2.0 * u)
 }
 
@@ -169,12 +172,15 @@ struct Cap {
     uy: f64,
     depth: f64,
     strength: f64,
+    /// One over its depth, and over the beam's half width there.
+    per_depth: f64,
+    per_width: f64,
 }
 
 /// A beam in a picture: where it starts, how far and which way it runs, how wide its end is, how
-/// narrow it may be, picture pixels to a screen pixel, how much of its reach it runs (less than 1
-/// where it lands on the ground), how much brighter it is for being seen along its length, and
-/// its far end or (where it lands) its pool on the ground, in picture pixels.
+/// narrow it may be, how much of its reach it runs (less than 1 where it lands on the ground), how
+/// much brighter it is for being seen along its length, and its far end or (where it lands) its
+/// pool on the ground, in picture pixels.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct BeamShape {
     ax: f64,
@@ -183,11 +189,14 @@ pub(crate) struct BeamShape {
     ey: f64,
     w: f64,
     narrow: f64,
-    ratio: f64,
     ends: f64,
     look: f64,
     cap: Option<Cap>,
     pool: Option<Pool>,
+    /// One over its run's length squared (0 when it runs nowhere), and over picture pixels to a
+    /// screen pixel.
+    per_run: f64,
+    per_ratio: f64,
 }
 
 /// A beam from the picture point (`ax`, `ay`), a head `head_y` above the ground (layout),
@@ -231,13 +240,17 @@ pub(crate) fn beam_shape(
     });
     let cap = (landed.is_none() && facing > 0.0).then(|| {
         let long = (ex * ex + ey * ey).sqrt();
+        let depth = (w * facing).max(view.ratio);
         Cap {
             ux: if long > 0.0 { ex / long } else { 1.0 },
             uy: if long > 0.0 { ey / long } else { 0.0 },
-            depth: (w * facing).max(view.ratio),
+            depth,
             strength: CAP * facing * FAR * beam_strength(w / view.ratio),
+            per_depth: 1.0 / depth,
+            per_width: 1.0 / w,
         }
     });
+    let run = ex * ex + ey * ey;
     BeamShape {
         ax,
         ay,
@@ -245,11 +258,12 @@ pub(crate) fn beam_shape(
         ey,
         w,
         narrow,
-        ratio: view.ratio,
         ends: drawn / reach,
         look: 1.0 / seen.max(LEAST_SEEN),
         cap,
         pool,
+        per_run: if run > 0.0 { 1.0 / run } else { 0.0 },
+        per_ratio: 1.0 / view.ratio,
     }
 }
 
@@ -373,10 +387,9 @@ impl BeamShape {
     pub(crate) fn at(&self, px: usize, py: usize) -> f64 {
         let qx = px as f64 + 0.5 - self.ax;
         let qy = py as f64 + 0.5 - self.ay;
-        let ee = self.ex * self.ex + self.ey * self.ey;
         let mut lit = 0.0;
-        if ee > 0.0 {
-            let t = (qx * self.ex + qy * self.ey) / ee;
+        if self.per_run > 0.0 {
+            let t = (qx * self.ex + qy * self.ey) * self.per_run;
             if (0.0..=1.0).contains(&t) {
                 let rx = qx - t * self.ex;
                 let ry = qy - t * self.ey;
@@ -390,15 +403,15 @@ impl BeamShape {
                     } else {
                         along_beam(along) * soft_end(along)
                     };
-                    lit = s * s * left * beam_strength(half / self.ratio) * self.look;
+                    lit = s * s * left * beam_strength(half * self.per_ratio) * self.look;
                 }
             }
         }
         if let Some(c) = self.cap {
             let cx = qx - self.ex;
             let cy = qy - self.ey;
-            let along = (cx * c.ux + cy * c.uy) / c.depth;
-            let across = (cy * c.ux - cx * c.uy) / self.w;
+            let along = (cx * c.ux + cy * c.uy) * c.per_depth;
+            let across = (cy * c.ux - cx * c.uy) * c.per_width;
             let q = along * along + across * across;
             if q < 1.0 {
                 let s = 1.0 - q;

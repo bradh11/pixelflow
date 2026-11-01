@@ -1,14 +1,34 @@
 import { describe, expect, it } from "vitest";
 import { MemoryBackend } from "../api/memory";
+import { VIEW_DEFAULTS } from "../lib/viewOptions";
 import { readFeed, readReply } from "./previewWindow";
 
-const FEED = { source: "sequence", playheadMs: 1200, durationMs: 60_000, stamp: "1:4:0", only: { prop: "p1" }, showRevision: 3, title: "Medley", transport: true, mode: "3d", glow: 0.5, syncMs: -20 };
+const VIEW = { grid: false, names: true, unlit: "auto", dotSize: "small", boost: 2 };
+const FEED = {
+  source: "sequence",
+  playheadMs: 1200,
+  durationMs: 60_000,
+  stamp: "1:4:0",
+  only: { prop: "p1" },
+  showRevision: 3,
+  title: "Medley",
+  transport: true,
+  mode: "3d",
+  glow: 0.5,
+  view: VIEW,
+  syncMs: -20,
+};
 
 describe("the notes between the main window and the preview's own", () => {
   it("are read back as what they say", () => {
     expect(readFeed(FEED)).toEqual(FEED);
     expect(readFeed({ ...FEED, source: "live", only: null, title: null, transport: false })).toMatchObject({ source: "live", only: null, title: null, transport: false });
-    expect(readReply({ mode: "2d", glow: 0, toggles: 4 })).toEqual({ mode: "2d", glow: 0, toggles: 4 });
+    expect(readReply({ mode: "2d", glow: 0, view: VIEW, toggles: 4 })).toEqual({ mode: "2d", glow: 0, view: VIEW, toggles: 4 });
+  });
+
+  it("read the View options as the usual ones when a note has none, or ones not understood", () => {
+    expect(readFeed({ ...FEED, view: undefined })?.view).toEqual(VIEW_DEFAULTS);
+    expect(readReply({ mode: "2d", glow: 0, toggles: 0, view: { boost: 99 } })?.view).toEqual(VIEW_DEFAULTS);
   });
 
   it("are passed over when they aren't notes (nothing left yet, or something else's)", () => {

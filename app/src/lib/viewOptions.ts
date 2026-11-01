@@ -71,6 +71,10 @@ export function readViewOptions(value: unknown): ViewOptions {
   };
 }
 
+/** Whether two sets of options are the same. */
+export const sameView = (a: ViewOptions, b: ViewOptions) =>
+  a.grid === b.grid && a.names === b.names && a.unlit === b.unlit && a.dotSize === b.dotSize && a.boost === b.boost;
+
 /**
  * Whether pixels that are off are left out of a view that's `playing` (the show's time moving):
  * always when hidden, never when dim, and with Auto while it plays (as the lights look at night),

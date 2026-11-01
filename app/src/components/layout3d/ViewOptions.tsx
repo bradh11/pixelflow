@@ -138,6 +138,11 @@ export function ViewOptionsControl({ grid = false, tone = "panel", iconOnly = fa
             ref={panel}
             role="dialog"
             aria-label="View"
+            // Tabbing on from the last option (or back from the first) leaves the panel: it closes.
+            onBlur={(e) => {
+              const to = e.relatedTarget as Node | null;
+              if (to && !panel.current?.contains(to) && !box.current?.contains(to)) setOpen(false);
+            }}
             style={{ left: place?.left ?? 0, top: place?.top ?? 0, width: PANEL_WIDTH, maxHeight: place?.maxHeight, visibility: place ? "visible" : "hidden" }}
             className="fixed z-50 flex flex-col gap-3 overflow-auto rounded-lg border border-neutral-200 bg-white p-3 text-neutral-800 shadow-xl dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100"
           >

@@ -75,6 +75,23 @@ describe("the View options", () => {
     expect(button()).toHaveFocus();
   });
 
+  it("closes when the focus moves on out of it", async () => {
+    const user = userEvent.setup();
+    render(
+      <>
+        <ViewOptionsControl />
+        <button type="button">Next</button>
+      </>,
+    );
+    await user.click(button());
+    // Clicking its words keeps it open.
+    await user.click(within(panel()).getByText("Dot size"));
+    expect(panel()).toBeInTheDocument();
+    act(() => within(group("Dot size")).getByRole("radio", { name: "Medium" }).focus());
+    act(() => screen.getByRole("button", { name: "Next" }).focus());
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
   it("closes with a click anywhere else, or on its button", async () => {
     const user = userEvent.setup();
     render(

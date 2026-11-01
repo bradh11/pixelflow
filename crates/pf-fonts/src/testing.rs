@@ -322,25 +322,45 @@ pub fn tiny_collection(faces: &[(&str, bool, bool)]) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ttf_parser::{Face, GlyphId};
+    use crate::find::Library;
+    use crate::sfnt::{Face, outline_font};
+    use skrifa::font::glyph::outline::PathElement;
+    use std::sync::Arc;
 
     #[test]
     fn the_tiny_font_reads_as_a_font() {
-        let data = tiny_font("Tiny", false, false);
+        let data: Arc<[u8]> = Arc::from(tiny_font("Tiny", false, false));
         let face = Face::parse(&data, 0).unwrap();
         assert_eq!(face.units_per_em(), UNITS_PER_EM);
         assert_eq!((face.ascender(), face.descender()), (800, -200));
         let o = face.glyph_index('O').unwrap();
-        assert_eq!(o, GlyphId(RING));
-        assert_eq!(face.glyph_hor_advance(o), Some(700));
-        let bbox = face.glyph_bounding_box(o).unwrap();
+        assert_eq!(o, RING);
+        assert_eq!(face.advance(o), Some(700));
+        let mut path: Vec<PathElement> = Vec::new();
+        assert!(face.outline(outline_font(&data, 0).as_ref(), o, &mut path));
+        let points: Vec<(f32, f32)> = path
+            .iter()
+            .filter_map(|el| match *el {
+                PathElement::MoveTo { x, y } | PathElement::LineTo { x, y } => Some((x, y)),
+                _ => None,
+            })
+            .collect();
+        let xs = points.iter().map(|p| p.0);
+        let ys = points.iter().map(|p| p.1);
         assert_eq!(
-            (bbox.x_min, bbox.y_min, bbox.x_max, bbox.y_max),
-            (100, 0, 600, 700)
+            (
+                xs.clone().fold(f32::MAX, f32::min),
+                ys.clone().fold(f32::MAX, f32::min),
+                xs.fold(f32::MIN, f32::max),
+                ys.fold(f32::MIN, f32::max)
+            ),
+            (100.0, 0.0, 600.0, 700.0)
         );
         assert!(face.glyph_index('\u{e9}').is_none());
         let both = tiny_collection(&[("A", false, false), ("B", true, false)]);
-        assert_eq!(ttf_parser::fonts_in_collection(&both), Some(2));
-        assert!(Face::parse(&both, 1).unwrap().is_bold());
+        assert!(Face::parse(&both, 1).is_some() && Face::parse(&both, 2).is_none());
+        let mut lib = Library::default();
+        lib.add_data(Arc::from(both));
+        assert_eq!(lib.find("B", false, false).unwrap().face.weight, 700);
     }
 }

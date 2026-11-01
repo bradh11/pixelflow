@@ -16,7 +16,7 @@
 //! | `fontdue` | MIT OR Apache-2.0 OR Zlib | `ttf-parser`, `hashbrown`, `foldhash`, `equivalent`, `allocator-api2`, `core_maths`, `libm` | yes, yes (through `ttf-parser`), yes | reads fonts through `ttf-parser` |
 //! | `ab_glyph` | Apache-2.0 | `ttf-parser`, `owned_ttf_parser`, `ab_glyph_rasterizer`, `core_maths`, `libm` | yes, yes, yes | reads fonts through `ttf-parser` |
 //! | `swash` | Apache-2.0 OR MIT | `skrifa`, `read-fonts`, `font-types`, `zeno`, `yazi`, `bytemuck` (and its derive macro, so `syn` at build time) | yes, yes, yes | yes |
-//! | `skrifa` alone (what `swash` reads fonts with) | MIT OR Apache-2.0 | `read-fonts`, `font-types`, `bytemuck` and its derive macro: four crates new to PixelFlow | yes, yes, yes | yes (Google Fonts' "fontations") |
+//! | `skrifa` alone (what `swash` reads fonts with) | MIT OR Apache-2.0 | `read-fonts`, `font-types`, `bytemuck`'s derive macro, and `yoke` with its derive macro and theirs (`zerofrom`, `stable_deref_trait`, `synstructure`): ten crates new to PixelFlow at 0.49 | yes, yes, yes | yes (Google Fonts' "fontations", used in Chrome) |
 //! | `fontdb` (finding fonts only) | MIT | `ttf-parser`, `memmap2`, `libc`, `log`, `slotmap`, `tinyvec` | not applicable | reads fonts through `ttf-parser` |
 //!
 //! All are pure Rust and permissively licensed. Every one of them but `swash` and `skrifa` reads
@@ -25,18 +25,18 @@
 //! name, but brings six crates and maps files into memory where reading the two small name
 //! tables of each font file is all that's needed.
 //!
-//! So PixelFlow uses `ttf-parser` (one crate, no dependencies of its own, no unsafe code) for the
-//! font formats, which are the hard part: TrueType and CFF outlines, `.ttc` and `.otc`
-//! collections. Finding fonts (`find.rs`) and drawing their outlines (`raster.rs`) are PixelFlow's
-//! own, written for this. `ttf-parser` gets no more fixes: the kept-up parser, `skrifa`, brings
-//! four crates where the limit for this change was two, so moving to it is left to a decision.
-//! Only `find.rs` (the name table) and `sized.rs` (outlines, advances, kerning) use the parser,
-//! so moving is a change to those two files.
+//! PixelFlow first read fonts with `ttf-parser` (one crate, no dependencies of its own). It gets
+//! no more fixes, so since November 2026 PixelFlow reads them with `skrifa`, the kept-up parser,
+//! for the hard part: TrueType and CFF outlines, in `.ttc` and `.otc` collections too. The rest is
+//! PixelFlow's own, written for this: finding fonts (`find.rs`), reading the tables a letter's
+//! glyph, place, and size come from (`sfnt.rs`, which reads them as `ttf-parser` did, so the move
+//! changed nothing a show draws), and drawing outlines (`raster.rs`).
 
 mod find;
 #[cfg(test)]
 mod pinned;
 mod raster;
+mod sfnt;
 mod sized;
 #[doc(hidden)]
 pub mod testing;

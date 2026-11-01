@@ -2,14 +2,20 @@
 //! table directory and its `name`, `OS/2` and `head` tables, so looking through the few hundred
 //! font files a computer has takes a moment, once.
 
+use crate::sfnt::{Name, names};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::fs::File;
 use std::io::{Cursor, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use ttf_parser::PlatformId;
-use ttf_parser::name::{self, name_id};
+
+/// Platforms and name IDs in a `name` table.
+const UNICODE: u16 = 0;
+const MACINTOSH: u16 = 1;
+const WINDOWS: u16 = 3;
+const FAMILY: u16 = 1;
+const TYPOGRAPHIC_FAMILY: u16 = 16;
 
 /// Where a face's font file is.
 #[derive(Clone)]
@@ -318,8 +324,7 @@ fn face<R: Read + Seek>(r: &mut R, offset: u64) -> Option<FaceInfo> {
     };
     let (name_at, name_len) = table(b"name")?;
     let name_data = read_at(r, name_at, name_len.min(MAX_NAME_TABLE) as usize)?;
-    let names = name::Table::parse(&name_data)?.names;
-    let (family, all) = family_names(names)?;
+    let (family, all) = family_names(names(&name_data))?;
 
     // Bold and italic from the OS/2 table, or from the older `head` table's style bits.
     let mac_style = table(b"head")
@@ -353,12 +358,12 @@ fn face<R: Read + Seek>(r: &mut R, offset: u64) -> Option<FaceInfo> {
 
 /// The family as the font menus show it (its English name where the font has one), and every
 /// family name the face goes by, lowercased.
-fn family_names(names: name::Names<'_>) -> Option<(String, Vec<String>)> {
+fn family_names<'a>(names: impl Iterator<Item = Name<'a>>) -> Option<(String, Vec<String>)> {
     let mut menu: Option<(u8, String)> = None;
     let mut grouped: Option<(u8, String)> = None;
     let mut all: Vec<String> = Vec::new();
     for n in names {
-        if n.name_id != name_id::FAMILY && n.name_id != name_id::TYPOGRAPHIC_FAMILY {
+        if n.id != FAMILY && n.id != TYPOGRAPHIC_FAMILY {
             continue;
         }
         let Some(text) = decode(&n) else {
@@ -369,16 +374,12 @@ fn family_names(names: name::Names<'_>) -> Option<(String, Vec<String>)> {
             continue;
         }
         // English names first: Windows' US English, then a Mac's English, then any.
-        let rank = match (n.platform_id, n.language_id) {
-            (PlatformId::Windows, 0x0409) => 0,
-            (PlatformId::Macintosh, 0) | (PlatformId::Unicode, _) => 1,
+        let rank = match (n.platform, n.language) {
+            (WINDOWS, 0x0409) => 0,
+            (MACINTOSH, 0) | (UNICODE, _) => 1,
             _ => 2,
         };
-        let slot = if n.name_id == name_id::FAMILY {
-            &mut menu
-        } else {
-            &mut grouped
-        };
+        let slot = if n.id == FAMILY { &mut menu } else { &mut grouped };
         if slot.as_ref().is_none_or(|(r, _)| rank < *r) {
             *slot = Some((rank, text.clone()));
         }
@@ -392,13 +393,13 @@ fn family_names(names: name::Names<'_>) -> Option<(String, Vec<String>)> {
 }
 
 /// A name's text: UTF-16 for Unicode and Windows names, Mac Roman (its ASCII part) for a Mac's.
-fn decode(n: &name::Name<'_>) -> Option<String> {
-    if n.is_unicode() {
-        return n.to_string();
+fn decode(n: &Name<'_>) -> Option<String> {
+    if let Some(text) = n.utf16() {
+        return Some(text);
     }
-    if n.platform_id == PlatformId::Macintosh && n.encoding_id == 0 {
+    if n.platform == MACINTOSH && n.encoding == 0 {
         return Some(
-            n.name
+            n.bytes
                 .iter()
                 .map(|&b| if b.is_ascii() { char::from(b) } else { '?' })
                 .collect(),

@@ -2,10 +2,11 @@
 
 use crate::find::{FaceInfo, Source};
 use crate::raster::{self, Outline};
+use crate::sfnt::{self, Face};
 use std::collections::HashMap;
+use std::fmt;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
-use ttf_parser::{Face, GlyphId};
 
 /// How far a made-up italic leans: right by this much per pixel of height (about 11 degrees,
 /// as obliques usually do).
@@ -44,10 +45,11 @@ impl Glyph {
 
 /// A font face at one size: its measurements, and its letters, each drawn the first time it's
 /// asked for.
-#[derive(Debug)]
 pub struct SizedFont {
     data: Arc<[u8]>,
     index: u32,
+    /// The face as skrifa reads it, to draw outlines with (`None` when it can't).
+    outlines: Option<skrifa::font::Font>,
     /// Pixels per font unit.
     scale: f32,
     /// How far apart a made-up bold's two drawings are, in pixels (0 for a real face).
@@ -63,9 +65,24 @@ pub struct SizedFont {
     kerning: RwLock<HashMap<(u16, u16), f32>>,
 }
 
+impl fmt::Debug for SizedFont {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SizedFont")
+            .field("bytes", &self.data.len())
+            .field("index", &self.index)
+            .field("scale", &self.scale)
+            .field("embolden", &self.embolden)
+            .field("slant", &self.slant)
+            .field("ascent", &self.ascent)
+            .field("descent", &self.descent)
+            .field("line_gap", &self.line_gap)
+            .finish_non_exhaustive()
+    }
+}
+
 impl SizedFont {
     fn new(data: Arc<[u8]>, index: u32, size: f32, fake_bold: bool, fake_italic: bool) -> Option<Self> {
-        let face = Face::parse(&data, index).ok()?;
+        let face = Face::parse(&data, index)?;
         let scale = size / f32::from(face.units_per_em().max(1));
         let (ascent, descent, line_gap) = (
             f32::from(face.ascender()) * scale,
@@ -81,6 +98,7 @@ impl SizedFont {
             line_gap,
             glyphs: RwLock::default(),
             kerning: RwLock::default(),
+            outlines: sfnt::outline_font(&data, index),
             data,
             index,
         })
@@ -111,14 +129,14 @@ impl SizedFont {
             height: 0,
             coverage: Box::new([]),
         };
-        let Ok(face) = Face::parse(&self.data, self.index) else {
+        let Some(face) = Face::parse(&self.data, self.index) else {
             return empty(0, 0.0);
         };
-        let id = face.glyph_index(c).unwrap_or(GlyphId(0));
-        let advance = f32::from(face.glyph_hor_advance(id).unwrap_or(0)) * self.scale + self.embolden;
+        let id = face.glyph_index(c).unwrap_or(0);
+        let advance = f32::from(face.advance(id).unwrap_or(0)) * self.scale + self.embolden;
         let mut outline = Outline::new(self.scale, self.slant);
-        if face.outline_glyph(id, &mut outline).is_none() {
-            return empty(id.0, advance);
+        if !face.outline(self.outlines.as_ref(), id, &mut outline) {
+            return empty(id, advance);
         }
         let mut lines = outline.lines;
         if self.embolden > 0.0 {
@@ -131,7 +149,7 @@ impl SizedFont {
         }
         let bitmap = raster::fill(&lines);
         Glyph {
-            id: id.0,
+            id,
             advance,
             left: bitmap.left,
             top: bitmap.top,
@@ -149,14 +167,7 @@ impl SizedFont {
             return k;
         }
         let k = Face::parse(&self.data, self.index)
-            .ok()
-            .and_then(|face| {
-                face.tables().kern?.subtables.into_iter().find_map(|s| {
-                    (s.horizontal && !s.variable)
-                        .then(|| s.glyphs_kerning(GlyphId(pair.0), GlyphId(pair.1)))
-                        .flatten()
-                })
-            })
+            .and_then(|face| face.kerning(pair.0, pair.1))
             .map_or(0.0, |units| f32::from(units) * self.scale);
         self.kerning
             .write()
@@ -209,7 +220,7 @@ fn data(source: &Source) -> Option<(DataKey, Arc<[u8]>)> {
 /// file can't be read.
 pub(crate) fn missing_letters(face: &FaceInfo, text: &str) -> Option<Vec<char>> {
     let (_, bytes) = data(&face.source)?;
-    let parsed = Face::parse(&bytes, face.index).ok()?;
+    let parsed = Face::parse(&bytes, face.index)?;
     let mut missing: Vec<char> = Vec::new();
     for c in text.chars().filter(|c| !c.is_control()) {
         if parsed.glyph_index(c).is_none() && !missing.contains(&c) {

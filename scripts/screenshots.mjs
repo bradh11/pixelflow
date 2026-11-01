@@ -602,8 +602,9 @@ async function wireToDmxNode(ui, props) {
 async function pointHeadWithDmxEffect(ui) {
   await addHead(ui, { x: -6, y: 0.3 });
   await ui.screen("Sequence");
-  // With the preview above the timeline, it's big enough to see the beam.
-  await ui.click("Preview above the timeline");
+  // With the preview above the timeline, it's big enough to see the beam (a narrow window has it
+  // there already, and no button for it).
+  await ui.js(`find("Preview above the timeline")?.click(); return 1`);
   await ui.click("Add row");
   await ui.click("Lawn Spot", { sel: "[role=option], [role=menuitem], li button, button" });
   await ui.seek(8000);

@@ -3,13 +3,16 @@
 //! skrifa reads the face: whether it can be read at all, which glyph draws each character, the
 //! line metrics, the advances, the kerning, and each letter's outline (TrueType, CFF or CFF2,
 //! composite letters put together and placed as FreeType and macOS place them). PixelFlow's
-//! own rasterizer (`raster.rs`) draws the outlines.
+//! own rasterizer (`raster.rs`) draws the outlines. A face with no outlines isn't drawn (the
+//! Text effect uses its pixel font), and a character the map skrifa picks lacks is looked for
+//! in the face's other Unicode maps.
 
 use crate::find::{FaceInfo, Source};
 use crate::raster::{self, Outline};
 use skrifa::font::glyph::outline::DrawOptions;
 use skrifa::font::{Blob, Font};
 use skrifa::raw::TableProvider;
+use skrifa::raw::tables::cmap::PlatformId;
 use skrifa::raw::tables::kern::SubtableKind;
 use skrifa::{DrawMemory, GlyphId};
 use std::collections::HashMap;
@@ -126,7 +129,7 @@ impl SizedFont {
     }
 
     fn draw(&self, c: char) -> Glyph {
-        let id = self.font.charmap().map_unicode(c).unwrap_or(GlyphId::NOTDEF);
+        let id = glyph_of(&self.font, c).unwrap_or(GlyphId::NOTDEF);
         let advance = self.font.glyph_metrics().h_advance(id) * self.scale + self.embolden;
         let empty = Glyph {
             id,
@@ -238,10 +241,44 @@ fn data(source: &Source) -> Option<(DataKey, Arc<[u8]>)> {
     }
 }
 
-/// Face `index` of the font file `data`, as skrifa reads it; `None` when it can't.
+/// Face `index` of the font file `data`, as skrifa reads it; `None` when it can't, or when the
+/// face has no outlines to draw (only bitmaps, say): the Text effect then draws its own pixel
+/// font rather than letters with nothing in them.
 pub(crate) fn read(data: &Arc<[u8]>, index: u32) -> Option<Font> {
     let shared: Arc<dyn AsRef<[u8]> + Send + Sync> = Arc::new(data.clone());
-    Font::new(Blob::from(shared), index)
+    let font = Font::new(Blob::from(shared), index)?;
+    font.outline_glyphs().source().is_some().then_some(font)
+}
+
+/// The Unicode character maps looked in when the one skrifa picks lacks a character, most
+/// complete first: Windows' and Unicode's full-repertoire maps, then their Basic Multilingual
+/// Plane ones, then Unicode's older ones.
+const OTHER_MAPS: [(PlatformId, u16); 8] = [
+    (PlatformId::Windows, 10),
+    (PlatformId::Unicode, 6),
+    (PlatformId::Unicode, 4),
+    (PlatformId::Windows, 1),
+    (PlatformId::Unicode, 3),
+    (PlatformId::Unicode, 2),
+    (PlatformId::Unicode, 1),
+    (PlatformId::Unicode, 0),
+];
+
+/// The glyph that draws `c`: from the character map skrifa picks, or, when that map lacks it,
+/// from the first of the face's other Unicode maps that has it (a font can hold more letters in
+/// one of its maps than in another). `None` when no map has it.
+fn glyph_of(font: &Font, c: char) -> Option<GlyphId> {
+    font.charmap().map_unicode(c).or_else(|| {
+        let cmap = font.tables().cmap().ok()?;
+        let records = cmap.encoding_records();
+        OTHER_MAPS.iter().find_map(|&(platform, encoding)| {
+            records
+                .iter()
+                .filter(|r| r.platform_id() == platform && r.encoding_id() == encoding)
+                .find_map(|r| r.subtable(cmap.offset_data()).ok()?.map_codepoint(c))
+                .filter(|&glyph| glyph != GlyphId::NOTDEF)
+        })
+    })
 }
 
 /// The characters of `text` that `face` has no letter for (line breaks aside); `None` when its
@@ -249,10 +286,9 @@ pub(crate) fn read(data: &Arc<[u8]>, index: u32) -> Option<Font> {
 pub(crate) fn missing_letters(face: &FaceInfo, text: &str) -> Option<Vec<char>> {
     let (_, bytes) = data(&face.source)?;
     let font = read(&bytes, face.index)?;
-    let charmap = font.charmap();
     let mut missing: Vec<char> = Vec::new();
     for c in text.chars().filter(|c| !c.is_control()) {
-        if charmap.map_unicode(c).is_none() && !missing.contains(&c) {
+        if glyph_of(&font, c).is_none() && !missing.contains(&c) {
             missing.push(c);
         }
     }

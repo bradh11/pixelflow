@@ -1209,7 +1209,8 @@ fn characters_map_through_the_map_skrifa_picks() {
         ),
         (vec![620.0, 630.0], Vec::<char>::new())
     );
-    // Format 13 (a range to one glyph), the full-repertoire map, over format 4.
+    // Format 13 (a range to one glyph), the full-repertoire map, over format 4; the letter only
+    // format 4 has ('a') comes from it.
     assert_eq!(
         mapped(
             &[
@@ -1218,7 +1219,19 @@ fn characters_map_through_the_map_skrifa_picks() {
             ],
             "ABCDa"
         ),
-        (vec![620.0, 620.0, 620.0, 620.0, 500.0], vec!['a'])
+        (vec![620.0, 620.0, 620.0, 620.0, 630.0], Vec::<char>::new())
+    );
+    // Two maps of the Basic Multilingual Plane: skrifa reads Windows' (only 'A'); the letters
+    // only Unicode's has come from it, so no letter either map has goes missing.
+    assert_eq!(
+        mapped(
+            &[
+                (0, 3, cmap4(&[(0x41, 0x41, 2), (0x42, 0x43, 4)], None)),
+                (3, 1, cmap4(&[(0x41, 0x41, 3)], None)),
+            ],
+            "ABCD"
+        ),
+        (vec![610.0, 620.0, 630.0, 500.0], vec!['D'])
     );
     // Format 10 over format 2 (which maps legacy two-byte encodings, so isn't read).
     assert_eq!(
@@ -1336,8 +1349,7 @@ fn kerning_comes_from_the_kern_table() {
 #[test]
 fn fonts_with_broken_tables_draw_as_skrifa_reads_them() {
     // Each is found (its names are fine) and drawn as skrifa reads it: an em it can't use counts
-    // as 1000 units, a header it can't read gives no line metrics or advances, and a font with
-    // no outlines draws its letters as nothing, with their advances.
+    // as 1000 units, and a header it can't read gives no line metrics or advances.
     let fine = curve_font_tables("Pin Broken", 1000);
     let mut loca_format = head(1000, true);
     loca_format[51] = 2;
@@ -1361,8 +1373,6 @@ fn fonts_with_broken_tables_draw_as_skrifa_reads_them() {
             "an unknown loca format",
             with(fine.clone(), b"head", Some(loca_format)),
         ),
-        ("a short head", with(fine.clone(), b"head", Some(short_head))),
-        ("no head", with(fine.clone(), b"head", None)),
         ("no glyphs in maxp", with(fine.clone(), b"maxp", Some(maxp(0)))),
         (
             "an unknown maxp version",
@@ -1375,8 +1385,6 @@ fn fonts_with_broken_tables_draw_as_skrifa_reads_them() {
             with(fine.clone(), b"hhea", Some(hhea(880, -220, 40, 0))),
         ),
         ("no hmtx", with(fine.clone(), b"hmtx", None)),
-        ("no loca", with(fine.clone(), b"loca", None)),
-        ("no glyf", with(fine.clone(), b"glyf", None)),
     ];
     let digests: Vec<(&str, String)> = variants
         .into_iter()
@@ -1390,16 +1398,12 @@ fn fonts_with_broken_tables_draw_as_skrifa_reads_them() {
             ("an em of 15 units", "57f9efeae68f12e8"),
             ("an em of 16385 units", "57f9efeae68f12e8"),
             ("an unknown loca format", "2078cd9b607eb70e"),
-            ("a short head", "ef9a91d008113246"),
-            ("no head", "ef9a91d008113246"),
             ("no glyphs in maxp", "9e87bbfd22cc3ad2"),
             ("an unknown maxp version", "57f9efeae68f12e8"),
             ("a short hhea", "a0f764471563d654"),
             ("no hhea", "a0f764471563d654"),
             ("no advances counted", "1b323ac38e2ee9a5"),
             ("no hmtx", "a0f764471563d654"),
-            ("no loca", "ef9a91d008113246"),
-            ("no glyf", "ef9a91d008113246"),
         ]
     );
 
@@ -1418,6 +1422,31 @@ fn fonts_with_broken_tables_draw_as_skrifa_reads_them() {
     assert!(sized::sized(b, 20.0, false, false).is_some());
     ttc[16..20].copy_from_slice(&u32::MAX.to_be_bytes());
     assert_eq!(library(ttc).families(), ["Pin Coll A"]);
+}
+
+#[test]
+fn a_face_with_no_outlines_is_not_drawn() {
+    // A face with nothing to draw its letters from (only bitmaps, or no glyf, no loca, or no
+    // header to read them by) is found, but can't be drawn or asked which letters it has: the
+    // Text effect draws its own pixel font instead of letters with nothing in them.
+    let fine = curve_font_tables("Pin No Outlines", 1000);
+    let mut short_head = head(1000, true);
+    short_head.truncate(53);
+    for tables in [
+        with(with(fine.clone(), b"glyf", None), b"loca", None),
+        with(fine.clone(), b"glyf", None),
+        with(fine.clone(), b"loca", None),
+        with(fine.clone(), b"head", None),
+        with(fine.clone(), b"head", Some(short_head)),
+    ] {
+        let lib = library(sfnt(0x0001_0000, tables, 0));
+        let face = lib.find("pin no outlines", false, false).unwrap().face;
+        assert!(sized::sized(face, 20.0, false, false).is_none());
+        assert!(sized::missing_letters(face, "a").is_none());
+    }
+    // The same face with its outlines is drawn.
+    let face = only_face(sfnt(0x0001_0000, fine, 0));
+    assert!(sized::sized(&face, 20.0, false, false).is_some());
 }
 
 /// Each face in `bytes`: its family, every name it goes by, its weight, and whether it's italic.

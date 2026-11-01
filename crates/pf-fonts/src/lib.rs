@@ -34,6 +34,8 @@
 //! so moving is a change to those two files.
 
 mod find;
+#[cfg(test)]
+mod pinned;
 mod raster;
 mod sized;
 #[doc(hidden)]

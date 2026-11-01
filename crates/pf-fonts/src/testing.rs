@@ -81,19 +81,19 @@ fn glyph_for(c: char) -> Option<u16> {
     })
 }
 
-fn u16s(out: &mut Vec<u8>, values: &[u16]) {
+pub(crate) fn u16s(out: &mut Vec<u8>, values: &[u16]) {
     for v in values {
         out.extend(v.to_be_bytes());
     }
 }
 
-fn i16s(out: &mut Vec<u8>, values: &[i16]) {
+pub(crate) fn i16s(out: &mut Vec<u8>, values: &[i16]) {
     for v in values {
         out.extend(v.to_be_bytes());
     }
 }
 
-fn pad4(out: &mut Vec<u8>) {
+pub(crate) fn pad4(out: &mut Vec<u8>) {
     while !out.len().is_multiple_of(4) {
         out.push(0);
     }
@@ -259,13 +259,18 @@ fn tables(family: &str, bold: bool, italic: bool) -> Vec<([u8; 4], Vec<u8>)> {
 
 /// A font file whose table offsets count from `base` (where it starts in a collection).
 fn build(family: &str, bold: bool, italic: bool, base: u32) -> Vec<u8> {
-    let mut tables = tables(family, bold, italic);
+    sfnt(0x0001_0000, tables(family, bold, italic), base)
+}
+
+/// A font file made of `tables`, starting with `flavor` (0x00010000 for TrueType outlines, "OTTO"
+/// for CFF), its table offsets counting from `base` (where it starts in a collection).
+pub(crate) fn sfnt(flavor: u32, mut tables: Vec<([u8; 4], Vec<u8>)>, base: u32) -> Vec<u8> {
     tables.sort_by_key(|t| t.0);
     let n = tables.len() as u16;
     let selector = 15 - n.leading_zeros() as u16;
     let range = (1u16 << selector) * 16;
     let mut out = Vec::new();
-    out.extend(0x0001_0000u32.to_be_bytes());
+    out.extend(flavor.to_be_bytes());
     u16s(&mut out, &[n, range, selector, n * 16 - range]);
     let mut offset = 12 + 16 * u32::from(n);
     for (tag, data) in &tables {

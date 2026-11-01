@@ -42,6 +42,10 @@ pub struct VideoOptions {
     pub pixel_size: f32,
     /// How much each lit dot glows, 0 (crisp dots) to 1.
     pub glow: f32,
+    /// Leave pixels that are off out: only lit ones show, as at night.
+    pub hide_unlit: bool,
+    /// How much dim levels are lifted so fades show on a screen: 0 (not at all) to 3.
+    pub boost: u8,
     pub encoder: Encoder,
 }
 
@@ -282,6 +286,8 @@ pub fn export_video(
         height: options.height,
         pixel_size: options.pixel_size,
         glow: options.glow,
+        hide_unlit: options.hide_unlit,
+        boost: options.boost,
     };
     let props = preview_props_of(job.show());
     let scene = Scene::new(&props, photo.as_ref(), &look).ok_or(VideoError::NothingToShow)?;
@@ -642,6 +648,8 @@ mod tests {
             photo: false,
             pixel_size: 1.0,
             glow: 0.0,
+            hide_unlit: false,
+            boost: 0,
             encoder: Encoder::OpenH264FromSource,
         }
     }

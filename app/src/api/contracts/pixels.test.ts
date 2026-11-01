@@ -1,14 +1,16 @@
 // What the flat previews draw, for the video export to draw too. Each file in pixels/ is a scene:
 // a small made-up layout and a frame of colors, the canvas of a preview showing it (fitted as
 // lib/flatPreview.ts fits a display), and the picture of dots the preview draws there
-// (`stampPixels` in lib/pixelBatches.ts), with no glow. This test writes them, and fails when one
+// (`stampPixels` in lib/pixelBatches.ts), with no glow; a few with the viewer's View options
+// (pixels that are off hidden, Boost dim: lib/viewOptions.ts). This test writes them, and fails when one
 // is stale. The export's tests (crates/pf-video/src/raster.rs) draw the same scenes with the
 // export's own code and fail unless every pixel comes out the same.
 
 import { describe, expect, it } from "vitest";
 import { COLORS, fitDisplay } from "../../lib/flatPreview";
 import { type Size, boxOfPoints, unionBox } from "../../lib/layoutMath";
-import { type DotImage, packColor, stampPixels } from "../../lib/pixelBatches";
+import { type DotImage, type PixelColors, packColor, stampPixels } from "../../lib/pixelBatches";
+import { boostFrame } from "../../lib/viewOptions";
 import type { DmxMotor, PreviewAxis, PreviewMotion, PreviewProp } from "../types";
 import { listJson, staleFile } from "./support";
 
@@ -100,6 +102,9 @@ interface Scene {
   size: Size;
   ratio: number;
   layout: Layout;
+  /** The viewer's View options: pixels that are off hidden, and Boost dim's step. */
+  hidden?: boolean;
+  boost?: number;
 }
 
 // Every coordinate is a whole number of 128ths, so it's the same number whether it's kept as the
@@ -194,6 +199,33 @@ const SCENES: Record<string, Scene> = {
         row(40, 1 / 32, 0, -1 / 4),
         Array.from({ length: 40 }, (_, i): Color => [0, 80 - 2 * i, Math.max(0, 20 - i)]),
       ),
+  },
+  boostedFade: {
+    about: "The lights fading out of dimFade with the viewer's Boost dim at Medium: each dim level lifted, keeping its hue, so a fade shows on a screen; off stays off, and full stays full.",
+    size: { width: 104, height: 48 },
+    ratio: 1.28,
+    boost: 2,
+    layout: new Layout()
+      .add(
+        row(10, 1 / 4),
+        [255, 128, 64, 63, 48, 32, 16, 4, 1, 0].map((v): Color => [v, v >> 2, 0]),
+      )
+      .add(
+        row(40, 1 / 32, 0, -1 / 4),
+        Array.from({ length: 40 }, (_, i): Color => [0, 80 - 2 * i, Math.max(0, 20 - i)]),
+      ),
+  },
+  onlyLit: {
+    about:
+      "Pixels that are off hidden, as at night, and dim levels lifted with Boost dim at High: standing apart, run together and closer than a screen pixel, only lit pixels show, a faint one fading into the night rather than into a quiet dot.",
+    size: { width: 96, height: 56 },
+    ratio: 2,
+    hidden: true,
+    boost: 3,
+    layout: new Layout()
+      .add(row(8, 1 / 4, 0, 1 / 2), [RED, OFF, [12, 0, 0], OFF, GREEN, [0, 3, 6], OFF, WHITE])
+      .add(row(32, 1 / 32, 0, 1 / 4), [...run(8, CYAN), ...run(8, OFF), ...Array.from({ length: 16 }, (_, i): Color => [i * 4, i * 2, 0])])
+      .add(row(96, 1 / 128, 0, 0), [...run(24, ORANGE), ...run(24, OFF), ...Array.from({ length: 48 }, (_, i): Color => (i % 2 ? OFF : [20, 20, 40]))]),
   },
   floodWashes: {
     about: "DMX floods: each lit cell washes its color round it under every dot, fading to nothing at its reach; two washes overlap, the later over the earlier; a string's dots stand whole over a wash; a dark cell washes nothing.",
@@ -319,20 +351,26 @@ function picture({ pixels, width, height }: DotImage) {
 }
 
 /** A scene's file: the scene as the preview shows it, and the picture the preview draws. */
-function drawn({ about, size, ratio, layout }: Scene) {
+function drawn({ about, size, ratio, layout, hidden = false, boost = 0 }: Scene) {
   const props: PreviewProp[] = layout.props.map((p, i) => ({ prop: `prop ${i}`, ...p }));
   const { view, radius } = fitDisplay(unionBox(props.map((p) => boxOfPoints(p.points))), size);
   // A canvas's size in device pixels, as the previews set it.
   const [width, height] = [Math.round(size.width * ratio), Math.round(size.height * ratio)];
   const image: DotImage = { pixels: new Int32Array(width * height), width, height };
-  stampPixels(image, props, new Uint8Array(layout.frame), view, size, new Set(), COLORS, radius, ratio);
+  // As the flat previews draw with the viewer's options (components/preview/PreviewStage.tsx).
+  const colors: PixelColors = hidden ? { unlit: COLORS.unlit, selected: COLORS.selected } : COLORS;
+  const frame = boostFrame(new Uint8Array(layout.frame), props, boost);
+  stampPixels(image, props, frame, view, size, new Set(), colors, radius, ratio);
   return {
     about,
     size,
     ratio,
     view,
     radius,
-    dark: bytes(packColor(COLORS.dark)),
+    // The color of a pixel that's off: none when they're hidden.
+    dark: hidden ? [0, 0, 0, 0] : bytes(packColor(COLORS.dark)),
+    // The frame as the show has it: the export lifts it as the preview does.
+    ...(boost > 0 ? { boost } : {}),
     props: layout.props.map((p) => ({ ...p, points: Array.from({ length: p.points.length / 2 }, (_, i) => [p.points[2 * i], p.points[2 * i + 1]]) })),
     frame: hex(layout.frame),
     picture: picture(image),

@@ -104,7 +104,7 @@ export async function runScene3dBench({ pixels = 200_000, frames = 300, width = 
   document.body.append(canvas);
   const scene = createThreeScene(canvas);
   scene.resize({ width, height }, window.devicePixelRatio || 1);
-  scene.setOptions({ glow, ground: true });
+  scene.setOptions({ glow, ground: true, grid: true, dotScale: 1 });
   const { props, frameLength } = syntheticShow3d(pixels);
   const packed = packPositions(props);
   const { look, selected } = lightLook(PREVIEW_LOOK);

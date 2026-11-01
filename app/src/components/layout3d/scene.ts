@@ -5,7 +5,7 @@
 
 import type { Backend } from "../../api/backend";
 import type { Size } from "../../lib/layoutMath";
-import type { Box3, GizmoHandle, LightLook, Orbit, Ray, V3 } from "../../lib/layout3d";
+import type { Box3, FloorGrid, GizmoHandle, LightLook, Orbit, Ray, V3 } from "../../lib/layout3d";
 import type { PreviewProp3d } from "../../api/types";
 import { ARM_LENGTH, BEAM_REACH, GRAZING, alongBeam, beamLight, beamWidth, groundReach, headDirection, servoDirection, spread } from "../../lib/beams";
 
@@ -115,8 +115,13 @@ export interface Scene3d {
   setSelectionBox(box: Box3 | null): void;
   /** The move gizmo at `origin`, arrows `length` long, with a handle highlighted; or none. */
   setGizmo(gizmo: { origin: V3; length: number; highlight: GizmoHandle | null } | null): void;
-  /** How much lit pixels glow (0 for none, to 1), and the ground. */
-  setOptions(options: { glow: number; ground: boolean }): void;
+  /**
+   * How much lit pixels glow (0 for none, to 1), the ground and its grid, and how big dots are
+   * against the usual (the viewer's Dot size, `DOT_SCALES`).
+   */
+  setOptions(options: { glow: number; ground: boolean; grid: boolean; dotScale: number }): void;
+  /** How far apart the grid's lines are, and where it fades out (see `floorGrid`). */
+  setFloor(grid: FloorGrid): void;
   /**
    * Draws a frame from the camera. `moving`: the camera is on its way somewhere, and more frames
    * follow: small dots are drawn soft wherever they fall, so they glide. Once it's still they sit

@@ -1,7 +1,7 @@
 // The preview's own window: the page opened with `?window=preview`. It draws only the preview,
 // follows the main window's note and the engine, and changes nothing itself.
 
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PreviewWindow, connectPreviewWindow } from "./PreviewWindow";
@@ -13,6 +13,7 @@ import { MemoryBackend } from "./api/memory";
 import { MemorySequencer } from "./api/memorySequencer";
 import { isPreviewWindow } from "./api/tauri";
 import type { Scene3d } from "./components/layout3d/scene";
+import { VIEW_DEFAULTS } from "./lib/viewOptions";
 import type { PreviewFeed, PreviewReply } from "./state/previewWindow";
 import { usePreviewSync } from "./state/previewSync";
 import { useView3d } from "./state/view3d";
@@ -36,6 +37,7 @@ vi.mock("./components/layout3d/threeScene", () => ({
       setSelectionBox() {},
       setGizmo() {},
       setOptions() {},
+      setFloor() {},
       render() {},
       dispose() {},
     }) as Scene3d,
@@ -52,6 +54,7 @@ const FEED: PreviewFeed = {
   transport: true,
   mode: "2d",
   glow: 0,
+  view: VIEW_DEFAULTS,
   syncMs: 0,
 };
 
@@ -98,7 +101,8 @@ describe("the preview's own window", () => {
     expect(screen.getByText("0:12 / 1:00")).toBeInTheDocument();
     // None of the app around it.
     expect(screen.queryByRole("navigation")).not.toBeInTheDocument();
-    expect(screen.queryByRole("toolbar")).not.toBeInTheDocument();
+    // The only tool bar is the view's own.
+    expect(screen.getAllByRole("toolbar").map((t) => t.getAttribute("aria-label"))).toEqual(["2D view"]);
     expect(screen.queryByRole("region", { name: "Transport" })).not.toBeInTheDocument();
     expect(screen.queryByRole("contentinfo")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Commands|Assistant|Save/ })).not.toBeInTheDocument();
@@ -148,11 +152,11 @@ describe("the preview's own window", () => {
     expect(await screen.findByRole("application", { name: "3D preview" })).toBeInTheDocument();
     expect(useView3d.getState().glow).toBe(0.5);
     // Nothing chosen here yet: its note says what the main window's did.
-    await waitFor(async () => expect(await said()).toEqual({ mode: "3d", glow: 0.5, toggles: 0 }));
+    await waitFor(async () => expect(await said()).toEqual({ mode: "3d", glow: 0.5, view: VIEW_DEFAULTS, toggles: 0 }));
 
     await user.click(screen.getByRole("button", { name: "2D" }));
     expect(await screen.findByRole("img", { name: "Preview of the show at the playhead" })).toBeInTheDocument();
-    await waitFor(async () => expect(await said()).toEqual({ mode: "2d", glow: 0.5, toggles: 0 }));
+    await waitFor(async () => expect(await said()).toEqual({ mode: "2d", glow: 0.5, view: VIEW_DEFAULTS, toggles: 0 }));
     // The main window moving its playhead doesn't undo that…
     await say({ mode: "3d", glow: 0.5, playheadMs: 13_000 });
     await screen.findByText("0:13 / 1:00");
@@ -161,6 +165,14 @@ describe("the preview's own window", () => {
     await say({ mode: "2d", glow: 0.25, playheadMs: 13_000, syncMs: -40 });
     await waitFor(() => expect(useView3d.getState().glow).toBe(0.25));
     expect(usePreviewSync.getState().offsetMs).toBe(-40);
+
+    // The View options chosen there are taken on, and those chosen here go in the note.
+    await say({ mode: "2d", glow: 0.25, playheadMs: 13_000, syncMs: -40, view: { ...VIEW_DEFAULTS, names: true, boost: 3 } });
+    await waitFor(() => expect(useView3d.getState()).toMatchObject({ names: true, boost: 3 }));
+    await user.click(within(screen.getByRole("toolbar", { name: "2D view" })).getByRole("button", { name: "View" }));
+    await user.click(screen.getByRole("radio", { name: "Hidden" }));
+    await waitFor(async () => expect((await said())?.view).toEqual({ ...VIEW_DEFAULTS, names: true, boost: 3, unlit: "hidden" }));
+    act(() => useView3d.getState().setViewOptions(VIEW_DEFAULTS));
   });
 
   it("asks the main window to play or pause: it doesn't touch playback itself", async () => {

@@ -5,11 +5,12 @@ import { ModeSwitch } from "./ModeSwitch";
 
 /**
  * The props in their live colors, flat (front view) or in 3D as the Play screen was last left.
- * The 3D view is look-only here and shares the Layout screen's camera for the show.
+ * The 3D view is look-only here and shares the Layout screen's camera for the show. `playing`:
+ * the sequence sending them is playing (not paused).
  */
-export function LivePreview({ frame }: { frame: Uint8Array | null }) {
+export function LivePreview({ frame, playing = false }: { frame: Uint8Array | null; playing?: boolean }) {
   const mode = useView3d((s) => s.playMode);
-  return <PreviewStage frame={frame} mode={mode} label="Preview of the lights" />;
+  return <PreviewStage frame={frame} mode={mode} playing={playing} label="Preview of the lights" />;
 }
 
 /**

@@ -265,6 +265,8 @@ fn main() -> anyhow::Result<()> {
             photo: false,
             pixel_size: 1.0,
             glow,
+            hide_unlit: false,
+            boost: 0,
             encoder: pf_video::Encoder::OpenH264FromSource,
         };
         let out = match &keep {

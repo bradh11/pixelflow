@@ -41,6 +41,7 @@ vi.mock("./components/layout3d/threeScene", () => ({
       setSelectionBox() {},
       setGizmo() {},
       setOptions() {},
+      setFloor() {},
       render() {},
       dispose() {},
     }) as Scene3d,

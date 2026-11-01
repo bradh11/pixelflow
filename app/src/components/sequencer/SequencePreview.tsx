@@ -67,7 +67,8 @@ export function SequencePreview({
   const onlyRow = usePreviewWindow((s) => s.rowOnly);
   const aspect = useDisplayAspect();
   const frame = useSequenceFrame(doc.durationMs, doc);
-  const only = useMemo(() => (onlyRow ? (doc.rows.find((r) => r.id === activeRow)?.target ?? null) : null), [onlyRow, doc.rows, activeRow]);
+  const playing = useSequencer((s) => s.status?.state === "playing");
+  const only =useMemo(() => (onlyRow ? (doc.rows.find((r) => r.id === activeRow)?.target ?? null) : null), [onlyRow, doc.rows, activeRow]);
   const quiet = "rounded-md p-1 text-neutral-600 hover:bg-neutral-200/70 dark:text-neutral-300 dark:hover:bg-neutral-800";
 
   return (
@@ -108,7 +109,7 @@ export function SequencePreview({
         // Beside the timeline: as tall as the display needs at the column's width, within reason.
         style={place === "side" ? { aspectRatio: `${aspect} / 1`, maxHeight: expanded ? "75vh" : "50vh", minHeight: 120 } : undefined}
       >
-        <PreviewStage frame={frame} mode={mode} only={only} />
+        <PreviewStage frame={frame} mode={mode} only={only} playing={playing} />
       </div>
     </section>
   );

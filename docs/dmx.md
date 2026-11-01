@@ -286,17 +286,23 @@ An xLights show's DMX fixtures import wired on their controller at the channels 
 them, beside its pixels. The import report says how each kind comes across:
 
 - **Floods** (`DmxGeneral`, `DmxFloodlight`, `DmxFloodArea`) become fixtures with their color
-  channels and their shutter, held open: the previews draw it closed below the open value the
-  file gives, and open from it up.
+  channels and their shutter, held open: the previews draw it closed below the shutter's open
+  threshold, and open from it up, and it is sent the shutter's on value (what xLights sends to
+  open it; the threshold, in files that have none).
 - **Moving heads** (`DmxMovingHeadAdv`, `DmxMovingHead`, `DmxMovingHead3D`): "Matches". They
   become moving heads with their pan and tilt (and fine channels), how far each turns, where
-  Home is, their limits and whether each is reversed, their colors (red, green, blue and white, a
-  color wheel with its colors, or cyan, magenta and yellow), dimmer, shutter and gobo channels,
-  and their beam width. Where nothing moves them, they rest at Home (xLights sends their pan and
-  tilt 0 there, which on most heads is a corner of their travel).
+  Home is, their limits, which way each turns (as xLights turns it, reversed or hung upside
+  down), their colors (red, green, blue and white, a color wheel with its colors, or cyan,
+  magenta and yellow), dimmer, shutter and gobo channels, and their beam width. The dimmer is
+  the one xLights 2026 calls the head's dimmer (the one older files name; a color wheel's
+  brightness channel is a dimmer too). Where nothing moves them, they rest at Home (xLights sends
+  their pan and tilt 0 there, which on most heads is a corner of their travel).
 - **Servos** (`DmxServo`, `DmxServo3d`): "Matches". Each servo keeps its channels (16-bit or 8-bit)
-  and its limits, with Home between them, and is drawn as an arm. Where nothing moves them, they
-  rest at Home (xLights sends them 0 there, one end of their travel).
+  and its limits, with Home between them, and is drawn as an arm. One whose lower limit is the
+  larger turns the other way, as xLights turns it. Where nothing moves them, they rest at Home
+  (xLights sends them 0 there, one end of their travel).
+- Any of them keeps its **presets**: the channels xLights holds at a value while an ordinary
+  effect lights the fixture are held at it, and take the preset's name.
 - "Close", for a head that hangs upside down (PixelFlow turns it half round; it sends what xLights
   sends, but may draw the beam another way), a color wheel whose colors the file doesn't list (the
   beam is drawn white), or a head whose file doesn't say which channels are its pan and tilt.
@@ -313,9 +319,9 @@ the servo it names, from its start to its end, each a share of the servo's trave
 limits. The report says:
 
 - "Matches" for a head held at a position in one color;
-- "Close" for the rest: how xLights spreads a fan, sizes a pattern, or reads a servo's start and
-  end is taken from public sample sequences and the xLights manual, not yet checked against
-  xLights' own render;
+- "Close" for the rest. Held against xLights' own render (the fidelity corpus, [fidelity.md](fidelity.md)),
+  a fan and a servo's start and end come out the same; a pattern does not yet: xLights swings a
+  Circle twice as wide and twice as tall, about Home rather than the effect's tilt;
 - "Different" for a path drawn in xLights (the heads hold their position instead), and for its
   Diamond, Square and Leaf patterns (shown as a circle).
 

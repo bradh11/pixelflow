@@ -33,6 +33,7 @@ import { DEFAULT_VIEW, MAX_ZOOM, MIN_ZOOM } from "../../lib/layoutMath";
 import { type Tool, useLayoutEditor } from "../../state/layoutEditor";
 import { useView3d } from "../../state/view3d";
 import { GlowControl } from "../layout3d/GlowControl";
+import { ViewOptionsControl } from "../layout3d/ViewOptions";
 import { ModeSwitch } from "../layout3d/ModeSwitch";
 import { usePropertiesOpen } from "./PropertiesDock";
 import { drawsProps, setLayoutMode } from "../layout3d/useLayout3dKeys";
@@ -334,6 +335,8 @@ export function LayoutToolbar({ photo, tips }: { photo: ReactNode; tips: string[
       <span className="mr-1 inline-flex items-center gap-0.5">
         <ModeSwitch mode={mode} onChange={setLayoutMode} hint="V switches" />
         <GlowControl iconOnly />
+        {/* In 3D, the View options are on the 3D view's own bar, with its grid. */}
+        {!in3d && <ViewOptionsControl iconOnly />}
       </span>
       {TOOLS.map(({ tool: t, label, hint, icon: Icon }) => {
         const off = in3d && drawsProps(t);
